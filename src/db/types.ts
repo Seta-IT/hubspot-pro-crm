@@ -33,7 +33,9 @@ export type ActivityType =
   | 'STAGE_CHANGE'
   | 'ENRICHMENT'
   | 'HEALTH_ALERT'
-  | 'WORKFLOW_ACTION';
+  | 'WORKFLOW_ACTION'
+  | 'FORM_SUBMITTED'
+  | 'TICKET_EVENT';
 
 export type WorkflowTriggerType =
   | 'CONTACT_CREATED'
@@ -348,6 +350,97 @@ export interface DataHealthIssue {
   resolvedAt?: string | null;
 }
 
+
+// ============================================================================
+// Phase 3: Marketing Hub (Web Forms) & Service Hub (Jira-style Service Desk)
+// ============================================================================
+
+export type WebFormTargetType = 'LEAD_CAPTURE' | 'DEMO_REQUEST' | 'SUPPORT_TICKET' | 'NEWSLETTER';
+
+export type WebFormFieldType = 'TEXT' | 'EMAIL' | 'PHONE' | 'COMPANY' | 'SELECT' | 'TEXTAREA';
+
+export interface WebFormField {
+  name: string;
+  label: string;
+  type: WebFormFieldType;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
+export interface WebForm {
+  id: string;
+  name: string;
+  slug: string;
+  title: string;
+  description: string;
+  targetType: WebFormTargetType;
+  fields: WebFormField[];
+  submitButtonText: string;
+  redirectUrl: string | null;
+  lifecycleStageOnSubmit: LifecycleStage;
+  autoCreateDeal: boolean;
+  autoCreateTicket: boolean;
+  viewsCount: number;
+  submissionsCount: number;
+  conversionRate: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FormSubmission {
+  id: string;
+  formId: string;
+  formName: string;
+  values: Record<string, string>;
+  contactId: string | null;
+  companyId: string | null;
+  dealId: string | null;
+  ticketId: string | null;
+  submittedAt: string;
+}
+
+export type TicketCategory = 'INCIDENT' | 'SUPPORT' | 'BILLING' | 'BUG' | 'FEATURE_REQUEST';
+export type TicketPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+export type TicketChannel = 'WEB_PORTAL' | 'EMAIL' | 'WHATSAPP' | 'PHONE' | 'CHAT';
+export type TicketSlaStatus = 'ON_TRACK' | 'AT_RISK' | 'BREACHED';
+
+export interface TicketComment {
+  id: string;
+  author: string;
+  authorRole: 'AGENT' | 'CUSTOMER';
+  isInternal: boolean;
+  body: string;
+  createdAt: string;
+}
+
+export interface ServiceTicket {
+  id: string;
+  key: string;
+  subject: string;
+  description: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  channel: TicketChannel;
+  contactId: string | null;
+  companyId: string | null;
+  dealId: string | null;
+  assignee: string;
+  slaFirstResponseDueAt: string;
+  slaResolutionDueAt: string;
+  firstRespondedAt: string | null;
+  resolvedAt: string | null;
+  slaStatus: TicketSlaStatus;
+  csatScore: number | null;
+  tags: string[];
+  comments: TicketComment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmDatabaseState {
   contacts: Contact[];
   companies: Company[];
@@ -359,4 +452,7 @@ export interface CrmDatabaseState {
   sequences: EmailSequence[];
   sequenceEnrollments: SequenceEnrollment[];
   dataHealthIssues: DataHealthIssue[];
+  webForms: WebForm[];
+  formSubmissions: FormSubmission[];
+  serviceTickets: ServiceTicket[];
 }

@@ -7,13 +7,13 @@ import {
   Users,
   ShieldCheck,
   Workflow as WorkflowIcon,
+  FileCode2,
+  Ticket,
   Search,
   RefreshCw,
   TrendingUp,
-  Bell,
   CheckCircle2,
   Database,
-  Layers,
   ChevronRight,
 } from 'lucide-react';
 
@@ -25,6 +25,8 @@ import ContactsCompaniesTab, {
 } from './components/ContactsCompaniesTab';
 import DataHealthTab, { DuplicatesPayload } from './components/DataHealthTab';
 import AutomationsSequencesTab from './components/AutomationsSequencesTab';
+import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './components/FormsBuilderTab';
+import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './components/ServiceDeskTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import { formatBRL } from './components/ui-helpers';
 
@@ -38,15 +40,31 @@ import {
 } from '../modules/data-health/health-service';
 import {
   EmailSequence,
+  FormSubmission,
   LifecycleStage,
   SequenceStep,
+  ServiceTicket,
+  TicketCategory,
+  TicketChannel,
+  TicketPriority,
+  TicketStatus,
+  WebForm,
+  WebFormField,
+  WebFormTargetType,
   Workflow,
   WorkflowExecution,
   WorkflowStep,
   WorkflowTriggerType,
 } from '../db/types';
 
-type ActiveModule = 'OVERVIEW_AI' | 'DEALS_KANBAN' | 'CONTACTS_COMPANIES' | 'DATA_HEALTH' | 'AUTOMATIONS';
+type ActiveModule =
+  | 'OVERVIEW_AI'
+  | 'DEALS_KANBAN'
+  | 'CONTACTS_COMPANIES'
+  | 'SERVICE_DESK'
+  | 'MARKETING_FORMS'
+  | 'DATA_HEALTH'
+  | 'AUTOMATIONS';
 
 export default function HubSpotProCrmApp() {
   const [activeModule, setActiveModule] = useState<ActiveModule>('OVERVIEW_AI');
@@ -75,6 +93,29 @@ export default function HubSpotProCrmApp() {
   const [sequences, setSequences] = useState<EmailSequence[]>([]);
   const [enrollments, setEnrollments] = useState<EnrichedEnrollment[]>([]);
 
+  // Phase 3 States: Web Forms & Service Desk Tickets
+  const [webForms, setWebForms] = useState<WebForm[]>([]);
+  const [formSubmissions, setFormSubmissions] = useState<FormSubmission[]>([]);
+  const [formsSummary, setFormsSummary] = useState<FormsSummary>({
+    totalForms: 0,
+    activeForms: 0,
+    totalViews: 0,
+    totalSubmissions: 0,
+    avgConversionRate: 0,
+  });
+  const [tickets, setTickets] = useState<EnrichedServiceTicket[]>([]);
+  const [ticketKpis, setTicketKpis] = useState<ServiceDeskKpis>({
+    totalTickets: 0,
+    openCount: 0,
+    criticalCount: 0,
+    onTrackCount: 0,
+    atRiskCount: 0,
+    breachedCount: 0,
+    slaComplianceRate: 100,
+    avgFirstResponseMinutes: 18,
+    avgCsat: 4.9,
+  });
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -94,6 +135,8 @@ export default function HubSpotProCrmApp() {
         dupsRes,
         wfRes,
         seqRes,
+        formsRes,
+        ticketsRes,
       ] = await Promise.all([
         customAiQuestion
           ? fetch('/api/ai-insights', {
@@ -110,6 +153,8 @@ export default function HubSpotProCrmApp() {
         fetch('/api/data-health/duplicates'),
         fetch('/api/workflows'),
         fetch('/api/sequences'),
+        fetch('/api/forms'),
+        fetch('/api/tickets'),
       ]);
 
       if (aiRes.ok) {
@@ -150,6 +195,17 @@ export default function HubSpotProCrmApp() {
         const j = await seqRes.json();
         setSequences(j.data || []);
         setEnrollments(j.enrollments || []);
+      }
+      if (formsRes.ok) {
+        const j = await formsRes.json();
+        setWebForms(j.data || []);
+        setFormSubmissions(j.submissions || []);
+        if (j.summary) setFormsSummary(j.summary);
+      }
+      if (ticketsRes.ok) {
+        const j = await ticketsRes.json();
+        setTickets(j.data || []);
+        if (j.kpis) setTicketKpis(j.kpis);
       }
     } finally {
       setLoadingAll(false);
@@ -550,6 +606,142 @@ export default function HubSpotProCrmApp() {
     }
   };
 
+  // Phase 3 Handlers: Web Forms, Service Desk Tickets & HubSpot Migration
+  const handleSubmitForm = async (payload: {
+    formId: string;
+    values: Record<string, string>;
+  }) => {
+    const res = await fetch('/api/forms/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const contact = json.data?.contact;
+      const deal = json.data?.deal;
+      const ticket = json.data?.ticket;
+      showToast(
+        ticket
+          ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no Service Desk!`
+          : deal
+            ? `Formulário convertido! Lead enriquecido e negócio "${deal.title}" aberto!`
+            : `Formulário convertido! Lead ${contact?.firstName || ''} criado e enriquecido!`
+      );
+      await fetchAllCrmData();
+      return {
+        contactName: contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Lead',
+        dealTitle: deal?.title || null,
+        ticketKey: ticket?.key || null,
+      };
+    }
+    return null;
+  };
+
+  const handleCreateForm = async (payload: {
+    name: string;
+    title: string;
+    description: string;
+    targetType: WebFormTargetType;
+    lifecycleStageOnSubmit: LifecycleStage;
+    autoCreateDeal: boolean;
+    autoCreateTicket: boolean;
+    submitButtonText: string;
+    fields: WebFormField[];
+  }) => {
+    const res = await fetch('/api/forms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      showToast(`Formulário "${payload.name}" publicado com código embed pronto!`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleRunHubSpotMigration = async (payload: {
+    accessToken?: string;
+    autoClean?: boolean;
+  }): Promise<HubSpotMigrationReport | null> => {
+    const res = await fetch('/api/migration/hubspot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      showToast(
+        `Migração HubSpot concluída! +${json.data?.companiesImported} empresas, +${json.data?.contactsImported} contatos e +${json.data?.dealsImported} deals!`
+      );
+      await fetchAllCrmData();
+      return json.data as HubSpotMigrationReport;
+    }
+    return null;
+  };
+
+  const handleCreateTicket = async (payload: {
+    subject: string;
+    description: string;
+    category: TicketCategory;
+    priority: TicketPriority;
+    channel: TicketChannel;
+    contactId?: string | null;
+    companyId?: string | null;
+    assignee?: string;
+  }) => {
+    const res = await fetch('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      showToast(`Chamado [${json.data?.key}] aberto no Service Desk com SLA ativo!`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleUpdateTicket = async (
+    ticketIdOrKey: string,
+    patch: Partial<ServiceTicket>
+  ) => {
+    const res = await fetch(`/api/tickets/${ticketIdOrKey}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      showToast(`Status do chamado atualizado para ${patch.status}!`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleAddTicketComment = async (
+    ticketIdOrKey: string,
+    payload: {
+      author: string;
+      authorRole: 'AGENT' | 'CUSTOMER';
+      isInternal: boolean;
+      body: string;
+      newStatus?: TicketStatus;
+    }
+  ) => {
+    const res = await fetch(`/api/tickets/${ticketIdOrKey}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      showToast(
+        payload.isInternal
+          ? 'Nota interna registrada na fila técnica!'
+          : 'Resposta enviada ao cliente e SLA atualizado!'
+      );
+      await fetchAllCrmData();
+    }
+  };
+
   // Global quick search results
   const quickSearchContacts = globalSearch.trim()
     ? contacts
@@ -567,7 +759,7 @@ export default function HubSpotProCrmApp() {
     shortLabel: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: string | number;
-    badgeTone?: 'orange' | 'emerald' | 'amber' | 'indigo';
+    badgeTone?: 'orange' | 'emerald' | 'amber' | 'indigo' | 'rose';
   }> = [
     {
       id: 'OVERVIEW_AI',
@@ -591,6 +783,22 @@ export default function HubSpotProCrmApp() {
       shortLabel: 'Contatos & Contas',
       icon: Users,
       badge: contacts.length,
+      badgeTone: 'emerald',
+    },
+    {
+      id: 'SERVICE_DESK',
+      label: 'Service Desk & Chamados (JSM)',
+      shortLabel: 'Service Desk',
+      icon: Ticket,
+      badge: ticketKpis.openCount,
+      badgeTone: ticketKpis.criticalCount > 0 ? 'rose' : 'indigo',
+    },
+    {
+      id: 'MARKETING_FORMS',
+      label: 'Formulários Web & Migração',
+      shortLabel: 'Forms & HubSpot',
+      icon: FileCode2,
+      badge: webForms.length,
       badgeTone: 'emerald',
     },
     {
@@ -630,14 +838,14 @@ export default function HubSpotProCrmApp() {
                 ENTERPRISE
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Revenue &amp; Smart Data Suite</p>
+            <p className="text-[11px] text-slate-400">Sales, Marketing &amp; Service Suite</p>
           </div>
         </div>
 
         {/* Navigation Links */}
         <nav className="p-3.5 space-y-1.5 flex-1">
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Módulos Principais
+            Módulos da Plataforma
           </div>
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -670,7 +878,9 @@ export default function HubSpotProCrmApp() {
                           ? 'bg-emerald-500/20 text-emerald-300'
                           : item.badgeTone === 'amber'
                             ? 'bg-amber-500/20 text-amber-300'
-                            : 'bg-slate-800 text-slate-300'
+                            : item.badgeTone === 'rose'
+                              ? 'bg-rose-500/20 text-rose-300'
+                              : 'bg-slate-800 text-slate-300'
                     }`}
                   >
                     {item.badge}
@@ -681,14 +891,14 @@ export default function HubSpotProCrmApp() {
           })}
 
           {/* Sidebar Live Health & Pipeline Widget */}
-          <div className="mt-6 pt-5 border-t border-slate-800 px-2 space-y-3">
+          <div className="mt-5 pt-4 border-t border-slate-800 px-2 space-y-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
               Pulso da Operação (Tempo Real)
             </div>
 
             <div
               onClick={() => setActiveModule('DATA_HEALTH')}
-              className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-2"
+              className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-2"
             >
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400 font-medium">Saúde Global da Base</span>
@@ -710,7 +920,7 @@ export default function HubSpotProCrmApp() {
 
             <div
               onClick={() => setActiveModule('DEALS_KANBAN')}
-              className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-1"
+              className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-1"
             >
               <span className="text-[11px] text-slate-400 block">Receita Ponderada (Forecast)</span>
               <div className="text-base font-extrabold text-white">
@@ -734,7 +944,7 @@ export default function HubSpotProCrmApp() {
               <div className="text-[10px] text-slate-400">VP Revenue &amp; Admin</div>
             </div>
           </div>
-          <span className="w-2 h-2 rounded-full bg-emerald-400" title="API Online" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400" title="PostgreSQL / API Ready" />
         </div>
       </aside>
 
@@ -803,6 +1013,16 @@ export default function HubSpotProCrmApp() {
                   </div>
                 )}
               </div>
+
+              {/* Service Desk Pill */}
+              <button
+                type="button"
+                onClick={() => setActiveModule('SERVICE_DESK')}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-xs font-semibold text-purple-800 border border-purple-200 transition"
+              >
+                <Ticket className="w-3.5 h-3.5 text-purple-600" />
+                Tickets JSM: <strong>{ticketKpis.openCount} abertos</strong>
+              </button>
 
               {/* Health Pill */}
               <button
@@ -912,6 +1132,31 @@ export default function HubSpotProCrmApp() {
               onEnrichCompany={handleEnrichCompany}
               onBatchEnrichAll={handleBatchEnrichAll}
               onAddContactActivity={handleAddContactActivity}
+            />
+          )}
+
+          {activeModule === 'SERVICE_DESK' && (
+            <ServiceDeskTab
+              tickets={tickets}
+              kpis={ticketKpis}
+              contacts={contacts}
+              companies={companies}
+              onCreateTicket={handleCreateTicket}
+              onUpdateTicket={handleUpdateTicket}
+              onAddTicketComment={handleAddTicketComment}
+            />
+          )}
+
+          {activeModule === 'MARKETING_FORMS' && (
+            <FormsBuilderTab
+              forms={webForms}
+              submissions={formSubmissions}
+              summary={formsSummary}
+              onSubmitForm={handleSubmitForm}
+              onCreateForm={handleCreateForm}
+              onRunHubSpotMigration={handleRunHubSpotMigration}
+              onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
+              onNavigateToDeals={() => setActiveModule('DEALS_KANBAN')}
             />
           )}
 

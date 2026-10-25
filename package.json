@@ -4,9 +4,15 @@
   "description": "CRM HubSpot Pro - Backend, Database, Data Health, Enrichment & Workflow Engine",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "tsc && node dist/src/api/server.js",
-    "test": "tsc && node --test dist/tests/*.test.js"
+    "build": "tsc -p tsconfig.build.json",
+    "build:web": "next build",
+    "start": "tsc -p tsconfig.build.json && node dist/src/api/server.js",
+    "start:web": "next start -p ${PORT:-3000}",
+    "dev": "next dev -p 3000",
+    "db:migrate": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js",
+    "db:seed": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js --seed",
+    "prisma:push": "npx prisma db push",
+    "test": "tsc -p tsconfig.build.json && node --test dist/tests/*.test.js"
   },
   "keywords": [
     "crm",
@@ -20,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
@@ -31,6 +38,7 @@
   "dependencies": {
     "lucide-react": "^1.61.0",
     "next": "^14.2.25",
+    "pg": "^8.23.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }

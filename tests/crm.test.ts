@@ -461,3 +461,124 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     );
   });
 });
+
+describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & Migração Nativa HubSpot', () => {
+  it('submete formulário de Portal de Suporte criando Contato, enriquecendo Empresa e abrindo Ticket JSM com SLA automaticamente', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const formsRes = await router.dispatch({ method: 'GET', path: '/api/forms' });
+    assert.equal(formsRes.status, 200);
+    const formsBody = formsRes.body as { data: Array<{ id: string }>; summary: { totalForms: number } };
+    assert.ok(formsBody.data.length >= 3);
+
+    const submitRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/forms/submit',
+      body: {
+        formId: 'form-support-portal',
+        values: {
+          firstName: 'Carlos',
+          lastName: 'Eduardo',
+          email: 'carlos.eduardo@nubank.com.br',
+          subject: 'Falha de autenticação OAuth2 no Sandbox Enterprise',
+          priority: 'CRITICAL',
+          description: 'Token expirando antes do TTL configurado de 3600s.',
+        },
+      },
+    });
+
+    assert.equal(submitRes.status, 201);
+    const subData = (
+      submitRes.body as {
+        data: {
+          contact: { id: string; companyId: string };
+          ticket: { id: string; key: string; priority: string; status: string };
+        };
+      }
+    ).data;
+
+    assert.equal(subData.contact.companyId, 'comp-nubank');
+    assert.ok(subData.ticket, 'Deve criar ticket automaticamente a partir do formulário de suporte');
+    assert.ok(subData.ticket.key.startsWith('JSM-'));
+    assert.equal(subData.ticket.priority, 'CRITICAL');
+    assert.equal(subData.ticket.status, 'OPEN');
+  });
+
+  it('gerencia ciclo completo de chamado no Service Desk (JSM): resposta pública do agente, nota interna e resolução com SLA', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Listar tickets e KPIs de SLA
+    const listRes = await router.dispatch({ method: 'GET', path: '/api/tickets' });
+    assert.equal(listRes.status, 200);
+    const listBody = listRes.body as {
+      data: Array<{ id: string; key: string }>;
+      kpis: { totalTickets: number; slaComplianceRate: number };
+    };
+    assert.ok(listBody.data.length >= 5);
+    assert.ok(listBody.kpis.slaComplianceRate > 0);
+
+    // 2. Responder ao cliente no ticket JSM-102 (que ainda não tinha firstRespondedAt)
+    const commentRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/tickets/JSM-102/comments',
+      body: {
+        author: 'Marcéllo Mira',
+        authorRole: 'AGENT',
+        isInternal: false,
+        body: 'Certificado SAML Okta validado com sucesso no ambiente de produção.',
+        newStatus: 'RESOLVED',
+      },
+    });
+    assert.equal(commentRes.status, 201);
+    const updatedTicket = (
+      commentRes.body as {
+        data: {
+          status: string;
+          firstRespondedAt: string | null;
+          resolvedAt: string | null;
+          comments: unknown[];
+        };
+      }
+    ).data;
+
+    assert.equal(updatedTicket.status, 'RESOLVED');
+    assert.ok(updatedTicket.firstRespondedAt, 'Deve registrar timestamp da primeira resposta ao cliente');
+    assert.ok(updatedTicket.resolvedAt, 'Deve registrar timestamp de resolução');
+    assert.equal(updatedTicket.comments.length, 2);
+  });
+
+  it('importa lote completo do HubSpot CRM v3 (/api/migration/hubspot) criando empresas, contatos, deals e tickets com higienização automática', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const migRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/migration/hubspot',
+      body: {
+        accessToken: 'pat-na1-demo-token',
+        autoClean: true,
+      },
+    });
+
+    assert.equal(migRes.status, 200);
+    const migData = (
+      migRes.body as {
+        data: {
+          success: boolean;
+          companiesImported: number;
+          contactsImported: number;
+          dealsImported: number;
+          ticketsImported: number;
+        };
+      }
+    ).data;
+
+    assert.equal(migData.success, true);
+    assert.ok(migData.companiesImported >= 2);
+    assert.ok(migData.contactsImported >= 2);
+    assert.ok(migData.dealsImported >= 2);
+    assert.ok(migData.ticketsImported >= 1);
+  });
+});

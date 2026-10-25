@@ -1,5 +1,6 @@
 export * from './db/types';
 export * from './db/repository';
+export * from './db/postgres';
 export * from './db/seed';
 export * from './modules/data-health/validators';
 export * from './modules/data-health/completeness';

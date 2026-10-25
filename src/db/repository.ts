@@ -11,9 +11,15 @@ import {
   DataHealthIssue,
   Deal,
   EmailSequence,
+  FormSubmission,
   Pipeline,
   SequenceEnrollment,
+  ServiceTicket,
+  TicketComment,
+  TicketPriority,
+  TicketSlaStatus,
   TimelineEvent,
+  WebForm,
   Workflow,
   WorkflowExecution,
 } from './types';
@@ -48,7 +54,15 @@ export class CrmRepository {
     if (this.persistPath && fs.existsSync(this.persistPath)) {
       try {
         const raw = fs.readFileSync(this.persistPath, 'utf-8');
-        this.state = JSON.parse(raw) as CrmDatabaseState;
+        const parsed = JSON.parse(raw) as CrmDatabaseState;
+        const seedFallback = createInitialSeedState();
+        this.state = {
+          ...seedFallback,
+          ...parsed,
+          webForms: Array.isArray(parsed.webForms) && parsed.webForms.length > 0 ? parsed.webForms : seedFallback.webForms,
+          formSubmissions: Array.isArray(parsed.formSubmissions) ? parsed.formSubmissions : seedFallback.formSubmissions,
+          serviceTickets: Array.isArray(parsed.serviceTickets) && parsed.serviceTickets.length > 0 ? parsed.serviceTickets : seedFallback.serviceTickets,
+        };
         return;
       } catch {
         // Fallback to seed if corrupted
@@ -70,6 +84,9 @@ export class CrmRepository {
         sequences: [],
         sequenceEnrollments: [],
         dataHealthIssues: [],
+        webForms: [],
+        formSubmissions: [],
+        serviceTickets: [],
       };
     }
   }
@@ -95,6 +112,11 @@ export class CrmRepository {
 
   getState(): CrmDatabaseState {
     return this.state;
+  }
+
+  loadState(state: CrmDatabaseState): void {
+    this.state = structuredClone(state);
+    this.save();
   }
 
   // ==========================================================================
@@ -723,6 +745,301 @@ export class CrmRepository {
     this.state.dataHealthIssues = issues;
     this.save();
   }
+
+  // ==========================================================================
+  // WEB FORMS & SUBMISSIONS (Marketing Hub)
+  // ==========================================================================
+  listWebForms(): WebForm[] {
+    if (!this.state.webForms) this.state.webForms = [];
+    return [...this.state.webForms];
+  }
+
+  getWebFormById(idOrSlug: string): WebForm | undefined {
+    if (!this.state.webForms) this.state.webForms = [];
+    return this.state.webForms.find((f) => f.id === idOrSlug || f.slug === idOrSlug);
+  }
+
+  createWebForm(input: Partial<WebForm> & { name: string }): WebForm {
+    if (!this.state.webForms) this.state.webForms = [];
+    const now = new Date().toISOString();
+    const slugBase = (input.slug || input.name)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    const form: WebForm = {
+      id: input.id || `form-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      slug: slugBase || `form-${Date.now()}`,
+      title: input.title || input.name.trim(),
+      description: input.description || 'Formulário integrado ao HubSpot Pro CRM.',
+      targetType: input.targetType || 'LEAD_CAPTURE',
+      fields:
+        input.fields && input.fields.length > 0
+          ? input.fields
+          : [
+              { name: 'firstName', label: 'Nome', type: 'TEXT', required: true, placeholder: 'Seu nome' },
+              { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true, placeholder: 'voce@empresa.com.br' },
+              { name: 'phone', label: 'Telefone / WhatsApp', type: 'PHONE', required: false, placeholder: '(11) 99999-9999' },
+              { name: 'jobTitle', label: 'Cargo', type: 'TEXT', required: false, placeholder: 'Ex: Diretor Comercial' },
+            ],
+      submitButtonText: input.submitButtonText || 'Enviar Agora',
+      redirectUrl: input.redirectUrl ?? null,
+      lifecycleStageOnSubmit: input.lifecycleStageOnSubmit || 'MQL',
+      autoCreateDeal: Boolean(input.autoCreateDeal),
+      autoCreateTicket: Boolean(input.autoCreateTicket || input.targetType === 'SUPPORT_TICKET'),
+      viewsCount: input.viewsCount ?? 100,
+      submissionsCount: input.submissionsCount ?? 0,
+      conversionRate: input.conversionRate ?? 0,
+      isActive: input.isActive !== undefined ? input.isActive : true,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.state.webForms.unshift(form);
+    this.save();
+    return form;
+  }
+
+  updateWebForm(id: string, patch: Partial<WebForm>): WebForm | null {
+    if (!this.state.webForms) this.state.webForms = [];
+    const idx = this.state.webForms.findIndex((f) => f.id === id);
+    if (idx === -1) return null;
+    const updated: WebForm = {
+      ...this.state.webForms[idx],
+      ...patch,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.webForms[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  listFormSubmissions(formId?: string): FormSubmission[] {
+    if (!this.state.formSubmissions) this.state.formSubmissions = [];
+    if (formId) {
+      return this.state.formSubmissions.filter((s) => s.formId === formId);
+    }
+    return [...this.state.formSubmissions];
+  }
+
+  recordFormSubmission(sub: FormSubmission): FormSubmission {
+    if (!this.state.formSubmissions) this.state.formSubmissions = [];
+    this.state.formSubmissions.unshift(sub);
+
+    const form = this.getWebFormById(sub.formId);
+    if (form) {
+      form.submissionsCount += 1;
+      form.viewsCount = Math.max(form.viewsCount, form.submissionsCount);
+      form.conversionRate = Number(((form.submissionsCount / Math.max(1, form.viewsCount)) * 100).toFixed(2));
+      form.updatedAt = sub.submittedAt;
+    }
+
+    this.save();
+    return sub;
+  }
+
+  // ==========================================================================
+  // SERVICE DESK TICKETS (Jira Service Management / Service Hub Style)
+  // ==========================================================================
+  listServiceTickets(filters?: {
+    status?: string;
+    priority?: string;
+    slaStatus?: string;
+    category?: string;
+    contactId?: string;
+    companyId?: string;
+    search?: string;
+  }): ServiceTicket[] {
+    if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    let list = [...this.state.serviceTickets];
+    if (filters?.status) list = list.filter((t) => t.status === filters.status);
+    if (filters?.priority) list = list.filter((t) => t.priority === filters.priority);
+    if (filters?.slaStatus) list = list.filter((t) => t.slaStatus === filters.slaStatus);
+    if (filters?.category) list = list.filter((t) => t.category === filters.category);
+    if (filters?.contactId) list = list.filter((t) => t.contactId === filters.contactId);
+    if (filters?.companyId) list = list.filter((t) => t.companyId === filters.companyId);
+    if (filters?.search) {
+      const q = filters.search.toLowerCase();
+      list = list.filter(
+        (t) =>
+          t.key.toLowerCase().includes(q) ||
+          t.subject.toLowerCase().includes(q) ||
+          t.description.toLowerCase().includes(q) ||
+          t.assignee.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }
+
+  getServiceTicketById(idOrKey: string): ServiceTicket | undefined {
+    if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    return this.state.serviceTickets.find(
+      (t) => t.id === idOrKey || t.key.toLowerCase() === idOrKey.toLowerCase()
+    );
+  }
+
+  createServiceTicket(
+    input: Partial<ServiceTicket> & { subject: string }
+  ): ServiceTicket {
+    if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    const maxNum = this.state.serviceTickets.reduce((max, t) => {
+      const m = t.key.match(/(\d+)$/);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 100);
+    const nextKey = input.key || `JSM-${maxNum + 1}`;
+
+    const priority: TicketPriority = input.priority || 'MEDIUM';
+    const slaHoursMap: Record<TicketPriority, { firstRespHours: number; resolveHours: number }> = {
+      CRITICAL: { firstRespHours: 1, resolveHours: 4 },
+      HIGH: { firstRespHours: 2, resolveHours: 8 },
+      MEDIUM: { firstRespHours: 4, resolveHours: 24 },
+      LOW: { firstRespHours: 8, resolveHours: 48 },
+    };
+    const slaSpec = slaHoursMap[priority] || slaHoursMap.MEDIUM;
+
+    const firstRespDue =
+      input.slaFirstResponseDueAt ||
+      new Date(now.getTime() + slaSpec.firstRespHours * 60 * 60 * 1000).toISOString();
+    const resolveDue =
+      input.slaResolutionDueAt ||
+      new Date(now.getTime() + slaSpec.resolveHours * 60 * 60 * 1000).toISOString();
+
+    const defaultAssigneeMap: Record<string, string> = {
+      INCIDENT: 'Equipe N2 SRE & Integrações',
+      BUG: 'Engenharia Produto N3',
+      BILLING: 'Financeiro & Billing',
+      FEATURE_REQUEST: 'Product Management',
+      SUPPORT: 'CS Enterprise',
+    };
+
+    const category = input.category || 'SUPPORT';
+
+    const ticket: ServiceTicket = {
+      id: input.id || `tkt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      key: nextKey,
+      subject: input.subject.trim(),
+      description: (input.description || 'Chamado registrado no Service Desk.').trim(),
+      category,
+      priority,
+      status: input.status || 'OPEN',
+      channel: input.channel || 'WEB_PORTAL',
+      contactId: input.contactId ?? null,
+      companyId: input.companyId ?? null,
+      dealId: input.dealId ?? null,
+      assignee: input.assignee || defaultAssigneeMap[category] || 'CS Enterprise',
+      slaFirstResponseDueAt: firstRespDue,
+      slaResolutionDueAt: resolveDue,
+      firstRespondedAt: input.firstRespondedAt ?? null,
+      resolvedAt: input.resolvedAt ?? null,
+      slaStatus: input.slaStatus || 'ON_TRACK',
+      csatScore: input.csatScore ?? null,
+      tags: input.tags || [category, priority],
+      comments: input.comments || [],
+      createdAt: input.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    this.state.serviceTickets.unshift(ticket);
+
+    this.createTimelineEvent({
+      type: 'TICKET_EVENT',
+      title: `Chamado [${ticket.key}] aberto: ${ticket.subject}`,
+      body: `Prioridade: ${ticket.priority} | Canal: ${ticket.channel} | Fila: ${ticket.assignee}`,
+      contactId: ticket.contactId,
+      companyId: ticket.companyId,
+      dealId: ticket.dealId,
+      metadata: { ticketId: ticket.id, ticketKey: ticket.key, priority: ticket.priority },
+      actor: 'Service Desk (JSM)',
+    });
+
+    this.save();
+    return ticket;
+  }
+
+  updateServiceTicket(idOrKey: string, patch: Partial<ServiceTicket>): ServiceTicket | null {
+    if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    const idx = this.state.serviceTickets.findIndex(
+      (t) => t.id === idOrKey || t.key.toLowerCase() === idOrKey.toLowerCase()
+    );
+    if (idx === -1) return null;
+
+    const existing = this.state.serviceTickets[idx];
+    const nowIso = new Date().toISOString();
+
+    let nextResolvedAt = patch.resolvedAt !== undefined ? patch.resolvedAt : existing.resolvedAt;
+    let nextSlaStatus: TicketSlaStatus = patch.slaStatus || existing.slaStatus;
+
+    if (patch.status && (patch.status === 'RESOLVED' || patch.status === 'CLOSED')) {
+      if (!nextResolvedAt) nextResolvedAt = nowIso;
+      if (existing.slaStatus !== 'BREACHED') {
+        nextSlaStatus = 'ON_TRACK';
+      }
+    }
+
+    const updated: ServiceTicket = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+      key: existing.key,
+      resolvedAt: nextResolvedAt,
+      slaStatus: nextSlaStatus,
+      updatedAt: nowIso,
+    };
+
+    this.state.serviceTickets[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  addTicketComment(
+    idOrKey: string,
+    input: {
+      author: string;
+      authorRole?: 'AGENT' | 'CUSTOMER';
+      isInternal?: boolean;
+      body: string;
+      newStatus?: ServiceTicket['status'];
+    }
+  ): ServiceTicket | null {
+    const ticket = this.getServiceTicketById(idOrKey);
+    if (!ticket) return null;
+
+    const nowIso = new Date().toISOString();
+    const comment: TicketComment = {
+      id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      author: input.author || 'Marcéllo Mira',
+      authorRole: input.authorRole || 'AGENT',
+      isInternal: Boolean(input.isInternal),
+      body: input.body.trim(),
+      createdAt: nowIso,
+    };
+
+    ticket.comments.push(comment);
+    ticket.updatedAt = nowIso;
+
+    if (comment.authorRole === 'AGENT' && !comment.isInternal && !ticket.firstRespondedAt) {
+      ticket.firstRespondedAt = nowIso;
+    }
+
+    if (input.newStatus) {
+      ticket.status = input.newStatus;
+      if (input.newStatus === 'RESOLVED' || input.newStatus === 'CLOSED') {
+        ticket.resolvedAt = nowIso;
+      }
+    } else if (comment.authorRole === 'AGENT' && !comment.isInternal && ticket.status === 'OPEN') {
+      ticket.status = 'IN_PROGRESS';
+    }
+
+    this.save();
+    return ticket;
+  }
 }
 
 let singletonRepo: CrmRepository | null = null;
@@ -731,7 +1048,7 @@ export function getRepository(): CrmRepository {
   if (!singletonRepo) {
     const storePath =
       process.env.CRM_STORE_PATH ||
-      path.join('/workspace/hubspot-pro-crm', '.data', 'crm-store.json');
+      path.join(process.cwd(), '.data', 'crm-store.json');
     singletonRepo = new CrmRepository({ persistPath: storePath, autoSeed: true });
   }
   return singletonRepo;
