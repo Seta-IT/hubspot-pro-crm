@@ -1,0 +1,328 @@
+// ============================================================================
+// HubSpot Pro CRM - Prisma Schema (PostgreSQL / SQLite Ready)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LifecycleStage {
+  SUBSCRIBER
+  LEAD
+  MQL
+  SQL
+  OPPORTUNITY
+  CUSTOMER
+  EVANGELIST
+  OTHER
+}
+
+enum LeadStatus {
+  NEW
+  OPEN
+  IN_PROGRESS
+  OPEN_DEAL
+  UNQUALIFIED
+  ATTEMPTED_TO_CONTACT
+  CONNECTED
+  BAD_TIMING
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum ActivityType {
+  NOTE
+  EMAIL
+  CALL
+  TASK
+  MEETING
+  STAGE_CHANGE
+  ENRICHMENT
+  HEALTH_ALERT
+  WORKFLOW_ACTION
+}
+
+enum WorkflowTriggerType {
+  CONTACT_CREATED
+  DEAL_STAGE_CHANGED
+  SCORE_THRESHOLD
+  FORM_SUBMITTED
+  DATA_HEALTH_ISSUE
+}
+
+enum WorkflowExecutionStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum DataHealthIssueType {
+  DUPLICATE_CONTACT
+  DUPLICATE_COMPANY
+  INVALID_EMAIL
+  INVALID_PHONE
+  MISSING_CRITICAL_FIELDS
+  STALE_RECORD
+}
+
+enum IssueSeverity {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum IssueStatus {
+  OPEN
+  MERGED
+  IGNORED
+  RESOLVED
+}
+
+model Company {
+  id                String          @id @default(uuid())
+  name              String
+  domain            String?         @unique
+  cnpj              String?         @unique
+  industry          String?
+  size              String?
+  annualRevenue     Float?
+  city              String?
+  state             String?
+  country           String?         @default("Brasil")
+  completenessScore Int             @default(0)
+  enrichedAt        DateTime?
+  enrichmentSource  String?
+  customProperties  Json            @default("{}")
+  lastActivityAt    DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  contacts          Contact[]
+  deals             Deal[]
+  activities        TimelineEvent[]
+
+  @@index([domain])
+  @@index([cnpj])
+  @@index([completenessScore])
+}
+
+model Contact {
+  id                String          @id @default(uuid())
+  email             String          @unique
+  firstName         String
+  lastName          String
+  phone             String?
+  normalizedPhone   String?
+  jobTitle          String?
+  seniority         String?
+  department        String?
+  lifecycleStage    LifecycleStage  @default(LEAD)
+  leadStatus        LeadStatus      @default(NEW)
+  leadScore         Int             @default(0)
+  completenessScore Int             @default(0)
+  isValidEmail      Boolean         @default(true)
+  isDisposableEmail Boolean         @default(false)
+  isCorporateEmail  Boolean         @default(false)
+  isValidPhone      Boolean         @default(true)
+  ownerId           String?
+  companyId         String?
+  company           Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  enrichedAt        DateTime?
+  enrichmentSource  String?
+  nextBestAction    Json?
+  customProperties  Json            @default("{}")
+  lastActivityAt    DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  deals             Deal[]
+  activities        TimelineEvent[]
+
+  @@index([email])
+  @@index([companyId])
+  @@index([lifecycleStage])
+  @@index([leadScore])
+  @@index([completenessScore])
+}
+
+model Pipeline {
+  id          String          @id @default(uuid())
+  name        String
+  isDefault   Boolean         @default(false)
+  currency    String          @default("BRL")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  stages      PipelineStage[]
+  deals       Deal[]
+}
+
+model PipelineStage {
+  id                 String   @id @default(uuid())
+  pipelineId         String
+  pipeline           Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name               String
+  order              Int
+  defaultProbability Int      @default(10)
+  dealRottingDays    Int      @default(14)
+  isClosed           Boolean  @default(false)
+  isWon              Boolean  @default(false)
+
+  deals              Deal[]
+
+  @@index([pipelineId, order])
+}
+
+model Deal {
+  id                String        @id @default(uuid())
+  title             String
+  value             Float         @default(0)
+  currency          String        @default("BRL")
+  pipelineId        String
+  pipeline          Pipeline      @relation(fields: [pipelineId], references: [id])
+  stageId           String
+  stage             PipelineStage @relation(fields: [stageId], references: [id])
+  probability       Int           @default(10)
+  expectedCloseDate DateTime?
+  contactId         String?
+  contact           Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId         String?
+  company           Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  ownerId           String?
+  status            DealStatus    @default(OPEN)
+  stageEnteredAt    DateTime      @default(now())
+  lastActivityAt    DateTime?
+  closedAt          DateTime?
+  lostReason        String?
+  nextBestAction    Json?
+  customProperties  Json          @default("{}")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  activities        TimelineEvent[]
+
+  @@index([pipelineId, stageId])
+  @@index([contactId])
+  @@index([companyId])
+  @@index([status])
+}
+
+model TimelineEvent {
+  id          String       @id @default(uuid())
+  type        ActivityType
+  title       String
+  body        String?
+  metadata    Json         @default("{}")
+  contactId   String?
+  contact     Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  companyId   String?
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  dealId      String?
+  deal        Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  actor       String?      @default("Sistema")
+  createdAt   DateTime     @default(now())
+
+  @@index([contactId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([dealId, createdAt])
+}
+
+model Workflow {
+  id            String              @id @default(uuid())
+  name          String
+  description   String?
+  isActive      Boolean             @default(true)
+  triggerType   WorkflowTriggerType
+  triggerConfig Json                @default("{}")
+  steps         Json                @default("[]")
+  enrolledCount Int                 @default(0)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  executions    WorkflowExecution[]
+}
+
+model WorkflowExecution {
+  id          String                  @id @default(uuid())
+  workflowId  String
+  workflow    Workflow                @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  entityType  String
+  entityId    String
+  status      WorkflowExecutionStatus @default(RUNNING)
+  logs        Json                    @default("[]")
+  startedAt   DateTime                @default(now())
+  completedAt DateTime?
+
+  @@index([workflowId])
+  @@index([entityType, entityId])
+}
+
+model EmailSequence {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  steps       Json     @default("[]")
+  enrolledCount Int    @default(0)
+  replyRate   Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DataHealthIssue {
+  id                String              @id @default(uuid())
+  issueType         DataHealthIssueType
+  severity          IssueSeverity
+  entityType        String
+  primaryEntityId   String
+  duplicateEntityId String?
+  confidenceScore   Int                 @default(100)
+  title             String
+  description       String
+  suggestedMerge    Json?
+  status            IssueStatus         @default(OPEN)
+  detectedAt        DateTime            @default(now())
+  resolvedAt        DateTime?
+
+  @@index([issueType, status])
+  @@index([entityType, primaryEntityId])
+}
+
+enum SequenceEnrollmentStatus {
+  ACTIVE
+  PAUSED_ON_REPLY
+  REPLIED
+  COMPLETED
+  PAUSED_MANUAL
+  BOUNCED
+}
+
+model SequenceEnrollment {
+  id               String                   @id @default(uuid())
+  sequenceId       String
+  contactId        String
+  dealId           String?
+  status           SequenceEnrollmentStatus @default(ACTIVE)
+  currentStepOrder Int                      @default(1)
+  sentCount        Int                      @default(0)
+  openCount        Int                      @default(0)
+  clickCount       Int                      @default(0)
+  repliedAt        DateTime?
+  replySnippet     String?
+  nextStepDueAt    DateTime?
+  enrolledAt       DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  @@index([sequenceId, status])
+  @@index([contactId])
+}
