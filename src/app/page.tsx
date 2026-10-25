@@ -362,6 +362,28 @@ export default function HubSpotProCrmApp() {
     }
   };
 
+  const handleUpdateContact = async (contactId: string, patch: Record<string, unknown>) => {
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      showToast('Contato atualizado com sucesso!');
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleDeleteContact = async (contactId: string) => {
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      showToast('Contato excluído com sucesso!');
+      await fetchAllCrmData();
+    }
+  };
+
   const handleCreateCompany = async (payload: {
     name: string;
     domain?: string;
@@ -379,6 +401,28 @@ export default function HubSpotProCrmApp() {
     });
     if (res.ok) {
       showToast(`Empresa "${payload.name}" cadastrada com sucesso!`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleUpdateCompany = async (companyId: string, patch: Record<string, unknown>) => {
+    const res = await fetch(`/api/companies/${companyId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      showToast('Empresa atualizada com sucesso!');
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleDeleteCompany = async (companyId: string) => {
+    const res = await fetch(`/api/companies/${companyId}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      showToast('Empresa excluída com sucesso!');
       await fetchAllCrmData();
     }
   };
@@ -1127,7 +1171,11 @@ export default function HubSpotProCrmApp() {
               initialSelectedContactId={initialContactIdForDrawer}
               onClearInitialContact={() => setInitialContactIdForDrawer(null)}
               onCreateContact={handleCreateContact}
+              onUpdateContact={handleUpdateContact}
+              onDeleteContact={handleDeleteContact}
               onCreateCompany={handleCreateCompany}
+              onUpdateCompany={handleUpdateCompany}
+              onDeleteCompany={handleDeleteCompany}
               onEnrichContact={handleEnrichContact}
               onEnrichCompany={handleEnrichCompany}
               onBatchEnrichAll={handleBatchEnrichAll}

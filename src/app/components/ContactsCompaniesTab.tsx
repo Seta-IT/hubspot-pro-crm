@@ -12,11 +12,16 @@ import {
   X,
   Globe,
   Zap,
+  Pencil,
+  Save,
+  Trash2,
 } from 'lucide-react';
-import { Company, Contact, LifecycleStage } from '../../db/types';
+import { Company, Contact, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
+import { CompletenessResult } from '../../modules/data-health/completeness';
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import {
   formatBRL,
+  formatDateTimeBR,
   getLeadStatusLabel,
   getLifecycleBadge,
   getScoreColorClasses,
@@ -32,7 +37,18 @@ export interface EnrichedCompanyItem extends Company {
   totalDealValue?: number;
 }
 
+export interface DetailedCompanyResponse extends Company {
+  contacts: Contact[];
+  deals: Deal[];
+  timeline: TimelineEvent[];
+  completenessDetail: CompletenessResult;
+}
+
 interface ContactsCompaniesTabProps {
+  onUpdateContact: (contactId: string, patch: Record<string, unknown>) => Promise<void>;
+  onDeleteContact: (contactId: string) => Promise<void>;
+  onUpdateCompany: (companyId: string, patch: Record<string, unknown>) => Promise<void>;
+  onDeleteCompany: (companyId: string) => Promise<void>;
   contacts: EnrichedContactItem[];
   companies: EnrichedCompanyItem[];
   initialSelectedContactId?: string | null;
@@ -81,7 +97,11 @@ export default function ContactsCompaniesTab({
   initialSelectedContactId,
   onClearInitialContact,
   onCreateContact,
+  onUpdateContact,
+  onDeleteContact,
   onCreateCompany,
+  onUpdateCompany,
+  onDeleteCompany,
   onEnrichContact,
   onEnrichCompany,
   onBatchEnrichAll,
@@ -93,6 +113,23 @@ export default function ContactsCompaniesTab({
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactInitialEdit, setContactInitialEdit] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [companyDetail, setCompanyDetail] = useState<DetailedCompanyResponse | null>(null);
+  const [loadingCompanyDetail, setLoadingCompanyDetail] = useState(false);
+  const [editCompName, setEditCompName] = useState('');
+  const [editCompDomain, setEditCompDomain] = useState('');
+  const [editCompCnpj, setEditCompCnpj] = useState('');
+  const [editCompIndustry, setEditCompIndustry] = useState('');
+  const [editCompSize, setEditCompSize] = useState('201-500 funcionários');
+  const [editCompRevenue, setEditCompRevenue] = useState('');
+  const [editCompCity, setEditCompCity] = useState('');
+  const [editCompState, setEditCompState] = useState('');
+  const [editCompTier, setEditCompTier] = useState('ENTERPRISE');
+  const [editCompOwner, setEditCompOwner] = useState('Marcéllo Mira');
+  const [savingCompanyEdit, setSavingCompanyEdit] = useState(false);
+  const [confirmCompanyDelete, setConfirmCompanyDelete] = useState(false);
+  const [deletingCompany, setDeletingCompany] = useState(false);
   const [contactDetail, setContactDetail] = useState<DetailedContactResponse | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [enrichmentFeedback, setEnrichmentFeedback] = useState<string | null>(null);
@@ -159,10 +196,80 @@ export default function ContactsCompaniesTab({
     }
   }, [initialSelectedContactId]);
 
-  const handleSelectContact = (id: string) => {
+  const fetchCompanyDetail = async (id: string) => {
+    setLoadingCompanyDetail(true);
+    try {
+      const res = await fetch(`/api/companies/${id}`);
+      if (res.ok) {
+        const json = await res.json();
+        const data: DetailedCompanyResponse = json.data;
+        setCompanyDetail(data);
+        setEditCompName(data.name || '');
+        setEditCompDomain(data.domain || '');
+        setEditCompCnpj(data.cnpj || '');
+        setEditCompIndustry(data.industry || '');
+        setEditCompSize(data.size || '201-500 funcionários');
+        setEditCompRevenue(data.annualRevenue !== null && data.annualRevenue !== undefined ? String(data.annualRevenue) : '');
+        setEditCompCity(data.city || '');
+        setEditCompState(data.state || '');
+        const props = data.customProperties || {};
+        setEditCompTier(String(props.tier || 'ENTERPRISE'));
+        setEditCompOwner(String(props.accountExecutive || props.accountOwner || 'Marcéllo Mira'));
+      }
+    } finally {
+      setLoadingCompanyDetail(false);
+    }
+  };
+
+  const handleSelectContact = (id: string, openInEditMode = false) => {
+    setContactInitialEdit(openInEditMode);
     setSelectedContactId(id);
     setEnrichmentFeedback(null);
     fetchContactDetail(id);
+  };
+
+  const handleSelectCompany = (id: string) => {
+    setSelectedCompanyId(id);
+    setConfirmCompanyDelete(false);
+    setEnrichmentFeedback(null);
+    fetchCompanyDetail(id);
+  };
+
+  const handleSaveCompanyEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCompanyId || !editCompName.trim()) return;
+    setSavingCompanyEdit(true);
+    try {
+      await onUpdateCompany(selectedCompanyId, {
+        name: editCompName.trim(),
+        domain: editCompDomain.trim() || null,
+        cnpj: editCompCnpj.trim() || null,
+        industry: editCompIndustry.trim() || null,
+        size: editCompSize.trim() || null,
+        sizeRange: editCompSize.trim() || null,
+        annualRevenue: editCompRevenue.trim() ? Number(editCompRevenue) : null,
+        annualRevenueBrl: editCompRevenue.trim() ? Number(editCompRevenue) : null,
+        city: editCompCity.trim() || null,
+        state: editCompState.trim() || null,
+        tier: editCompTier,
+        accountOwner: editCompOwner.trim() || 'Marcéllo Mira',
+      });
+      await fetchCompanyDetail(selectedCompanyId);
+    } finally {
+      setSavingCompanyEdit(false);
+    }
+  };
+
+  const handleConfirmCompanyDelete = async () => {
+    if (!selectedCompanyId) return;
+    setDeletingCompany(true);
+    try {
+      await onDeleteCompany(selectedCompanyId);
+      setSelectedCompanyId(null);
+      setCompanyDetail(null);
+    } finally {
+      setDeletingCompany(false);
+    }
   };
 
   const handleSingleEnrich = async (contactId: string) => {
@@ -487,7 +594,76 @@ export default function ContactsCompaniesTab({
       </div>
 
       {subView === 'CONTACTS' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 lg:hidden">
+            {filteredContacts.map((contact) => {
+              const scoreStyle = getScoreColorClasses(contact.leadScore);
+              const isEnriching = enrichingId === contact.id;
+              return (
+                <div
+                  key={contact.id}
+                  onClick={() => handleSelectContact(contact.id, false)}
+                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3 cursor-pointer hover:border-[#ff7a59] transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-slate-800 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                        {contact.firstName.charAt(0)}
+                        {contact.lastName ? contact.lastName.charAt(0) : ''}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 text-sm truncate">
+                          {contact.firstName} {contact.lastName}
+                        </div>
+                        <div className="text-xs text-slate-500 truncate">{contact.email}</div>
+                        <div className="text-xs font-medium text-slate-700 truncate">
+                          {contact.jobTitle || 'Sem cargo'} • {contact.company?.name || 'Sem empresa'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {getLifecycleBadge(contact.lifecycleStage)}
+                      <span className={`text-xs font-extrabold ${scoreStyle.text}`}>
+                        Score {contact.leadScore}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSelectContact(contact.id, true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-bold text-xs shadow-xs transition"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      ✏️ Editar Contato
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={isEnriching}
+                        onClick={() => handleSingleEnrich(contact.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-xs transition"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {isEnriching ? '...' : 'Enriquecer'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectContact(contact.id, false)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition"
+                      >
+                        Ficha 360°
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden lg:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -625,6 +801,14 @@ export default function ContactsCompaniesTab({
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
+                            onClick={() => handleSelectContact(contact.id, true)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-[11px] transition"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            ✏️ Editar
+                          </button>
+                          <button
+                            type="button"
                             disabled={isEnriching}
                             onClick={() => handleSingleEnrich(contact.id)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition disabled:opacity-50"
@@ -649,6 +833,7 @@ export default function ContactsCompaniesTab({
             </table>
           </div>
         </div>
+        </>
       )}
 
       {subView === 'COMPANIES' && (
@@ -656,7 +841,8 @@ export default function ContactsCompaniesTab({
           {filteredCompanies.map((company) => (
             <div
               key={company.id}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-[#ff7a59]/60 transition flex flex-col justify-between gap-4"
+              onClick={() => handleSelectCompany(company.id)}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-[#ff7a59] transition flex flex-col justify-between gap-4 cursor-pointer group"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -717,10 +903,19 @@ export default function ContactsCompaniesTab({
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setEnrichingId(company.id);
+                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCompany(company.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-xs transition"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    ✏️ Editar Empresa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setEnrichingId(company.id);
                     try {
                       const res = await onEnrichCompany(company.id);
                       if (res) {
@@ -736,7 +931,8 @@ export default function ContactsCompaniesTab({
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   {enrichingId === company.id ? '...' : 'Enriquecer'}
-                </button>
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -746,19 +942,380 @@ export default function ContactsCompaniesTab({
       {selectedContactId && (
         <ContactDetailDrawer
           contactDetail={contactDetail}
+          companies={companies}
           loadingDetail={loadingDetail}
           enrichingId={enrichingId}
           enrichmentFeedback={enrichmentFeedback}
+          initialEditMode={contactInitialEdit}
           onClose={() => {
             setSelectedContactId(null);
             setContactDetail(null);
+            setContactInitialEdit(false);
           }}
           onSingleEnrich={handleSingleEnrich}
+          onUpdateContact={async (contactId, patch) => {
+            await onUpdateContact(contactId, patch);
+            await fetchContactDetail(contactId);
+          }}
+          onDeleteContact={async (contactId) => {
+            await onDeleteContact(contactId);
+            setSelectedContactId(null);
+            setContactDetail(null);
+          }}
           onAddContactActivity={async (payload) => {
             await onAddContactActivity(payload);
             await fetchContactDetail(payload.contactId);
           }}
         />
+      )}
+
+      {selectedCompanyId && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
+          <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-[#ff7a59] text-white font-bold flex items-center justify-center text-sm shrink-0">
+                  {companyDetail?.name?.slice(0, 2).toUpperCase() || 'EM'}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-white truncate">
+                    {companyDetail ? companyDetail.name : 'Carregando empresa...'}
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-0.5 truncate">
+                    {companyDetail?.domain || 'Sem domínio'} • CNPJ: {companyDetail?.cnpj || 'Não informado'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                {companyDetail && (
+                  <button
+                    type="button"
+                    disabled={enrichingId === companyDetail.id}
+                    onClick={async () => {
+                      setEnrichingId(companyDetail.id);
+                      try {
+                        const res = await onEnrichCompany(companyDetail.id);
+                        if (res) {
+                          setEnrichmentFeedback(
+                            `Empresa "${companyDetail.name}" enriquecida via ${res.source || 'Catálogo Corporativo'}!`
+                          );
+                        }
+                        await fetchCompanyDetail(companyDetail.id);
+                      } finally {
+                        setEnrichingId(null);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {enrichingId === companyDetail.id ? 'Enriquecendo...' : '⚡ Enriquecer CNPJ/Domínio'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCompanyId(null);
+                    setCompanyDetail(null);
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
+              {loadingCompanyDetail || !companyDetail ? (
+                <div className="space-y-4 animate-pulse">
+                  <div className="h-24 bg-slate-100 rounded-xl" />
+                  <div className="h-48 bg-slate-100 rounded-xl" />
+                </div>
+              ) : (
+                <>
+                  {enrichmentFeedback && (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{enrichmentFeedback}</span>
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={handleSaveCompanyEdit}
+                    className="p-5 rounded-2xl border-2 border-[#ff7a59] bg-orange-50/30 space-y-4 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between border-b border-orange-200/70 pb-3">
+                      <div className="flex items-center gap-2">
+                        <Pencil className="w-4 h-4 text-[#ff7a59]" />
+                        <h4 className="text-sm font-extrabold text-slate-900">
+                          Editar Cadastro da Empresa B2B
+                        </h4>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                        Completude: {companyDetail.completenessScore}%
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Razão Social / Nome da Empresa *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editCompName}
+                        onChange={(e) => setEditCompName(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Domínio Corporativo
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompDomain}
+                          onChange={(e) => setEditCompDomain(e.target.value)}
+                          placeholder="ex: totvs.com.br"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          CNPJ (Validação Mod-11)
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompCnpj}
+                          onChange={(e) => setEditCompCnpj(e.target.value)}
+                          placeholder="00.000.000/0001-00"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Setor / Indústria (Industry)
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompIndustry}
+                          onChange={(e) => setEditCompIndustry(e.target.value)}
+                          placeholder="Ex: Software Enterprise & ERP"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Porte (Size Range)
+                        </label>
+                        <select
+                          value={editCompSize}
+                          onChange={(e) => setEditCompSize(e.target.value)}
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        >
+                          <option value="1-50 funcionários">1-50 funcionários</option>
+                          <option value="51-200 funcionários">51-200 funcionários</option>
+                          <option value="201-500 funcionários">201-500 funcionários</option>
+                          <option value="501-1000 funcionários">501-1000 funcionários</option>
+                          <option value="1000+ funcionários">1000+ funcionários</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Receita Anual (R$)
+                        </label>
+                        <input
+                          type="number"
+                          value={editCompRevenue}
+                          onChange={(e) => setEditCompRevenue(e.target.value)}
+                          placeholder="50000000"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Tier da Conta
+                        </label>
+                        <select
+                          value={editCompTier}
+                          onChange={(e) => setEditCompTier(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        >
+                          <option value="ENTERPRISE">ENTERPRISE</option>
+                          <option value="MID_MARKET">MID_MARKET</option>
+                          <option value="SMB">SMB</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Executivo da Conta
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompOwner}
+                          onChange={(e) => setEditCompOwner(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Cidade
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompCity}
+                          onChange={(e) => setEditCompCity(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          UF
+                        </label>
+                        <input
+                          type="text"
+                          value={editCompState}
+                          onChange={(e) => setEditCompState(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
+                      {!confirmCompanyDelete ? (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmCompanyDelete(true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-bold transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Excluir Empresa
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-rose-700">Confirmar exclusão?</span>
+                          <button
+                            type="button"
+                            disabled={deletingCompany}
+                            onClick={handleConfirmCompanyDelete}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+                          >
+                            {deletingCompany ? 'Excluindo...' : 'Sim, Excluir'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmCompanyDelete(false)}
+                            className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 bg-white"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCompanyId(null);
+                            setCompanyDetail(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Fechar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingCompanyEdit}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          {savingCompanyEdit ? 'Salvando...' : 'Salvar Alterações'}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Contatos Vinculados ({companyDetail.contacts?.length || 0})
+                    </h4>
+                    {companyDetail.contacts?.length === 0 ? (
+                      <p className="text-xs text-slate-400">Nenhum executivo vinculado a esta empresa.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {companyDetail.contacts.map((c) => (
+                          <div
+                            key={c.id}
+                            className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <div className="font-bold text-slate-900">
+                                {c.firstName} {c.lastName}
+                              </div>
+                              <div className="text-slate-500">
+                                {c.jobTitle || 'Sem cargo'} • {c.email}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCompanyId(null);
+                                setCompanyDetail(null);
+                                handleSelectContact(c.id, true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-[#ff7a59] text-slate-800 font-bold text-[11px]"
+                            >
+                              <Pencil className="w-3 h-3 text-[#ff7a59]" />
+                              Editar Contato
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Negócios no Pipeline ({companyDetail.deals?.length || 0})
+                    </h4>
+                    {companyDetail.deals?.length === 0 ? (
+                      <p className="text-xs text-slate-400">Nenhum negócio vinculado a esta empresa.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {companyDetail.deals.map((d) => (
+                          <div
+                            key={d.id}
+                            className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <div className="font-bold text-slate-900">{d.title}</div>
+                              <div className="text-slate-500">
+                                Status: {d.status} • Probabilidade: {d.probability}%
+                              </div>
+                            </div>
+                            <div className="text-sm font-extrabold text-slate-900">
+                              {formatBRL(d.value)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {showNewContactModal && (

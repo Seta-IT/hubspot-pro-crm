@@ -100,7 +100,14 @@ export class CrmRepository {
       }
       fs.writeFileSync(this.persistPath, JSON.stringify(this.state, null, 2), 'utf-8');
     } catch {
-      // Ignore write errors in read-only environments
+      // Fallback to /tmp/crm-store.json on read-only serverless filesystems (e.g. Vercel)
+      try {
+        const tmpPath = '/tmp/crm-store.json';
+        this.persistPath = tmpPath;
+        fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), 'utf-8');
+      } catch {
+        // Ignore write errors if /tmp is also unavailable
+      }
     }
   }
 
@@ -203,24 +210,61 @@ export class CrmRepository {
     return draft;
   }
 
-  updateContact(id: string, patch: Partial<Contact>): Contact | null {
+  updateContact(id: string, patchInput: Partial<Contact> | Record<string, unknown>): Contact | null {
+    const patch = patchInput as Partial<Contact> & Record<string, unknown>;
     const idx = this.state.contacts.findIndex((c) => c.id === id);
     if (idx === -1) return null;
 
     const existing = this.state.contacts[idx];
     const now = new Date().toISOString();
 
-    const nextEmail = patch.email !== undefined ? patch.email : existing.email;
+    const rawJobTitle =
+      patch.jobTitle !== undefined
+        ? patch.jobTitle
+        : typeof patch.roleTitle === 'string'
+          ? patch.roleTitle
+          : existing.jobTitle;
+    const jobInfo = normalizeAndClassifyJobTitle(rawJobTitle || undefined);
+
+    const nextEmail = patch.email !== undefined ? String(patch.email) : existing.email;
     const emailVal = validateEmail(nextEmail);
 
     const nextPhone = patch.phone !== undefined ? patch.phone : existing.phone;
     const phoneVal = nextPhone ? normalizeAndValidatePhone(nextPhone) : null;
 
+    const mergedCustomProps: Record<string, unknown> = {
+      ...(existing.customProperties || {}),
+      ...(patch.customProperties || {}),
+    };
+    if (patch.ownerName !== undefined) mergedCustomProps.ownerName = patch.ownerName;
+    if (patch.city !== undefined) mergedCustomProps.city = patch.city;
+    if (patch.state !== undefined) mergedCustomProps.state = patch.state;
+    if (patch.cnpj !== undefined) mergedCustomProps.cnpj = patch.cnpj;
+    if (patch.tags !== undefined) mergedCustomProps.tags = patch.tags;
+
     const updated: Contact = {
       ...existing,
       ...patch,
       id: existing.id,
-      email: emailVal.normalizedEmail || nextEmail,
+      firstName: patch.firstName !== undefined ? String(patch.firstName).trim() : existing.firstName,
+      lastName: patch.lastName !== undefined ? String(patch.lastName).trim() : existing.lastName,
+      email: emailVal.normalizedEmail || nextEmail.trim().toLowerCase(),
+      phone:
+        patch.phone !== undefined
+          ? phoneVal?.isValid && phoneVal.formatted
+            ? phoneVal.formatted
+            : patch.phone
+          : existing.phone,
+      jobTitle: rawJobTitle !== undefined ? (jobInfo.normalizedTitle || rawJobTitle || null) : existing.jobTitle,
+      seniority: patch.seniority !== undefined ? patch.seniority : (jobInfo.seniority || existing.seniority),
+      department: patch.department !== undefined ? patch.department : (jobInfo.department || existing.department),
+      ownerId:
+        patch.ownerId !== undefined
+          ? patch.ownerId
+          : typeof patch.ownerName === 'string'
+            ? patch.ownerName
+            : existing.ownerId,
+      customProperties: mergedCustomProps,
       isValidEmail: patch.isValidEmail !== undefined ? patch.isValidEmail : emailVal.isValid,
       isDisposableEmail: emailVal.isDisposable,
       isCorporateEmail: emailVal.isCorporate,
@@ -230,7 +274,7 @@ export class CrmRepository {
           : nextPhone
             ? Boolean(phoneVal?.isValid)
             : false,
-      normalizedPhone: phoneVal?.e164 ?? existing.normalizedPhone ?? null,
+      normalizedPhone: phoneVal?.e164 ?? (nextPhone ? existing.normalizedPhone ?? null : null),
       updatedAt: now,
     };
 
@@ -320,16 +364,52 @@ export class CrmRepository {
     return draft;
   }
 
-  updateCompany(id: string, patch: Partial<Company>): Company | null {
+  updateCompany(id: string, patchInput: Partial<Company> | Record<string, unknown>): Company | null {
+    const patch = patchInput as Partial<Company> & Record<string, unknown>;
     const idx = this.state.companies.findIndex((c) => c.id === id);
     if (idx === -1) return null;
 
     const existing = this.state.companies[idx];
     const now = new Date().toISOString();
+
+    const rawDomain = patch.domain !== undefined ? patch.domain : existing.domain;
+    const domVal = normalizeCorporateDomain(rawDomain);
+    const rawCnpj = patch.cnpj !== undefined ? patch.cnpj : existing.cnpj;
+    const cnpjVal = validateCnpj(rawCnpj);
+
+    const nextSize =
+      patch.size !== undefined
+        ? patch.size
+        : typeof patch.sizeRange === 'string'
+          ? patch.sizeRange
+          : existing.size;
+
+    const nextAnnualRevenue =
+      patch.annualRevenue !== undefined
+        ? patch.annualRevenue
+        : typeof patch.annualRevenueBrl === 'number'
+          ? patch.annualRevenueBrl
+          : existing.annualRevenue;
+
+    const mergedCustomProps: Record<string, unknown> = {
+      ...(existing.customProperties || {}),
+      ...(patch.customProperties || {}),
+    };
+    if (patch.tier !== undefined) mergedCustomProps.tier = patch.tier;
+    if (patch.accountOwner !== undefined) mergedCustomProps.accountExecutive = patch.accountOwner;
+    if (patch.accountExecutive !== undefined) mergedCustomProps.accountExecutive = patch.accountExecutive;
+    if (patch.healthScore !== undefined) mergedCustomProps.healthScore = patch.healthScore;
+
     const updated: Company = {
       ...existing,
       ...patch,
       id: existing.id,
+      name: patch.name !== undefined ? String(patch.name).trim() : existing.name,
+      domain: rawDomain ? (domVal.isValid ? domVal.domain : rawDomain) : null,
+      cnpj: rawCnpj ? (cnpjVal.isValid ? cnpjVal.formatted : rawCnpj) : null,
+      size: nextSize ?? null,
+      annualRevenue: nextAnnualRevenue !== null && nextAnnualRevenue !== undefined ? Number(nextAnnualRevenue) : null,
+      customProperties: mergedCustomProps,
       updatedAt: now,
     };
 
@@ -1046,9 +1126,10 @@ let singletonRepo: CrmRepository | null = null;
 
 export function getRepository(): CrmRepository {
   if (!singletonRepo) {
-    const storePath =
-      process.env.CRM_STORE_PATH ||
-      path.join(process.cwd(), '.data', 'crm-store.json');
+    const defaultStorePath = process.env.VERCEL
+      ? '/tmp/crm-store.json'
+      : path.join(process.cwd(), '.data', 'crm-store.json');
+    const storePath = process.env.CRM_STORE_PATH || defaultStorePath;
     singletonRepo = new CrmRepository({ persistPath: storePath, autoSeed: true });
   }
   return singletonRepo;

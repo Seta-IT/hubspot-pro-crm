@@ -229,6 +229,16 @@ export class CrmApiRouter {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
           }
           let updated = this.repo.updateContact(id, body);
+          if (updated) {
+            this.repo.createTimelineEvent({
+              type: 'NOTE',
+              title: `Ficha do contato atualizada (${updated.firstName} ${updated.lastName})`,
+              body: `Dados cadastrais revisados (Etapa: ${updated.lifecycleStage}, Status: ${updated.leadStatus}, Cargo: ${updated.jobTitle || '—'}).`,
+              contactId: updated.id,
+              companyId: updated.companyId,
+              actor: typeof body.ownerName === 'string' ? body.ownerName : 'Marcéllo Mira',
+            });
+          }
           if (updated && updated.leadScore >= 80 && before.leadScore < 80) {
             this.workflowEngine.trigger(this.repo, {
               triggerType: 'SCORE_THRESHOLD',
@@ -311,6 +321,13 @@ export class CrmApiRouter {
           if (!updated) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
           }
+          this.repo.createTimelineEvent({
+            type: 'NOTE',
+            title: `Cadastro corporativo atualizado: ${updated.name}`,
+            body: `Domínio: ${updated.domain || '—'} | CNPJ: ${updated.cnpj || '—'} | Setor: ${updated.industry || '—'}.`,
+            companyId: updated.id,
+            actor: 'Marcéllo Mira',
+          });
           return { status: 200, body: { data: updated } };
         }
 

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Sparkles, CheckCircle2, X, Zap } from 'lucide-react';
-import { Company, Contact, Deal, TimelineEvent } from '../../db/types';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
+import { Company, Contact, Deal, LeadStatus, LifecycleStage, TimelineEvent } from '../../db/types';
 import { CompletenessResult } from '../../modules/data-health/completeness';
 import { formatBRL, formatDateTimeBR, formatRelativeDays, getLifecycleBadge } from './ui-helpers';
 
@@ -15,11 +15,15 @@ export interface DetailedContactResponse extends Contact {
 
 interface ContactDetailDrawerProps {
   contactDetail: DetailedContactResponse | null;
+  companies: Company[];
   loadingDetail: boolean;
   enrichingId: string | null;
   enrichmentFeedback: string | null;
+  initialEditMode?: boolean;
   onClose: () => void;
   onSingleEnrich: (contactId: string) => Promise<void>;
+  onUpdateContact: (contactId: string, patch: Record<string, unknown>) => Promise<void>;
+  onDeleteContact: (contactId: string) => Promise<void>;
   onAddContactActivity: (payload: {
     contactId: string;
     companyId?: string | null;
@@ -31,17 +35,99 @@ interface ContactDetailDrawerProps {
 
 export default function ContactDetailDrawer({
   contactDetail,
+  companies,
   loadingDetail,
   enrichingId,
   enrichmentFeedback,
+  initialEditMode = false,
   onClose,
   onSingleEnrich,
+  onUpdateContact,
+  onDeleteContact,
   onAddContactActivity,
 }: ContactDetailDrawerProps) {
+  const [isEditing, setIsEditing] = useState(initialEditMode);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Edit form fields
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [lifecycleStage, setLifecycleStage] = useState<LifecycleStage>('LEAD');
+  const [leadStatus, setLeadStatus] = useState<LeadStatus>('NEW');
+  const [ownerName, setOwnerName] = useState('Marcéllo Mira');
+  const [city, setCity] = useState('');
+  const [stateUf, setStateUf] = useState('');
+
   const [actType, setActType] = useState<'NOTE' | 'CALL' | 'EMAIL' | 'MEETING' | 'TASK'>('NOTE');
   const [actTitle, setActTitle] = useState('');
   const [actBody, setActBody] = useState('');
   const [savingActivity, setSavingActivity] = useState(false);
+
+  useEffect(() => {
+    setIsEditing(initialEditMode);
+    setConfirmDelete(false);
+  }, [initialEditMode, contactDetail?.id]);
+
+  useEffect(() => {
+    if (contactDetail) {
+      setFirstName(contactDetail.firstName || '');
+      setLastName(contactDetail.lastName || '');
+      setEmail(contactDetail.email || '');
+      setPhone(contactDetail.phone || '');
+      setJobTitle(contactDetail.jobTitle || '');
+      setCompanyId(contactDetail.companyId || '');
+      setLifecycleStage(contactDetail.lifecycleStage || 'LEAD');
+      setLeadStatus(contactDetail.leadStatus || 'NEW');
+      const props = contactDetail.customProperties || {};
+      setOwnerName(
+        String(props.ownerName || contactDetail.ownerId || 'Marcéllo Mira')
+      );
+      setCity(String(props.city || contactDetail.company?.city || ''));
+      setStateUf(String(props.state || contactDetail.company?.state || ''));
+    }
+  }, [contactDetail]);
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contactDetail || !firstName.trim() || !email.trim()) return;
+    setSavingEdit(true);
+    try {
+      await onUpdateContact(contactDetail.id, {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || null,
+        jobTitle: jobTitle.trim() || null,
+        companyId: companyId || null,
+        lifecycleStage,
+        leadStatus,
+        ownerId: ownerName.trim() || 'Marcéllo Mira',
+        ownerName: ownerName.trim() || 'Marcéllo Mira',
+        city: city.trim() || undefined,
+        state: stateUf.trim() || undefined,
+      });
+      setIsEditing(false);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!contactDetail) return;
+    setDeleting(true);
+    try {
+      await onDeleteContact(contactDetail.id);
+      onClose();
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleAddActivitySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,41 +149,55 @@ export default function ContactDetailDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex justify-end">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
       <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
-        <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-[#ff7a59] text-white font-bold flex items-center justify-center text-sm">
+            <div className="w-11 h-11 rounded-full bg-[#ff7a59] text-white font-bold flex items-center justify-center text-sm shrink-0">
               {contactDetail?.firstName?.charAt(0) || 'C'}
               {contactDetail?.lastName?.charAt(0) || ''}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-bold text-white truncate">
                   {contactDetail
                     ? `${contactDetail.firstName} ${contactDetail.lastName}`
                     : 'Carregando contato...'}
                 </h3>
                 {contactDetail && getLifecycleBadge(contactDetail.lifecycleStage)}
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
+              <p className="text-xs text-slate-300 mt-0.5 truncate">
                 {contactDetail?.jobTitle || 'Cargo não informado'}{' '}
                 {contactDetail?.company ? `• ${contactDetail.company.name}` : ''}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
             {contactDetail && (
-              <button
-                type="button"
-                disabled={enrichingId === contactDetail.id}
-                onClick={() => onSingleEnrich(contactDetail.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {enrichingId === contactDetail.id ? 'Enriquecendo...' : 'Enriquecimento Inteligente'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing((v) => !v)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    isEditing
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-white text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  {isEditing ? 'Fechar Edição' : '✏️ Editar Contato'}
+                </button>
+                <button
+                  type="button"
+                  disabled={enrichingId === contactDetail.id}
+                  onClick={() => onSingleEnrich(contactDetail.id)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {enrichingId === contactDetail.id ? 'Enriquecendo...' : 'Enriquecer'}
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -109,7 +209,7 @@ export default function ContactDetailDrawer({
           </div>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
           {loadingDetail || !contactDetail ? (
             <div className="space-y-4 animate-pulse">
               <div className="h-24 bg-slate-100 rounded-xl" />
@@ -123,6 +223,239 @@ export default function ContactDetailDrawer({
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>{enrichmentFeedback}</span>
                 </div>
+              )}
+
+              {/* EDIT FORM MODE */}
+              {isEditing && (
+                <form
+                  onSubmit={handleSaveEdit}
+                  className="p-5 rounded-2xl border-2 border-[#ff7a59] bg-orange-50/30 space-y-4 shadow-sm"
+                >
+                  <div className="flex items-center justify-between border-b border-orange-200/70 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Pencil className="w-4 h-4 text-[#ff7a59]" />
+                      <h4 className="text-sm font-extrabold text-slate-900">
+                        Editar Dados do Contato
+                      </h4>
+                    </div>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      Recálculo automático de Score &amp; Completude
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Nome *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Sobrenome
+                      </label>
+                      <input
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        E-mail Corporativo *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Telefone / WhatsApp
+                      </label>
+                      <input
+                        type="text"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="(11) 98888-7766"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Cargo Executivo
+                      </label>
+                      <input
+                        type="text"
+                        value={jobTitle}
+                        onChange={(e) => setJobTitle(e.target.value)}
+                        placeholder="Ex: Diretor de TI / CTO"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Empresa Vinculada
+                      </label>
+                      <select
+                        value={companyId}
+                        onChange={(e) => setCompanyId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      >
+                        <option value="">Sem empresa vinculada</option>
+                        {companies.map((comp) => (
+                          <option key={comp.id} value={comp.id}>
+                            {comp.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Estágio do Funil (Lifecycle)
+                      </label>
+                      <select
+                        value={lifecycleStage}
+                        onChange={(e) => setLifecycleStage(e.target.value as LifecycleStage)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      >
+                        <option value="SUBSCRIBER">Assinante</option>
+                        <option value="LEAD">Lead</option>
+                        <option value="MQL">MQL</option>
+                        <option value="SQL">SQL Qualificado</option>
+                        <option value="OPPORTUNITY">Oportunidade</option>
+                        <option value="CUSTOMER">Cliente Ativo</option>
+                        <option value="EVANGELIST">Promotor</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Status do Lead
+                      </label>
+                      <select
+                        value={leadStatus}
+                        onChange={(e) => setLeadStatus(e.target.value as LeadStatus)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      >
+                        <option value="NEW">Novo</option>
+                        <option value="OPEN">Aberto</option>
+                        <option value="IN_PROGRESS">Em Andamento</option>
+                        <option value="OPEN_DEAL">Negócio Aberto</option>
+                        <option value="ATTEMPTED_TO_CONTACT">Tentativa de Contato</option>
+                        <option value="CONNECTED">Conectado</option>
+                        <option value="BAD_TIMING">Timing Futuro</option>
+                        <option value="UNQUALIFIED">Desqualificado</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Responsável (Owner)
+                      </label>
+                      <input
+                        type="text"
+                        value={ownerName}
+                        onChange={(e) => setOwnerName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Cidade
+                      </label>
+                      <input
+                        type="text"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="São Paulo"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        UF
+                      </label>
+                      <input
+                        type="text"
+                        value={stateUf}
+                        onChange={(e) => setStateUf(e.target.value)}
+                        placeholder="SP"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
+                    {!confirmDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-bold transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Excluir Contato
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-rose-700">Confirmar exclusão?</span>
+                        <button
+                          type="button"
+                          disabled={deleting}
+                          onClick={handleConfirmDelete}
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+                        >
+                          {deleting ? 'Excluindo...' : 'Sim, Excluir'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(false)}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 bg-white"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(false)}
+                        className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingEdit}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        {savingEdit ? 'Salvando...' : 'Salvar Alterações'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -197,9 +530,21 @@ export default function ContactDetailDrawer({
               )}
 
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Dados Cadastrais & Smart Data
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Dados Cadastrais &amp; Smart Data
+                  </h4>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 text-xs font-bold transition"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Editar Campos
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                   <div>
                     <span className="text-slate-400 block">E-mail</span>
@@ -266,7 +611,7 @@ export default function ContactDetailDrawer({
                 {Object.keys(contactDetail.customProperties || {}).length > 0 && (
                   <div className="pt-3 border-t border-slate-100">
                     <span className="text-[11px] font-bold text-slate-500 block mb-1.5">
-                      Propriedades Customizadas & Inferidas:
+                      Propriedades Customizadas &amp; Inferidas:
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {Object.entries(contactDetail.customProperties).map(([k, v]) => (
