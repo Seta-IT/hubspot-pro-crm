@@ -60,6 +60,31 @@ export default function DataHealthTab({
   const [cleaning, setCleaning] = useState(false);
   const [autoCleanReport, setAutoCleanReport] = useState<AutoCleanResult | null>(null);
   const [enrichingEntityId, setEnrichingEntityId] = useState<string | null>(null);
+  const [reassignTarget, setReassignTarget] = useState('Marcelo Lopes Mira');
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignMsg, setReassignMsg] = useState<string | null>(null);
+
+  const handleReassignOrphans = async () => {
+    setReassigning(true);
+    try {
+      const res = await fetch('/api/data-health/reassign-orphans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetOwnerName: reassignTarget }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const d = j.data;
+        setReassignMsg(
+          `Carteira de ex-vendedores reatribuída para ${d.targetOwnerName}: ${d.contactsReassigned} contato(s), ${d.companiesReassigned} empresa(s) e ${d.dealsReassigned} negócio(s) transferidos!`
+        );
+        onRefresh();
+      }
+    } finally {
+      setReassigning(false);
+    }
+  };
+
   const [activeIssueTab, setActiveIssueTab] = useState<
     'DUPLICATES' | 'INCOMPLETE' | 'INVALID' | 'STALE'
   >('DUPLICATES');
@@ -300,6 +325,53 @@ export default function DataHealthTab({
           </div>
         </div>
       )}
+
+      {/* AUDITORIA HUBSPOT SETA TELECOM (4369067): REATRIBUIÇÃO DE 41 EX-VENDEDORES INATIVOS */}
+      <div className="bg-white rounded-2xl border-2 border-[#ff7a59]/50 p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#ff7a59]/15 text-[#e05835] border border-[#ff7a59]/30">
+              AUDITORIA PORTAL HUBSPOT 4369067 • SETA TELECOM
+            </span>
+            <span className="text-xs font-bold text-slate-500">
+              44 proprietários mapeados (3 ativos hoje vs. 41 ex-vendedores inativos)
+            </span>
+          </div>
+          <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+            Reatribuição em 1 Clique de Carteira Órfã de Ex-Vendedores Inativos
+          </h3>
+          <p className="text-xs text-slate-600">
+            Transfira automaticamente contatos, empresas e negócios presos em ex-vendedores inativos (como <em>Gabriel Lopes</em>, <em>Roberto Carquejo</em>, <em>Felipe Seta</em>, <em>Karis Marketing</em>) para os proprietários ativos da Seta Telecom.
+          </p>
+          {reassignMsg && (
+            <div className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg inline-block mt-1">
+              ✅ {reassignMsg}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <select
+            value={reassignTarget}
+            onChange={(e) => setReassignTarget(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 bg-slate-50"
+          >
+            <option value="Marcelo Lopes Mira">Transferir p/ Marcelo Lopes Mira</option>
+            <option value="Evelyn Ternero Seta Telecom">
+              Transferir p/ Evelyn Ternero Seta Telecom
+            </option>
+          </select>
+
+          <button
+            type="button"
+            disabled={reassigning}
+            onClick={handleReassignOrphans}
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50"
+          >
+            {reassigning ? 'Transferindo Carteira...' : 'Reatribuir Carteira Órfã Agora'}
+          </button>
+        </div>
+      </div>
 
       {/* NAVIGATION TABS FOR HEALTH CATEGORIES */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">

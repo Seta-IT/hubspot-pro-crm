@@ -405,7 +405,7 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     const pipeRes = await router.dispatch({ method: 'GET', path: '/api/pipelines' });
     assert.equal(pipeRes.status, 200);
     const pipes = (pipeRes.body as { data: Array<{ stages: unknown[] }> }).data;
-    assert.equal(pipes.length, 1);
+    assert.equal(pipes.length, 3);
     assert.equal(pipes[0].stages.length, 7);
 
     // 2. Criar Empresa
@@ -580,5 +580,68 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
     assert.ok(migData.contactsImported >= 2);
     assert.ok(migData.dealsImported >= 2);
     assert.ok(migData.ticketsImported >= 1);
+  });
+});
+
+describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação & Fiscal (GestãoClick)', () => {
+  it('retorna visão geral do ERP Seta Telecom, aprova proposta gerando contrato de locação e emite fatura isenta de ISS (SV 31 STF)', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Overview ERP
+    const ovRes = await router.dispatch({ method: 'GET', path: '/api/erp/overview' });
+    assert.equal(ovRes.status, 200);
+    const ov = (ovRes.body as {
+      data: {
+        kpis: { monthlyRentalMrr: number; activeContractsCount: number; issSavedBySv31Stf: number };
+        proposals: Array<{ id: string }>;
+        rentalContracts: Array<{ id: string }>;
+        invoices: Array<{ id: string; documentType: string; taxBreakdown: { issAmount: number } }>;
+      };
+    }).data;
+
+    assert.ok(ov.kpis.monthlyRentalMrr > 0);
+    assert.equal(ov.kpis.activeContractsCount, 3);
+    assert.ok(ov.kpis.issSavedBySv31Stf > 0);
+
+    const locInvoice = ov.invoices.find((i) => i.documentType === 'FATURA_LOCACAO');
+    assert.ok(locInvoice);
+    assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação pura de bens móveis não incide ISS (SV 31 STF)');
+
+    // 2. Aprovar Proposta PROP-2026-002 -> Gera Contrato de Locação + Fatura de Locação automaticamente
+    const appRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals/prop-seta-002/approve',
+    });
+    assert.equal(appRes.status, 200);
+    const appData = (appRes.body as {
+      data: {
+        proposal: { status: string };
+        contract: { id: string; contractNumber: string };
+        invoice: { id: string; documentType: string; taxBreakdown: { issAmount: number } };
+      };
+    }).data;
+
+    assert.equal(appData.proposal.status, 'CONVERTIDA_CONTRATO');
+    assert.ok(appData.contract.contractNumber.startsWith('LOC-'));
+    assert.equal(appData.invoice.documentType, 'FATURA_LOCACAO');
+    assert.equal(appData.invoice.taxBreakdown.issAmount, 0);
+
+    // 3. Emitir NF-e de Remessa de Locação (CFOP 5.908)
+    const remRes = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/rental-contracts/${appData.contract.id}/generate-remessa`,
+    });
+    assert.equal(remRes.status, 201);
+
+    // 4. Reatribuir carteira órfã de ex-vendedores inativos no Data Health
+    const reRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/data-health/reassign-orphans',
+      body: { targetOwnerName: 'Marcelo Lopes Mira' },
+    });
+    assert.equal(reRes.status, 200);
+    const reData = (reRes.body as { data: { contactsReassigned: number } }).data;
+    assert.ok(reData.contactsReassigned >= 2);
   });
 });

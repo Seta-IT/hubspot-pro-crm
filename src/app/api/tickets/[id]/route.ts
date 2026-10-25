@@ -12,3 +12,7 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
 export async function PUT(req: NextRequest, context: { params: { id: string } }) {
   return forwardToCrmRouter(req, `/api/tickets/${context.params.id}`);
 }
+
+export async function DELETE(req: NextRequest, context: { params: { id: string } }) {
+  return forwardToCrmRouter(req, `/api/tickets/${context.params.id}`);
+}

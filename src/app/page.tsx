@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Database,
   ChevronRight,
+  Receipt,
 } from 'lucide-react';
 
 import OverviewAiCopilotTab from './components/OverviewAiCopilotTab';
@@ -27,6 +28,7 @@ import DataHealthTab, { DuplicatesPayload } from './components/DataHealthTab';
 import AutomationsSequencesTab from './components/AutomationsSequencesTab';
 import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './components/FormsBuilderTab';
 import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './components/ServiceDeskTab';
+import ErpGestaoClickTab, { ErpOverviewPayload } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import { formatBRL } from './components/ui-helpers';
 
@@ -63,6 +65,7 @@ type ActiveModule =
   | 'CONTACTS_COMPANIES'
   | 'SERVICE_DESK'
   | 'MARKETING_FORMS'
+  | 'ERP_GESTAOCLICK'
   | 'DATA_HEALTH'
   | 'AUTOMATIONS';
 
@@ -73,6 +76,8 @@ export default function HubSpotProCrmApp() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [initialContactIdForDrawer, setInitialContactIdForDrawer] = useState<string | null>(null);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>('pipe-enterprise-b2b');
+  const [erpData, setErpData] = useState<ErpOverviewPayload | null>(null);
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -137,6 +142,7 @@ export default function HubSpotProCrmApp() {
         seqRes,
         formsRes,
         ticketsRes,
+        erpRes,
       ] = await Promise.all([
         customAiQuestion
           ? fetch('/api/ai-insights', {
@@ -155,6 +161,7 @@ export default function HubSpotProCrmApp() {
         fetch('/api/sequences'),
         fetch('/api/forms'),
         fetch('/api/tickets'),
+        fetch('/api/erp/overview'),
       ]);
 
       if (aiRes.ok) {
@@ -206,6 +213,10 @@ export default function HubSpotProCrmApp() {
         const j = await ticketsRes.json();
         setTickets(j.data || []);
         if (j.kpis) setTicketKpis(j.kpis);
+      }
+      if (erpRes.ok) {
+        const j = await erpRes.json();
+        setErpData(j.data || null);
       }
     } finally {
       setLoadingAll(false);
@@ -316,6 +327,26 @@ export default function HubSpotProCrmApp() {
     });
     if (res.ok) {
       showToast(`Novo negócio "${payload.title}" adicionado ao funil!`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleUpdateDeal = async (dealId: string, patch: Record<string, unknown>) => {
+    const res = await fetch(`/api/deals/${dealId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      showToast('Negócio atualizado com sucesso!');
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleDeleteDeal = async (dealId: string) => {
+    const res = await fetch(`/api/deals/${dealId}`, { method: 'DELETE' });
+    if (res.ok) {
+      showToast('Negócio excluído do funil!');
       await fetchAllCrmData();
     }
   };
@@ -808,39 +839,47 @@ export default function HubSpotProCrmApp() {
     {
       id: 'OVERVIEW_AI',
       label: 'Visão Geral & Copiloto IA',
-      shortLabel: 'Copiloto IA',
+      shortLabel: '📊 Visão Geral & IA',
       icon: Sparkles,
       badge: 'IA',
       badgeTone: 'orange',
     },
     {
       id: 'DEALS_KANBAN',
-      label: 'Funil de Vendas (Kanban)',
-      shortLabel: 'Funil Kanban',
+      label: 'Deals & Seletor de Pipeline',
+      shortLabel: '💼 Deals & Pipelines',
       icon: Kanban,
-      badge: deals.filter((d) => d.status === 'OPEN').length,
+      badge: `${deals.length} • ${pipelines.length} Funis`,
       badgeTone: 'indigo',
     },
     {
-      id: 'CONTACTS_COMPANIES',
-      label: 'Contatos & Empresas',
-      shortLabel: 'Contatos & Contas',
-      icon: Users,
-      badge: contacts.length,
+      id: 'ERP_GESTAOCLICK',
+      label: 'ERP, Propostas & Locação (GC)',
+      shortLabel: '🏢 ERP & Locação (GC)',
+      icon: Receipt,
+      badge: erpData ? `${erpData.rentalContracts.length} Contratos` : 'NOVO',
       badgeTone: 'emerald',
     },
     {
       id: 'SERVICE_DESK',
-      label: 'Service Desk & Chamados (JSM)',
-      shortLabel: 'Service Desk',
+      label: 'Service Management (JSM)',
+      shortLabel: '🎧 Service Management',
       icon: Ticket,
       badge: ticketKpis.openCount,
       badgeTone: ticketKpis.criticalCount > 0 ? 'rose' : 'indigo',
     },
     {
+      id: 'CONTACTS_COMPANIES',
+      label: 'Contatos & Empresas',
+      shortLabel: '👥 Contatos & Contas',
+      icon: Users,
+      badge: contacts.length,
+      badgeTone: 'emerald',
+    },
+    {
       id: 'MARKETING_FORMS',
       label: 'Formulários Web & Migração',
-      shortLabel: 'Forms & HubSpot',
+      shortLabel: '📝 Forms & HubSpot',
       icon: FileCode2,
       badge: webForms.length,
       badgeTone: 'emerald',
@@ -848,7 +887,7 @@ export default function HubSpotProCrmApp() {
     {
       id: 'DATA_HEALTH',
       label: 'Saúde da Base (Data Health)',
-      shortLabel: 'Data Health',
+      shortLabel: '🛡️ Data Health',
       icon: ShieldCheck,
       badge: `${healthSummary?.globalHealthScore ?? 0}%`,
       badgeTone:
@@ -857,7 +896,7 @@ export default function HubSpotProCrmApp() {
     {
       id: 'AUTOMATIONS',
       label: 'Automações & Cadências',
-      shortLabel: 'Automações',
+      shortLabel: '⚡ Automações',
       icon: WorkflowIcon,
       badge: workflows.length + sequences.length,
       badgeTone: 'indigo',
@@ -1099,8 +1138,8 @@ export default function HubSpotProCrmApp() {
             </div>
           </div>
 
-          {/* Mobile / Tablet Horizontal Module Switcher */}
-          <div className="flex xl:hidden items-center gap-1.5 overflow-x-auto pt-3 mt-2 border-t border-slate-100">
+          {/* BARRA DE NAVEGAÇÃO PRINCIPAL 100% VISÍVEL (FLEX-WRAP — SEM CORTAR ABAS NO CELULAR OU DESKTOP) */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-3 mt-2 border-t border-slate-200">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeModule === item.id;
@@ -1109,17 +1148,74 @@ export default function HubSpotProCrmApp() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveModule(item.id)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer border ${
                     isActive
-                      ? 'bg-[#ff7a59] text-white'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-sm'
+                      : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200/80'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   <span>{item.shortLabel}</span>
+                  {item.badge !== undefined && (
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                        isActive ? 'bg-white/25 text-white' : 'bg-white text-slate-700'
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
+          </div>
+
+          {/* BARRA RÁPIDA DE ACESSO DIRETO: SELETOR DE PIPELINE + DEALS + SERVICE MANAGEMENT + ERP GESTÃOCLICK */}
+          <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3.5 py-2 rounded-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-extrabold text-[#ff987f] uppercase tracking-wider">
+                🎯 Seletor de Pipeline (Seta Telecom):
+              </span>
+              <select
+                aria-label="Seletor Global de Pipeline"
+                value={selectedPipelineId}
+                onChange={(e) => {
+                  setSelectedPipelineId(e.target.value);
+                  setActiveModule('DEALS_KANBAN');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-extrabold text-white focus:outline-none focus:border-[#ff7a59] cursor-pointer"
+              >
+                {pipelines.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({deals.filter((d) => d.pipelineId === p.id).length} deals)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActiveModule('DEALS_KANBAN')}
+                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold cursor-pointer transition"
+              >
+                💼 Abrir Deals &amp; Funis
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveModule('SERVICE_DESK')}
+                className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-extrabold cursor-pointer transition"
+              >
+                🎧 Abrir Service Management ({ticketKpis.openCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveModule('ERP_GESTAOCLICK')}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold cursor-pointer transition"
+              >
+                🏢 Abrir ERP, Propostas &amp; Locação (GestãoClick)
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1161,6 +1257,24 @@ export default function HubSpotProCrmApp() {
               onMoveDealStage={handleMoveDealStage}
               onCreateDeal={handleCreateDeal}
               onAddDealNote={handleAddDealNote}
+              selectedPipelineId={selectedPipelineId}
+              onSelectPipeline={(id) => setSelectedPipelineId(id)}
+              onUpdateDeal={handleUpdateDeal}
+              onDeleteDeal={handleDeleteDeal}
+              onNavigateToErp={() => setActiveModule('ERP_GESTAOCLICK')}
+            />
+          )}
+
+          {activeModule === 'ERP_GESTAOCLICK' && (
+            <ErpGestaoClickTab
+              erpData={erpData}
+              companies={companies}
+              contacts={contacts}
+              deals={deals}
+              onRefresh={async () => {
+                await fetchAllCrmData();
+              }}
+              onShowToast={showToast}
             />
           )}
 

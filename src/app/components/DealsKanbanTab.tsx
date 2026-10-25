@@ -68,6 +68,11 @@ interface DealsKanbanTabProps {
     expectedCloseDate?: string | null;
   }) => Promise<void>;
   onAddDealNote: (dealId: string, title: string, body: string) => Promise<void>;
+  selectedPipelineId?: string;
+  onSelectPipeline?: (pipelineId: string) => void;
+  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>) => Promise<void>;
+  onDeleteDeal?: (dealId: string) => Promise<void>;
+  onNavigateToErp?: () => void;
 }
 
 export default function DealsKanbanTab({
@@ -79,9 +84,26 @@ export default function DealsKanbanTab({
   onMoveDealStage,
   onCreateDeal,
   onAddDealNote,
+  selectedPipelineId,
+  onSelectPipeline,
+  onUpdateDeal,
+  onDeleteDeal,
+  onNavigateToErp,
 }: DealsKanbanTabProps) {
-  const activePipeline = pipelines.find((p) => p.isDefault) || pipelines[0];
+  const [localPipelineId, setLocalPipelineId] = useState<string>(
+    selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b'
+  );
+  const currentPipelineId = selectedPipelineId || localPipelineId;
+  const activePipeline =
+    pipelines.find((p) => p.id === currentPipelineId) ||
+    pipelines.find((p) => p.isDefault) ||
+    pipelines[0];
   const stages = (activePipeline?.stages || []).slice().sort((a, b) => a.order - b.order);
+
+  const handleSelectPipe = (pipeId: string) => {
+    setLocalPipelineId(pipeId);
+    if (onSelectPipeline) onSelectPipeline(pipeId);
+  };
 
   const [filterRottingOnly, setFilterRottingOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -159,6 +181,7 @@ export default function DealsKanbanTab({
         title: newTitle.trim(),
         value: Number(newValue) || 0,
         stageId: newStageId || stages[0]?.id || 'stage-discovery',
+        ...(activePipeline ? { pipelineId: activePipeline.id } : {}),
         contactId: newContactId || null,
         companyId: newCompanyId || null,
         expectedCloseDate: newCloseDate ? new Date(newCloseDate).toISOString() : null,
@@ -192,7 +215,10 @@ export default function DealsKanbanTab({
     }
   };
 
-  const filteredDeals = deals.filter((d) => {
+  const pipelineDeals = deals.filter(
+    (d) => !activePipeline || d.pipelineId === activePipeline.id
+  );
+  const filteredDeals = pipelineDeals.filter((d) => {
     if (filterRottingOnly && !d.isRotting) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -208,6 +234,42 @@ export default function DealsKanbanTab({
 
   return (
     <div className="space-y-5">
+      {/* SELETOR DE PIPELINE EM DESTAQUE (3 FUNIS SETA TELECOM) */}
+      <div className="bg-gradient-to-r from-[#1e293b] to-[#0f172a] rounded-2xl p-4 text-white shadow-md border border-slate-800">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#ff987f] block">
+              Seletor de Pipeline • Seta Telecom (HubSpot Portal 4369067)
+            </span>
+            <h3 className="text-sm sm:text-base font-extrabold text-white">
+              Selecione o Funil de Vendas ou Locação Recorrente:
+            </h3>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {pipelines.map((p) => {
+              const isSelected = activePipeline?.id === p.id;
+              const pipeCount = deals.filter((d) => d.pipelineId === p.id).length;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelectPipe(p.id)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer border ${
+                    isSelected
+                      ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-md'
+                      : 'bg-slate-800/90 text-slate-200 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{p.name}</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/25 text-white">
+                    {pipeCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
       {/* PIPELINE SUMMARY & TOOLBAR */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -726,11 +788,26 @@ export default function DealsKanbanTab({
                 </div>
               </div>
 
-              {/* Quick Stage Change inside Drawer */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <label className="block text-xs font-bold uppercase text-slate-600">
-                  Estágio Atual no Pipeline
-                </label>
+              {/* Quick Stage Change & 360 Edit inside Drawer */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase text-slate-600">
+                    Edição 360° do Negócio (Seta Telecom)
+                  </label>
+                  {onNavigateToErp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDeal(null);
+                        onNavigateToErp();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      📄 Abrir no ERP / Gerar Proposta &amp; Locação
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={selectedDeal.stageId}
                   onChange={async (e) => {
@@ -747,6 +824,69 @@ export default function DealsKanbanTab({
                     </option>
                   ))}
                 </select>
+
+                <div className="grid grid-cols-2 gap-2.5 pt-2">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                      Valor Total (R$)
+                    </label>
+                    <input
+                      type="number"
+                      value={selectedDeal.value}
+                      onChange={(e) =>
+                        setSelectedDeal({ ...selectedDeal, value: Number(e.target.value) || 0 })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                      Proprietário Seta Telecom
+                    </label>
+                    <select
+                      value={selectedDeal.ownerName || 'Marcelo Lopes Mira'}
+                      onChange={(e) =>
+                        setSelectedDeal({ ...selectedDeal, ownerName: e.target.value })
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                    >
+                      <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
+                      <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
+                      <option value="Contato Seta Telecom">Contato Seta Telecom</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  {onDeleteDeal && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onDeleteDeal(selectedDeal.id);
+                        setSelectedDeal(null);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                    >
+                      Excluir Negócio
+                    </button>
+                  )}
+                  {onUpdateDeal && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onUpdateDeal(selectedDeal.id, {
+                          title: selectedDeal.title,
+                          value: selectedDeal.value,
+                          ownerName: selectedDeal.ownerName,
+                          stageId: selectedDeal.stageId,
+                        });
+                      }}
+                      className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                    >
+                      Salvar Alterações
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Add Activity / Note */}

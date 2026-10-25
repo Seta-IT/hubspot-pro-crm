@@ -22,7 +22,16 @@ import {
   WebForm,
   Workflow,
   WorkflowExecution,
+  ErpCommercialProposal,
+  ErpRentalContract,
+  ErpFiscalInvoice,
+  ErpCatalogItem,
+  ErpFinancialEntry,
+  ErpDatabaseState,
+  GestaoClickConfig,
 } from './types';
+import { createSeedErpState } from '../modules/erp/erp-seed';
+import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
 import { createInitialSeedState } from './seed';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
@@ -61,7 +70,9 @@ export class CrmRepository {
           ...parsed,
           webForms: Array.isArray(parsed.webForms) && parsed.webForms.length > 0 ? parsed.webForms : seedFallback.webForms,
           formSubmissions: Array.isArray(parsed.formSubmissions) ? parsed.formSubmissions : seedFallback.formSubmissions,
+          pipelines: Array.isArray(parsed.pipelines) && parsed.pipelines.length >= 3 ? parsed.pipelines : seedFallback.pipelines,
           serviceTickets: Array.isArray(parsed.serviceTickets) && parsed.serviceTickets.length > 0 ? parsed.serviceTickets : seedFallback.serviceTickets,
+          erp: parsed.erp && Array.isArray(parsed.erp.proposals) ? parsed.erp : createSeedErpState(),
         };
         return;
       } catch {
@@ -87,6 +98,7 @@ export class CrmRepository {
         webForms: [],
         formSubmissions: [],
         serviceTickets: [],
+        erp: createSeedErpState(),
       };
     }
   }
@@ -122,7 +134,20 @@ export class CrmRepository {
   }
 
   loadState(state: CrmDatabaseState): void {
-    this.state = structuredClone(state);
+    const cloned = structuredClone(state);
+    if (!cloned.erp || !Array.isArray(cloned.erp.proposals)) {
+      cloned.erp = createSeedErpState();
+    }
+    if (!Array.isArray(cloned.pipelines) || cloned.pipelines.length < 3) {
+      const seed = createInitialSeedState();
+      const existingIds = new Set((cloned.pipelines || []).map((p) => p.id));
+      for (const sp of seed.pipelines) {
+        if (!existingIds.has(sp.id)) {
+          cloned.pipelines.push(sp);
+        }
+      }
+    }
+    this.state = cloned;
     this.save();
   }
 
@@ -1120,6 +1145,759 @@ export class CrmRepository {
     this.save();
     return ticket;
   }
+
+  deleteServiceTicket(idOrKey: string): boolean {
+    if (!this.state.serviceTickets) return false;
+    const before = this.state.serviceTickets.length;
+    this.state.serviceTickets = this.state.serviceTickets.filter(
+      (t) => t.id !== idOrKey && t.key.toLowerCase() !== idOrKey.toLowerCase()
+    );
+    if (this.state.serviceTickets.length < before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  // ==========================================================================
+  // DATA HEALTH — REASSIGN INACTIVE / ORPHAN HUBSPOT OWNERS (SETA TELECOM)
+  // ==========================================================================
+  reassignInactiveOwners(targetOwnerName = 'Marcelo Lopes Mira'): {
+    targetOwnerName: string;
+    contactsReassigned: number;
+    companiesReassigned: number;
+    dealsReassigned: number;
+  } {
+    const activeOwners = new Set([
+      'Marcelo Lopes Mira',
+      'Marcéllo Mira',
+      'Evelyn Ternero Seta Telecom',
+      'Contato Seta Telecom',
+    ]);
+    const targetOwnerId = targetOwnerName.toLowerCase().includes('evelyn')
+      ? 'owner-evelyn'
+      : 'owner-marcello';
+
+    let contactsReassigned = 0;
+    let companiesReassigned = 0;
+    let dealsReassigned = 0;
+
+    for (const c of this.state.contacts) {
+      const currentOwner = c.ownerName || (c.customProperties?.ownerName as string) || '';
+      const isInactive =
+        !c.ownerId ||
+        c.ownerId.includes('inativo') ||
+        currentOwner.toLowerCase().includes('inativo') ||
+        (currentOwner && !activeOwners.has(currentOwner));
+      if (isInactive) {
+        c.ownerId = targetOwnerId;
+        c.ownerName = targetOwnerName;
+        c.isUnworked = false;
+        c.customProperties = { ...(c.customProperties || {}), ownerName: targetOwnerName };
+        contactsReassigned++;
+      }
+    }
+
+    for (const comp of this.state.companies) {
+      const currentOwner = comp.ownerName || (comp.customProperties?.accountExecutive as string) || '';
+      if (!currentOwner || currentOwner.toLowerCase().includes('inativo')) {
+        comp.ownerName = targetOwnerName;
+        comp.customProperties = {
+          ...(comp.customProperties || {}),
+          accountExecutive: targetOwnerName,
+        };
+        companiesReassigned++;
+      }
+    }
+
+    for (const d of this.state.deals) {
+      const currentOwner = d.ownerName || '';
+      if (
+        !d.ownerId ||
+        d.ownerId.includes('inativo') ||
+        currentOwner.toLowerCase().includes('inativo')
+      ) {
+        d.ownerId = targetOwnerId;
+        d.ownerName = targetOwnerName;
+        dealsReassigned++;
+      }
+    }
+
+    this.save();
+    return {
+      targetOwnerName,
+      contactsReassigned,
+      companiesReassigned,
+      dealsReassigned,
+    };
+  }
+
+  // ==========================================================================
+  // PHASE 4: ERP BRASIL, PROPOSTAS, CONTRATOS DE LOCAÇÃO & FISCAL (GESTÃOCLICK)
+  // ==========================================================================
+  private ensureErp(): ErpDatabaseState {
+    if (!this.state.erp || !Array.isArray(this.state.erp.proposals)) {
+      this.state.erp = createSeedErpState();
+    }
+    return this.state.erp;
+  }
+
+  getErpState(): ErpDatabaseState {
+    return this.ensureErp();
+  }
+
+  getErpOverview() {
+    const erp = this.ensureErp();
+    const activeContracts = erp.rentalContracts.filter((c) => c.status !== 'ENCERRADO');
+    const monthlyRentalMrr = activeContracts.reduce((s, c) => s + c.monthlyValue, 0);
+    const totalContractedTcv = activeContracts.reduce(
+      (s, c) => s + c.monthlyValue * c.contractMonths,
+      0
+    );
+    const totalRentedEquipments = activeContracts.reduce(
+      (s, c) => s + c.equipments.reduce((acc, eq) => acc + eq.quantity, 0),
+      0
+    );
+
+    const rentalInvoices = erp.invoices.filter((i) => i.documentType === 'FATURA_LOCACAO');
+    const totalRentalBilled = rentalInvoices.reduce((s, i) => s + i.grossAmount, 0);
+    const issSavedBySv31Stf = Math.round(totalRentalBilled * 0.05 * 100) / 100;
+
+    const totalReceivablesOpen = erp.financialEntries
+      .filter((f) => f.type === 'RECEBER' && f.status !== 'PAGO')
+      .reduce((s, f) => s + f.amount, 0);
+    const totalReceivablesPaid = erp.financialEntries
+      .filter((f) => f.type === 'RECEBER' && f.status === 'PAGO')
+      .reduce((s, f) => s + f.amount, 0);
+    const totalPayables = erp.financialEntries
+      .filter((f) => f.type === 'PAGAR')
+      .reduce((s, f) => s + f.amount, 0);
+
+    return {
+      kpis: {
+        monthlyRentalMrr,
+        totalContractedTcv,
+        activeContractsCount: activeContracts.length,
+        totalRentedEquipments,
+        openProposalsCount: erp.proposals.filter(
+          (p) => p.status === 'ENVIADA' || p.status === 'EM_NEGOCIACAO' || p.status === 'APROVADA'
+        ).length,
+        totalInvoicesCount: erp.invoices.length,
+        totalRentalBilled,
+        issSavedBySv31Stf,
+        totalReceivablesOpen,
+        totalReceivablesPaid,
+        totalPayables,
+      },
+      proposals: erp.proposals,
+      rentalContracts: erp.rentalContracts,
+      invoices: erp.invoices,
+      catalog: erp.catalog,
+      financialEntries: erp.financialEntries,
+      gestaoClickConfig: erp.gestaoClickConfig,
+    };
+  }
+
+  listProposals(): ErpCommercialProposal[] {
+    return [...this.ensureErp().proposals];
+  }
+
+  createProposal(input: Partial<ErpCommercialProposal> & { title: string }): ErpCommercialProposal {
+    const erp = this.ensureErp();
+    const now = new Date().toISOString();
+    const nextNum = erp.proposals.length + 1;
+    const code = input.code || `PROP-2026-00${nextNum}`;
+
+    const company = input.companyId ? this.getCompanyById(input.companyId) : undefined;
+    const contact = input.contactId ? this.getContactById(input.contactId) : undefined;
+
+    const items =
+      Array.isArray(input.items) && input.items.length > 0
+        ? input.items
+        : [
+            {
+              id: `pi-${Date.now()}-1`,
+              sku: 'GC-EQ-00101',
+              description: 'Locação Central PABX IP Seta Cloud Appliance High-Availability',
+              fiscalNature: 'LOCACAO_BENS_MOVEIS' as const,
+              ncmOrServiceCode: 'NCM 8517.62.14',
+              quantity: 1,
+              unitPrice: Number(input.monthlyRecurringTotal || 3500),
+              discountPercent: 0,
+              isRecurring: true,
+              totalMonthly: Number(input.monthlyRecurringTotal || 3500),
+            },
+          ];
+
+    const contractMonths = Number(input.contractMonths || 24);
+    const monthlyRecurringTotal =
+      input.monthlyRecurringTotal !== undefined
+        ? Number(input.monthlyRecurringTotal)
+        : items
+            .filter((i) => i.isRecurring)
+            .reduce((s, i) => s + Number(i.totalMonthly || i.quantity * i.unitPrice), 0);
+    const oneTimeSetupTotal =
+      input.oneTimeSetupTotal !== undefined
+        ? Number(input.oneTimeSetupTotal)
+        : items
+            .filter((i) => !i.isRecurring)
+            .reduce((s, i) => s + Number(i.totalMonthly || i.quantity * i.unitPrice), 0);
+    const totalContractValue = monthlyRecurringTotal * contractMonths + oneTimeSetupTotal;
+
+    const proposal: ErpCommercialProposal = {
+      id: input.id || `prop-${Date.now()}`,
+      code,
+      title: input.title.trim(),
+      companyId: input.companyId || company?.id || null,
+      companyName: input.companyName || company?.name || 'Empresa Cliente B2B',
+      companyCnpj: input.companyCnpj || company?.cnpj || '18.236.120/0001-58',
+      contactId: input.contactId || contact?.id || null,
+      contactName:
+        input.contactName ||
+        (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
+      dealId: input.dealId || null,
+      sellerName: input.sellerName || 'Marcelo Lopes Mira',
+      status: input.status || 'ENVIADA',
+      contractMonths,
+      paymentCondition: input.paymentCondition || 'Boleto / PIX Corporativo — Vencimento dia 10',
+      validUntil: input.validUntil || new Date(Date.now() + 15 * 86400000).toISOString(),
+      items,
+      monthlyRecurringTotal,
+      oneTimeSetupTotal,
+      totalContractValue,
+      commercialNotes:
+        input.commercialNotes ||
+        'Locação pura de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+      technicalClauses:
+        input.technicalClauses ||
+        `SLA 99,95% Seta Telecom com substituição expressa de hardware. Vigência contratual de ${contractMonths} meses.`,
+      convertedContractId: null,
+      convertedInvoiceId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    erp.proposals.unshift(proposal);
+    this.save();
+    return proposal;
+  }
+
+  approveProposalAndConvertToContract(proposalId: string): {
+    proposal: ErpCommercialProposal;
+    contract: ErpRentalContract;
+    invoice: ErpFiscalInvoice;
+  } | null {
+    const erp = this.ensureErp();
+    const proposal = erp.proposals.find((p) => p.id === proposalId || p.code === proposalId);
+    if (!proposal) return null;
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const competence = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+    const contractNumber = `LOC-${now.getFullYear()}-${100 + erp.rentalContracts.length + 1}`;
+    const remessaNfeNumber = `000.419.${100 + erp.invoices.length + 1}`;
+
+    const equipments = proposal.items.map((item, idx) => ({
+      id: `eq-${Date.now()}-${idx + 1}`,
+      skuGestaoClick: item.sku || `GC-EQ-00${idx + 1}`,
+      description: item.description,
+      serialNumber: `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      ncm: item.ncmOrServiceCode.replace('NCM ', '') || '8517.62.14',
+      quantity: item.quantity,
+      unitMonthlyRent: item.unitPrice,
+      assetValueBrl: item.unitPrice * 6 * item.quantity,
+      remessaCfop: '5.908' as const,
+      remessaNfeKey: `3526101845678900019055001000419${100 + idx}1000419991`,
+    }));
+
+    const contract: ErpRentalContract = {
+      id: `ctr-${Date.now()}`,
+      contractNumber,
+      title: `Contrato de Locação — ${proposal.companyName} (${proposal.code})`,
+      companyId: proposal.companyId,
+      companyName: proposal.companyName,
+      companyCnpj: proposal.companyCnpj,
+      contactId: proposal.contactId,
+      dealId: proposal.dealId,
+      proposalId: proposal.id,
+      monthlyValue: proposal.monthlyRecurringTotal,
+      dueDay: 10,
+      startDate: nowIso.slice(0, 10),
+      endDate: new Date(
+        now.getTime() + proposal.contractMonths * 30 * 24 * 60 * 60 * 1000
+      )
+        .toISOString()
+        .slice(0, 10),
+      contractMonths: proposal.contractMonths,
+      readjustmentIndex: 'IPCA',
+      status: 'ATIVO',
+      equipments,
+      remessaNfeNumber,
+      remessaCfop: '5.908',
+      legalBasisNote:
+        'Locação pura de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
+      lastBilledCompetence: competence,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    erp.rentalContracts.unshift(contract);
+
+    const invoice = this.generateMonthlyRentalInvoice(contract.id, competence)!;
+
+    proposal.status = 'CONVERTIDA_CONTRATO';
+    proposal.convertedContractId = contract.id;
+    proposal.convertedInvoiceId = invoice.id;
+    proposal.updatedAt = nowIso;
+
+    if (proposal.dealId) {
+      this.updateDeal(proposal.dealId, {
+        status: 'WON',
+        wonReason: `Proposta ${proposal.code} aprovada e convertida no Contrato ${contract.contractNumber}`,
+      });
+    }
+
+    this.save();
+    return { proposal, contract, invoice };
+  }
+
+  listRentalContracts(): ErpRentalContract[] {
+    return [...this.ensureErp().rentalContracts];
+  }
+
+  createRentalContract(
+    input: Partial<ErpRentalContract> & { title: string; companyName: string; monthlyValue: number }
+  ): ErpRentalContract {
+    const erp = this.ensureErp();
+    const nowIso = new Date().toISOString();
+    const contractNumber =
+      input.contractNumber || `LOC-2026-${100 + erp.rentalContracts.length + 1}`;
+    const contractMonths = Number(input.contractMonths || 24);
+
+    const contract: ErpRentalContract = {
+      id: input.id || `ctr-${Date.now()}`,
+      contractNumber,
+      title: input.title.trim(),
+      companyId: input.companyId || null,
+      companyName: input.companyName,
+      companyCnpj: input.companyCnpj || '18.236.120/0001-58',
+      contactId: input.contactId || null,
+      dealId: input.dealId || null,
+      proposalId: input.proposalId || null,
+      monthlyValue: Number(input.monthlyValue || 0),
+      dueDay: Number(input.dueDay || 10),
+      startDate: input.startDate || nowIso.slice(0, 10),
+      endDate:
+        input.endDate ||
+        new Date(Date.now() + contractMonths * 30 * 86400000).toISOString().slice(0, 10),
+      contractMonths,
+      readjustmentIndex: input.readjustmentIndex || 'IPCA',
+      status: input.status || 'ATIVO',
+      equipments:
+        input.equipments && input.equipments.length > 0
+          ? input.equipments
+          : [
+              {
+                id: `eq-${Date.now()}`,
+                skuGestaoClick: 'GC-EQ-00101',
+                description: 'Equipamento Telecom em Locação Seta Telecom',
+                serialNumber: `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+                ncm: '8517.62.14',
+                quantity: 1,
+                unitMonthlyRent: Number(input.monthlyValue || 0),
+                assetValueBrl: Number(input.monthlyValue || 0) * 6,
+                remessaCfop: input.remessaCfop || '5.908',
+                remessaNfeKey: '35261018456789000190550010004200011000420009',
+              },
+            ],
+      remessaNfeNumber: input.remessaNfeNumber || `000.420.${erp.rentalContracts.length + 1}`,
+      remessaCfop: input.remessaCfop || '5.908',
+      legalBasisNote:
+        input.legalBasisNote ||
+        'Locação de Bens Móveis pura (Não incidência de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+      lastBilledCompetence: input.lastBilledCompetence || null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    erp.rentalContracts.unshift(contract);
+    this.save();
+    return contract;
+  }
+
+  generateMonthlyRentalInvoice(
+    contractId: string,
+    competenceMonth?: string
+  ): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const contract = erp.rentalContracts.find(
+      (c) => c.id === contractId || c.contractNumber === contractId
+    );
+    if (!contract) return null;
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const comp =
+      competenceMonth ||
+      `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+    const taxBreakdown = calculateBrazilianTaxBreakdown({
+      grossAmount: contract.monthlyValue,
+      discountAmount: 0,
+      documentType: 'FATURA_LOCACAO',
+      taxRegime: erp.gestaoClickConfig.taxRegime,
+    });
+
+    const seqNum = String(erp.invoices.length + 1).padStart(4, '0');
+    const docNum = `FAT-LOC-2026-${seqNum}`;
+    const dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+
+    const invoice: ErpFiscalInvoice = {
+      id: `inv-loc-${Date.now()}`,
+      documentNumber: docNum,
+      documentType: 'FATURA_LOCACAO',
+      competenceMonth: comp,
+      companyId: contract.companyId,
+      companyName: contract.companyName,
+      companyCnpj: contract.companyCnpj,
+      companyAddress: 'Endereço Comercial Cadastrado — São Paulo/SP',
+      rentalContractId: contract.id,
+      proposalId: contract.proposalId,
+      dealId: contract.dealId,
+      grossAmount: contract.monthlyValue,
+      discountAmount: 0,
+      netAmount: taxBreakdown.netReceivableAmount,
+      status: 'EMITIDA',
+      issueDate: nowIso.slice(0, 10),
+      dueDate,
+      paidAt: null,
+      paymentMethod: 'BOLETO_PIX',
+      serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+      cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${contract.remessaCfop} nº ${contract.remessaNfeNumber})`,
+      cstIcms: '41 - Não Tributada',
+      cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+      verificationCodeOrKey: `AUTH-SETA-LOC-${Date.now().toString(36).toUpperCase()}`,
+      pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${contract.monthlyValue.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO62190515${docNum.replace(/[^A-Z0-9]/g, '')}630499AF`,
+      boletoDigitableLine: `34191.79001 01043.510047 91020.150008 7 9890${String(Math.round(contract.monthlyValue * 100)).padStart(10, '0')}`,
+      itemsDescription: contract.equipments.map((eq) => ({
+        description: `Locação Mensal: ${eq.description} (Contrato ${contract.contractNumber})`,
+        serialNumber: eq.serialNumber,
+        quantity: eq.quantity,
+        unitValue: eq.unitMonthlyRent,
+        totalValue: eq.quantity * eq.unitMonthlyRent,
+      })),
+      taxBreakdown,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    erp.invoices.unshift(invoice);
+    contract.lastBilledCompetence = comp;
+    contract.updatedAt = nowIso;
+
+    erp.financialEntries.unshift({
+      id: `fin-${Date.now()}`,
+      type: 'RECEBER',
+      category: 'LOCACAO_EQUIPAMENTOS',
+      description: `Fatura de Locação ${docNum} — ${contract.companyName} (Comp. ${comp})`,
+      companyName: contract.companyName,
+      costCenter: 'CC-101 • Receita Recorrente de Locação (MRR)',
+      amount: invoice.netAmount,
+      dueDate,
+      paidAt: null,
+      status: 'ABERTO',
+      invoiceId: invoice.id,
+      paymentMethod: 'Boleto Híbrido PIX',
+    });
+
+    this.save();
+    return invoice;
+  }
+
+  generateRemessaNfe(contractId: string): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const contract = erp.rentalContracts.find(
+      (c) => c.id === contractId || c.contractNumber === contractId
+    );
+    if (!contract) return null;
+
+    const nowIso = new Date().toISOString();
+    const totalAssetValue = contract.equipments.reduce((s, e) => s + e.assetValueBrl, 0);
+    const taxBreakdown = calculateBrazilianTaxBreakdown({
+      grossAmount: totalAssetValue,
+      discountAmount: 0,
+      documentType: 'NFE_REMESSA_LOCACAO',
+      taxRegime: erp.gestaoClickConfig.taxRegime,
+    });
+
+    const docNum = `NFE-REM-000${415 + erp.invoices.length}`;
+    const nfe: ErpFiscalInvoice = {
+      id: `inv-rem-${Date.now()}`,
+      documentNumber: docNum,
+      documentType: 'NFE_REMESSA_LOCACAO',
+      competenceMonth: nowIso.slice(5, 7) + '/' + nowIso.slice(0, 4),
+      companyId: contract.companyId,
+      companyName: contract.companyName,
+      companyCnpj: contract.companyCnpj,
+      companyAddress: 'Endereço de Instalação do Cliente',
+      rentalContractId: contract.id,
+      proposalId: contract.proposalId,
+      dealId: contract.dealId,
+      grossAmount: totalAssetValue,
+      discountAmount: 0,
+      netAmount: totalAssetValue,
+      status: 'PAGA',
+      issueDate: nowIso.slice(0, 10),
+      dueDate: nowIso.slice(0, 10),
+      paidAt: nowIso.slice(0, 10),
+      paymentMethod: 'TED_BANCARIA',
+      serviceCodeLc116: null,
+      cfop: `${contract.remessaCfop} — Remessa de bem por conta de contrato de locação`,
+      cstIcms: '041 - Não tributada (Art. 7º, IX do RICMS)',
+      cstPisCofins: '08 - Operação sem incidência da contribuição',
+      verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 ${415 + erp.invoices.length} 9010 0041 2895`,
+      pixCopyPaste: 'DOCUMENTO FISCAL DE REMESSA DE LOCAÇÃO — SEM COBRANÇA FINANCEIRA',
+      boletoDigitableLine: 'SEM FATURA FINANCEIRA (CFOP ' + contract.remessaCfop + ')',
+      itemsDescription: contract.equipments.map((eq) => ({
+        description: `Remessa em Locação (${contract.contractNumber}): ${eq.description}`,
+        serialNumber: eq.serialNumber,
+        quantity: eq.quantity,
+        unitValue: Math.round(eq.assetValueBrl / Math.max(1, eq.quantity)),
+        totalValue: eq.assetValueBrl,
+      })),
+      taxBreakdown,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    erp.invoices.unshift(nfe);
+    this.save();
+    return nfe;
+  }
+
+  listInvoices(): ErpFiscalInvoice[] {
+    return [...this.ensureErp().invoices];
+  }
+
+  createInvoice(
+    input: Partial<ErpFiscalInvoice> & {
+      companyName: string;
+      grossAmount: number;
+      documentType: ErpFiscalInvoice['documentType'];
+    }
+  ): ErpFiscalInvoice {
+    const erp = this.ensureErp();
+    const nowIso = new Date().toISOString();
+    const grossAmount = Number(input.grossAmount || 0);
+    const discountAmount = Number(input.discountAmount || 0);
+
+    const taxBreakdown = calculateBrazilianTaxBreakdown({
+      grossAmount,
+      discountAmount,
+      documentType: input.documentType,
+      taxRegime: erp.gestaoClickConfig.taxRegime,
+      issRatePercent: erp.gestaoClickConfig.defaultIssRatePercent,
+    });
+
+    const prefix =
+      input.documentType === 'FATURA_LOCACAO'
+        ? 'FAT-LOC-2026-'
+        : input.documentType === 'NFSE_SERVICO'
+          ? 'NFSE-2026-'
+          : input.documentType === 'NFCOM_TELECOM'
+            ? 'NFCOM-2026-'
+            : 'NFE-REM-';
+    const docNum =
+      input.documentNumber || `${prefix}${String(erp.invoices.length + 1).padStart(4, '0')}`;
+    const dueDate =
+      input.dueDate || new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+
+    const invoice: ErpFiscalInvoice = {
+      id: input.id || `inv-${Date.now()}`,
+      documentNumber: docNum,
+      documentType: input.documentType,
+      competenceMonth: input.competenceMonth || '10/2026',
+      companyId: input.companyId || null,
+      companyName: input.companyName,
+      companyCnpj: input.companyCnpj || '18.236.120/0001-58',
+      companyAddress: input.companyAddress || 'São Paulo/SP',
+      rentalContractId: input.rentalContractId || null,
+      proposalId: input.proposalId || null,
+      dealId: input.dealId || null,
+      grossAmount,
+      discountAmount,
+      netAmount: taxBreakdown.netReceivableAmount,
+      status: input.status || 'EMITIDA',
+      issueDate: input.issueDate || nowIso.slice(0, 10),
+      dueDate,
+      paidAt: input.paidAt || null,
+      paymentMethod: input.paymentMethod || 'BOLETO_PIX',
+      serviceCodeLc116:
+        input.documentType === 'FATURA_LOCACAO'
+          ? 'N/A — Locação de Bens Móveis (LC 116/03 + SV 31 STF)'
+          : input.documentType === 'NFSE_SERVICO'
+            ? '01.07 — Suporte técnico em informática, instalação e manutenção'
+            : null,
+      cfop:
+        input.documentType === 'NFE_REMESSA_LOCACAO'
+          ? '5.908'
+          : input.documentType === 'NFCOM_TELECOM'
+            ? '5.303'
+            : 'N/A',
+      cstIcms: '41 - Não Tributada',
+      cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+      verificationCodeOrKey: `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
+      pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304B8C1`,
+      boletoDigitableLine: `34191.79001 01043.510047 91020.150008 1 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
+      itemsDescription:
+        input.itemsDescription && input.itemsDescription.length > 0
+          ? input.itemsDescription
+          : [
+              {
+                description:
+                  input.documentType === 'FATURA_LOCACAO'
+                    ? 'Locação Mensal de Equipamentos Telecom / TI (Súmula Vinculante 31 STF)'
+                    : 'Prestação de Serviços Técnicos Especializados Telecom / NOC',
+                quantity: 1,
+                unitValue: grossAmount,
+                totalValue: grossAmount,
+              },
+            ],
+      taxBreakdown,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    erp.invoices.unshift(invoice);
+
+    if (input.documentType !== 'NFE_REMESSA_LOCACAO') {
+      erp.financialEntries.unshift({
+        id: `fin-${Date.now()}`,
+        type: 'RECEBER',
+        category:
+          input.documentType === 'FATURA_LOCACAO'
+            ? 'LOCACAO_EQUIPAMENTOS'
+            : 'SERVICOS_TI_TELECOM',
+        description: `${docNum} — ${invoice.companyName}`,
+        companyName: invoice.companyName,
+        costCenter:
+          input.documentType === 'FATURA_LOCACAO'
+            ? 'CC-101 • Receita Recorrente de Locação (MRR)'
+            : 'CC-102 • Serviços Técnicos & NOC',
+        amount: invoice.netAmount,
+        dueDate,
+        paidAt: null,
+        status: 'ABERTO',
+        invoiceId: invoice.id,
+        paymentMethod: 'Boleto / PIX',
+      });
+    }
+
+    this.save();
+    return invoice;
+  }
+
+  markInvoicePaid(id: string): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const inv = erp.invoices.find((i) => i.id === id || i.documentNumber === id);
+    if (!inv) return null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    inv.status = 'PAGA';
+    inv.paidAt = today;
+    inv.updatedAt = new Date().toISOString();
+
+    for (const entry of erp.financialEntries) {
+      if (entry.invoiceId === inv.id) {
+        entry.status = 'PAGO';
+        entry.paidAt = today;
+      }
+    }
+
+    this.save();
+    return inv;
+  }
+
+  listCatalog(): ErpCatalogItem[] {
+    return [...this.ensureErp().catalog];
+  }
+
+  createCatalogItem(input: Partial<ErpCatalogItem> & { name: string }): ErpCatalogItem {
+    const erp = this.ensureErp();
+    const item: ErpCatalogItem = {
+      id: input.id || `cat-${Date.now()}`,
+      gestaoClickCode: input.gestaoClickCode || `GC-EQ-00${erp.catalog.length + 105}`,
+      name: input.name.trim(),
+      category: input.category || 'EQUIPAMENTO_LOCACAO',
+      fiscalNature: input.fiscalNature || 'LOCACAO_BENS_MOVEIS',
+      ncmOrLc116: input.ncmOrLc116 || 'NCM 8517.62.14 (Não Incidência ISS - SV 31 STF)',
+      cfopDefault: input.cfopDefault || '5.908',
+      stockAvailable: Number(input.stockAvailable ?? 10),
+      stockRentedInClients: Number(input.stockRentedInClients ?? 0),
+      monthlyRentalPrice: Number(input.monthlyRentalPrice ?? 1500),
+      saleOrSetupPrice: Number(input.saleOrSetupPrice ?? 8500),
+      isActive: true,
+    };
+    erp.catalog.unshift(item);
+    this.save();
+    return item;
+  }
+
+  listFinancialEntries(): ErpFinancialEntry[] {
+    return [...this.ensureErp().financialEntries];
+  }
+
+  markFinancialEntryPaid(id: string): ErpFinancialEntry | null {
+    const erp = this.ensureErp();
+    const entry = erp.financialEntries.find((f) => f.id === id);
+    if (!entry) return null;
+    entry.status = 'PAGO';
+    entry.paidAt = new Date().toISOString().slice(0, 10);
+    if (entry.invoiceId) {
+      const inv = erp.invoices.find((i) => i.id === entry.invoiceId);
+      if (inv) {
+        inv.status = 'PAGA';
+        inv.paidAt = entry.paidAt;
+      }
+    }
+    this.save();
+    return entry;
+  }
+
+  syncGestaoClick(): GestaoClickConfig {
+    const erp = this.ensureErp();
+    const nowIso = new Date().toISOString();
+    const totalSynced =
+      erp.catalog.length +
+      erp.proposals.length +
+      erp.rentalContracts.length +
+      erp.invoices.length;
+
+    erp.gestaoClickConfig.lastSyncAt = nowIso;
+    erp.gestaoClickConfig.connected = true;
+    erp.gestaoClickConfig.syncHistory.unshift({
+      id: `sync-gc-${Date.now()}`,
+      timestamp: nowIso,
+      status: 'SUCCESS',
+      summary: `Sincronização GestãoClick concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
+      recordsSynced: totalSynced,
+    });
+
+    this.save();
+    return erp.gestaoClickConfig;
+  }
+
+  updateGestaoClickConfig(patch: Partial<GestaoClickConfig>): GestaoClickConfig {
+    const erp = this.ensureErp();
+    erp.gestaoClickConfig = {
+      ...erp.gestaoClickConfig,
+      ...patch,
+    };
+    this.save();
+    return erp.gestaoClickConfig;
+  }
+
 }
 
 let singletonRepo: CrmRepository | null = null;

@@ -1207,6 +1207,14 @@ export class CrmApiRouter {
           }
           return { status: 200, body: { data: updated } };
         }
+
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteServiceTicket(idOrKey);
+          if (!deleted) {
+            return { status: 404, body: { error: 'Chamado não encontrado.' } };
+          }
+          return { status: 200, body: { success: true, deletedId: idOrKey } };
+        }
       }
 
       // ======================================================================
@@ -1511,6 +1519,160 @@ export class CrmApiRouter {
             },
           },
         };
+      }
+
+
+      if (cleanPath === '/api/data-health/reassign-orphans' && method === 'POST') {
+        const targetOwnerName = body.targetOwnerName
+          ? String(body.targetOwnerName)
+          : 'Marcelo Lopes Mira';
+        const result = this.repo.reassignInactiveOwners(targetOwnerName);
+        return { status: 200, body: { data: result } };
+      }
+
+      // ======================================================================
+      // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
+      // ======================================================================
+      if (cleanPath === '/api/erp/overview' && method === 'GET') {
+        return { status: 200, body: { data: this.repo.getErpOverview() } };
+      }
+
+      if (cleanPath === '/api/erp/proposals') {
+        if (method === 'GET') {
+          const list = this.repo.listProposals();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.title) {
+            return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
+          }
+          const created = this.repo.createProposal(
+            body as { title: string; [k: string]: unknown }
+          );
+          return { status: 201, body: { data: created } };
+        }
+      }
+
+      const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
+      if (approvePropMatch && method === 'POST') {
+        const res = this.repo.approveProposalAndConvertToContract(approvePropMatch[1]);
+        if (!res) {
+          return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
+        return { status: 200, body: { data: res } };
+      }
+
+      if (cleanPath === '/api/erp/rental-contracts') {
+        if (method === 'GET') {
+          const list = this.repo.listRentalContracts();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.title || !body.companyName) {
+            return {
+              status: 400,
+              body: { error: 'Os campos "title" e "companyName" são obrigatórios.' },
+            };
+          }
+          const created = this.repo.createRentalContract(
+            body as { title: string; companyName: string; monthlyValue: number }
+          );
+          return { status: 201, body: { data: created } };
+        }
+      }
+
+      const genInvoiceMatch = cleanPath.match(
+        /^\/api\/erp\/rental-contracts\/([^/]+)\/generate-invoice$/
+      );
+      if (genInvoiceMatch && method === 'POST') {
+        const inv = this.repo.generateMonthlyRentalInvoice(
+          genInvoiceMatch[1],
+          body.competenceMonth ? String(body.competenceMonth) : undefined
+        );
+        if (!inv) {
+          return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+        }
+        return { status: 201, body: { data: inv } };
+      }
+
+      const genRemessaMatch = cleanPath.match(
+        /^\/api\/erp\/rental-contracts\/([^/]+)\/generate-remessa$/
+      );
+      if (genRemessaMatch && method === 'POST') {
+        const nfe = this.repo.generateRemessaNfe(genRemessaMatch[1]);
+        if (!nfe) {
+          return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+        }
+        return { status: 201, body: { data: nfe } };
+      }
+
+      if (cleanPath === '/api/erp/invoices') {
+        if (method === 'GET') {
+          const list = this.repo.listInvoices();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.companyName || body.grossAmount === undefined) {
+            return {
+              status: 400,
+              body: { error: 'Os campos "companyName" e "grossAmount" são obrigatórios.' },
+            };
+          }
+          const created = this.repo.createInvoice({
+            ...(body as Record<string, unknown>),
+            companyName: String(body.companyName),
+            grossAmount: Number(body.grossAmount),
+            documentType: (body.documentType as 'FATURA_LOCACAO') || 'FATURA_LOCACAO',
+          });
+          return { status: 201, body: { data: created } };
+        }
+      }
+
+      const payInvoiceMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/pay$/);
+      if (payInvoiceMatch && method === 'POST') {
+        const paid = this.repo.markInvoicePaid(payInvoiceMatch[1]);
+        if (!paid) {
+          return { status: 404, body: { error: 'Fatura ou nota fiscal não encontrada.' } };
+        }
+        return { status: 200, body: { data: paid } };
+      }
+
+      if (cleanPath === '/api/erp/catalog') {
+        if (method === 'GET') {
+          const list = this.repo.listCatalog();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.name) {
+            return { status: 400, body: { error: 'O campo "name" do equipamento/serviço é obrigatório.' } };
+          }
+          const item = this.repo.createCatalogItem(body as { name: string });
+          return { status: 201, body: { data: item } };
+        }
+      }
+
+      if (cleanPath === '/api/erp/financial' && method === 'GET') {
+        const list = this.repo.listFinancialEntries();
+        return { status: 200, body: { data: list, total: list.length } };
+      }
+
+      const payFinMatch = cleanPath.match(/^\/api\/erp\/financial\/([^/]+)\/pay$/);
+      if (payFinMatch && method === 'POST') {
+        const paid = this.repo.markFinancialEntryPaid(payFinMatch[1]);
+        if (!paid) {
+          return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
+        }
+        return { status: 200, body: { data: paid } };
+      }
+
+      if (cleanPath === '/api/erp/gestaoclick/sync' && method === 'POST') {
+        const cfg = this.repo.syncGestaoClick();
+        return { status: 200, body: { data: cfg } };
+      }
+
+      if (cleanPath === '/api/erp/gestaoclick/config' && (method === 'PATCH' || method === 'POST')) {
+        const cfg = this.repo.updateGestaoClickConfig(body);
+        return { status: 200, body: { data: cfg } };
       }
 
       // ======================================================================

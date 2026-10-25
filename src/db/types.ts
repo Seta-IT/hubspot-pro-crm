@@ -1,5 +1,5 @@
 // ============================================================================
-// HubSpot Pro CRM - Core Domain Types & Contracts
+// HubSpot Pro CRM - Core Domain Types & Contracts (Seta Telecom + ERP Brasil)
 // ============================================================================
 
 export type LifecycleStage =
@@ -23,6 +23,18 @@ export type LeadStatus =
   | 'BAD_TIMING';
 
 export type DealStatus = 'OPEN' | 'WON' | 'LOST';
+
+export type DealPriority = 'ALTA' | 'MEDIA' | 'BAIXA';
+
+export type DealBusinessType = 'NEW_BUSINESS' | 'LOCACAO_RECORRENTE' | 'UPSELL_RENOVACAO';
+
+export type BuyingRoleType =
+  | 'DECISOR'
+  | 'COMPRADOR_ECONOMICO'
+  | 'INFLUENCIADOR_TECNICO'
+  | 'CAMPEAO'
+  | 'BLOQUEADOR'
+  | 'OPERACIONAL';
 
 export type ActivityType =
   | 'NOTE'
@@ -112,6 +124,10 @@ export interface Contact {
   isCorporateEmail?: boolean;
   isValidPhone: boolean;
   ownerId: string | null;
+  ownerName?: string;
+  hubspotOwnerId?: string;
+  buyingRole?: BuyingRoleType | null;
+  isUnworked?: boolean;
   companyId: string | null;
   enrichedAt: string | null;
   enrichmentSource: string | null;
@@ -134,6 +150,10 @@ export interface Company {
   state: string | null;
   country: string | null;
   completenessScore: number;
+  isTargetAccount?: boolean;
+  icpTier?: 'TIER_1' | 'TIER_2' | 'TIER_3' | null;
+  ownerName?: string;
+  hubspotOwnerId?: string;
   enrichedAt: string | null;
   enrichmentSource: string | null;
   customProperties: Record<string, unknown>;
@@ -168,6 +188,11 @@ export interface Deal {
   title: string;
   value: number;
   currency: string;
+  mrr?: number;
+  contractMonths?: number;
+  tcv?: number;
+  priority?: DealPriority;
+  dealType?: DealBusinessType;
   pipelineId: string;
   stageId: string;
   probability: number;
@@ -175,11 +200,13 @@ export interface Deal {
   contactId: string | null;
   companyId: string | null;
   ownerId: string | null;
+  ownerName?: string;
   status: DealStatus;
   stageEnteredAt: string;
   lastActivityAt: string | null;
   closedAt: string | null;
   lostReason: string | null;
+  wonReason?: string | null;
   nextBestAction: NextBestAction | null;
   customProperties: Record<string, unknown>;
   createdAt: string;
@@ -350,7 +377,6 @@ export interface DataHealthIssue {
   resolvedAt?: string | null;
 }
 
-
 // ============================================================================
 // Phase 3: Marketing Hub (Web Forms) & Service Hub (Jira-style Service Desk)
 // ============================================================================
@@ -429,6 +455,7 @@ export interface ServiceTicket {
   companyId: string | null;
   dealId: string | null;
   assignee: string;
+  resolution?: string | null;
   slaFirstResponseDueAt: string;
   slaResolutionDueAt: string;
   firstRespondedAt: string | null;
@@ -439,6 +466,246 @@ export interface ServiceTicket {
   comments: TicketComment[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ============================================================================
+// Phase 4: ERP Brasil, Propostas Comerciais, Contratos de Locação & Fiscal
+// (Padrão GestãoClick + Legislação Tributária Brasileira LC 116/03 + STF SV 31)
+// ============================================================================
+
+export type ErpFiscalNature =
+  | 'LOCACAO_BENS_MOVEIS'
+  | 'SERVICO_TECNICO_TI_TELECOM'
+  | 'SERVICO_COMUNICACAO_SCM_SVA'
+  | 'VENDA_EQUIPAMENTO';
+
+export type ErpTaxRegime = 'LUCRO_PRESUMIDO' | 'LUCRO_REAL' | 'SIMPLES_NACIONAL';
+
+export type ErpProposalStatus =
+  | 'RASCUNHO'
+  | 'ENVIADA'
+  | 'EM_NEGOCIACAO'
+  | 'APROVADA'
+  | 'CONVERTIDA_CONTRATO'
+  | 'RECUSADA';
+
+export interface ErpProposalItem {
+  id: string;
+  sku: string;
+  description: string;
+  fiscalNature: ErpFiscalNature;
+  ncmOrServiceCode: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  isRecurring: boolean;
+  totalMonthly: number;
+}
+
+export interface ErpCommercialProposal {
+  id: string;
+  code: string;
+  title: string;
+  companyId: string | null;
+  companyName: string;
+  companyCnpj: string;
+  contactId: string | null;
+  contactName: string;
+  dealId: string | null;
+  sellerName: string;
+  status: ErpProposalStatus;
+  contractMonths: number;
+  paymentCondition: string;
+  validUntil: string;
+  items: ErpProposalItem[];
+  monthlyRecurringTotal: number;
+  oneTimeSetupTotal: number;
+  totalContractValue: number;
+  commercialNotes: string;
+  technicalClauses: string;
+  convertedContractId?: string | null;
+  convertedInvoiceId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ErpRentalEquipmentItem {
+  id: string;
+  skuGestaoClick: string;
+  description: string;
+  serialNumber: string;
+  ncm: string;
+  quantity: number;
+  unitMonthlyRent: number;
+  assetValueBrl: number;
+  remessaCfop: '5.908' | '6.908';
+  remessaNfeKey: string;
+}
+
+export type ErpRentalContractStatus =
+  | 'ATIVO'
+  | 'EM_IMPLANTACAO'
+  | 'RENOVACAO_PROXIMA'
+  | 'ENCERRADO';
+
+export interface ErpRentalContract {
+  id: string;
+  contractNumber: string;
+  title: string;
+  companyId: string | null;
+  companyName: string;
+  companyCnpj: string;
+  contactId: string | null;
+  dealId: string | null;
+  proposalId: string | null;
+  monthlyValue: number;
+  dueDay: number;
+  startDate: string;
+  endDate: string;
+  contractMonths: number;
+  readjustmentIndex: 'IGP-M' | 'IPCA' | 'FIXO';
+  status: ErpRentalContractStatus;
+  equipments: ErpRentalEquipmentItem[];
+  remessaNfeNumber: string;
+  remessaCfop: '5.908' | '6.908';
+  legalBasisNote: string;
+  lastBilledCompetence: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ErpFiscalDocumentType =
+  | 'FATURA_LOCACAO'
+  | 'NFSE_SERVICO'
+  | 'NFE_REMESSA_LOCACAO'
+  | 'NFCOM_TELECOM';
+
+export interface ErpTaxBreakdown {
+  taxRegime: ErpTaxRegime;
+  issRatePercent: number;
+  issAmount: number;
+  issWithheld: boolean;
+  pisRatePercent: number;
+  pisAmount: number;
+  cofinsRatePercent: number;
+  cofinsAmount: number;
+  irpjEstimatedAmount: number;
+  csllEstimatedAmount: number;
+  irrfWithheldRatePercent: number;
+  irrfWithheldAmount: number;
+  csrfWithheldRatePercent: number;
+  csrfWithheldAmount: number;
+  icmsRatePercent: number;
+  icmsAmount: number;
+  totalTaxesEstimated: number;
+  totalWithheld: number;
+  netReceivableAmount: number;
+  legalExemptionNotice: string;
+}
+
+export interface ErpFiscalInvoice {
+  id: string;
+  documentNumber: string;
+  documentType: ErpFiscalDocumentType;
+  competenceMonth: string;
+  companyId: string | null;
+  companyName: string;
+  companyCnpj: string;
+  companyAddress: string;
+  rentalContractId: string | null;
+  proposalId: string | null;
+  dealId: string | null;
+  grossAmount: number;
+  discountAmount: number;
+  netAmount: number;
+  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA';
+  issueDate: string;
+  dueDate: string;
+  paidAt: string | null;
+  paymentMethod: 'BOLETO_PIX' | 'PIX_CORPORATIVO' | 'TED_BANCARIA';
+  serviceCodeLc116: string | null;
+  cfop: string | null;
+  cstIcms: string | null;
+  cstPisCofins: string | null;
+  verificationCodeOrKey: string;
+  pixCopyPaste: string;
+  boletoDigitableLine: string;
+  itemsDescription: Array<{
+    description: string;
+    serialNumber?: string;
+    quantity: number;
+    unitValue: number;
+    totalValue: number;
+  }>;
+  taxBreakdown: ErpTaxBreakdown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ErpCatalogItem {
+  id: string;
+  gestaoClickCode: string;
+  name: string;
+  category: 'EQUIPAMENTO_LOCACAO' | 'SERVICO_TECNICO_LC116' | 'TELECOM_SCM_SVA' | 'VENDA_HARDWARE';
+  fiscalNature: ErpFiscalNature;
+  ncmOrLc116: string;
+  cfopDefault: string;
+  stockAvailable: number;
+  stockRentedInClients: number;
+  monthlyRentalPrice: number;
+  saleOrSetupPrice: number;
+  isActive: boolean;
+}
+
+export interface ErpFinancialEntry {
+  id: string;
+  type: 'RECEBER' | 'PAGAR';
+  category:
+    | 'LOCACAO_EQUIPAMENTOS'
+    | 'SERVICOS_TI_TELECOM'
+    | 'FORNECEDOR_LINK_HARDWARE'
+    | 'IMPOSTOS_TRIBUTOS'
+    | 'OPERACIONAL';
+  description: string;
+  companyName: string;
+  costCenter: string;
+  amount: number;
+  dueDate: string;
+  paidAt: string | null;
+  status: 'ABERTO' | 'PAGO' | 'ATRASADO';
+  invoiceId: string | null;
+  paymentMethod: string;
+}
+
+export interface GestaoClickConfig {
+  connected: boolean;
+  apiBaseUrl: string;
+  accessTokenMasked: string;
+  secretTokenMasked: string;
+  companyLegalName: string;
+  companyCnpj: string;
+  municipalRegistration: string;
+  stateRegistration: string;
+  taxRegime: ErpTaxRegime;
+  defaultIssRatePercent: number;
+  autoGenerateMonthlyRentalInvoices: boolean;
+  lastSyncAt: string;
+  syncHistory: Array<{
+    id: string;
+    timestamp: string;
+    status: 'SUCCESS' | 'PARTIAL';
+    summary: string;
+    recordsSynced: number;
+  }>;
+}
+
+export interface ErpDatabaseState {
+  proposals: ErpCommercialProposal[];
+  rentalContracts: ErpRentalContract[];
+  invoices: ErpFiscalInvoice[];
+  catalog: ErpCatalogItem[];
+  financialEntries: ErpFinancialEntry[];
+  gestaoClickConfig: GestaoClickConfig;
 }
 
 export interface CrmDatabaseState {
@@ -455,4 +722,5 @@ export interface CrmDatabaseState {
   webForms: WebForm[];
   formSubmissions: FormSubmission[];
   serviceTickets: ServiceTicket[];
+  erp?: ErpDatabaseState;
 }
