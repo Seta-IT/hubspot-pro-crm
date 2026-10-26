@@ -31,6 +31,24 @@ import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './compon
 import ErpGestaoClickTab, { ErpOverviewPayload } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import { formatBRL } from './components/ui-helpers';
+import {
+  loadDurableJournal,
+  mergeCompaniesWithJournal,
+  mergeContactsWithJournal,
+  mergeDealsWithJournal,
+  mergeTicketsWithJournal,
+  recordDeletedCompany,
+  recordDeletedContact,
+  recordDeletedDeal,
+  recordTimelineEvent,
+  recordUpsertedCompany,
+  recordUpsertedContact,
+  recordUpsertedDeal,
+  recordUpsertedForm,
+  recordUpsertedSequence,
+  recordUpsertedTicket,
+  recordUpsertedWorkflow,
+} from './lib/durable-storage';
 
 import {
   AiInsightsReport,
@@ -130,93 +148,45 @@ export default function HubSpotProCrmApp() {
 
   const fetchAllCrmData = useCallback(async (customAiQuestion?: string) => {
     try {
-      const [
-        aiRes,
-        pipesRes,
-        dealsRes,
-        contactsRes,
-        companiesRes,
-        healthRes,
-        dupsRes,
-        wfRes,
-        seqRes,
-        formsRes,
-        ticketsRes,
-        erpRes,
-      ] = await Promise.all([
-        customAiQuestion
-          ? fetch('/api/ai-insights', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ question: customAiQuestion }),
-            })
-          : fetch('/api/ai-insights'),
-        fetch('/api/pipelines'),
-        fetch('/api/deals'),
-        fetch('/api/contacts'),
-        fetch('/api/companies'),
-        fetch('/api/data-health/summary'),
-        fetch('/api/data-health/duplicates'),
-        fetch('/api/workflows'),
-        fetch('/api/sequences'),
-        fetch('/api/forms'),
-        fetch('/api/tickets'),
-        fetch('/api/erp/overview'),
-      ]);
+      const reconcileJournal = loadDurableJournal();
+      const res = await fetch('/api/bootstrap', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reconcileJournal,
+          question: customAiQuestion,
+        }),
+      });
 
-      if (aiRes.ok) {
-        const j = await aiRes.json();
-        setAiReport(j.data);
-      }
-      if (pipesRes.ok) {
-        const j = await pipesRes.json();
-        setPipelines(j.data || []);
-      }
-      if (dealsRes.ok) {
-        const j = await dealsRes.json();
-        setDeals(j.data || []);
-        if (j.forecast) setDealsForecast(j.forecast);
-      }
-      if (contactsRes.ok) {
-        const j = await contactsRes.json();
-        setContacts(j.data || []);
-      }
-      if (companiesRes.ok) {
-        const j = await companiesRes.json();
-        setCompanies(j.data || []);
-      }
-      if (healthRes.ok) {
-        const j = await healthRes.json();
-        setHealthSummary(j.data);
-      }
-      if (dupsRes.ok) {
-        const j = await dupsRes.json();
-        setDuplicates(j.data);
-      }
-      if (wfRes.ok) {
-        const j = await wfRes.json();
-        setWorkflows(j.data || []);
-        setWorkflowExecutions(j.executions || []);
-      }
-      if (seqRes.ok) {
-        const j = await seqRes.json();
-        setSequences(j.data || []);
-        setEnrollments(j.enrollments || []);
-      }
-      if (formsRes.ok) {
-        const j = await formsRes.json();
-        setWebForms(j.data || []);
-        setFormSubmissions(j.submissions || []);
-        if (j.summary) setFormsSummary(j.summary);
-      }
-      if (ticketsRes.ok) {
-        const j = await ticketsRes.json();
-        setTickets(j.data || []);
-        if (j.kpis) setTicketKpis(j.kpis);
-      }
-      if (erpRes.ok) {
-        const j = await erpRes.json();
-        setErpData(j.data || null);
+      if (res.ok) {
+        const json = await res.json();
+        const d = json.data;
+        if (d) {
+          if (d.aiReport) setAiReport(d.aiReport);
+          if (d.pipelines) setPipelines(d.pipelines);
+          const mergedCompanies = mergeCompaniesWithJournal(d.companies || []);
+          const mergedContacts = mergeContactsWithJournal(d.contacts || [], mergedCompanies);
+          const mergedDeals = mergeDealsWithJournal(d.deals || []);
+          const mergedTickets = mergeTicketsWithJournal(d.tickets || []);
+
+          setCompanies(mergedCompanies);
+          setContacts(mergedContacts);
+          setDeals(mergedDeals);
+          if (d.dealsForecast) setDealsForecast(d.dealsForecast);
+          if (d.healthSummary) setHealthSummary(d.healthSummary);
+          if (d.duplicates) setDuplicates(d.duplicates);
+          if (d.workflows) setWorkflows(d.workflows);
+          if (d.workflowExecutions) setWorkflowExecutions(d.workflowExecutions);
+          if (d.sequences) setSequences(d.sequences);
+          if (d.enrollments) setEnrollments(d.enrollments);
+          if (d.webForms) setWebForms(d.webForms);
+          if (d.formSubmissions) setFormSubmissions(d.formSubmissions);
+          if (d.formsSummary) setFormsSummary(d.formsSummary);
+          setTickets(mergedTickets);
+          if (d.ticketKpis) setTicketKpis(d.ticketKpis);
+          if (d.erp) setErpData(d.erp);
+        }
       }
     } finally {
       setLoadingAll(false);
@@ -228,7 +198,7 @@ export default function HubSpotProCrmApp() {
   }, [fetchAllCrmData]);
 
   // ==========================================================================
-  // API ACTION HANDLERS
+  // API ACTION HANDLERS (WITH DURABLE JOURNAL & OPTIMISTIC STATE)
   // ==========================================================================
 
   const handleAskAiQuestion = async (question: string) => {
@@ -236,8 +206,9 @@ export default function HubSpotProCrmApp() {
     try {
       const res = await fetch('/api/ai-insights', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, _reconcileJournal: loadDurableJournal() }),
       });
       if (res.ok) {
         const json = await res.json();
@@ -258,10 +229,13 @@ export default function HubSpotProCrmApp() {
     };
     const res = await fetch('/api/deals', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, _reconcileJournal: loadDurableJournal() }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedDeal(json.data);
       showToast(`Oportunidade "${payload.title}" convertida em negócio ativo no Kanban!`);
       await fetchAllCrmData();
       setActiveModule('DEALS_KANBAN');
@@ -278,6 +252,7 @@ export default function HubSpotProCrmApp() {
     const type = item.channel === 'CALL' ? 'CALL' : item.channel === 'MEETING' ? 'MEETING' : 'EMAIL';
     const res = await fetch('/api/timeline', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type,
@@ -289,6 +264,8 @@ export default function HubSpotProCrmApp() {
       }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordTimelineEvent(json.data);
       showToast('Follow-up registrado na Timeline e SLA do negócio atualizado!');
       await fetchAllCrmData();
     }
@@ -297,11 +274,13 @@ export default function HubSpotProCrmApp() {
   const handleMoveDealStage = async (dealId: string, newStageId: string) => {
     const res = await fetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stageId: newStageId }),
+      body: JSON.stringify({ stageId: newStageId, _reconcileJournal: loadDurableJournal() }),
     });
     if (res.ok) {
       const json = await res.json();
+      if (json.data) recordUpsertedDeal(json.data);
       const wfCount = json.workflowExecutions?.length || 0;
       showToast(
         wfCount > 0
@@ -316,35 +295,47 @@ export default function HubSpotProCrmApp() {
     title: string;
     value: number;
     stageId: string;
+    pipelineId?: string;
     contactId?: string | null;
     companyId?: string | null;
     expectedCloseDate?: string | null;
   }) => {
     const res = await fetch('/api/deals', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, _reconcileJournal: loadDurableJournal() }),
     });
-    if (res.ok) {
-      showToast(`Novo negócio "${payload.title}" adicionado ao funil!`);
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      showToast(`Erro ao criar negócio: ${errJson.error || res.statusText}`);
+      throw new Error(errJson.error || 'Falha ao criar negócio');
     }
+    const json = await res.json();
+    if (json.data) recordUpsertedDeal(json.data);
+    showToast(`Novo negócio "${payload.title}" adicionado ao funil!`);
+    await fetchAllCrmData();
   };
 
   const handleUpdateDeal = async (dealId: string, patch: Record<string, unknown>) => {
     const res = await fetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, _reconcileJournal: loadDurableJournal() }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedDeal(json.data);
       showToast('Negócio atualizado com sucesso!');
       await fetchAllCrmData();
     }
   };
 
   const handleDeleteDeal = async (dealId: string) => {
-    const res = await fetch(`/api/deals/${dealId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/deals/${dealId}`, { method: 'DELETE', cache: 'no-store' });
+    recordDeletedDeal(dealId);
+    setDeals((prev) => prev.filter((d) => d.id !== dealId));
     if (res.ok) {
       showToast('Negócio excluído do funil!');
       await fetchAllCrmData();
@@ -354,6 +345,7 @@ export default function HubSpotProCrmApp() {
   const handleAddDealNote = async (dealId: string, title: string, body: string) => {
     const res = await fetch('/api/timeline', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'NOTE',
@@ -364,55 +356,91 @@ export default function HubSpotProCrmApp() {
       }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordTimelineEvent(json.data);
       showToast('Nota registrada na timeline do negócio!');
       await fetchAllCrmData();
     }
   };
 
   const handleCreateContact = async (payload: {
-    email: string;
+    email?: string;
     firstName: string;
     lastName?: string;
     phone?: string;
     jobTitle?: string;
     lifecycleStage?: LifecycleStage;
     companyId?: string;
-  }) => {
+    companyName?: string;
+  }): Promise<EnrichedContactItem> => {
     const res = await fetch('/api/contacts', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        _reconcileJournal: loadDurableJournal(),
+      }),
     });
-    if (res.ok) {
-      const json = await res.json();
-      const wfCount = json.workflowExecutions?.length || 0;
-      showToast(
-        `Contato ${payload.firstName} criado com sucesso (${wfCount} workflow(s) disparado(s) automaticamente)!`
-      );
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      const msg = errJson.error || 'Erro ao salvar contato.';
+      showToast(`⚠️ ${msg}`);
+      throw new Error(msg);
     }
+
+    const json = await res.json();
+    const created: EnrichedContactItem = json.data;
+    recordUpsertedContact(created);
+    if (created.company) {
+      recordUpsertedCompany(created.company);
+    }
+
+    // Immediate optimistic update so the new contact is at index 0 right away
+    setContacts((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+
+    const wfCount = json.workflowExecutions?.length || 0;
+    showToast(
+      `Contato "${`${created.firstName} ${created.lastName || ''}`.trim()}" salvo com sucesso e disponível na busca (${wfCount} workflow(s) disparado(s))!`
+    );
+    await fetchAllCrmData();
+    return created;
   };
 
   const handleUpdateContact = async (contactId: string, patch: Record<string, unknown>) => {
     const res = await fetch(`/api/contacts/${contactId}`, {
       method: 'PATCH',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, _reconcileJournal: loadDurableJournal() }),
     });
-    if (res.ok) {
-      showToast('Contato atualizado com sucesso!');
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      showToast(`⚠️ ${errJson.error || 'Erro ao atualizar contato.'}`);
+      throw new Error(errJson.error || 'Erro ao atualizar contato');
     }
+    const json = await res.json();
+    if (json.data) {
+      recordUpsertedContact(json.data);
+      setContacts((prev) =>
+        prev.map((c) => (c.id === contactId ? { ...c, ...json.data } : c))
+      );
+    }
+    showToast('Contato atualizado e persistido com sucesso!');
+    await fetchAllCrmData();
   };
 
   const handleDeleteContact = async (contactId: string) => {
+    recordDeletedContact(contactId);
+    setContacts((prev) => prev.filter((c) => c.id !== contactId));
     const res = await fetch(`/api/contacts/${contactId}`, {
       method: 'DELETE',
+      cache: 'no-store',
     });
     if (res.ok) {
       showToast('Contato excluído com sucesso!');
-      await fetchAllCrmData();
     }
+    await fetchAllCrmData();
   };
 
   const handleCreateCompany = async (payload: {
@@ -427,35 +455,55 @@ export default function HubSpotProCrmApp() {
   }) => {
     const res = await fetch('/api/companies', {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, _reconcileJournal: loadDurableJournal() }),
     });
-    if (res.ok) {
-      showToast(`Empresa "${payload.name}" cadastrada com sucesso!`);
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      showToast(`⚠️ ${errJson.error || 'Erro ao cadastrar empresa.'}`);
+      throw new Error(errJson.error || 'Erro ao cadastrar empresa');
     }
+    const json = await res.json();
+    if (json.data) {
+      recordUpsertedCompany(json.data);
+      setCompanies((prev) => [json.data, ...prev.filter((c) => c.id !== json.data.id)]);
+    }
+    showToast(`Empresa "${payload.name}" cadastrada e persistida com sucesso!`);
+    await fetchAllCrmData();
   };
 
   const handleUpdateCompany = async (companyId: string, patch: Record<string, unknown>) => {
     const res = await fetch(`/api/companies/${companyId}`, {
       method: 'PATCH',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, _reconcileJournal: loadDurableJournal() }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) {
+        recordUpsertedCompany(json.data);
+        setCompanies((prev) =>
+          prev.map((c) => (c.id === companyId ? { ...c, ...json.data } : c))
+        );
+      }
       showToast('Empresa atualizada com sucesso!');
       await fetchAllCrmData();
     }
   };
 
   const handleDeleteCompany = async (companyId: string) => {
+    recordDeletedCompany(companyId);
+    setCompanies((prev) => prev.filter((c) => c.id !== companyId));
     const res = await fetch(`/api/companies/${companyId}`, {
       method: 'DELETE',
+      cache: 'no-store',
     });
     if (res.ok) {
       showToast('Empresa excluída com sucesso!');
-      await fetchAllCrmData();
     }
+    await fetchAllCrmData();
   };
 
   const handleEnrichContact = async (contactId: string) => {
@@ -571,6 +619,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify({ isActive }),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedWorkflow(json.data);
       showToast(`Workflow ${isActive ? 'ativado' : 'pausado'} com sucesso!`);
       await fetchAllCrmData();
     }
@@ -608,6 +658,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedWorkflow(json.data);
       showToast(`Novo workflow "${payload.name}" criado e ativado!`);
       await fetchAllCrmData();
     }
@@ -676,6 +728,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedSequence(json.data);
       showToast(`Cadência "${payload.name}" criada com sucesso!`);
       await fetchAllCrmData();
     }
@@ -696,6 +750,9 @@ export default function HubSpotProCrmApp() {
       const contact = json.data?.contact;
       const deal = json.data?.deal;
       const ticket = json.data?.ticket;
+      if (contact) recordUpsertedContact(contact);
+      if (deal) recordUpsertedDeal(deal);
+      if (ticket) recordUpsertedTicket(ticket);
       showToast(
         ticket
           ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no Service Desk!`
@@ -730,6 +787,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedForm(json.data);
       showToast(`Formulário "${payload.name}" publicado com código embed pronto!`);
       await fetchAllCrmData();
     }
@@ -772,6 +831,7 @@ export default function HubSpotProCrmApp() {
     });
     if (res.ok) {
       const json = await res.json();
+      if (json.data) recordUpsertedTicket(json.data);
       showToast(`Chamado [${json.data?.key}] aberto no Service Desk com SLA ativo!`);
       await fetchAllCrmData();
     }
@@ -787,6 +847,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify(patch),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedTicket(json.data);
       showToast(`Status do chamado atualizado para ${patch.status}!`);
       await fetchAllCrmData();
     }
@@ -808,6 +870,8 @@ export default function HubSpotProCrmApp() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json.data) recordUpsertedTicket(json.data);
       showToast(
         payload.isInternal
           ? 'Nota interna registrada na fila técnica!'
@@ -817,15 +881,29 @@ export default function HubSpotProCrmApp() {
     }
   };
 
-  // Global quick search results
+  // Global quick search results (accent-insensitive across all contact & company fields)
+  const normalizeText = (v: unknown) =>
+    String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   const quickSearchContacts = globalSearch.trim()
     ? contacts
-        .filter((c) =>
-          `${c.firstName} ${c.lastName} ${c.email}`
-            .toLowerCase()
-            .includes(globalSearch.toLowerCase())
-        )
-        .slice(0, 4)
+        .filter((c) => {
+          const q = normalizeText(globalSearch);
+          const qDigits = globalSearch.replace(/\D+/g, '');
+          const haystack = normalizeText(
+            `${c.firstName} ${c.lastName} ${c.email} ${c.phone || ''} ${c.jobTitle || ''} ${c.company?.name || ''} ${c.company?.domain || ''}`
+          );
+          const phoneDigits = String(c.phone || c.normalizedPhone || '').replace(/\D+/g, '');
+          return (
+            haystack.includes(q) ||
+            (qDigits.length >= 3 && phoneDigits.includes(qDigits))
+          );
+        })
+        .slice(0, 8)
     : [];
 
   const navItems: Array<{

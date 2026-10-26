@@ -41,6 +41,34 @@ import {
   normalizeAndClassifyJobTitle,
 } from '../modules/enrichment/enrichment-service';
 
+export function normalizeSearchText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export interface ClientDurableJournal {
+  upsertedContacts?: Contact[];
+  deletedContactIds?: string[];
+  upsertedCompanies?: Company[];
+  deletedCompanyIds?: string[];
+  upsertedDeals?: Deal[];
+  deletedDealIds?: string[];
+  upsertedPipelines?: Pipeline[];
+  upsertedTickets?: ServiceTicket[];
+  deletedTicketIds?: string[];
+  upsertedProposals?: ErpCommercialProposal[];
+  upsertedContracts?: ErpRentalContract[];
+  upsertedInvoices?: ErpFiscalInvoice[];
+  upsertedForms?: WebForm[];
+  upsertedWorkflows?: Workflow[];
+  upsertedSequences?: EmailSequence[];
+  timelineEvents?: TimelineEvent[];
+}
+
 export interface RepositoryOptions {
   persistPath?: string | null;
   autoSeed?: boolean;
@@ -50,6 +78,7 @@ export interface RepositoryOptions {
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
+  private lastLoadedMtimeMs = 0;
 
   constructor(options: RepositoryOptions = {}) {
     this.persistPath = options.persistPath ?? null;
@@ -62,18 +91,11 @@ export class CrmRepository {
 
     if (this.persistPath && fs.existsSync(this.persistPath)) {
       try {
-        const raw = fs.readFileSync(this.persistPath, 'utf-8');
+        const stat = fs.statSync(this.persistPath);
+        const raw = fs.readFileSync(this.persistPath, "utf-8");
         const parsed = JSON.parse(raw) as CrmDatabaseState;
-        const seedFallback = createInitialSeedState();
-        this.state = {
-          ...seedFallback,
-          ...parsed,
-          webForms: Array.isArray(parsed.webForms) && parsed.webForms.length > 0 ? parsed.webForms : seedFallback.webForms,
-          formSubmissions: Array.isArray(parsed.formSubmissions) ? parsed.formSubmissions : seedFallback.formSubmissions,
-          pipelines: Array.isArray(parsed.pipelines) && parsed.pipelines.length >= 3 ? parsed.pipelines : seedFallback.pipelines,
-          serviceTickets: Array.isArray(parsed.serviceTickets) && parsed.serviceTickets.length > 0 ? parsed.serviceTickets : seedFallback.serviceTickets,
-          erp: parsed.erp && Array.isArray(parsed.erp.proposals) ? parsed.erp : createSeedErpState(),
-        };
+        this.state = this.hydrateParsedState(parsed);
+        this.lastLoadedMtimeMs = stat.mtimeMs;
         return;
       } catch {
         // Fallback to seed if corrupted
@@ -103,6 +125,58 @@ export class CrmRepository {
     }
   }
 
+  private hydrateParsedState(parsed: CrmDatabaseState): CrmDatabaseState {
+    const seedFallback = createInitialSeedState();
+    return {
+      ...seedFallback,
+      ...parsed,
+      contacts: Array.isArray(parsed.contacts) ? parsed.contacts : seedFallback.contacts,
+      companies: Array.isArray(parsed.companies) ? parsed.companies : seedFallback.companies,
+      deals: Array.isArray(parsed.deals) ? parsed.deals : seedFallback.deals,
+      webForms:
+        Array.isArray(parsed.webForms) && parsed.webForms.length > 0
+          ? parsed.webForms
+          : seedFallback.webForms,
+      formSubmissions: Array.isArray(parsed.formSubmissions)
+        ? parsed.formSubmissions
+        : seedFallback.formSubmissions,
+      pipelines:
+        Array.isArray(parsed.pipelines) && parsed.pipelines.length >= 3
+          ? parsed.pipelines
+          : seedFallback.pipelines,
+      serviceTickets:
+        Array.isArray(parsed.serviceTickets) && parsed.serviceTickets.length > 0
+          ? parsed.serviceTickets
+          : seedFallback.serviceTickets,
+      erp:
+        parsed.erp && Array.isArray(parsed.erp.proposals)
+          ? parsed.erp
+          : createSeedErpState(),
+    };
+  }
+
+  syncFromDisk(): void {
+    const candidatePath =
+      this.persistPath && fs.existsSync(this.persistPath)
+        ? this.persistPath
+        : fs.existsSync("/tmp/crm-store.json") && this.persistPath
+          ? "/tmp/crm-store.json"
+          : null;
+    if (!candidatePath) return;
+    try {
+      const stat = fs.statSync(candidatePath);
+      if (this.lastLoadedMtimeMs === 0 || stat.mtimeMs > this.lastLoadedMtimeMs) {
+        const raw = fs.readFileSync(candidatePath, "utf-8");
+        const parsed = JSON.parse(raw) as CrmDatabaseState;
+        this.state = this.hydrateParsedState(parsed);
+        this.persistPath = candidatePath;
+        this.lastLoadedMtimeMs = stat.mtimeMs;
+      }
+    } catch {
+      // Ignore transient disk read errors
+    }
+  }
+
   private save(): void {
     if (!this.persistPath) return;
     try {
@@ -110,17 +184,119 @@ export class CrmRepository {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(this.persistPath, JSON.stringify(this.state, null, 2), 'utf-8');
+      fs.writeFileSync(this.persistPath, JSON.stringify(this.state, null, 2), "utf-8");
+      this.lastLoadedMtimeMs = fs.statSync(this.persistPath).mtimeMs;
     } catch {
       // Fallback to /tmp/crm-store.json on read-only serverless filesystems (e.g. Vercel)
       try {
-        const tmpPath = '/tmp/crm-store.json';
+        const tmpPath = "/tmp/crm-store.json";
         this.persistPath = tmpPath;
-        fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), 'utf-8');
+        fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), "utf-8");
+        this.lastLoadedMtimeMs = fs.statSync(tmpPath).mtimeMs;
       } catch {
         // Ignore write errors if /tmp is also unavailable
       }
     }
+  }
+
+  reconcileClientState(journal?: ClientDurableJournal | null): {
+    reconciled: boolean;
+    appliedCount: number;
+  } {
+    if (!journal || typeof journal !== "object") {
+      return { reconciled: false, appliedCount: 0 };
+    }
+
+    let appliedCount = 0;
+
+    // 1. Apply deletions first
+    const deletedContacts = new Set(journal.deletedContactIds || []);
+    if (deletedContacts.size > 0) {
+      const before = this.state.contacts.length;
+      this.state.contacts = this.state.contacts.filter((c) => !deletedContacts.has(c.id));
+      appliedCount += before - this.state.contacts.length;
+    }
+
+    const deletedCompanies = new Set(journal.deletedCompanyIds || []);
+    if (deletedCompanies.size > 0) {
+      const before = this.state.companies.length;
+      this.state.companies = this.state.companies.filter((c) => !deletedCompanies.has(c.id));
+      appliedCount += before - this.state.companies.length;
+    }
+
+    const deletedDeals = new Set(journal.deletedDealIds || []);
+    if (deletedDeals.size > 0) {
+      const before = this.state.deals.length;
+      this.state.deals = this.state.deals.filter((d) => !deletedDeals.has(d.id));
+      appliedCount += before - this.state.deals.length;
+    }
+
+    const deletedTickets = new Set(journal.deletedTicketIds || []);
+    if (deletedTickets.size > 0 && Array.isArray(this.state.serviceTickets)) {
+      const before = this.state.serviceTickets.length;
+      this.state.serviceTickets = this.state.serviceTickets.filter(
+        (t) => !deletedTickets.has(t.id) && !deletedTickets.has(t.key)
+      );
+      appliedCount += before - this.state.serviceTickets.length;
+    }
+
+    // Helper for upserting collections keeping new records at the top
+    const upsertCollection = <T extends { id: string; updatedAt?: string }>(
+      target: T[],
+      incoming: T[] | undefined,
+      deletedIds?: Set<string>
+    ) => {
+      if (!Array.isArray(incoming) || incoming.length === 0) return;
+      for (const item of incoming) {
+        if (!item || !item.id || (deletedIds && deletedIds.has(item.id))) continue;
+        const idx = target.findIndex((existing) => existing.id === item.id);
+        if (idx === -1) {
+          target.unshift(structuredClone(item));
+          appliedCount++;
+        } else {
+          const existingTime = target[idx].updatedAt
+            ? new Date(target[idx].updatedAt!).getTime()
+            : 0;
+          const incomingTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+          if (incomingTime > existingTime) {
+            target[idx] = { ...target[idx], ...structuredClone(item) };
+            appliedCount++;
+          }
+        }
+      }
+    };
+
+    upsertCollection(this.state.companies, journal.upsertedCompanies, deletedCompanies);
+    upsertCollection(this.state.contacts, journal.upsertedContacts, deletedContacts);
+    upsertCollection(this.state.pipelines, journal.upsertedPipelines);
+    upsertCollection(this.state.deals, journal.upsertedDeals, deletedDeals);
+    if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    upsertCollection(this.state.serviceTickets, journal.upsertedTickets, deletedTickets);
+    if (!this.state.webForms) this.state.webForms = [];
+    upsertCollection(this.state.webForms, journal.upsertedForms);
+    upsertCollection(this.state.workflows, journal.upsertedWorkflows);
+    upsertCollection(this.state.sequences, journal.upsertedSequences);
+
+    const erp = this.ensureErp();
+    upsertCollection(erp.proposals, journal.upsertedProposals);
+    upsertCollection(erp.rentalContracts, journal.upsertedContracts);
+    upsertCollection(erp.invoices, journal.upsertedInvoices);
+
+    if (Array.isArray(journal.timelineEvents) && journal.timelineEvents.length > 0) {
+      const existingEvtIds = new Set(this.state.timelineEvents.map((e) => e.id));
+      for (const evt of journal.timelineEvents) {
+        if (evt && evt.id && !existingEvtIds.has(evt.id)) {
+          this.state.timelineEvents.unshift(structuredClone(evt));
+          existingEvtIds.add(evt.id);
+          appliedCount++;
+        }
+      }
+    }
+
+    if (appliedCount > 0) {
+      this.save();
+    }
+    return { reconciled: appliedCount > 0, appliedCount };
   }
 
   resetToSeed(): CrmDatabaseState {
@@ -161,24 +337,63 @@ export class CrmRepository {
     minScore?: number;
   }): Contact[] {
     let list = [...this.state.contacts];
-    if (filters?.lifecycleStage) {
+    if (filters?.lifecycleStage && filters.lifecycleStage !== "ALL") {
       list = list.filter((c) => c.lifecycleStage === filters.lifecycleStage);
     }
     if (filters?.companyId) {
       list = list.filter((c) => c.companyId === filters.companyId);
     }
-    if (typeof filters?.minScore === 'number') {
+    if (typeof filters?.minScore === "number" && filters.minScore > 0) {
       list = list.filter((c) => c.leadScore >= filters.minScore!);
     }
-    if (filters?.search) {
-      const q = filters.search.toLowerCase();
-      list = list.filter(
-        (c) =>
-          c.firstName.toLowerCase().includes(q) ||
-          c.lastName.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q) ||
-          (c.jobTitle && c.jobTitle.toLowerCase().includes(q))
-      );
+    if (filters?.search && filters.search.trim()) {
+      const q = normalizeSearchText(filters.search);
+      const qDigits = filters.search.replace(/\D+/g, "");
+      const companyMap = new Map(this.state.companies.map((comp) => [comp.id, comp]));
+
+      list = list.filter((c) => {
+        const comp = c.companyId ? companyMap.get(c.companyId) : null;
+        const fullName = normalizeSearchText(`${c.firstName} ${c.lastName}`);
+        const emailNorm = normalizeSearchText(c.email);
+        const jobNorm = normalizeSearchText(c.jobTitle);
+        const deptNorm = normalizeSearchText(c.department);
+        const ownerNorm = normalizeSearchText(
+          c.ownerName || (c.customProperties?.ownerName as string) || c.ownerId
+        );
+        const cityNorm = normalizeSearchText(
+          (c.customProperties?.city as string) || comp?.city
+        );
+        const stateNorm = normalizeSearchText(
+          (c.customProperties?.state as string) || comp?.state
+        );
+        const compNameNorm = normalizeSearchText(comp?.name);
+        const compDomainNorm = normalizeSearchText(comp?.domain);
+        const compCnpjNorm = normalizeSearchText(comp?.cnpj);
+        const phoneNorm = normalizeSearchText(c.phone || c.normalizedPhone);
+        const phoneDigits = String(c.phone || c.normalizedPhone || "").replace(/\D+/g, "");
+
+        if (
+          fullName.includes(q) ||
+          normalizeSearchText(c.firstName).includes(q) ||
+          normalizeSearchText(c.lastName).includes(q) ||
+          emailNorm.includes(q) ||
+          jobNorm.includes(q) ||
+          deptNorm.includes(q) ||
+          ownerNorm.includes(q) ||
+          cityNorm.includes(q) ||
+          stateNorm.includes(q) ||
+          compNameNorm.includes(q) ||
+          compDomainNorm.includes(q) ||
+          compCnpjNorm.includes(q) ||
+          phoneNorm.includes(q)
+        ) {
+          return true;
+        }
+        if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+          return true;
+        }
+        return false;
+      });
     }
     return list;
   }
@@ -187,36 +402,89 @@ export class CrmRepository {
     return this.state.contacts.find((c) => c.id === id);
   }
 
-  createContact(input: Partial<Contact> & { email: string; firstName: string }): Contact {
+  createContact(
+    input: Partial<Contact> & {
+      firstName: string;
+      email?: string;
+      companyName?: string;
+      city?: string;
+      state?: string;
+    }
+  ): Contact {
     const now = new Date().toISOString();
-    const emailVal = validateEmail(input.email);
+    const cleanFirstName = (input.firstName || "Novo").trim();
+    const cleanLastName = (input.lastName || "").trim();
+    const slugName =
+      normalizeSearchText(`${cleanFirstName}.${cleanLastName}`)
+        .replace(/[^a-z0-9.]+/g, "")
+        .replace(/^\.+|\.+$/g, "") || "contato";
+    const rawEmail =
+      input.email && String(input.email).trim()
+        ? String(input.email).trim()
+        : `${slugName}.${Date.now().toString(36).slice(-4)}@contato.setatelecom.com.br`;
+
+    const emailVal = validateEmail(rawEmail);
     const phoneVal = input.phone ? normalizeAndValidatePhone(input.phone) : null;
     const jobInfo = normalizeAndClassifyJobTitle(input.jobTitle);
 
+    let resolvedCompanyId = input.companyId ?? null;
+    if (!resolvedCompanyId && input.companyName && String(input.companyName).trim()) {
+      const targetCompName = String(input.companyName).trim();
+      const existingComp = this.state.companies.find(
+        (c) => normalizeSearchText(c.name) === normalizeSearchText(targetCompName)
+      );
+      if (existingComp) {
+        resolvedCompanyId = existingComp.id;
+      } else {
+        const createdComp = this.createCompany({ name: targetCompName });
+        resolvedCompanyId = createdComp.id;
+      }
+    }
+
+    const resolvedOwnerName =
+      input.ownerName ||
+      (input.customProperties?.ownerName as string) ||
+      "Marcelo Lopes Mira";
+    const resolvedOwnerId =
+      input.ownerId ||
+      (resolvedOwnerName.toLowerCase().includes("evelyn")
+        ? "owner-evelyn"
+        : "owner-marcello");
+
+    const customProps: Record<string, unknown> = {
+      ...(input.customProperties || {}),
+      ownerName: resolvedOwnerName,
+    };
+    if (input.city) customProps.city = input.city;
+    if (input.state) customProps.state = input.state;
+
     const draft: Contact = {
       id: input.id || `cont-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      email: emailVal.normalizedEmail || input.email.trim().toLowerCase(),
-      firstName: input.firstName.trim(),
-      lastName: (input.lastName || '').trim(),
+      email: emailVal.normalizedEmail || rawEmail.toLowerCase(),
+      firstName: cleanFirstName,
+      lastName: cleanLastName,
       phone: phoneVal?.isValid && phoneVal.formatted ? phoneVal.formatted : input.phone ?? null,
       normalizedPhone: phoneVal?.e164 ?? null,
       jobTitle: jobInfo.normalizedTitle || input.jobTitle || null,
       seniority: input.seniority || jobInfo.seniority,
       department: input.department || jobInfo.department,
-      lifecycleStage: input.lifecycleStage || 'LEAD',
-      leadStatus: input.leadStatus || 'NEW',
+      lifecycleStage: input.lifecycleStage || "LEAD",
+      leadStatus: input.leadStatus || "NEW",
       leadScore: 0,
       completenessScore: 0,
       isValidEmail: emailVal.isValid,
       isDisposableEmail: emailVal.isDisposable,
       isCorporateEmail: emailVal.isCorporate,
       isValidPhone: input.phone ? Boolean(phoneVal?.isValid) : false,
-      ownerId: input.ownerId ?? null,
-      companyId: input.companyId ?? null,
+      ownerId: resolvedOwnerId,
+      ownerName: resolvedOwnerName,
+      buyingRole: input.buyingRole ?? "DECISOR",
+      isUnworked: input.isUnworked ?? false,
+      companyId: resolvedCompanyId,
       enrichedAt: input.enrichedAt ?? null,
       enrichmentSource: input.enrichmentSource ?? null,
       nextBestAction: null,
-      customProperties: input.customProperties || {},
+      customProperties: customProps,
       lastActivityAt: input.lastActivityAt ?? now,
       createdAt: input.createdAt || now,
       updatedAt: now,
@@ -225,10 +493,11 @@ export class CrmRepository {
     draft.completenessScore = calculateContactCompleteness(draft).score;
     const company = draft.companyId ? this.getCompanyById(draft.companyId) : null;
     draft.leadScore =
-      typeof input.leadScore === 'number'
+      typeof input.leadScore === "number"
         ? input.leadScore
         : calculateLeadScore(draft, company, this.state.deals, this.state.timelineEvents);
-    draft.nextBestAction = input.nextBestAction || computeContactNextBestAction(draft, this.state.deals);
+    draft.nextBestAction =
+      input.nextBestAction || computeContactNextBestAction(draft, this.state.deals);
 
     this.state.contacts.unshift(draft);
     this.save();
@@ -342,14 +611,21 @@ export class CrmRepository {
     if (filters?.industry) {
       list = list.filter((c) => c.industry === filters.industry);
     }
-    if (filters?.search) {
-      const q = filters.search.toLowerCase();
-      list = list.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          (c.domain && c.domain.toLowerCase().includes(q)) ||
-          (c.cnpj && c.cnpj.includes(q))
-      );
+    if (filters?.search && filters.search.trim()) {
+      const q = normalizeSearchText(filters.search);
+      const qDigits = filters.search.replace(/\D+/g, "");
+      list = list.filter((c) => {
+        const cnpjDigits = String(c.cnpj || "").replace(/\D+/g, "");
+        return (
+          normalizeSearchText(c.name).includes(q) ||
+          normalizeSearchText(c.domain).includes(q) ||
+          normalizeSearchText(c.industry).includes(q) ||
+          normalizeSearchText(c.city).includes(q) ||
+          normalizeSearchText(c.state).includes(q) ||
+          normalizeSearchText(c.cnpj).includes(q) ||
+          (qDigits.length >= 3 && cnpjDigits.includes(qDigits))
+        );
+      });
     }
     return list;
   }

@@ -9,21 +9,27 @@ import { createInitialSeedState } from './seed';
 let pgPool: Pool | null = null;
 let schemaEnsured = false;
 
+export function getDatabaseUrl(): string | null {
+  const url = process.env.DATABASE_URL || process.env.DATABASE_POSTGRES_URL || "";
+  return url.trim().length > 0 ? url.trim() : null;
+}
+
 export function isPostgresEnabled(): boolean {
-  return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim().length > 0);
+  return getDatabaseUrl() !== null;
 }
 
 export function getPostgresPool(): Pool | null {
-  if (!isPostgresEnabled()) return null;
+  const connStr = getDatabaseUrl();
+  if (!connStr) return null;
   if (!pgPool) {
     pgPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: connStr,
       max: Number(process.env.PG_POOL_MAX || 10),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
       ssl:
         process.env.PGSSLMODE === 'require' ||
-        (process.env.DATABASE_URL?.includes('sslmode=require') ?? false)
+        (connStr.includes('sslmode=require'))
           ? { rejectUnauthorized: false }
           : undefined,
     });

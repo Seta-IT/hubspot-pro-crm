@@ -2,7 +2,7 @@
 // HubSpot Pro CRM - Unified REST API Router & Controller
 // ============================================================================
 
-import { CrmRepository, getRepository } from '../db/repository';
+import { ClientDurableJournal, CrmRepository, getRepository } from '../db/repository';
 import {
   checkPostgresHealth,
   isPostgresEnabled,
@@ -58,11 +58,183 @@ export class CrmApiRouter {
     return this.repo;
   }
 
+  buildBootstrapPayload(customAiQuestion?: string) {
+    const rawContacts = this.repo.listContacts();
+    const rawCompanies = this.repo.listCompanies();
+    const rawDeals = this.repo.listDeals();
+    const rawPipelines = this.repo.listPipelines();
+
+    const companiesMap = new Map(rawCompanies.map((c) => [c.id, c]));
+    const contactsMap = new Map(rawContacts.map((c) => [c.id, c]));
+    const dealsMap = new Map(rawDeals.map((d) => [d.id, d]));
+
+    const enrichedContacts = rawContacts.map((c) => ({
+      ...c,
+      company: c.companyId ? companiesMap.get(c.companyId) || null : null,
+    }));
+
+    const enrichedCompanies = rawCompanies.map((comp) => ({
+      ...comp,
+      contactsCount: rawContacts.filter((c) => c.companyId === comp.id).length,
+      dealsCount: rawDeals.filter((d) => d.companyId === comp.id).length,
+      totalDealValue: rawDeals
+        .filter((d) => d.companyId === comp.id)
+        .reduce((s, d) => s + d.value, 0),
+    }));
+
+    const stageMap = new Map<string, { name: string; dealRottingDays: number }>();
+    for (const p of rawPipelines) {
+      for (const s of p.stages) {
+        stageMap.set(s.id, { name: s.name, dealRottingDays: s.dealRottingDays });
+      }
+    }
+
+    const nowMs = Date.now();
+    const enrichedDeals = rawDeals.map((d) => {
+      const st = stageMap.get(d.stageId);
+      const lastTouch = d.lastActivityAt || d.stageEnteredAt || d.updatedAt;
+      const daysInactive = Math.floor(
+        (nowMs - new Date(lastTouch).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const isRotting = d.status === "OPEN" && daysInactive > (st?.dealRottingDays ?? 14);
+      return {
+        ...d,
+        stageName: st?.name || d.stageId,
+        daysInactive,
+        isRotting,
+        weightedValue: Math.round(d.value * (d.probability / 100)),
+        contact: d.contactId ? contactsMap.get(d.contactId) || null : null,
+        company: d.companyId ? companiesMap.get(d.companyId) || null : null,
+      };
+    });
+
+    const openDeals = enrichedDeals.filter((d) => d.status === "OPEN");
+    const wonDeals = enrichedDeals.filter((d) => d.status === "WON");
+    const dealsForecast = {
+      totalOpenValue: openDeals.reduce((s, d) => s + d.value, 0),
+      weightedOpenValue: openDeals.reduce((s, d) => s + d.weightedValue, 0),
+      closedWonValue: wonDeals.reduce((s, d) => s + d.value, 0),
+      rottingDealsCount: openDeals.filter((d) => d.isRotting).length,
+    };
+
+    const enrichedPipelines = rawPipelines.map((p) => ({
+      ...p,
+      stages: p.stages.map((s) => {
+        const stageDeals = rawDeals.filter((d) => d.pipelineId === p.id && d.stageId === s.id);
+        return {
+          ...s,
+          dealsCount: stageDeals.length,
+          totalValue: stageDeals.reduce((sum, d) => sum + d.value, 0),
+          weightedValue: Math.round(
+            stageDeals.reduce((sum, d) => sum + d.value * (d.probability / 100), 0)
+          ),
+          deals: stageDeals,
+        };
+      }),
+    }));
+
+    const healthSummary = this.healthService.generateHealthSummary(this.repo);
+    const timeline = this.repo.listTimelineEvents();
+    const contactDuplicates = detectDuplicateContacts(rawContacts, rawDeals, timeline);
+    const companyDuplicates = detectDuplicateCompanies(rawCompanies, rawContacts, rawDeals, timeline);
+    const duplicates = {
+      contactDuplicates,
+      companyDuplicates,
+      totalDuplicates: contactDuplicates.length + companyDuplicates.length,
+    };
+
+    const workflows = this.repo.listWorkflows();
+    const workflowExecutions = this.repo.listWorkflowExecutions();
+    const sequences = this.repo.listSequences();
+    const rawEnrollments = this.repo.listSequenceEnrollments();
+    const enrollments = rawEnrollments.map((e) => ({
+      ...e,
+      contact: contactsMap.get(e.contactId) || null,
+    }));
+
+    const webForms = this.repo.listWebForms();
+    const formSubmissions = this.repo.listFormSubmissions();
+    const totalViews = webForms.reduce((s, f) => s + f.viewsCount, 0);
+    const totalSubmissions = webForms.reduce((s, f) => s + f.submissionsCount, 0);
+    const formsSummary = {
+      totalForms: webForms.length,
+      activeForms: webForms.filter((f) => f.isActive).length,
+      totalViews,
+      totalSubmissions,
+      avgConversionRate:
+        totalViews > 0 ? Number(((totalSubmissions / totalViews) * 100).toFixed(2)) : 0,
+    };
+
+    const allTickets = this.repo.listServiceTickets();
+    const enrichedTickets = allTickets.map((t) => ({
+      ...t,
+      contact: t.contactId ? contactsMap.get(t.contactId) || null : null,
+      company: t.companyId ? companiesMap.get(t.companyId) || null : null,
+      deal: t.dealId ? dealsMap.get(t.dealId) || null : null,
+    }));
+    const openTicketsCount = allTickets.filter(
+      (t) => t.status !== "RESOLVED" && t.status !== "CLOSED"
+    ).length;
+    const criticalCount = allTickets.filter(
+      (t) => t.priority === "CRITICAL" && t.status !== "RESOLVED" && t.status !== "CLOSED"
+    ).length;
+    const onTrackCount = allTickets.filter((t) => t.slaStatus === "ON_TRACK").length;
+    const breachedCount = allTickets.filter((t) => t.slaStatus === "BREACHED").length;
+    const atRiskCount = allTickets.filter((t) => t.slaStatus === "AT_RISK").length;
+    const slaComplianceRate =
+      allTickets.length > 0
+        ? Number((((allTickets.length - breachedCount) / allTickets.length) * 100).toFixed(1))
+        : 100;
+    const csatScores = allTickets
+      .map((t) => t.csatScore)
+      .filter((s): s is number => typeof s === "number");
+    const avgCsat =
+      csatScores.length > 0
+        ? Number((csatScores.reduce((a, b) => a + b, 0) / csatScores.length).toFixed(2))
+        : 4.9;
+    const ticketKpis = {
+      totalTickets: allTickets.length,
+      openCount: openTicketsCount,
+      criticalCount,
+      onTrackCount,
+      atRiskCount,
+      breachedCount,
+      slaComplianceRate,
+      avgFirstResponseMinutes: 18,
+      avgCsat,
+    };
+
+    const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion);
+    const erp = this.repo.getErpOverview();
+
+    return {
+      aiReport,
+      pipelines: enrichedPipelines,
+      deals: enrichedDeals,
+      dealsForecast,
+      contacts: enrichedContacts,
+      companies: enrichedCompanies,
+      healthSummary,
+      duplicates,
+      workflows,
+      workflowExecutions,
+      sequences,
+      enrollments,
+      webForms,
+      formSubmissions,
+      formsSummary,
+      tickets: enrichedTickets,
+      ticketKpis,
+      erp,
+      serverTimestamp: new Date().toISOString(),
+    };
+  }
+
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
     const method = req.method.toUpperCase();
-    const rawUrl = req.path || '/';
-    const [pathname, queryString] = rawUrl.split('?');
-    const cleanPath = pathname.replace(/\/+$/, '') || '/';
+    const rawUrl = req.path || "/";
+    const [pathname, queryString] = rawUrl.split("?");
+    const cleanPath = pathname.replace(/\/+$/, "") || "/";
 
     const query: Record<string, string | undefined> = { ...(req.query || {}) };
     if (queryString) {
@@ -72,9 +244,16 @@ export class CrmApiRouter {
       });
     }
 
-    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
+      string,
+      unknown
+    >;
 
-    if (this.isSingletonRepo && isPostgresEnabled() && !this.pgInitialized) {
+    if (this.isSingletonRepo) {
+      this.repo.syncFromDisk();
+    }
+
+    if (this.isSingletonRepo && isPostgresEnabled()) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
@@ -86,14 +265,21 @@ export class CrmApiRouter {
       }
     }
 
+    let journalReconciled = false;
+    if (body && typeof body._reconcileJournal === "object" && body._reconcileJournal !== null) {
+      const rec = this.repo.reconcileClientState(body._reconcileJournal as ClientDurableJournal);
+      if (rec.reconciled) journalReconciled = true;
+    }
+
     const response = await this.handleRoute(method, cleanPath, query, body);
 
     if (
       this.isSingletonRepo &&
       isPostgresEnabled() &&
-      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) &&
-      response.status >= 200 &&
-      response.status < 400
+      ((["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
+        response.status >= 200 &&
+        response.status < 400) ||
+        journalReconciled)
     ) {
       try {
         await syncStateToPostgres(this.repo.getState());
@@ -113,16 +299,54 @@ export class CrmApiRouter {
   ): Promise<ApiResponse> {
     try {
       // ======================================================================
+      // ATOMIC BOOTSTRAP & STATE RECONCILIATION (/api/bootstrap, /api/state)
+      // ======================================================================
+      if (
+        (cleanPath === "/api/bootstrap" || cleanPath === "/api/state") &&
+        (method === "GET" || method === "POST")
+      ) {
+        let reconciliation = { reconciled: false, appliedCount: 0 };
+        if (method === "POST" && body.reconcileJournal) {
+          reconciliation = this.repo.reconcileClientState(
+            body.reconcileJournal as ClientDurableJournal
+          );
+        }
+        const question =
+          method === "POST" && typeof body.question === "string"
+            ? body.question
+            : query.question;
+        return {
+          status: 200,
+          body: {
+            data: this.buildBootstrapPayload(question),
+            reconciliation,
+          },
+        };
+      }
+
+      if (cleanPath === "/api/state/reconcile" && method === "POST") {
+        const journal = (body.journal || body.reconcileJournal || body) as ClientDurableJournal;
+        const reconciliation = this.repo.reconcileClientState(journal);
+        return {
+          status: 200,
+          body: {
+            data: this.buildBootstrapPayload(),
+            reconciliation,
+          },
+        };
+      }
+
+      // ======================================================================
       // SYSTEM & DATABASE HEALTH (/api/health)
       // ======================================================================
-      if (cleanPath === '/api/health' && method === 'GET') {
+      if (cleanPath === "/api/health" && method === "GET") {
         const dbHealth = await checkPostgresHealth();
         const state = this.repo.getState();
         return {
           status: 200,
           body: {
-            status: 'ok',
-            service: 'hubspot-pro-crm',
+            status: "ok",
+            service: "hubspot-pro-crm",
             timestamp: new Date().toISOString(),
             database: dbHealth,
             counts: {
@@ -141,10 +365,10 @@ export class CrmApiRouter {
       // ======================================================================
       // CONTACTS (/api/contacts, /api/contacts/:id)
       // ======================================================================
-      if (cleanPath === '/api/contacts') {
-        if (method === 'GET') {
+      if (cleanPath === "/api/contacts") {
+        if (method === "GET") {
           const contacts = this.repo.listContacts({
-            search: query.search,
+            search: query.search || query.q,
             lifecycleStage: query.lifecycleStage,
             companyId: query.companyId,
             minScore: query.minScore ? Number(query.minScore) : undefined,
@@ -160,21 +384,24 @@ export class CrmApiRouter {
           };
         }
 
-        if (method === 'POST') {
-          if (!body.email || !body.firstName) {
+        if (method === "POST") {
+          const rawFirstName = String(body.firstName || body.name || "").trim();
+          if (!rawFirstName) {
             return {
               status: 400,
-              body: { error: 'Os campos "email" e "firstName" são obrigatórios.' },
+              body: { error: "O campo \"firstName\" (Nome do contato) é obrigatório." },
             };
           }
-          let contact = this.repo.createContact(
-            body as { email: string; firstName: string; [k: string]: unknown }
-          );
+          let contact = this.repo.createContact({
+            ...(body as Record<string, unknown>),
+            firstName: rawFirstName,
+            email: body.email ? String(body.email).trim() : undefined,
+          });
 
           // Automatically run CONTACT_CREATED workflows
           const wfExecutions = this.workflowEngine.trigger(this.repo, {
-            triggerType: 'CONTACT_CREATED',
-            entityType: 'CONTACT',
+            triggerType: "CONTACT_CREATED",
+            entityType: "CONTACT",
             entityId: contact.id,
           });
 
@@ -183,16 +410,23 @@ export class CrmApiRouter {
           // Check SCORE_THRESHOLD trigger if score >= 80
           if (contact.leadScore >= 80) {
             this.workflowEngine.trigger(this.repo, {
-              triggerType: 'SCORE_THRESHOLD',
-              entityType: 'CONTACT',
+              triggerType: "SCORE_THRESHOLD",
+              entityType: "CONTACT",
               entityId: contact.id,
             });
             contact = this.repo.getContactById(contact.id) || contact;
           }
 
+          const linkedCompany = contact.companyId
+            ? this.repo.getCompanyById(contact.companyId) || null
+            : null;
+
           return {
             status: 201,
-            body: { data: contact, workflowExecutions: wfExecutions },
+            body: {
+              data: { ...contact, company: linkedCompany },
+              workflowExecutions: wfExecutions,
+            },
           };
         }
       }
@@ -247,7 +481,13 @@ export class CrmApiRouter {
             });
             updated = this.repo.getContactById(id) || updated;
           }
-          return { status: 200, body: { data: updated } };
+          const linkedCompany = updated?.companyId
+            ? this.repo.getCompanyById(updated.companyId) || null
+            : null;
+          return {
+            status: 200,
+            body: { data: updated ? { ...updated, company: linkedCompany } : null },
+          };
         }
 
         if (method === 'DELETE') {

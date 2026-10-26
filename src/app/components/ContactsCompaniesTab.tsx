@@ -17,7 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Company, Contact, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
-import { CompletenessResult } from '../../modules/data-health/completeness';
+import { calculateContactCompleteness, CompletenessResult } from '../../modules/data-health/completeness';
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import {
   formatBRL,
@@ -54,14 +54,15 @@ interface ContactsCompaniesTabProps {
   initialSelectedContactId?: string | null;
   onClearInitialContact?: () => void;
   onCreateContact: (payload: {
-    email: string;
+    email?: string;
     firstName: string;
     lastName?: string;
     phone?: string;
     jobTitle?: string;
     lifecycleStage?: LifecycleStage;
     companyId?: string;
-  }) => Promise<void>;
+    companyName?: string;
+  }) => Promise<EnrichedContactItem | void>;
   onCreateCompany: (payload: {
     name: string;
     domain?: string;
@@ -161,7 +162,9 @@ export default function ContactsCompaniesTab({
   const [cJobTitle, setCJobTitle] = useState('');
   const [cStage, setCStage] = useState<LifecycleStage>('LEAD');
   const [cCompanyId, setCCompanyId] = useState('');
+  const [cCompanyName, setCCompanyName] = useState('');
   const [savingContact, setSavingContact] = useState(false);
+  const [newlySavedContactIds, setNewlySavedContactIds] = useState<string[]>([]);
 
   const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
   const [compName, setCompName] = useState('');
@@ -177,10 +180,21 @@ export default function ContactsCompaniesTab({
   const fetchContactDetail = async (id: string) => {
     setLoadingDetail(true);
     try {
-      const res = await fetch(`/api/contacts/${id}`);
+      const res = await fetch(`/api/contacts/${id}`, { cache: 'no-store' });
       if (res.ok) {
         const json = await res.json();
         setContactDetail(json.data);
+      } else {
+        const local = contacts.find((c) => c.id === id);
+        if (local) {
+          setContactDetail({
+            ...local,
+            company: local.company || null,
+            deals: [],
+            timeline: [],
+            completenessDetail: calculateContactCompleteness(local),
+          });
+        }
       }
     } finally {
       setLoadingDetail(false);
@@ -329,26 +343,56 @@ export default function ContactsCompaniesTab({
     }
   };
 
+  const normalizeSearch = (val: unknown): string =>
+    String(val ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   const handleCreateContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cEmail.trim() || !cFirstName.trim()) return;
+    if (!cFirstName.trim()) return;
     setSavingContact(true);
     try {
-      await onCreateContact({
-        email: cEmail.trim(),
+      const created = await onCreateContact({
+        email: cEmail.trim() || undefined,
         firstName: cFirstName.trim(),
         lastName: cLastName.trim() || undefined,
         phone: cPhone.trim() || undefined,
         jobTitle: cJobTitle.trim() || undefined,
         lifecycleStage: cStage,
         companyId: cCompanyId || undefined,
+        companyName: cCompanyName.trim() || undefined,
       });
+
+      // Reset any restrictive filters so the newly saved contact is immediately visible
+      setSubView('CONTACTS');
+      setStageFilter('ALL');
+      setMinScoreFilter(0);
+      if (searchQuery.trim()) {
+        const qNorm = normalizeSearch(searchQuery);
+        const createdHaystack = normalizeSearch(
+          `${cFirstName} ${cLastName} ${cEmail} ${cPhone} ${cJobTitle} ${cCompanyName}`
+        );
+        if (!createdHaystack.includes(qNorm)) {
+          setSearchQuery('');
+        }
+      }
+      if (created && typeof created === 'object' && 'id' in created) {
+        setNewlySavedContactIds((prev) => [created.id, ...prev.filter((id) => id !== created.id)]);
+      }
+      const displayFullName = `${cFirstName.trim()} ${cLastName.trim()}`.trim();
+      setEnrichmentFeedback(
+        `Contato "${displayFullName}" gravado com sucesso na base! Já está exibido no topo da lista e indexado na busca.`
+      );
       setCFirstName('');
       setCLastName('');
       setCEmail('');
       setCPhone('');
       setCJobTitle('');
       setCCompanyId('');
+      setCCompanyName('');
       setShowNewContactModal(false);
     } finally {
       setSavingContact(false);
@@ -370,6 +414,11 @@ export default function ContactsCompaniesTab({
         city: compCity.trim() || undefined,
         state: compState.trim() || undefined,
       });
+      setSubView('COMPANIES');
+      if (searchQuery.trim() && !normalizeSearch(compName).includes(normalizeSearch(searchQuery))) {
+        setSearchQuery('');
+      }
+      setEnrichmentFeedback(`Empresa "${compName.trim()}" gravada com sucesso na base!`);
       setCompName('');
       setCompDomain('');
       setCompCnpj('');
@@ -380,28 +429,74 @@ export default function ContactsCompaniesTab({
     }
   };
 
-  const filteredContacts = contacts.filter((c) => {
-    if (stageFilter !== 'ALL' && c.lifecycleStage !== stageFilter) return false;
-    if (minScoreFilter > 0 && c.leadScore < minScoreFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
-      const emailMatch = c.email.toLowerCase().includes(q);
-      const jobMatch = c.jobTitle?.toLowerCase().includes(q);
-      const compMatch = c.company?.name?.toLowerCase().includes(q);
-      return Boolean(fullName.includes(q) || emailMatch || jobMatch || compMatch);
-    }
-    return true;
-  });
+  const filteredContacts = contacts
+    .filter((c) => {
+      if (stageFilter !== 'ALL' && c.lifecycleStage !== stageFilter) return false;
+      if (minScoreFilter > 0 && c.leadScore < minScoreFilter) return false;
+      if (searchQuery.trim()) {
+        const q = normalizeSearch(searchQuery);
+        const qDigits = searchQuery.replace(/\D+/g, '');
+        const fullName = normalizeSearch(`${c.firstName} ${c.lastName}`);
+        const emailNorm = normalizeSearch(c.email);
+        const phoneNorm = normalizeSearch(c.phone || c.normalizedPhone);
+        const phoneDigits = String(c.phone || c.normalizedPhone || '').replace(/\D+/g, '');
+        const jobNorm = normalizeSearch(c.jobTitle);
+        const deptNorm = normalizeSearch(c.department);
+        const ownerNorm = normalizeSearch(
+          c.ownerName || (c.customProperties?.ownerName as string) || c.ownerId
+        );
+        const compNameNorm = normalizeSearch(c.company?.name);
+        const compDomainNorm = normalizeSearch(c.company?.domain);
+        const compCnpjNorm = normalizeSearch(c.company?.cnpj);
+        const cityNorm = normalizeSearch(
+          (c.customProperties?.city as string) || c.company?.city
+        );
+        const stateNorm = normalizeSearch(
+          (c.customProperties?.state as string) || c.company?.state
+        );
+
+        const textMatch =
+          fullName.includes(q) ||
+          normalizeSearch(c.firstName).includes(q) ||
+          normalizeSearch(c.lastName).includes(q) ||
+          emailNorm.includes(q) ||
+          phoneNorm.includes(q) ||
+          jobNorm.includes(q) ||
+          deptNorm.includes(q) ||
+          ownerNorm.includes(q) ||
+          compNameNorm.includes(q) ||
+          compDomainNorm.includes(q) ||
+          compCnpjNorm.includes(q) ||
+          cityNorm.includes(q) ||
+          stateNorm.includes(q);
+
+        const digitsMatch = qDigits.length >= 3 && phoneDigits.includes(qDigits);
+        return Boolean(textMatch || digitsMatch);
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aNewIdx = newlySavedContactIds.indexOf(a.id);
+      const bNewIdx = newlySavedContactIds.indexOf(b.id);
+      if (aNewIdx !== -1 && bNewIdx === -1) return -1;
+      if (bNewIdx !== -1 && aNewIdx === -1) return 1;
+      if (aNewIdx !== -1 && bNewIdx !== -1) return aNewIdx - bNewIdx;
+      return 0;
+    });
 
   const filteredCompanies = companies.filter((comp) => {
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+      const q = normalizeSearch(searchQuery);
+      const qDigits = searchQuery.replace(/\D+/g, '');
+      const cnpjDigits = String(comp.cnpj || '').replace(/\D+/g, '');
       return Boolean(
-        comp.name.toLowerCase().includes(q) ||
-          comp.domain?.toLowerCase().includes(q) ||
-          comp.industry?.toLowerCase().includes(q) ||
-          comp.cnpj?.includes(q)
+        normalizeSearch(comp.name).includes(q) ||
+          normalizeSearch(comp.domain).includes(q) ||
+          normalizeSearch(comp.industry).includes(q) ||
+          normalizeSearch(comp.city).includes(q) ||
+          normalizeSearch(comp.state).includes(q) ||
+          normalizeSearch(comp.cnpj).includes(q) ||
+          (qDigits.length >= 3 && cnpjDigits.includes(qDigits))
       );
     }
     return true;
@@ -697,6 +792,11 @@ export default function ContactsCompaniesTab({
                           <div>
                             <div className="font-bold text-slate-900 group-hover:text-[#ff7a59] transition flex items-center gap-1.5">
                               {contact.firstName} {contact.lastName}
+                              {newlySavedContactIds.includes(contact.id) && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-extrabold">
+                                  ✨ Salvo Agora
+                                </span>
+                              )}
                               {!contact.isValidEmail && (
                                 <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">
                                   E-mail Inválido
@@ -1366,14 +1466,13 @@ export default function ContactsCompaniesTab({
 
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                  E-mail Corporativo *
+                  E-mail Corporativo (ou Pessoal)
                 </label>
                 <input
                   type="email"
-                  required
                   value={cEmail}
                   onChange={(e) => setCEmail(e.target.value)}
-                  placeholder="Ex: fernanda.lima@mercadolivre.com.br"
+                  placeholder="Ex: fernanda.lima@mercadolivre.com.br (opcional se tiver telefone)"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
@@ -1428,14 +1527,14 @@ export default function ContactsCompaniesTab({
 
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Empresa (Opcional se corporativo)
+                    Empresa Existente (Opcional)
                   </label>
                   <select
                     value={cCompanyId}
                     onChange={(e) => setCCompanyId(e.target.value)}
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
                   >
-                    <option value="">Inferir pelo domínio ou sem vínculo</option>
+                    <option value="">Inferir pelo domínio ou digitar abaixo</option>
                     {companies.map((comp) => (
                       <option key={comp.id} value={comp.id}>
                         {comp.name}
@@ -1444,6 +1543,21 @@ export default function ContactsCompaniesTab({
                   </select>
                 </div>
               </div>
+
+              {!cCompanyId && (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    Ou Digite o Nome da Empresa (Cria/Vincula Automaticamente)
+                  </label>
+                  <input
+                    type="text"
+                    value={cCompanyName}
+                    onChange={(e) => setCCompanyName(e.target.value)}
+                    placeholder="Ex: Seta Telecom / Cliente B2B Ltda."
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                  />
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button

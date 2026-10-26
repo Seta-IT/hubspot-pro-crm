@@ -3,7 +3,10 @@ import { CrmApiRouter } from '../../api/router';
 
 const router = new CrmApiRouter();
 
-export async function forwardToCrmRouter(req: NextRequest, overridePath?: string): Promise<NextResponse> {
+export async function forwardToCrmRouter(
+  req: NextRequest,
+  overridePath?: string
+): Promise<NextResponse> {
   const url = new URL(req.url);
   const path = overridePath || url.pathname;
   const query: Record<string, string | undefined> = {};
@@ -27,5 +30,12 @@ export async function forwardToCrmRouter(req: NextRequest, overridePath?: string
     body,
   });
 
-  return NextResponse.json(res.body, { status: res.status });
+  return NextResponse.json(res.body, {
+    status: res.status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
+  });
 }

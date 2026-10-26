@@ -34,6 +34,11 @@ import {
   GestaoClickConfig,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import {
+  recordUpsertedContract,
+  recordUpsertedInvoice,
+  recordUpsertedProposal,
+} from '../lib/durable-storage';
 
 export interface ErpOverviewPayload {
   kpis: {
@@ -159,6 +164,9 @@ export default function ErpGestaoClickTab({
       const res = await fetch(`/api/erp/proposals/${proposalId}/approve`, { method: 'POST' });
       if (res.ok) {
         const j = await res.json();
+        if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
+        if (j.data?.contract) recordUpsertedContract(j.data.contract);
+        if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
         const ctrNum = j.data?.contract?.contractNumber || 'LOC';
         const invNum = j.data?.invoice?.documentNumber || 'FAT-LOC';
         onShowToast(
@@ -182,6 +190,7 @@ export default function ErpGestaoClickTab({
       });
       if (res.ok) {
         const j = await res.json();
+        if (j.data) recordUpsertedInvoice(j.data);
         onShowToast(
           `Fatura/Recibo de Locação ${j.data?.documentNumber} emitida (0% ISS — Súmula Vinculante 31 STF)!`
         );
@@ -201,6 +210,7 @@ export default function ErpGestaoClickTab({
       });
       if (res.ok) {
         const j = await res.json();
+        if (j.data) recordUpsertedInvoice(j.data);
         onShowToast(
           `NF-e de Remessa em Locação ${j.data?.documentNumber} (CFOP 5.908) emitida sem incidência de ICMS/IPI!`
         );
@@ -217,6 +227,8 @@ export default function ErpGestaoClickTab({
     try {
       const res = await fetch(`/api/erp/invoices/${invoiceId}/pay`, { method: 'POST' });
       if (res.ok) {
+        const j = await res.json();
+        if (j.data) recordUpsertedInvoice(j.data);
         onShowToast('Pagamento conciliado! Fatura e lançamento financeiro baixados.');
         await onRefresh();
         if (selectedInvoiceForPrint?.id === invoiceId) {
@@ -270,6 +282,8 @@ export default function ErpGestaoClickTab({
     });
 
     if (res.ok) {
+      const j = await res.json();
+      if (j.data) recordUpsertedProposal(j.data);
       onShowToast('Nova Proposta Comercial gerada no padrão GestãoClick!');
       setShowNewProposalModal(false);
       setPropTitle('');

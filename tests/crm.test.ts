@@ -645,3 +645,103 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.ok(reData.contactsReassigned >= 2);
   });
 });
+
+describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busca sem Acento & Auto-Reconciliação Serverless (/api/bootstrap)', () => {
+  it('salva 2 novos contatos seguidos (com e sem e-mail, com acentuação e empresa nova), mantém ambos no topo e encontra na busca com/sem acento e por telefone', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1º Contato: Com acento, telefone e nova empresa digitada na hora
+    const res1 = await router.dispatch({
+      method: 'POST',
+      path: '/api/contacts',
+      body: {
+        firstName: 'João',
+        lastName: 'Gonçalves',
+        email: 'joao.goncalves@construtoragoncalves.com.br',
+        phone: '(11) 98765-4321',
+        jobTitle: 'Diretor de Engenharia',
+        companyName: 'Construtora Gonçalves S.A.',
+      },
+    });
+    assert.equal(res1.status, 201);
+    const contact1 = (res1.body as { data: { id: string; firstName: string; companyId: string; company: { name: string } } }).data;
+    assert.equal(contact1.firstName, 'João');
+    assert.ok(contact1.companyId, 'Deve criar e vincular a empresa automaticamente');
+    assert.equal(contact1.company.name, 'Construtora Gonçalves S.A.');
+
+    // 2º Contato: Sem e-mail preenchido (apenas nome e WhatsApp)
+    const res2 = await router.dispatch({
+      method: 'POST',
+      path: '/api/contacts',
+      body: {
+        firstName: 'Cláudia',
+        lastName: 'Mendonça',
+        phone: '(21) 99876-5432',
+        jobTitle: 'Gerente de Compras Telecom',
+      },
+    });
+    assert.equal(res2.status, 201);
+    const contact2 = (res2.body as { data: { id: string; firstName: string; email: string } }).data;
+    assert.equal(contact2.firstName, 'Cláudia');
+    assert.ok(contact2.email.includes('@contato.setatelecom.com.br'));
+
+    // Verificar que ambos estão no TOPO de GET /api/contacts
+    const listRes = await router.dispatch({ method: 'GET', path: '/api/contacts' });
+    assert.equal(listRes.status, 200);
+    const allContacts = (listRes.body as { data: Array<{ id: string }> }).data;
+    assert.equal(allContacts[0].id, contact2.id, '2º contato recém-criado deve estar na posição 0');
+    assert.equal(allContacts[1].id, contact1.id, '1º contato recém-criado deve estar na posição 1');
+
+    // Busca sem acento (?search=joao goncalves)
+    const searchJoao = await router.dispatch({
+      method: 'GET',
+      path: '/api/contacts?search=joao goncalves',
+    });
+    const foundJoao = (searchJoao.body as { data: Array<{ id: string }> }).data;
+    assert.equal(foundJoao.length, 1);
+    assert.equal(foundJoao[0].id, contact1.id);
+
+    // Busca sem acento via ?q=claudia mendonca
+    const searchClaudia = await router.dispatch({
+      method: 'GET',
+      path: '/api/contacts?q=claudia mendonca',
+    });
+    const foundClaudia = (searchClaudia.body as { data: Array<{ id: string }> }).data;
+    assert.equal(foundClaudia.length, 1);
+    assert.equal(foundClaudia[0].id, contact2.id);
+
+    // Busca por dígitos do telefone (?search=998765432)
+    const searchPhone = await router.dispatch({
+      method: 'GET',
+      path: '/api/contacts?search=998765432',
+    });
+    const foundPhone = (searchPhone.body as { data: Array<{ id: string }> }).data;
+    assert.equal(foundPhone.length, 1);
+    assert.equal(foundPhone[0].id, contact2.id);
+
+    // Simular Cold Start Serverless: nova instância limpa reconciliada via POST /api/bootstrap
+    const coldStartRepo = createInMemoryRepository();
+    const coldStartRouter = new CrmApiRouter(coldStartRepo);
+
+    const bootstrapRes = await coldStartRouter.dispatch({
+      method: 'POST',
+      path: '/api/bootstrap',
+      body: {
+        reconcileJournal: {
+          upsertedContacts: [contact2, contact1],
+          upsertedCompanies: [contact1.company],
+        },
+      },
+    });
+    assert.equal(bootstrapRes.status, 200);
+    const bootBody = bootstrapRes.body as {
+      data: { contacts: Array<{ id: string }> };
+      reconciliation: { reconciled: boolean; appliedCount: number };
+    };
+    assert.equal(bootBody.reconciliation.reconciled, true);
+    assert.ok(bootBody.reconciliation.appliedCount >= 3);
+    assert.ok(bootBody.data.contacts.some((c) => c.id === contact1.id));
+    assert.ok(bootBody.data.contacts.some((c) => c.id === contact2.id));
+  });
+});
