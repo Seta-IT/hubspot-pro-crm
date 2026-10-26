@@ -19,6 +19,7 @@ export function calculateBrazilianTaxBreakdown(params: {
   documentType: ErpFiscalDocumentType;
   taxRegime?: ErpTaxRegime;
   issRatePercent?: number;
+  icmsRatePercent?: number;
 }): ErpTaxBreakdown {
   const taxRegime: ErpTaxRegime = params.taxRegime || 'LUCRO_PRESUMIDO';
   const base = Math.max(0, Number(params.grossAmount || 0) - Number(params.discountAmount || 0));
@@ -50,7 +51,99 @@ export function calculateBrazilianTaxBreakdown(params: {
     };
   }
 
-  // 2. FATURA_LOCACAO (Locação Pura de Bens Móveis — Súmula Vinculante 31 STF & Veto 3.01 LC 116/03)
+  // 2. NFE_VENDA_PRODUTO (NF-e Modelo 55 - Venda de Mercadoria / Equipamento CFOP 5.102 / 6.102)
+  if (params.documentType === 'NFE_VENDA_PRODUTO') {
+    const icmsRate =
+      params.icmsRatePercent ?? (taxRegime === 'SIMPLES_NACIONAL' ? 3.95 : 18.0);
+    const pisRate =
+      taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
+    const cofinsRate =
+      taxRegime === 'LUCRO_REAL' ? 7.6 : taxRegime === 'SIMPLES_NACIONAL' ? 1.6 : 3.0;
+    const irpjRate =
+      taxRegime === 'SIMPLES_NACIONAL' ? 0.5 : taxRegime === 'LUCRO_REAL' ? 1.5 : 1.2; // 8% presunção comércio * 15%
+    const csllRate =
+      taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 1.08; // 12% presunção comércio * 9%
+
+    const icmsAmount = round2((base * icmsRate) / 100);
+    const pisAmount = round2((base * pisRate) / 100);
+    const cofinsAmount = round2((base * cofinsRate) / 100);
+    const irpjEstimatedAmount = round2((base * irpjRate) / 100);
+    const csllEstimatedAmount = round2((base * csllRate) / 100);
+    const totalTaxesEstimated = round2(
+      icmsAmount + pisAmount + cofinsAmount + irpjEstimatedAmount + csllEstimatedAmount
+    );
+
+    return {
+      taxRegime,
+      issRatePercent: 0,
+      issAmount: 0,
+      issWithheld: false,
+      pisRatePercent: pisRate,
+      pisAmount,
+      cofinsRatePercent: cofinsRate,
+      cofinsAmount,
+      irpjEstimatedAmount,
+      csllEstimatedAmount,
+      irrfWithheldRatePercent: 0,
+      irrfWithheldAmount: 0,
+      csrfWithheldRatePercent: 0,
+      csrfWithheldAmount: 0,
+      icmsRatePercent: icmsRate,
+      icmsAmount,
+      totalTaxesEstimated,
+      totalWithheld: 0,
+      netReceivableAmount: round2(base),
+      legalExemptionNotice:
+        'DANFE NF-e Modelo 55 — Venda de Mercadoria/Equipamento de Telecomunicações e Informática (CFOP 5.102 Operação Interna / 6.102 Interestadual). Tributação comercial com destaque de ICMS (CST 00), PIS (0,65%) e COFINS (3,00%) CST 01, IRPJ presumido comércio (1,20%) e CSLL (1,08%). Sem retenção na fonte de IRRF/CSRF.',
+    };
+  }
+
+  // 3. NFCE_CONSUMIDOR (NFC-e Modelo 65 - Nota Fiscal de Consumidor Eletrônica - Venda Balcão CFOP 5.102)
+  if (params.documentType === 'NFCE_CONSUMIDOR') {
+    const icmsRate =
+      params.icmsRatePercent ?? (taxRegime === 'SIMPLES_NACIONAL' ? 3.95 : 18.0);
+    const pisRate =
+      taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
+    const cofinsRate =
+      taxRegime === 'LUCRO_REAL' ? 7.6 : taxRegime === 'SIMPLES_NACIONAL' ? 1.6 : 3.0;
+    const irpjRate = taxRegime === 'SIMPLES_NACIONAL' ? 0.5 : 1.2;
+    const csllRate = taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 1.08;
+
+    const icmsAmount = round2((base * icmsRate) / 100);
+    const pisAmount = round2((base * pisRate) / 100);
+    const cofinsAmount = round2((base * cofinsRate) / 100);
+    const irpjEstimatedAmount = round2((base * irpjRate) / 100);
+    const csllEstimatedAmount = round2((base * csllRate) / 100);
+    const totalTaxesEstimated = round2(
+      icmsAmount + pisAmount + cofinsAmount + irpjEstimatedAmount + csllEstimatedAmount
+    );
+
+    return {
+      taxRegime,
+      issRatePercent: 0,
+      issAmount: 0,
+      issWithheld: false,
+      pisRatePercent: pisRate,
+      pisAmount,
+      cofinsRatePercent: cofinsRate,
+      cofinsAmount,
+      irpjEstimatedAmount,
+      csllEstimatedAmount,
+      irrfWithheldRatePercent: 0,
+      irrfWithheldAmount: 0,
+      csrfWithheldRatePercent: 0,
+      csrfWithheldAmount: 0,
+      icmsRatePercent: icmsRate,
+      icmsAmount,
+      totalTaxesEstimated,
+      totalWithheld: 0,
+      netReceivableAmount: round2(base),
+      legalExemptionNotice:
+        'DANFE NFC-e Modelo 65 (Ajuste SINIEF 19/16) — Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica para venda presencial/balcão a consumidor final (CFOP 5.102). Tributos aproximados conforme Lei Federal nº 12.741/2012 (De Olho no Imposto / IBPT).',
+    };
+  }
+
+  // 4. FATURA_LOCACAO (Locação Pura de Bens Móveis — Súmula Vinculante 31 STF & Veto 3.01 LC 116/03)
   if (params.documentType === 'FATURA_LOCACAO') {
     const pisRate =
       taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
@@ -94,7 +187,7 @@ export function calculateBrazilianTaxBreakdown(params: {
     };
   }
 
-  // 3. NFCOM_TELECOM (Modelo 62 - Serviços de Comunicação SCM / SVA)
+  // 5. NFCOM_TELECOM (Modelo 62 - Serviços de Comunicação SCM / SVA)
   if (params.documentType === 'NFCOM_TELECOM') {
     const pisRate = taxRegime === 'LUCRO_REAL' ? 1.65 : 0.65;
     const cofinsRate = taxRegime === 'LUCRO_REAL' ? 7.6 : 3.0;
@@ -133,7 +226,7 @@ export function calculateBrazilianTaxBreakdown(params: {
     };
   }
 
-  // 4. NFSE_SERVICO (Serviços Técnicos TI/Telecom - LC 116/2003 Item 01.07 / 14.01)
+  // 6. NFSE_SERVICO (Serviços Técnicos TI/Telecom - LC 116/2003 Item 01.07 / 14.01)
   const issRate = params.issRatePercent ?? 2.9;
   const issAmount = round2((base * issRate) / 100);
 

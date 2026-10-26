@@ -707,6 +707,91 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     const updatedInv = (editInvRes.body as { data: { grossAmount: number; status: string } }).data;
     assert.equal(updatedInv.grossAmount, 7800);
     assert.equal(updatedInv.status, 'PAGA');
+
+    // 4. Enviar E-mail via STI-hub Mailer (POST /api/communications/send-email)
+    const mailRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/communications/send-email',
+      body: {
+        docType: 'PROPOSAL',
+        to: 'marialuiza@mundivox.com.br',
+        cc: 'comercial@setatelecom.com.br',
+        subject: '[Seta Telecom] Proposta Comercial #4695 — MUNDIVOX COMUNICACOES LTDA',
+        body: 'Segue proposta comercial #4695 com link PDF A4.',
+        companyName: 'MUNDIVOX COMUNICACOES LTDA',
+        documentCode: '4695',
+        amountBrl: 4320,
+      },
+    });
+    assert.equal(mailRes.status, 200);
+    const mailData = (mailRes.body as { data: { success: boolean; protocol: string } }).data;
+    assert.equal(mailData.success, true);
+    assert.ok(mailData.protocol.startsWith('STI-MAIL-'));
+
+    // 4. Emitir NF-e de Venda de Produto (CFOP 5.102), NFC-e Consumidor (Mod. 65) e NFS-e com retenções (IRRF 1,5% + CSRF 4,65%)
+    const nfeVendaRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/invoices',
+      body: {
+        documentType: 'NFE_VENDA_PRODUTO',
+        companyName: 'FOXCONN BRASIL INDUSTRIA E COMERCIO LTDA',
+        companyCnpj: '07.308.605/0001-80',
+        grossAmount: 10000,
+      },
+    });
+    assert.equal(nfeVendaRes.status, 201);
+    const nfeVenda = (nfeVendaRes.body as {
+      data: {
+        documentType: string;
+        cfop: string;
+        netAmount: number;
+        taxBreakdown: { icmsRatePercent: number; icmsAmount: number; totalWithheld: number };
+      };
+    }).data;
+    assert.equal(nfeVenda.documentType, 'NFE_VENDA_PRODUTO');
+    assert.ok(nfeVenda.cfop.includes('5.102'));
+    assert.equal(nfeVenda.taxBreakdown.icmsRatePercent, 18);
+    assert.equal(nfeVenda.taxBreakdown.icmsAmount, 1800);
+    assert.equal(nfeVenda.taxBreakdown.totalWithheld, 0);
+    assert.equal(nfeVenda.netAmount, 10000);
+
+    const nfseRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/invoices',
+      body: {
+        documentType: 'NFSE_SERVICO',
+        companyName: 'TOTVS S.A.',
+        companyCnpj: '53.113.791/0001-22',
+        grossAmount: 10000,
+      },
+    });
+    assert.equal(nfseRes.status, 201);
+    const nfse = (nfseRes.body as {
+      data: {
+        netAmount: number;
+        taxBreakdown: { irrfWithheldAmount: number; csrfWithheldAmount: number; totalWithheld: number };
+      };
+    }).data;
+    assert.equal(nfse.taxBreakdown.irrfWithheldAmount, 150);
+    assert.equal(nfse.taxBreakdown.csrfWithheldAmount, 465);
+    assert.equal(nfse.taxBreakdown.totalWithheld, 615);
+    assert.equal(nfse.netAmount, 9385);
+
+    // 5. Criar Nota de Compra / Entrada de Ativo Imobilizado (CFOP 1.551) em /api/erp/records/purchaseOrders
+    const poRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/records/purchaseOrders',
+      body: {
+        id: 'po-test-1551',
+        code: '39',
+        nfeNumber: '000.019.551',
+        supplierName: 'AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.',
+        cfopEntrada: '1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)',
+        totalAmount: 15000,
+        status: 'Confirmada',
+      },
+    });
+    assert.equal(poRes.status, 200);
   });
 });
 
@@ -807,5 +892,200 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.ok(bootBody.reconciliation.appliedCount >= 3);
     assert.ok(bootBody.data.contacts.some((c) => c.id === contact1.id));
     assert.ok(bootBody.data.contacts.some((c) => c.id === contact2.id));
+  });
+});
+
+describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, Motor Dinâmico de SLA & Portal do Cliente (/api/portal/tickets)', () => {
+  it('calcula SLA dinâmico em tempo real, recalcula prazos ao alterar prioridade e gera O.S. Técnica no GestãoClick a partir do ticket', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Verificar KPIs reais (avgFirstResponseMinutes, avgResolutionMinutes) e filas NOC Seta
+    const listRes = await router.dispatch({ method: 'GET', path: '/api/tickets' });
+    assert.equal(listRes.status, 200);
+    const listBody = listRes.body as {
+      data: Array<{ key: string; assignee: string; slaStatus: string; equipmentSerial?: string }>;
+      kpis: { avgFirstResponseMinutes: number; avgResolutionMinutes: number; breachedCount: number };
+    };
+    assert.ok(listBody.kpis.avgFirstResponseMinutes > 0);
+    assert.ok(listBody.kpis.avgResolutionMinutes > 0);
+    const jsm101 = listBody.data.find((t) => t.key === 'JSM-101');
+    assert.ok(jsm101);
+    assert.ok(jsm101!.assignee.includes('NOC N2'));
+    assert.ok(jsm101!.equipmentSerial?.includes('SN-FGT100F'));
+
+    // 2. Alterar prioridade e fila NOC em JSM-102 via PATCH e validar recálculo de SLA
+    const before102 = repo.getServiceTicketById('JSM-102')!;
+    const oldResolveDue = before102.slaResolutionDueAt;
+
+    const patchRes = await router.dispatch({
+      method: 'PATCH',
+      path: '/api/tickets/JSM-102',
+      body: {
+        priority: 'CRITICAL',
+        assignee: 'NOC N3 - Engenharia Core & Entroncamento E1',
+        equipmentSerial: 'SN-SETA-SBC-CORE-01',
+      },
+    });
+    assert.equal(patchRes.status, 200);
+    const patched102 = (patchRes.body as {
+      data: { priority: string; assignee: string; slaResolutionDueAt: string; equipmentSerial: string };
+    }).data;
+    assert.equal(patched102.priority, 'CRITICAL');
+    assert.equal(patched102.assignee, 'NOC N3 - Engenharia Core & Entroncamento E1');
+    assert.equal(patched102.equipmentSerial, 'SN-SETA-SBC-CORE-01');
+    assert.notEqual(patched102.slaResolutionDueAt, oldResolveDue, 'Deve recalcular prazo de resolução ao mudar prioridade');
+
+    // 3. Gerar Ordem de Serviço (O.S.) no GestãoClick ERP a partir do ticket JSM-102
+    const osRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/tickets/JSM-102/create-os',
+      body: {
+        technicianName: 'NOC N3 - Engenharia Core & Entroncamento E1',
+      },
+    });
+    assert.equal(osRes.status, 201);
+    const osData = (osRes.body as {
+      data: {
+        ticket: { serviceOrderId: string; status: string };
+        serviceOrder: { id: string; code: string; status: string };
+      };
+    }).data;
+    assert.ok(osData.serviceOrder.id);
+    assert.ok(Number(osData.serviceOrder.code) >= 1519);
+    assert.equal(osData.ticket.serviceOrderId, osData.serviceOrder.id);
+    assert.equal(osData.ticket.status, 'IN_PROGRESS');
+  });
+
+  it('opera Portal Externo do Cliente (/api/portal/tickets): oculta notas internas do NOC, abre novo protocolo com SLA, responde e registra avaliação CSAT', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Consultar protocolo JSM-101 no Portal e garantir que notas internas (isInternal: true) NÃO aparecem
+    const getPortalRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/portal/tickets?key=JSM-101',
+    });
+    assert.equal(getPortalRes.status, 200);
+    const portalTickets = (getPortalRes.body as {
+      data: Array<{ key: string; comments: Array<{ isInternal: boolean; body: string }> }>;
+    }).data;
+    assert.equal(portalTickets.length, 1);
+    assert.equal(portalTickets[0].key, 'JSM-101');
+    assert.ok(
+      portalTickets[0].comments.every((c) => c.isInternal === false),
+      'Portal público nunca deve expor notas internas do NOC'
+    );
+
+    // 2. Abrir novo chamado técnico pelo Portal do Cliente
+    const createPortalRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/portal/tickets',
+      body: {
+        name: 'Roberto Mendes',
+        email: 'roberto.mendes@bemisa.com.br',
+        companyName: 'BEMISA PARTICIPACOES S.A.',
+        phone: '(31) 98811-2233',
+        category: 'INCIDENT',
+        priority: 'CRITICAL',
+        equipmentSerial: 'SN-SETA-PABX-BM01',
+        subject: 'Indisponibilidade de Tronco SIP DDR na Matriz BH',
+        description: 'Chamadas entrantes retornando ocupado desde as 13h.',
+      },
+    });
+    assert.equal(createPortalRes.status, 201);
+    const createdPortalTicket = (createPortalRes.body as {
+      data: { key: string; assignee: string; priority: string; equipmentSerial: string };
+    }).data;
+    assert.ok(createdPortalTicket.key.startsWith('JSM-'));
+    assert.equal(createdPortalTicket.priority, 'CRITICAL');
+    assert.equal(createdPortalTicket.equipmentSerial, 'SN-SETA-PABX-BM01');
+    assert.ok(createdPortalTicket.assignee.includes('NOC N2'));
+
+    // 3. Cliente responde em chamado que estava WAITING_CUSTOMER (JSM-103) -> volta para IN_PROGRESS
+    const replyRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/portal/tickets/JSM-103/reply',
+      body: {
+        author: 'Camila Ferreira (VTEX)',
+        body: 'Janela de manutenção no Data Center aprovada para hoje às 22h.',
+      },
+    });
+    assert.equal(replyRes.status, 201);
+    const repliedTicket = (replyRes.body as { data: { status: string; comments: unknown[] } }).data;
+    assert.equal(repliedTicket.status, 'IN_PROGRESS');
+
+    // 4. Cliente avalia atendimento CSAT (1 a 5 estrelas)
+    const csatRes = await router.dispatch({
+      method: 'POST',
+      path: `/api/portal/tickets/${createdPortalTicket.key}/csat`,
+      body: {
+        score: 5,
+        feedback: 'Atendimento impecável do NOC Seta Telecom, tronco SIP restabelecido em 12 minutos!',
+      },
+    });
+    assert.equal(csatRes.status, 200);
+    const ratedTicket = (csatRes.body as { data: { csatScore: number } }).data;
+    assert.equal(ratedTicket.csatScore, 5);
+  });
+});
+
+describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônios S/N, Vigência, Reajuste IPCA/IGP-M e Conversão)', () => {
+  it('converte proposta preservando S/N e índice de reajuste, renova vigência (+12m) e aplica reajuste anual (IPCA/IGP-M) em contratos', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Aprovar prop-seta-003 (que tem readjustmentIndex: IGP-M e S/N pré-alocados)
+    const appRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals/prop-seta-003/approve',
+    });
+    assert.equal(appRes.status, 200);
+    const appContract = (appRes.body as {
+      data: {
+        contract: {
+          id: string;
+          readjustmentIndex: string;
+          modality: string;
+          equipments: Array<{ serialNumber: string }>;
+        };
+      };
+    }).data.contract;
+    assert.equal(appContract.readjustmentIndex, 'IGP-M');
+    assert.equal(appContract.modality, 'LOCACAO');
+    assert.equal(appContract.equipments[0].serialNumber, 'SN-FGT100F-CR8810');
+
+    // 2. Renovar vigência de ctr-loc-103 (que estava em RENOVACAO_PROXIMA)
+    const renewRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/rental-contracts/ctr-loc-103/renew',
+      body: { months: 12 },
+    });
+    assert.equal(renewRes.status, 200);
+    const renewedCtr = (renewRes.body as {
+      data: { status: string; contractMonths: number; endDate: string };
+    }).data;
+    assert.equal(renewedCtr.status, 'ATIVO');
+    assert.equal(renewedCtr.contractMonths, 24);
+
+    // 3. Aplicar reajuste anual de 4.50% (IPCA) ao contrato ctr-loc-101 (mensalidade R$ 12.000 -> R$ 12.540)
+    const readjRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/rental-contracts/ctr-loc-101/readjust',
+      body: { index: 'IPCA', percentage: 4.5, note: 'Reajuste anual IPCA 12m' },
+    });
+    assert.equal(readjRes.status, 200);
+    const readjustedCtr = (readjRes.body as {
+      data: {
+        monthlyValue: number;
+        lastReadjustmentPercent: number;
+        readjustmentHistory: Array<{ previousMonthlyValue: number; newMonthlyValue: number }>;
+      };
+    }).data;
+    assert.equal(readjustedCtr.monthlyValue, 12540);
+    assert.equal(readjustedCtr.lastReadjustmentPercent, 4.5);
+    assert.ok(readjustedCtr.readjustmentHistory.length >= 1);
+    assert.equal(readjustedCtr.readjustmentHistory[0].previousMonthlyValue, 12000);
+    assert.equal(readjustedCtr.readjustmentHistory[0].newMonthlyValue, 12540);
   });
 });

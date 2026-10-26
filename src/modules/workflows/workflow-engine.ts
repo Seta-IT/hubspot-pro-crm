@@ -79,6 +79,10 @@ export class WorkflowEngine {
       if (score < cfg.minScore) return false;
     }
 
+    if (workflow.triggerType === 'FORM_SUBMITTED' && cfg.formId && payload.context?.formId) {
+      if (String(payload.context.formId) !== String(cfg.formId)) return false;
+    }
+
     return true;
   }
 

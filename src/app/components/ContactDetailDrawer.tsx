@@ -2,9 +2,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
-import { Company, Contact, Deal, LeadStatus, LifecycleStage, TimelineEvent } from '../../db/types';
+import {
+  BuyingRoleType,
+  Company,
+  Contact,
+  Deal,
+  LeadStatus,
+  LifecycleStage,
+  TimelineEvent,
+} from '../../db/types';
 import { CompletenessResult } from '../../modules/data-health/completeness';
-import { formatBRL, formatDateTimeBR, formatRelativeDays, getLifecycleBadge } from './ui-helpers';
+import {
+  BUYING_ROLE_OPTIONS,
+  SETA_OWNER_OPTIONS,
+  formatBRL,
+  formatDateTimeBR,
+  formatRelativeDays,
+  getBuyingRoleBadge,
+  getBuyingRoleLabel,
+  getIcpTierBadge,
+  getLifecycleBadge,
+} from './ui-helpers';
 
 export interface DetailedContactResponse extends Contact {
   company: Company | null;
@@ -60,7 +78,9 @@ export default function ContactDetailDrawer({
   const [companyId, setCompanyId] = useState('');
   const [lifecycleStage, setLifecycleStage] = useState<LifecycleStage>('LEAD');
   const [leadStatus, setLeadStatus] = useState<LeadStatus>('NEW');
-  const [ownerName, setOwnerName] = useState('Marcéllo Mira');
+  const [buyingRole, setBuyingRole] = useState<BuyingRoleType>('DECISOR');
+  const [isUnworked, setIsUnworked] = useState<boolean>(false);
+  const [ownerName, setOwnerName] = useState('Marcelo Lopes Mira');
   const [city, setCity] = useState('');
   const [stateUf, setStateUf] = useState('');
 
@@ -84,9 +104,16 @@ export default function ContactDetailDrawer({
       setCompanyId(contactDetail.companyId || '');
       setLifecycleStage(contactDetail.lifecycleStage || 'LEAD');
       setLeadStatus(contactDetail.leadStatus || 'NEW');
+      setBuyingRole(contactDetail.buyingRole || 'DECISOR');
+      setIsUnworked(Boolean(contactDetail.isUnworked));
       const props = contactDetail.customProperties || {};
       setOwnerName(
-        String(props.ownerName || contactDetail.ownerId || 'Marcéllo Mira')
+        String(
+          contactDetail.ownerName ||
+            props.ownerName ||
+            contactDetail.ownerId ||
+            'Marcelo Lopes Mira'
+        )
       );
       setCity(String(props.city || contactDetail.company?.city || ''));
       setStateUf(String(props.state || contactDetail.company?.state || ''));
@@ -98,6 +125,7 @@ export default function ContactDetailDrawer({
     if (!contactDetail || !firstName.trim() || !email.trim()) return;
     setSavingEdit(true);
     try {
+      const cleanOwner = ownerName.trim() || 'Marcelo Lopes Mira';
       await onUpdateContact(contactDetail.id, {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -107,8 +135,12 @@ export default function ContactDetailDrawer({
         companyId: companyId || null,
         lifecycleStage,
         leadStatus,
-        ownerId: ownerName.trim() || 'Marcéllo Mira',
-        ownerName: ownerName.trim() || 'Marcéllo Mira',
+        buyingRole,
+        isUnworked,
+        ownerId: cleanOwner.toLowerCase().includes('evelyn')
+          ? 'owner-evelyn'
+          : 'owner-marcello',
+        ownerName: cleanOwner,
         city: city.trim() || undefined,
         state: stateUf.trim() || undefined,
       });
@@ -165,10 +197,17 @@ export default function ContactDetailDrawer({
                     : 'Carregando contato...'}
                 </h3>
                 {contactDetail && getLifecycleBadge(contactDetail.lifecycleStage)}
+                {contactDetail?.buyingRole && getBuyingRoleBadge(contactDetail.buyingRole)}
+                {contactDetail?.isUnworked && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-950">
+                    🔥 Lead Intocado
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300 mt-0.5 truncate">
                 {contactDetail?.jobTitle || 'Cargo não informado'}{' '}
                 {contactDetail?.company ? `• ${contactDetail.company.name}` : ''}
+                {contactDetail?.ownerName ? ` • Carteira: ${contactDetail.ownerName}` : ''}
               </p>
             </div>
           </div>
@@ -235,7 +274,7 @@ export default function ContactDetailDrawer({
                     <div className="flex items-center gap-2">
                       <Pencil className="w-4 h-4 text-[#ff7a59]" />
                       <h4 className="text-sm font-extrabold text-slate-900">
-                        Editar Dados do Contato
+                        Editar Dados do Contato &amp; Papel ABM
                       </h4>
                     </div>
                     <span className="text-[11px] font-semibold text-slate-500">
@@ -331,6 +370,42 @@ export default function ContactDetailDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Papel de Compra ABM (Buying Role)
+                      </label>
+                      <select
+                        value={buyingRole}
+                        onChange={(e) => setBuyingRole(e.target.value as BuyingRoleType)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      >
+                        {BUYING_ROLE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                        Proprietário da Carteira (Owner Seta)
+                      </label>
+                      <input
+                        type="text"
+                        list="seta-owners-drawer-list"
+                        value={ownerName}
+                        onChange={(e) => setOwnerName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                      />
+                      <datalist id="seta-owners-drawer-list">
+                        {SETA_OWNER_OPTIONS.map((ow) => (
+                          <option key={ow} value={ow} />
+                        ))}
+                      </datalist>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
                         Estágio do Funil (Lifecycle)
                       </label>
                       <select
@@ -368,18 +443,7 @@ export default function ContactDetailDrawer({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
-                        Responsável (Owner)
-                      </label>
-                      <input
-                        type="text"
-                        value={ownerName}
-                        onChange={(e) => setOwnerName(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
-                      />
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
                     <div>
                       <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
                         Cidade
@@ -404,6 +468,15 @@ export default function ContactDetailDrawer({
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                       />
                     </div>
+                    <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-bold text-amber-950 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isUnworked}
+                        onChange={(e) => setIsUnworked(e.target.checked)}
+                        className="rounded border-amber-400 text-[#ff7a59] focus:ring-[#ff7a59]"
+                      />
+                      <span>🔥 Lead Intocado (Unworked)</span>
+                    </label>
                   </div>
 
                   <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
@@ -532,7 +605,7 @@ export default function ContactDetailDrawer({
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Dados Cadastrais &amp; Smart Data
+                    Dados Cadastrais, Papel ABM &amp; Smart Data
                   </h4>
                   {!isEditing && (
                     <button
@@ -587,10 +660,43 @@ export default function ContactDetailDrawer({
                   </div>
 
                   <div>
-                    <span className="text-slate-400 block">Empresa Vinculada</span>
+                    <span className="text-slate-400 block">Papel de Compra (ABM)</span>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      {contactDetail.buyingRole
+                        ? getBuyingRoleBadge(contactDetail.buyingRole)
+                        : <span className="font-semibold text-slate-700">{getBuyingRoleLabel(contactDetail.buyingRole)}</span>}
+                      {contactDetail.isUnworked && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                          🔥 Intocado
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block">Proprietário da Carteira</span>
                     <span className="font-semibold text-slate-800">
+                      {contactDetail.ownerName ||
+                        (contactDetail.customProperties?.ownerName as string) ||
+                        'Marcelo Lopes Mira'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block">Empresa Vinculada</span>
+                    <span className="font-semibold text-slate-800 block">
                       {contactDetail.company?.name || 'Não vinculada'}
                     </span>
+                    {contactDetail.company && (
+                      <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                        {contactDetail.company.isTargetAccount && (
+                          <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-bold">
+                            🎯 Conta Alvo ABM
+                          </span>
+                        )}
+                        {contactDetail.company.icpTier && getIcpTierBadge(contactDetail.company.icpTier)}
+                      </div>
+                    )}
                   </div>
 
                   <div>

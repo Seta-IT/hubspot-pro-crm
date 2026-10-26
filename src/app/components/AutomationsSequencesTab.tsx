@@ -6,11 +6,9 @@ import {
   Mail,
   Play,
   Plus,
-  CheckCircle2,
   ArrowRight,
   Zap,
   Filter,
-  Sparkles,
   Power,
   Terminal,
   X,
@@ -99,6 +97,7 @@ export default function AutomationsSequencesTab({
   const [testTargetDealId, setTestTargetDealId] = useState<string>(
     deals[0]?.id || 'deal-nubank-revops'
   );
+  const [execStatusFilter, setExecStatusFilter] = useState<'ALL' | 'COMPLETED' | 'SKIPPED' | 'FAILED'>('ALL');
   const [runningTestWfId, setRunningTestWfId] = useState<string | null>(null);
   const [lastExecutionResult, setLastExecutionResult] = useState<WorkflowExecution | null>(null);
 
@@ -111,8 +110,13 @@ export default function AutomationsSequencesTab({
   const [condOp, setCondOp] = useState<WorkflowConditionOperator>('IS_NOT_EMPTY');
   const [condVal, setCondVal] = useState('');
   const [actType, setActType] = useState<WorkflowActionType>('ENRICH_RECORD');
-  const [actParam, setActParam] = useState(' Qualificar lead prioritário');
+  const [actParam, setActParam] = useState('Qualificar lead prioritário');
   const [creatingWf, setCreatingWf] = useState(false);
+
+  const filteredExecutions =
+    execStatusFilter === 'ALL'
+      ? executions
+      : executions.filter((e) => e.status === execStatusFilter);
 
   const handleRunTest = async (wf: Workflow) => {
     setRunningTestWfId(wf.id);
@@ -158,10 +162,18 @@ export default function AutomationsSequencesTab({
             actType === 'CREATE_TASK'
               ? { title: actParam.trim() || 'Tarefa automática do workflow', dueInDays: 1 }
               : actType === 'UPDATE_PROPERTY'
-                ? { field: 'leadStatus', value: 'OPEN' }
+                ? { field: 'leadStatus', value: actParam.trim() || 'OPEN' }
                 : actType === 'SEND_EMAIL'
                   ? { subject: actParam.trim() || 'Boas-vindas Executivas' }
-                  : { overwrite: false },
+                  : actType === 'ASSIGN_OWNER'
+                    ? { ownerId: actParam.trim() || 'owner-marcello' }
+                    : actType === 'ENROLL_SEQUENCE'
+                      ? { sequenceId: sequences[0]?.id || 'seq-outbound-enterprise' }
+                      : actType === 'NOTIFY_OWNER'
+                        ? { channel: 'In-App & Slack', message: actParam.trim() || 'Lead quente aguardando contato' }
+                        : actType === 'SEND_WEBHOOK'
+                          ? { url: actParam.trim() || 'https://api.gestaoclick.com/v1/mcp' }
+                          : { overwrite: false },
         },
       ];
 
@@ -179,8 +191,54 @@ export default function AutomationsSequencesTab({
     }
   };
 
+  const activeWfCount = workflows.filter((w) => w.isActive).length;
+  const pausedOnReplyCount = enrollments.filter((e) => e.status === 'PAUSED_ON_REPLY').length;
+
   return (
     <div className="space-y-6">
+      {/* TOP KPI STRIP FOR AUTOMATIONS & SEQUENCES */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <span className="text-xs font-semibold text-slate-500">Workflows Ativos (24x7)</span>
+          <div className="text-2xl font-extrabold text-slate-900 mt-1">
+            {activeWfCount} / {workflows.length}
+          </div>
+          <span className="text-[11px] text-emerald-600 font-semibold">
+            Gatilhos de Contato, Form, Deal, Score e Data Health
+          </span>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <span className="text-xs font-semibold text-slate-500">Execuções Auditadas</span>
+          <div className="text-2xl font-extrabold text-[#ff7a59] mt-1">
+            {executions.length}
+          </div>
+          <span className="text-[11px] text-slate-500">
+            Logs passo a passo persistidos em banco
+          </span>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <span className="text-xs font-semibold text-slate-500">Cadências Multi-etapas</span>
+          <div className="text-2xl font-extrabold text-indigo-700 mt-1">
+            {sequences.length} cadências
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {enrollments.length} contatos monitorados no funil
+          </span>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <span className="text-xs font-semibold text-slate-500">Pausados na Resposta (Auto-Pause)</span>
+          <div className="text-2xl font-extrabold text-emerald-600 mt-1">
+            {pausedOnReplyCount} leads
+          </div>
+          <span className="text-[11px] text-emerald-700 font-semibold">
+            Status PAUSED_ON_REPLY + Score +15 pts
+          </span>
+        </div>
+      </div>
+
       {/* SUB-NAVIGATION: WORKFLOWS VS SEQUENCES */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -216,7 +274,7 @@ export default function AutomationsSequencesTab({
         {activeTab === 'WORKFLOWS' && (
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-              <span>Entidade p/ Teste:</span>
+              <span>Contato p/ Teste:</span>
               <select
                 value={testTargetContactId}
                 onChange={(e) => setTestTargetContactId(e.target.value)}
@@ -224,7 +282,22 @@ export default function AutomationsSequencesTab({
               >
                 {contacts.map((c) => (
                   <option key={c.id} value={c.id}>
-                    Contato: {c.firstName} {c.lastName}
+                    {c.firstName} {c.lastName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+              <span>Deal p/ Teste:</span>
+              <select
+                value={testTargetDealId}
+                onChange={(e) => setTestTargetDealId(e.target.value)}
+                className="bg-transparent font-bold text-slate-900 focus:outline-none max-w-[180px] truncate"
+              >
+                {deals.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title}
                   </option>
                 ))}
               </select>
@@ -423,13 +496,30 @@ export default function AutomationsSequencesTab({
 
           {/* Workflow Execution Audit Log */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/60">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/60 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-bold text-slate-900">
-                Histórico Auditável de Execuções de Workflows ({executions.length})
+                Histórico Auditável de Execuções de Workflows ({filteredExecutions.length})
               </h3>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs">
+                <Filter className="w-3.5 h-3.5 text-slate-500" />
+                <select
+                  value={execStatusFilter}
+                  onChange={(e) =>
+                    setExecStatusFilter(
+                      e.target.value as 'ALL' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
+                    )
+                  }
+                  className="bg-transparent font-semibold text-slate-700 focus:outline-none"
+                >
+                  <option value="ALL">Todos os Status ({executions.length})</option>
+                  <option value="COMPLETED">COMPLETED</option>
+                  <option value="SKIPPED">SKIPPED (Condição Falsa)</option>
+                  <option value="FAILED">FAILED</option>
+                </select>
+              </div>
             </div>
             <div className="p-6 space-y-3">
-              {executions.slice(0, 8).map((exec) => (
+              {filteredExecutions.slice(0, 10).map((exec) => (
                 <div
                   key={exec.id}
                   className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2 text-xs"
@@ -529,8 +619,10 @@ export default function AutomationsSequencesTab({
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white"
                 >
                   <option value="CONTACT_CREATED">Quando um Contato é Criado (CONTACT_CREATED)</option>
+                  <option value="FORM_SUBMITTED">Quando um Formulário Web é Submetido (FORM_SUBMITTED)</option>
                   <option value="SCORE_THRESHOLD">Quando Lead Score Atinge Limite (SCORE_THRESHOLD)</option>
                   <option value="DEAL_STAGE_CHANGED">Quando Negócio Muda de Etapa (DEAL_STAGE_CHANGED)</option>
+                  <option value="DATA_HEALTH_ISSUE">Quando Alerta de Saúde da Base Ocorre (DATA_HEALTH_ISSUE)</option>
                 </select>
               </div>
 
@@ -553,7 +645,9 @@ export default function AutomationsSequencesTab({
                   >
                     <option value="IS_NOT_EMPTY">IS_NOT_EMPTY</option>
                     <option value="GREATER_THAN">GREATER_THAN</option>
+                    <option value="LESS_THAN">LESS_THAN</option>
                     <option value="EQUALS">EQUALS</option>
+                    <option value="NOT_EQUALS">NOT_EQUALS</option>
                     <option value="CONTAINS">CONTAINS</option>
                   </select>
                   <input
@@ -578,14 +672,18 @@ export default function AutomationsSequencesTab({
                   >
                     <option value="ENRICH_RECORD">Enriquecer Registro (ENRICH_RECORD)</option>
                     <option value="CREATE_TASK">Criar Tarefa Comercial (CREATE_TASK)</option>
-                    <option value="UPDATE_PROPERTY">Atualizar Status para OPEN</option>
-                    <option value="SEND_EMAIL">Disparar E-mail Automático</option>
+                    <option value="UPDATE_PROPERTY">Atualizar Propriedade (UPDATE_PROPERTY)</option>
+                    <option value="SEND_EMAIL">Disparar E-mail Automático (SEND_EMAIL)</option>
+                    <option value="ENROLL_SEQUENCE">Inscrever em Cadência (ENROLL_SEQUENCE)</option>
+                    <option value="ASSIGN_OWNER">Atribuir Proprietário (ASSIGN_OWNER)</option>
+                    <option value="NOTIFY_OWNER">Notificar Executivo (NOTIFY_OWNER)</option>
+                    <option value="SEND_WEBHOOK">Disparar Webhook ERP/MCP (SEND_WEBHOOK)</option>
                   </select>
                   <input
                     type="text"
                     value={actParam}
                     onChange={(e) => setActParam(e.target.value)}
-                    placeholder="Título da tarefa / assunto"
+                    placeholder="Parâmetro / assunto / URL"
                     className="px-2.5 py-1.5 rounded-lg border border-indigo-300 bg-white text-xs text-slate-900"
                   />
                 </div>

@@ -167,6 +167,9 @@ export function buildContactMergePlan(
     'department',
     'companyId',
     'ownerId',
+    'ownerName',
+    'buyingRole',
+    'isUnworked',
     'lifecycleStage',
     'leadStatus',
   ];
@@ -313,6 +316,9 @@ export function buildCompanyMergePlan(
     'city',
     'state',
     'country',
+    'ownerName',
+    'isTargetAccount',
+    'icpTier',
   ];
 
   for (const field of scalarFields) {

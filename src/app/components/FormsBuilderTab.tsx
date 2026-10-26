@@ -16,12 +16,16 @@ import {
   ArrowUpRight,
   UploadCloud,
   RefreshCw,
+  Download,
+  Trash2,
+  Filter,
 } from 'lucide-react';
 import {
   FormSubmission,
   LifecycleStage,
   WebForm,
   WebFormField,
+  WebFormFieldType,
   WebFormTargetType,
 } from '../../db/types';
 import { formatDateTimeBR, getLifecycleBadge } from './ui-helpers';
@@ -74,6 +78,54 @@ interface FormsBuilderTabProps {
   onNavigateToDeals?: () => void;
 }
 
+const SIMULATOR_PRESETS: Array<{
+  label: string;
+  values: Record<string, string>;
+}> = [
+  {
+    label: 'Executivo TI (Stone Pagamentos)',
+    values: {
+      firstName: 'Eduardo',
+      lastName: 'Gomes',
+      email: 'eduardo.gomes@stone.com.br',
+      phone: '(11) 98711-2233',
+      jobTitle: 'VP de Tecnologia',
+      companyName: 'Stone Pagamentos S.A.',
+      subject: 'Dúvida sobre SLA de Webhook em Produção',
+      priority: 'HIGH',
+      description: 'Precisamos validar a taxa de transferência para 500 req/s no cluster dedicado.',
+    },
+  },
+  {
+    label: 'Cotação Locação PABX & Redes (Seta Telecom)',
+    values: {
+      firstName: 'Roberto',
+      lastName: 'Almeida',
+      email: 'roberto.almeida@totvs.com.br',
+      phone: '(11) 99123-4567',
+      jobTitle: 'Diretor de Infraestrutura & Telecom',
+      companyName: 'TOTVS S.A.',
+      subject: 'Cotação de Locação 120 Ramais IP + Firewall SD-WAN (24 meses)',
+      priority: 'HIGH',
+      description: 'Solicitamos proposta comercial de locação de equipamentos (Súmula Vinculante 31 STF) para matriz SP.',
+    },
+  },
+  {
+    label: 'Chamado Crítico NOC P1 (Service Desk)',
+    values: {
+      firstName: 'Fernanda',
+      lastName: 'Costa',
+      email: 'fernanda.costa@nubank.com.br',
+      phone: '(11) 97654-3210',
+      jobTitle: 'Head de Operações NOC',
+      companyName: 'Nu Pagamentos S.A.',
+      subject: 'INCIDENTE P1: Queda de Tronco SIP Principal',
+      priority: 'CRITICAL',
+      description: 'Acionamento imediato de SLA 24x7 para failover de gateway de voz.',
+    },
+  },
+];
+
 export default function FormsBuilderTab({
   forms,
   submissions,
@@ -87,22 +139,12 @@ export default function FormsBuilderTab({
   const [selectedFormId, setSelectedFormId] = useState<string>(
     forms[0]?.id || 'form-enterprise-demo'
   );
-  const [subTab, setSubTab] = useState<'PREVIEW_SIMULATOR' | 'EMBED_CODE' | 'SUBMISSIONS' | 'HUBSPOT_MIGRATION'>(
-    'PREVIEW_SIMULATOR'
-  );
+  const [subTab, setSubTab] = useState<
+    'PREVIEW_SIMULATOR' | 'EMBED_CODE' | 'SUBMISSIONS' | 'HUBSPOT_MIGRATION'
+  >('PREVIEW_SIMULATOR');
 
   // Live form simulator values
-  const [simValues, setSimValues] = useState<Record<string, string>>({
-    firstName: 'Eduardo',
-    lastName: 'Gomes',
-    email: 'eduardo.gomes@stone.com.br',
-    phone: '(11) 98711-2233',
-    jobTitle: 'VP de Tecnologia',
-    companyName: 'Stone Pagamentos S.A.',
-    subject: 'Dúvida sobre SLA de Webhook em Produção',
-    priority: 'HIGH',
-    description: 'Precisamos validar a taxa de transferência para 500 req/s no cluster dedicado.',
-  });
+  const [simValues, setSimValues] = useState<Record<string, string>>(SIMULATOR_PRESETS[0].values);
   const [submittingSim, setSubmittingSim] = useState(false);
   const [lastSimResult, setLastSimResult] = useState<{
     contactName?: string;
@@ -110,10 +152,13 @@ export default function FormsBuilderTab({
     ticketKey?: string | null;
   } | null>(null);
 
+  // Submissions filter
+  const [submissionFilterFormId, setSubmissionFilterFormId] = useState<string>('ALL');
+
   // Embed snippet copy state
   const [copiedEmbed, setCopiedEmbed] = useState(false);
 
-  // Create new form modal
+  // Create new form modal + dynamic fields editor
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -123,6 +168,18 @@ export default function FormsBuilderTab({
   const [newAutoDeal, setNewAutoDeal] = useState(true);
   const [newAutoTicket, setNewAutoTicket] = useState(false);
   const [newBtnText, setNewBtnText] = useState('Solicitar Contato Executivo');
+  const [customFields, setCustomFields] = useState<WebFormField[]>([
+    { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
+    { name: 'lastName', label: 'Sobrenome', type: 'TEXT', required: true },
+    { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
+    { name: 'phone', label: 'WhatsApp / Telefone', type: 'PHONE', required: false },
+    { name: 'jobTitle', label: 'Cargo', type: 'TEXT', required: false },
+    { name: 'companyName', label: 'Empresa', type: 'COMPANY', required: false },
+  ]);
+  const [draftFieldName, setDraftFieldName] = useState('');
+  const [draftFieldLabel, setDraftFieldLabel] = useState('');
+  const [draftFieldType, setDraftFieldType] = useState<WebFormFieldType>('TEXT');
+  const [draftFieldReq, setDraftFieldReq] = useState(false);
 
   // HubSpot Migration state
   const [hsToken, setHsToken] = useState('pat-na1-8f92a3c4-hubspot-enterprise-token');
@@ -132,8 +189,13 @@ export default function FormsBuilderTab({
 
   const selectedForm = forms.find((f) => f.id === selectedFormId) || forms[0];
 
+  const filteredSubmissions =
+    submissionFilterFormId === 'ALL'
+      ? submissions
+      : submissions.filter((s) => s.formId === submissionFilterFormId);
+
   const embedSnippet = selectedForm
-    ? `<!-- HubSpot Pro CRM — Formulário Inteligente (${selectedForm.name}) -->
+    ? `<!-- STI-hub (Seta Telecom CRM & ERP) — Formulário Inteligente (${selectedForm.name}) -->
 <div id="hubspot-pro-form-${selectedForm.slug}"></div>
 <script>
   (function() {
@@ -157,6 +219,30 @@ export default function FormsBuilderTab({
     }
   };
 
+  const handleExportSubmissionsCsv = () => {
+    if (typeof window === 'undefined' || filteredSubmissions.length === 0) return;
+    const headers = ['ID', 'Formulario', 'Nome', 'Email', 'Telefone', 'Empresa', 'DealID', 'TicketID', 'DataHora'];
+    const rows = filteredSubmissions.map((s) => [
+      s.id,
+      `"${(s.formName || '').replace(/"/g, '""')}"`,
+      `"${`${s.values.firstName || ''} ${s.values.lastName || ''}`.trim()}"`,
+      s.values.email || '',
+      s.values.phone || '',
+      `"${(s.values.companyName || '').replace(/"/g, '""')}"`,
+      s.dealId || '',
+      s.ticketId || '',
+      s.submittedAt,
+    ]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `submissoes-formularios-stihub-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleRunSimulator = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedForm) return;
@@ -175,6 +261,59 @@ export default function FormsBuilderTab({
     }
   };
 
+  const handleAddCustomField = () => {
+    const label = draftFieldLabel.trim();
+    if (!label) return;
+    const slugName =
+      draftFieldName.trim() ||
+      label
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_');
+    setCustomFields((prev) => [
+      ...prev,
+      {
+        name: slugName,
+        label,
+        type: draftFieldType,
+        required: draftFieldReq,
+        options: draftFieldType === 'SELECT' ? ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] : undefined,
+      },
+    ]);
+    setDraftFieldName('');
+    setDraftFieldLabel('');
+    setDraftFieldReq(false);
+  };
+
+  const handleTargetTypeChange = (t: WebFormTargetType) => {
+    setNewTargetType(t);
+    if (t === 'SUPPORT_TICKET') {
+      setCustomFields([
+        { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
+        { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
+        { name: 'subject', label: 'Assunto do Chamado', type: 'TEXT', required: true },
+        {
+          name: 'priority',
+          label: 'Prioridade',
+          type: 'SELECT',
+          required: true,
+          options: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
+        },
+        { name: 'description', label: 'Descrição Detalhada', type: 'TEXTAREA', required: true },
+      ]);
+    } else {
+      setCustomFields([
+        { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
+        { name: 'lastName', label: 'Sobrenome', type: 'TEXT', required: true },
+        { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
+        { name: 'phone', label: 'WhatsApp / Telefone', type: 'PHONE', required: false },
+        { name: 'jobTitle', label: 'Cargo', type: 'TEXT', required: false },
+        { name: 'companyName', label: 'Empresa', type: 'COMPANY', required: false },
+      ]);
+    }
+  };
+
   const handleCreateNewForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
@@ -188,28 +327,10 @@ export default function FormsBuilderTab({
       autoCreateDeal: newAutoDeal,
       autoCreateTicket: newAutoTicket || newTargetType === 'SUPPORT_TICKET',
       submitButtonText: newBtnText.trim() || 'Enviar',
-      fields:
-        newTargetType === 'SUPPORT_TICKET'
-          ? [
-              { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
-              { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
-              { name: 'subject', label: 'Assunto do Chamado', type: 'TEXT', required: true },
-              {
-                name: 'priority',
-                label: 'Prioridade',
-                type: 'SELECT',
-                required: true,
-                options: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
-              },
-              { name: 'description', label: 'Descrição Detalhada', type: 'TEXTAREA', required: true },
-            ]
-          : [
-              { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
-              { name: 'lastName', label: 'Sobrenome', type: 'TEXT', required: true },
-              { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
-              { name: 'phone', label: 'WhatsApp / Telefone', type: 'PHONE', required: false },
-              { name: 'jobTitle', label: 'Cargo', type: 'TEXT', required: false },
-            ],
+      fields: customFields.length > 0 ? customFields : [
+        { name: 'firstName', label: 'Nome', type: 'TEXT', required: true },
+        { name: 'email', label: 'E-mail Corporativo', type: 'EMAIL', required: true },
+      ],
     });
     setNewName('');
     setNewTitle('');
@@ -325,7 +446,7 @@ export default function FormsBuilderTab({
             }`}
           >
             <UploadCloud className="w-3.5 h-3.5" />
-            Migração Nativa HubSpot CRM
+            Migração &amp; Sync HubSpot / GestãoClick
           </button>
         </div>
 
@@ -346,15 +467,15 @@ export default function FormsBuilderTab({
             <div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 <UploadCloud className="w-3.5 h-3.5" />
-                HubSpot API v3 &amp; JSON/CSV Importer
+                HubSpot API v3 &amp; Ponte Bidirecional GestãoClick ERP (#118887)
               </span>
               <h2 className="text-lg font-extrabold text-slate-900 mt-2">
-                Assistente de Migração 1-Clique do HubSpot Legado
+                Assistente de Migração &amp; Sincronização HubSpot ↔ STI-hub ↔ GestãoClick
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
                 Importa Contatos (`firstname`, `lastname`, `email`), Empresas (`domain`, `cnpj`),
                 Negócios (`dealname`, `amount`) e Tickets (`hs_ticket_priority`) aplicando
-                deduplicação e enriquecimento automático na entrada.
+                deduplicação, enriquecimento por domínio e vínculo com clientes do GestãoClick.
               </p>
             </div>
           </div>
@@ -394,6 +515,38 @@ export default function FormsBuilderTab({
                   ? 'Importando & Higienizando Registros...'
                   : 'Importar Lote Enterprise do HubSpot Agora'}
               </button>
+
+              {/* Matriz de Mapeamento Triplo */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                <div className="font-extrabold text-slate-800 uppercase tracking-wider text-[11px]">
+                  Matriz de Sincronização (HubSpot v3 ↔ STI-hub ↔ GestãoClick ERP)
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 border-b border-slate-200 pb-1">
+                  <span>HubSpot CRM</span>
+                  <span>STI-hub (Local/PG)</span>
+                  <span>GestãoClick ERP</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
+                  <span>Companies (`cnpj`)</span>
+                  <span>Company (Score 0-100)</span>
+                  <span>`/clientes` (PJ #118887)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
+                  <span>Contacts (`email`)</span>
+                  <span>Contact + Lead Score</span>
+                  <span>Responsável / Compras</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
+                  <span>Deals (`amount`)</span>
+                  <span>Deal Kanban (3 Funis)</span>
+                  <span>`/orcamentos` &amp; `/contratos`</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
+                  <span>Tickets (`priority`)</span>
+                  <span>Service Desk SLA</span>
+                  <span>`/ordens_servicos` (O.S.)</span>
+                </div>
+              </div>
             </div>
 
             <div className="bg-slate-900 text-slate-200 rounded-2xl p-5 space-y-3 border border-slate-800">
@@ -507,10 +660,27 @@ export default function FormsBuilderTab({
                       {selectedForm.title}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Preencha e envie abaixo para testar a entrada automática do Lead, Enriquecimento
-                      Corporativo, criação de Deal ou abertura de Ticket no Service Desk.
+                      Preencha ou selecione um preset abaixo para testar entrada do Lead, Enriquecimento
+                      Corporativo, Lead Score, Workflows (`FORM_SUBMITTED` + `CONTACT_CREATED`), Deal ou Ticket JSM.
                     </p>
                   </div>
+                </div>
+
+                {/* Quick Persona Presets */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 mr-1">
+                    Preencher Cenário:
+                  </span>
+                  {SIMULATOR_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setSimValues(preset.values)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-[#e05835] text-[11px] font-semibold text-slate-700 border border-slate-200 transition cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
                 </div>
 
                 <form onSubmit={handleRunSimulator} className="space-y-4">
@@ -569,7 +739,7 @@ export default function FormsBuilderTab({
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold">
                         <Sparkles className="w-3.5 h-3.5 text-[#ff7a59]" />
-                        Auto-Enriquecimento Ativo
+                        Auto-Enriquecimento + Workflows Ativos
                       </span>
                       {selectedForm.autoCreateDeal && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-semibold">
@@ -601,7 +771,7 @@ export default function FormsBuilderTab({
                   <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2">
                     <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-800">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Submissão processada e sincronizada em tempo real!
+                      Submissão persistida, Lead Score calculado e Workflows disparados!
                     </div>
                     <div className="text-xs text-emerald-900 space-y-1">
                       <div>
@@ -657,7 +827,7 @@ export default function FormsBuilderTab({
                       Snippet de Incorporação Web (&lt;script&gt;)
                     </h3>
                     <p className="text-xs text-slate-500">
-                      Cole este código no site, landing page (WordPress, Webflow, Next.js) ou no
+                      Cole este código no site institucional da Seta Telecom, landing page ou no
                       Portal do Cliente.
                     </p>
                   </div>
@@ -691,11 +861,39 @@ export default function FormsBuilderTab({
 
             {subTab === 'SUBMISSIONS' && (
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Histórico de Conversões de Formulários ({submissions.length})
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Histórico de Conversões de Formulários ({filteredSubmissions.length})
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                      <Filter className="w-3.5 h-3.5 text-slate-500" />
+                      <select
+                        value={submissionFilterFormId}
+                        onChange={(e) => setSubmissionFilterFormId(e.target.value)}
+                        className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+                      >
+                        <option value="ALL">Todos os Formulários ({submissions.length})</option>
+                        {forms.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleExportSubmissionsCsv}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[#ff7a59]" />
+                      Exportar CSV
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
-                  {submissions.map((sub) => (
+                  {filteredSubmissions.map((sub) => (
                     <div
                       key={sub.id}
                       className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
@@ -708,6 +906,7 @@ export default function FormsBuilderTab({
                             {sub.values.firstName} {sub.values.lastName}
                           </strong>{' '}
                           ({sub.values.email})
+                          {sub.values.companyName ? ` • ${sub.values.companyName}` : ''}
                         </div>
                       </div>
                       <div className="text-right">
@@ -736,39 +935,41 @@ export default function FormsBuilderTab({
         </div>
       )}
 
-      {/* CREATE NEW FORM MODAL */}
+      {/* CREATE NEW FORM MODAL WITH DYNAMIC FIELDS BUILDER */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 my-8">
             <h3 className="text-base font-extrabold text-slate-900">
-              Novo Formulário Inteligente (Marketing Hub / Service Portal)
+              Novo Formulário Inteligente (Construtor Dinâmico de Campos)
             </h3>
             <form onSubmit={handleCreateNewForm} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nome Interno do Formulário *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex: Solicitação de POC Enterprise Q4"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Nome Interno do Formulário *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Ex: Solicitação de Locação PABX Q4"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Título Público no Site
-                </label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Ex: Fale com nosso time de Engenharia Comercial"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
-                />
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Título Público no Site
+                  </label>
+                  <input
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Ex: Fale com nossa Engenharia Comercial"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -778,11 +979,11 @@ export default function FormsBuilderTab({
                   </label>
                   <select
                     value={newTargetType}
-                    onChange={(e) => setNewTargetType(e.target.value as WebFormTargetType)}
+                    onChange={(e) => handleTargetTypeChange(e.target.value as WebFormTargetType)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white"
                   >
                     <option value="LEAD_CAPTURE">Captura de Lead (Inbound)</option>
-                    <option value="DEMO_REQUEST">Solicitação de Demo Executiva</option>
+                    <option value="DEMO_REQUEST">Solicitação de Demo / Cotação Locação</option>
                     <option value="SUPPORT_TICKET">Portal de Chamados (Service Desk)</option>
                   </select>
                 </div>
@@ -802,6 +1003,83 @@ export default function FormsBuilderTab({
                     <option value="OPPORTUNITY">Oportunidade</option>
                     <option value="CUSTOMER">Cliente</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Dynamic Fields Editor */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-800">
+                    Campos do Formulário ({customFields.length})
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Adicione ou remova campos personalizados
+                  </span>
+                </div>
+
+                <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                  {customFields.map((f, idx) => (
+                    <div
+                      key={`${f.name}-${idx}`}
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800">{f.label}</span>
+                        <code className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {f.name} ({f.type})
+                        </code>
+                        {f.required && (
+                          <span className="text-[10px] font-bold text-rose-600">Obrigatório</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCustomFields((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                        className="text-slate-400 hover:text-rose-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1 border-t border-slate-200">
+                  <input
+                    type="text"
+                    value={draftFieldLabel}
+                    onChange={(e) => setDraftFieldLabel(e.target.value)}
+                    placeholder="Rótulo (ex: Nº de Ramais)"
+                    className="sm:col-span-5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs"
+                  />
+                  <select
+                    value={draftFieldType}
+                    onChange={(e) => setDraftFieldType(e.target.value as WebFormFieldType)}
+                    className="sm:col-span-3 px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-xs"
+                  >
+                    <option value="TEXT">Texto</option>
+                    <option value="EMAIL">E-mail</option>
+                    <option value="PHONE">Telefone</option>
+                    <option value="COMPANY">Empresa</option>
+                    <option value="SELECT">Seleção</option>
+                    <option value="TEXTAREA">Texto Longo</option>
+                  </select>
+                  <label className="sm:col-span-2 flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={draftFieldReq}
+                      onChange={(e) => setDraftFieldReq(e.target.checked)}
+                    />
+                    Obrig.
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddCustomField}
+                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                  >
+                    + Campo
+                  </button>
                 </div>
               </div>
 

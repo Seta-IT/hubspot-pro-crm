@@ -31,6 +31,7 @@ import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './compon
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import { formatBRL } from './components/ui-helpers';
+import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
   loadDurableJournal,
   mergeCompaniesWithJournal,
@@ -40,6 +41,7 @@ import {
   recordDeletedCompany,
   recordDeletedContact,
   recordDeletedDeal,
+  recordDeletedTicket,
   recordTimelineEvent,
   recordUpsertedCompany,
   recordUpsertedContact,
@@ -99,6 +101,8 @@ export default function HubSpotProCrmApp() {
   const [erpInitialSection, setErpInitialSection] = useState<GestaoClickMenuSection>('INICIO');
   const [autoOpenNewProposalTrigger, setAutoOpenNewProposalTrigger] = useState<number>(0);
   const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
+  const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
+  const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -299,6 +303,11 @@ export default function HubSpotProCrmApp() {
     value: number;
     stageId: string;
     pipelineId?: string;
+    mrr?: number;
+    contractMonths?: number;
+    priority?: "ALTA" | "MEDIA" | "BAIXA";
+    dealType?: "NEW_BUSINESS" | "LOCACAO_RECORRENTE" | "UPSELL_RENOVACAO";
+    ownerName?: string;
     contactId?: string | null;
     companyId?: string | null;
     expectedCloseDate?: string | null;
@@ -345,13 +354,18 @@ export default function HubSpotProCrmApp() {
     }
   };
 
-  const handleAddDealNote = async (dealId: string, title: string, body: string) => {
+  const handleAddDealNote = async (
+    dealId: string,
+    title: string,
+    body: string,
+    activityType: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK' = 'NOTE'
+  ) => {
     const res = await fetch('/api/timeline', {
       method: 'POST',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        type: 'NOTE',
+        type: activityType || 'NOTE',
         title,
         body,
         dealId,
@@ -361,7 +375,7 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       if (json.data) recordTimelineEvent(json.data);
-      showToast('Nota registrada na timeline do negócio!');
+      showToast('Atividade registrada na timeline do negócio!');
       await fetchAllCrmData();
     }
   };
@@ -826,6 +840,8 @@ export default function HubSpotProCrmApp() {
     contactId?: string | null;
     companyId?: string | null;
     assignee?: string;
+    contractId?: string | null;
+    equipmentSerial?: string | null;
   }) => {
     const res = await fetch('/api/tickets', {
       method: 'POST',
@@ -852,7 +868,44 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       if (json.data) recordUpsertedTicket(json.data);
-      showToast(`Status do chamado atualizado para ${patch.status}!`);
+      showToast(
+        patch.status
+          ? `Status do chamado atualizado para ${patch.status}!`
+          : patch.assignee
+            ? `Fila NOC atualizada para ${patch.assignee}!`
+            : patch.priority
+              ? `Prioridade e SLA recalculados (${patch.priority})!`
+              : 'Chamado atualizado com sucesso!'
+      );
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleDeleteTicket = async (ticketIdOrKey: string) => {
+    const res = await fetch(`/api/tickets/${ticketIdOrKey}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      recordDeletedTicket(ticketIdOrKey);
+      showToast(`Chamado removido do Service Desk.`);
+      await fetchAllCrmData();
+    }
+  };
+
+  const handleCreateOsFromTicket = async (
+    ticketIdOrKey: string,
+    payload?: { technicianName?: string; description?: string }
+  ) => {
+    const res = await fetch(`/api/tickets/${ticketIdOrKey}/create-os`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.data?.ticket) recordUpsertedTicket(json.data.ticket);
+      const osCode = json.data?.serviceOrder?.code || 'ERP';
+      showToast(`O.S. Técnica #${osCode} gerada no GestãoClick ERP e vinculada ao chamado!`);
       await fetchAllCrmData();
     }
   };
@@ -991,7 +1044,7 @@ export default function HubSpotProCrmApp() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b]">
       {/* ====================================================================
-          OFFICIAL HUBSPOT PRO CANVAS TOP GLOBAL NAVIGATION BAR (#213343)
+          OFFICIAL STI-HUB (SETA TELECOM CRM & ERP) TOP GLOBAL NAVIGATION BAR (#213343)
       ==================================================================== */}
       <header className="sticky top-0 z-40 bg-[#213343] text-white border-b border-[#33475b] shadow-sm select-none">
         {/* Top Primary Bar */}
@@ -1037,7 +1090,7 @@ export default function HubSpotProCrmApp() {
               type="text"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              placeholder="Pesquisar no HubSpot & GestãoClick (contatos, empresas, e-mail, CNPJ)..."
+              placeholder="Pesquisar no STI-hub — Seta Telecom CRM & GestãoClick (contatos, empresas, e-mail, CNPJ)..."
               className="w-full pl-8 pr-7 py-1.5 rounded-[4px] bg-[#33475b] border border-[#516f90] text-xs text-white placeholder-[#99acc2] focus:bg-white focus:text-[#33475b] focus:placeholder-[#516f90] focus:outline-none focus:border-[#0091ae] transition"
             />
             {globalSearch && (
@@ -1168,13 +1221,13 @@ export default function HubSpotProCrmApp() {
       </header>
 
       {/* ====================================================================
-          HUBSPOT OBJECT INDEX CONTEXTUAL SUB-HEADER (WHITE + #CBD6E2 BORDER)
+          STI-HUB CLEAN CONTEXTUAL SUB-HEADER (CLICKABLE BADGES + ACTIONS)
       ==================================================================== */}
-      <div className="bg-white border-b border-[#cbd6e2] px-3 sm:px-6 py-2.5 shadow-2xs">
-        <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-          {/* Left Breadcrumb & Module Title */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium">
+      <div className="bg-white border-b border-[#cbd6e2] px-3 sm:px-6 py-2 shadow-2xs">
+        <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+          {/* Left Breadcrumb & Separate Clickable Badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium mr-1">
               <button
                 type="button"
                 onClick={() => setActiveModule("OVERVIEW_AI")}
@@ -1183,35 +1236,60 @@ export default function HubSpotProCrmApp() {
                 STI-hub
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
-              <span className="font-bold text-[#33475b] text-sm sm:text-base">
+              <span className="font-bold text-[#33475b] text-sm">
                 {navItems.find((n) => n.id === activeModule)?.label}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setActiveModule("CONTACTS_COMPANIES")}
-              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] hover:bg-[#d0f4ef] text-[#007a6c] border border-[#00bda5]/30 text-[11px] font-semibold cursor-pointer transition"
-            >
-              ● {contacts.length} Contatos • {companies.length} Empresas →
-            </button>
+
             <button
               type="button"
               onClick={() => {
-                setErpInitialSection("INICIO");
+                setContactsInitialSubView("CONTACTS");
+                setActiveModule("CONTACTS_COMPANIES");
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+            >
+              ● {contacts.length} Contatos →
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setContactsInitialSubView("COMPANIES");
+                setActiveModule("CONTACTS_COMPANIES");
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+            >
+              ● {companies.length} Empresas →
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setErpInitialSection("CADASTROS");
                 setActiveModule("ERP_GESTAOCLICK");
               }}
-              className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#eaf0f6] hover:bg-[#dce6f0] text-[#33475b] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
             >
-              ● ERP GestãoClick: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes / {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos →
+              ● ERP: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes →
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setErpInitialSection("CONTRATOS");
+                setActiveModule("ERP_GESTAOCLICK");
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+            >
+              ● {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos Locação →
             </button>
           </div>
 
-          {/* Right Global Pipeline Selector + Quick HubSpot Action Buttons */}
+          {/* Right Clean Action Bar: Pipeline Selector + E-mail Mailer + Nova Proposta */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
-              <span className="text-[11px] font-bold text-[#516f90]">
-                Pipeline:
-              </span>
+              <span className="text-[11px] font-bold text-[#516f90]">Pipeline:</span>
               <select
                 aria-label="Seletor Global de Pipeline"
                 value={selectedPipelineId}
@@ -1231,38 +1309,19 @@ export default function HubSpotProCrmApp() {
 
             <button
               type="button"
-              onClick={() => setActiveModule("CONTACTS_COMPANIES")}
-              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
-                activeModule === "CONTACTS_COMPANIES"
-                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
-                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
-              }`}
+              onClick={() =>
+                setGlobalEmailModal({
+                  docType: "PROPOSAL",
+                  companyName: companies[0]?.name || "MUNDIVOX COMUNICACOES LTDA",
+                  companyCnpj: companies[0]?.cnpj || "07.228.550/0001-19",
+                  recipientName: "Maria Luiza",
+                  documentCode: "4695",
+                  amountBrl: 4320,
+                })
+              }
+              className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
             >
-              👥 Contatos &amp; Empresas
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveModule("DEALS_KANBAN")}
-              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
-                activeModule === "DEALS_KANBAN"
-                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
-                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
-              }`}
-            >
-              💼 Deals &amp; Funis
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveModule("SERVICE_DESK")}
-              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
-                activeModule === "SERVICE_DESK"
-                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
-                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
-              }`}
-            >
-              🎧 Service Desk ({ticketKpis.openCount})
+              ✉️ Enviar E-mail p/ Cliente
             </button>
 
             <button
@@ -1273,20 +1332,9 @@ export default function HubSpotProCrmApp() {
                 setAutoOpenNewProposalTrigger((n) => n + 1);
                 setActiveModule("ERP_GESTAOCLICK");
               }}
-              className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+              className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
             >
-              📄 + Nova Proposta (PDF Cliente)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setErpInitialSection("INICIO");
-                setActiveModule("ERP_GESTAOCLICK");
-              }}
-              className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
-            >
-              🏢 ERP Seta Telecom (GestãoClick)
+              📄 + Novo Orçamento / Proposta PDF
             </button>
           </div>
         </div>
@@ -1296,6 +1344,13 @@ export default function HubSpotProCrmApp() {
           MAIN WORKSPACE BODY
       ==================================================================== */}
       <div className="flex-1 flex flex-col min-w-0">
+        {globalEmailModal && (
+          <ClientEmailComposerModal
+            payload={globalEmailModal}
+            onClose={() => setGlobalEmailModal(null)}
+            onSentSuccess={(msg) => showToast(msg)}
+          />
+        )}
         {/* TOAST NOTIFICATION */}
         {toastMessage && (
           <div className="fixed bottom-5 right-5 z-50 bg-[#213343] text-white px-4 py-3 rounded-[6px] shadow-2xl border-l-4 border-[#00bda5] flex items-center gap-2.5 text-xs font-semibold">
@@ -1337,6 +1392,8 @@ export default function HubSpotProCrmApp() {
               forecast={dealsForecast}
               contacts={contacts}
               companies={companies}
+              proposals={erpData?.proposals || []}
+              rentalContracts={erpData?.rentalContracts || []}
               onMoveDealStage={handleMoveDealStage}
               onCreateDeal={handleCreateDeal}
               onAddDealNote={handleAddDealNote}
@@ -1377,6 +1434,7 @@ export default function HubSpotProCrmApp() {
               companies={companies}
               initialSelectedContactId={initialContactIdForDrawer}
               onClearInitialContact={() => setInitialContactIdForDrawer(null)}
+              initialSubView={contactsInitialSubView}
               onCreateContact={handleCreateContact}
               onUpdateContact={handleUpdateContact}
               onDeleteContact={handleDeleteContact}
@@ -1396,8 +1454,12 @@ export default function HubSpotProCrmApp() {
               kpis={ticketKpis}
               contacts={contacts}
               companies={companies}
+              rentalContracts={erpData?.rentalContracts || []}
+              serviceOrders={erpData?.serviceOrders || []}
               onCreateTicket={handleCreateTicket}
               onUpdateTicket={handleUpdateTicket}
+              onDeleteTicket={handleDeleteTicket}
+              onCreateOsFromTicket={handleCreateOsFromTicket}
               onAddTicketComment={handleAddTicketComment}
             />
           )}

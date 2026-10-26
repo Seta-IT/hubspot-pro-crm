@@ -53,6 +53,7 @@ interface ContactsCompaniesTabProps {
   companies: EnrichedCompanyItem[];
   initialSelectedContactId?: string | null;
   onClearInitialContact?: () => void;
+  initialSubView?: 'CONTACTS' | 'COMPANIES';
   onCreateContact: (payload: {
     email?: string;
     firstName: string;
@@ -97,6 +98,7 @@ export default function ContactsCompaniesTab({
   companies,
   initialSelectedContactId,
   onClearInitialContact,
+  initialSubView,
   onCreateContact,
   onUpdateContact,
   onDeleteContact,
@@ -108,7 +110,10 @@ export default function ContactsCompaniesTab({
   onBatchEnrichAll,
   onAddContactActivity,
 }: ContactsCompaniesTabProps) {
-  const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
+  const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES'>(initialSubView || 'CONTACTS');
+  useEffect(() => {
+    if (initialSubView) setSubView(initialSubView);
+  }, [initialSubView]);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('ALL');
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);

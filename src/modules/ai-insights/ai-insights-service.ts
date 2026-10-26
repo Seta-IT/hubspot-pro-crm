@@ -1,6 +1,6 @@
 // ============================================================================
 // AI Revenue & Database Insights Engine - Funnel Bottlenecks, Deal Risk,
-// Revenue Forecast, Priority Follow-ups & Hidden Opportunities
+// Revenue Forecast, Priority Follow-ups & Hidden Opportunities (CRM + ERP)
 // ============================================================================
 
 import { CrmRepository } from '../../db/repository';
@@ -123,6 +123,7 @@ export class AiInsightsService {
     const pipelines = repo.listPipelines();
     const enrollments = repo.listSequenceEnrollments();
     const health = this.healthService.generateHealthSummary(repo);
+    const erpOverview = repo.getErpOverview();
 
     const companyMap = new Map(companies.map((c) => [c.id, c]));
     const contactMap = new Map(contacts.map((c) => [c.id, c]));
@@ -502,7 +503,7 @@ export class AiInsightsService {
       `Previsão Ponderada de Receita: R$ ${weightedPipelineValue.toLocaleString('pt-BR')} em aberto + R$ ${closedWonValue.toLocaleString('pt-BR')} já fechados (Forecast Comprometido: R$ ${committedForecast.toLocaleString('pt-BR')}).`,
       `Gargalo Principal do Funil: R$ ${revenueAtRisk.toLocaleString('pt-BR')} estão retidos em negócios com estagnação crítica nas etapas finais (Proposta e Negociação).`,
       `Oportunidades Ocultas: ${hiddenOpportunities.length} conta(s)/decisor(es) de alto fit (potencial estimado de R$ ${unlockableRevenue.toLocaleString('pt-BR')}) prontos para abertura imediata de negócio.`,
-      `Saúde da Base (${health.globalHealthScore}/100): Unificar ${health.counts.duplicateContactsCount + health.counts.duplicateCompaniesCount} duplicidades elevará a precisão do forecast e evitará conflito de abordagem comercial.`,
+      `Saúde da Base (${health.globalHealthScore}/100) & ERP GestãoClick: MRR de Locação ativo em R$ ${erpOverview.kpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (${erpOverview.kpis.activeContractsCount} contratos) com R$ ${erpOverview.kpis.issSavedBySv31Stf.toLocaleString('pt-BR')} economizados em ISS (Súmula Vinculante 31 STF).`,
     ];
 
     let analystAnswer: string | undefined;
@@ -514,7 +515,8 @@ export class AiInsightsService {
         funnelBottlenecks,
         hiddenOpportunities,
         priorityFollowUps,
-        health.globalHealthScore
+        health.globalHealthScore,
+        erpOverview.kpis
       );
     }
 
@@ -543,11 +545,31 @@ export class AiInsightsService {
     bottlenecks: FunnelBottleneckItem[],
     hidden: HiddenOpportunityItem[],
     followUps: PriorityFollowUpItem[],
-    healthScore: number
+    healthScore: number,
+    erpKpis: {
+      monthlyRentalMrr: number;
+      totalContractedTcv: number;
+      activeContractsCount: number;
+      issSavedBySv31Stf: number;
+      totalReceivablesOpen: number;
+      totalReceivablesPaid: number;
+    }
   ): string {
     const q = question.toLowerCase();
     const topFollowUp = followUps[0];
     const worstBottleneck = [...bottlenecks].sort((a, b) => b.stagnantValue - a.stagnantValue)[0];
+
+    if (
+      q.includes('erp') ||
+      q.includes('gestaoclick') ||
+      q.includes('gestãoclick') ||
+      q.includes('loca') ||
+      q.includes('iss') ||
+      q.includes('fatura') ||
+      q.includes('contrato')
+    ) {
+      return `Diagnóstico ERP GestãoClick & Fiscal (Seta Telecom): Você possui ${erpKpis.activeContractsCount} contratos de locação ativos gerando MRR de R$ ${erpKpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (TCV contratado de R$ ${erpKpis.totalContractedTcv.toLocaleString('pt-BR')}). Graças à segregação de Fatura de Locação (LC 116/03 + Súmula Vinculante 31 STF, 0% ISS), a economia tributária acumulada é de R$ ${erpKpis.issSavedBySv31Stf.toLocaleString('pt-BR')}. Há R$ ${erpKpis.totalReceivablesOpen.toLocaleString('pt-BR')} em contas a receber em aberto.`;
+    }
 
     if (q.includes('gargalo') || q.includes('etapa') || q.includes('funil')) {
       return `O maior gargalo atual está na etapa "${worstBottleneck?.stageName || 'Negociação'}", com R$ ${(worstBottleneck?.stagnantValue || 0).toLocaleString('pt-BR')} retidos acima do SLA. Recomendo priorizar o destravamento imediato de "${atRisk[0]?.title || 'Creditas'}" (${atRisk[0]?.daysSinceLastActivity || 24} dias sem interação).`;
@@ -561,6 +583,6 @@ export class AiInsightsService {
       return `Identifiquei ${hidden.length} oportunidade(s) oculta(s) na base somando R$ ${hidden.reduce((s, h) => s + h.estimatedDealValue, 0).toLocaleString('pt-BR')}. Destaque imediato: ${hidden[0]?.name || 'Thiago Oliveira (Asaas)'} — ${hidden[0]?.reason || 'Alto score sem deal aberto'}.`;
     }
 
-    return `Resumo Executivo IA (Saúde da Base: ${healthScore}/100): Hoje sua prioridade #1 de follow-up é "${topFollowUp?.title || 'Creditas'}" (${topFollowUp?.reason || 'Alto valor em risco'}). Temos R$ ${forecast.weightedPipelineValue.toLocaleString('pt-BR')} em receita ponderada e ${hidden.length} oportunidade(s) oculta(s) pronta(s) para conversão.`;
+    return `Resumo Executivo IA (Saúde da Base: ${healthScore}/100): Hoje sua prioridade #1 de follow-up é "${topFollowUp?.title || 'Creditas'}" (${topFollowUp?.reason || 'Alto valor em risco'}). Temos R$ ${forecast.weightedPipelineValue.toLocaleString('pt-BR')} em receita ponderada no CRM, MRR de locação de R$ ${erpKpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês no ERP e ${hidden.length} oportunidade(s) oculta(s) pronta(s) para conversão.`;
   }
 }

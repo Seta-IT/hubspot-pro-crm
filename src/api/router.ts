@@ -18,9 +18,11 @@ import { SequenceService } from '../modules/sequences/sequence-service';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import {
   LifecycleStage,
+  ServiceTicket,
   TicketCategory,
   TicketChannel,
   TicketPriority,
+  TicketSlaStatus,
   TicketStatus,
   WebForm,
   WorkflowExecution,
@@ -37,6 +39,140 @@ export interface ApiRequest {
 export interface ApiResponse<T = unknown> {
   status: number;
   body: T;
+}
+
+
+export function computeRealtimeTicketSla(
+  ticket: ServiceTicket,
+  now: Date = new Date()
+): {
+  slaStatus: TicketSlaStatus;
+  remainingResolutionMinutes: number;
+  remainingFirstResponseMinutes: number;
+  firstResponseMinutesTaken: number | null;
+  resolutionMinutesTaken: number | null;
+} {
+  const nowMs = now.getTime();
+  const createdMs = new Date(ticket.createdAt).getTime() || nowMs;
+  const firstRespDueMs = new Date(ticket.slaFirstResponseDueAt).getTime() || nowMs;
+  const resolveDueMs = new Date(ticket.slaResolutionDueAt).getTime() || nowMs;
+
+  const firstResponseMinutesTaken = ticket.firstRespondedAt
+    ? Math.max(1, Math.round((new Date(ticket.firstRespondedAt).getTime() - createdMs) / 60000))
+    : null;
+
+  const resolutionMinutesTaken = ticket.resolvedAt
+    ? Math.max(1, Math.round((new Date(ticket.resolvedAt).getTime() - createdMs) / 60000))
+    : null;
+
+  const remainingResolutionMinutes = Math.round((resolveDueMs - nowMs) / 60000);
+  const remainingFirstResponseMinutes = Math.round((firstRespDueMs - nowMs) / 60000);
+
+  if (ticket.status === "RESOLVED" || ticket.status === "CLOSED") {
+    const resolvedMs = ticket.resolvedAt ? new Date(ticket.resolvedAt).getTime() : nowMs;
+    const slaStatus: TicketSlaStatus = resolvedMs > resolveDueMs ? "BREACHED" : "ON_TRACK";
+    return {
+      slaStatus,
+      remainingResolutionMinutes: Math.round((resolveDueMs - resolvedMs) / 60000),
+      remainingFirstResponseMinutes,
+      firstResponseMinutesTaken,
+      resolutionMinutesTaken,
+    };
+  }
+
+  const totalWindowMs = Math.max(1, resolveDueMs - createdMs);
+  const remainingMs = resolveDueMs - nowMs;
+
+  let slaStatus: TicketSlaStatus = "ON_TRACK";
+  if (nowMs > resolveDueMs || (!ticket.firstRespondedAt && nowMs > firstRespDueMs)) {
+    slaStatus = "BREACHED";
+  } else if (
+    remainingMs <= totalWindowMs * 0.25 ||
+    remainingMs <= 60 * 60 * 1000 ||
+    (!ticket.firstRespondedAt && firstRespDueMs - nowMs <= 30 * 60 * 1000)
+  ) {
+    slaStatus = "AT_RISK";
+  }
+
+  return {
+    slaStatus,
+    remainingResolutionMinutes,
+    remainingFirstResponseMinutes,
+    firstResponseMinutesTaken,
+    resolutionMinutesTaken,
+  };
+}
+
+export function computeRealtimeTicketsAndKpis(
+  rawTickets: ServiceTicket[],
+  now: Date = new Date()
+) {
+  const evaluated = rawTickets.map((t) => {
+    const sla = computeRealtimeTicketSla(t, now);
+    t.slaStatus = sla.slaStatus;
+    return {
+      ...t,
+      slaStatus: sla.slaStatus,
+      remainingResolutionMinutes: sla.remainingResolutionMinutes,
+      remainingFirstResponseMinutes: sla.remainingFirstResponseMinutes,
+      firstResponseMinutesTaken: sla.firstResponseMinutesTaken,
+      resolutionMinutesTaken: sla.resolutionMinutesTaken,
+    };
+  });
+
+  const openCount = evaluated.filter(
+    (t) => t.status !== "RESOLVED" && t.status !== "CLOSED"
+  ).length;
+  const criticalCount = evaluated.filter(
+    (t) => t.priority === "CRITICAL" && t.status !== "RESOLVED" && t.status !== "CLOSED"
+  ).length;
+  const onTrackCount = evaluated.filter((t) => t.slaStatus === "ON_TRACK").length;
+  const breachedCount = evaluated.filter((t) => t.slaStatus === "BREACHED").length;
+  const atRiskCount = evaluated.filter((t) => t.slaStatus === "AT_RISK").length;
+  const slaComplianceRate =
+    evaluated.length > 0
+      ? Number((((evaluated.length - breachedCount) / evaluated.length) * 100).toFixed(1))
+      : 100;
+
+  const firstRespMins = evaluated
+    .map((t) => t.firstResponseMinutesTaken)
+    .filter((m): m is number => typeof m === "number" && m > 0);
+  const avgFirstResponseMinutes =
+    firstRespMins.length > 0
+      ? Math.max(1, Math.round(firstRespMins.reduce((a, b) => a + b, 0) / firstRespMins.length))
+      : 18;
+
+  const resMins = evaluated
+    .map((t) => t.resolutionMinutesTaken)
+    .filter((m): m is number => typeof m === "number" && m > 0);
+  const avgResolutionMinutes =
+    resMins.length > 0
+      ? Math.max(1, Math.round(resMins.reduce((a, b) => a + b, 0) / resMins.length))
+      : 120;
+
+  const csatScores = evaluated
+    .map((t) => t.csatScore)
+    .filter((s): s is number => typeof s === "number");
+  const avgCsat =
+    csatScores.length > 0
+      ? Number((csatScores.reduce((a, b) => a + b, 0) / csatScores.length).toFixed(2))
+      : 4.9;
+
+  return {
+    tickets: evaluated,
+    kpis: {
+      totalTickets: evaluated.length,
+      openCount,
+      criticalCount,
+      onTrackCount,
+      atRiskCount,
+      breachedCount,
+      slaComplianceRate,
+      avgFirstResponseMinutes,
+      avgResolutionMinutes,
+      avgCsat,
+    },
+  };
 }
 
 export class CrmApiRouter {
@@ -166,44 +302,33 @@ export class CrmApiRouter {
         totalViews > 0 ? Number(((totalSubmissions / totalViews) * 100).toFixed(2)) : 0,
     };
 
-    const allTickets = this.repo.listServiceTickets();
-    const enrichedTickets = allTickets.map((t) => ({
+    const rawAllTickets = this.repo.listServiceTickets();
+    const { tickets: evaluatedTickets, kpis: ticketKpis } = computeRealtimeTicketsAndKpis(rawAllTickets);
+    const erpOverviewForTickets = this.repo.getErpOverview();
+    const contractsMap = new Map(
+      (erpOverviewForTickets.rentalContracts || []).map((c) => [c.id, c])
+    );
+    const serviceOrdersMap = new Map(
+      (erpOverviewForTickets.serviceOrders || []).map((os) => [os.id, os])
+    );
+    const enrichedTickets = evaluatedTickets.map((t) => ({
       ...t,
       contact: t.contactId ? contactsMap.get(t.contactId) || null : null,
       company: t.companyId ? companiesMap.get(t.companyId) || null : null,
       deal: t.dealId ? dealsMap.get(t.dealId) || null : null,
+      contract: t.contractId ? contractsMap.get(t.contractId) || null : null,
+      serviceOrder: t.serviceOrderId ? serviceOrdersMap.get(t.serviceOrderId) || null : null,
     }));
-    const openTicketsCount = allTickets.filter(
-      (t) => t.status !== "RESOLVED" && t.status !== "CLOSED"
-    ).length;
-    const criticalCount = allTickets.filter(
-      (t) => t.priority === "CRITICAL" && t.status !== "RESOLVED" && t.status !== "CLOSED"
-    ).length;
-    const onTrackCount = allTickets.filter((t) => t.slaStatus === "ON_TRACK").length;
-    const breachedCount = allTickets.filter((t) => t.slaStatus === "BREACHED").length;
-    const atRiskCount = allTickets.filter((t) => t.slaStatus === "AT_RISK").length;
-    const slaComplianceRate =
-      allTickets.length > 0
-        ? Number((((allTickets.length - breachedCount) / allTickets.length) * 100).toFixed(1))
-        : 100;
-    const csatScores = allTickets
-      .map((t) => t.csatScore)
-      .filter((s): s is number => typeof s === "number");
-    const avgCsat =
-      csatScores.length > 0
-        ? Number((csatScores.reduce((a, b) => a + b, 0) / csatScores.length).toFixed(2))
-        : 4.9;
-    const ticketKpis = {
-      totalTickets: allTickets.length,
-      openCount: openTicketsCount,
-      criticalCount,
-      onTrackCount,
-      atRiskCount,
-      breachedCount,
-      slaComplianceRate,
-      avgFirstResponseMinutes: 18,
-      avgCsat,
-    };
+
+    const rawTasks = this.repo.listTasks();
+    const enrichedTasks = rawTasks.map((tk) => ({
+      ...tk,
+      contact: tk.contactId ? contactsMap.get(tk.contactId) || null : null,
+      company: tk.companyId ? companiesMap.get(tk.companyId) || null : null,
+      deal: tk.dealId ? dealsMap.get(tk.dealId) || null : null,
+    }));
+    const emailTemplates = this.repo.listEmailTemplates();
+    const snippets = this.repo.listSnippets();
 
     const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion);
     const erp = this.repo.getErpOverview();
@@ -226,6 +351,9 @@ export class CrmApiRouter {
       formsSummary,
       tickets: enrichedTickets,
       ticketKpis,
+      tasks: enrichedTasks,
+      emailTemplates,
+      snippets,
       erp,
       serverTimestamp: new Date().toISOString(),
     };
@@ -451,6 +579,7 @@ export class CrmApiRouter {
           const company = contact.companyId ? this.repo.getCompanyById(contact.companyId) || null : null;
           const deals = this.repo.listDeals({ contactId: id });
           const timeline = this.repo.listTimelineEvents({ contactId: id });
+          const tasks = this.repo.listTasks({ contactId: id });
           const completeness = calculateContactCompleteness(contact);
           return {
             status: 200,
@@ -460,6 +589,7 @@ export class CrmApiRouter {
                 company,
                 deals,
                 timeline,
+                tasks,
                 completenessDetail: completeness,
               },
             },
@@ -550,6 +680,7 @@ export class CrmApiRouter {
           const contacts = this.repo.listContacts({ companyId: id });
           const deals = this.repo.listDeals({ companyId: id });
           const timeline = this.repo.listTimelineEvents({ companyId: id });
+          const tasks = this.repo.listTasks({ companyId: id });
           const completeness = calculateCompanyCompleteness(company);
           return {
             status: 200,
@@ -559,6 +690,7 @@ export class CrmApiRouter {
                 contacts,
                 deals,
                 timeline,
+                tasks,
                 completenessDetail: completeness,
               },
             },
@@ -668,9 +800,23 @@ export class CrmApiRouter {
           const contact = deal.contactId ? this.repo.getContactById(deal.contactId) || null : null;
           const company = deal.companyId ? this.repo.getCompanyById(deal.companyId) || null : null;
           const timeline = this.repo.listTimelineEvents({ dealId: id });
+          const proposals = this.repo
+            .listProposals()
+            .filter(
+              (p) =>
+                p.dealId === id ||
+                (deal.companyId && p.companyId === deal.companyId)
+            );
+          const rentalContracts = this.repo
+            .listRentalContracts()
+            .filter(
+              (c) =>
+                c.dealId === id ||
+                (deal.companyId && c.companyId === deal.companyId)
+            );
           return {
             status: 200,
-            body: { data: { ...deal, contact, company, timeline } },
+            body: { data: { ...deal, contact, company, timeline, proposals, rentalContracts } },
           };
         }
 
@@ -1317,65 +1463,43 @@ export class CrmApiRouter {
       // ======================================================================
       if (cleanPath === '/api/tickets') {
         if (method === 'GET') {
-          const tickets = this.repo.listServiceTickets({
+          const allRaw = this.repo.listServiceTickets();
+          const { kpis } = computeRealtimeTicketsAndKpis(allRaw);
+
+          const filteredRaw = this.repo.listServiceTickets({
             status: query.status,
             priority: query.priority,
             slaStatus: query.slaStatus,
             category: query.category,
+            assignee: query.assignee,
             contactId: query.contactId,
             companyId: query.companyId,
             search: query.search,
           });
+          const { tickets: evaluatedFiltered } = computeRealtimeTicketsAndKpis(filteredRaw);
+
           const contacts = new Map(this.repo.listContacts().map((c) => [c.id, c]));
           const companies = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
           const deals = new Map(this.repo.listDeals().map((d) => [d.id, d]));
+          const erpState = this.repo.getErpOverview();
+          const contracts = new Map((erpState.rentalContracts || []).map((c) => [c.id, c]));
+          const serviceOrders = new Map((erpState.serviceOrders || []).map((os) => [os.id, os]));
 
-          const enrichedTickets = tickets.map((t) => ({
+          const enrichedTickets = evaluatedFiltered.map((t) => ({
             ...t,
             contact: t.contactId ? contacts.get(t.contactId) || null : null,
             company: t.companyId ? companies.get(t.companyId) || null : null,
             deal: t.dealId ? deals.get(t.dealId) || null : null,
+            contract: t.contractId ? contracts.get(t.contractId) || null : null,
+            serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
           }));
-
-          const allTickets = this.repo.listServiceTickets();
-          const openCount = allTickets.filter(
-            (t) => t.status !== 'RESOLVED' && t.status !== 'CLOSED'
-          ).length;
-          const criticalCount = allTickets.filter(
-            (t) => t.priority === 'CRITICAL' && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
-          ).length;
-          const onTrackCount = allTickets.filter((t) => t.slaStatus === 'ON_TRACK').length;
-          const breachedCount = allTickets.filter((t) => t.slaStatus === 'BREACHED').length;
-          const atRiskCount = allTickets.filter((t) => t.slaStatus === 'AT_RISK').length;
-          const slaComplianceRate =
-            allTickets.length > 0
-              ? Number((((allTickets.length - breachedCount) / allTickets.length) * 100).toFixed(1))
-              : 100;
-
-          const csatScores = allTickets
-            .map((t) => t.csatScore)
-            .filter((s): s is number => typeof s === 'number');
-          const avgCsat =
-            csatScores.length > 0
-              ? Number((csatScores.reduce((a, b) => a + b, 0) / csatScores.length).toFixed(2))
-              : 4.9;
 
           return {
             status: 200,
             body: {
               data: enrichedTickets,
               total: enrichedTickets.length,
-              kpis: {
-                totalTickets: allTickets.length,
-                openCount,
-                criticalCount,
-                onTrackCount,
-                atRiskCount,
-                breachedCount,
-                slaComplianceRate,
-                avgFirstResponseMinutes: 18,
-                avgCsat,
-              },
+              kpis,
             },
           };
         }
@@ -1395,15 +1519,20 @@ export class CrmApiRouter {
             companyId: body.companyId ? String(body.companyId) : null,
             dealId: body.dealId ? String(body.dealId) : null,
             assignee: body.assignee ? String(body.assignee) : undefined,
+            contractId: body.contractId ? String(body.contractId) : null,
+            serviceOrderId: body.serviceOrderId ? String(body.serviceOrderId) : null,
+            equipmentSerial: body.equipmentSerial ? String(body.equipmentSerial) : null,
             tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
           });
+          const sla = computeRealtimeTicketSla(created);
+          created.slaStatus = sla.slaStatus;
           return { status: 201, body: { data: created } };
         }
       }
 
       const ticketCommentsMatch = cleanPath.match(/^\/api\/tickets\/([^/]+)\/comments$/);
       if (ticketCommentsMatch && method === 'POST') {
-        const idOrKey = ticketCommentsMatch[1];
+        const idOrKey = decodeURIComponent(ticketCommentsMatch[1]);
         if (!body.body) {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
         }
@@ -1417,23 +1546,45 @@ export class CrmApiRouter {
         if (!updated) {
           return { status: 404, body: { error: 'Chamado não encontrado.' } };
         }
+        const sla = computeRealtimeTicketSla(updated);
+        updated.slaStatus = sla.slaStatus;
         return { status: 201, body: { data: updated } };
+      }
+
+      const ticketCreateOsMatch = cleanPath.match(
+        /^\/api\/tickets\/([^/]+)\/(?:create-os|service-order)$/
+      );
+      if (ticketCreateOsMatch && method === 'POST') {
+        const idOrKey = decodeURIComponent(ticketCreateOsMatch[1]);
+        const result = this.repo.createServiceOrderFromTicket(idOrKey, {
+          technicianName: body.technicianName ? String(body.technicianName) : undefined,
+          totalAmount: body.totalAmount !== undefined ? Number(body.totalAmount) : undefined,
+          description: body.description ? String(body.description) : undefined,
+        });
+        if (!result) {
+          return { status: 404, body: { error: 'Chamado não encontrado.' } };
+        }
+        const sla = computeRealtimeTicketSla(result.ticket);
+        result.ticket.slaStatus = sla.slaStatus;
+        return { status: 201, body: { data: result } };
       }
 
       const ticketIdMatch = cleanPath.match(/^\/api\/tickets\/([^/]+)$/);
       if (ticketIdMatch) {
-        const idOrKey = ticketIdMatch[1];
+        const idOrKey = decodeURIComponent(ticketIdMatch[1]);
         if (method === 'GET') {
           const ticket = this.repo.getServiceTicketById(idOrKey);
           if (!ticket) {
             return { status: 404, body: { error: 'Chamado não encontrado.' } };
           }
+          const sla = computeRealtimeTicketSla(ticket);
+          ticket.slaStatus = sla.slaStatus;
           const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) || null : null;
           const company = ticket.companyId ? this.repo.getCompanyById(ticket.companyId) || null : null;
           const deal = ticket.dealId ? this.repo.getDealById(ticket.dealId) || null : null;
           return {
             status: 200,
-            body: { data: { ...ticket, contact, company, deal } },
+            body: { data: { ...ticket, ...sla, contact, company, deal } },
           };
         }
 
@@ -1447,12 +1598,28 @@ export class CrmApiRouter {
               newStatus: body.newStatus as TicketStatus | undefined,
             });
             if (!withComment) return { status: 404, body: { error: 'Chamado não encontrado.' } };
+            const sla = computeRealtimeTicketSla(withComment);
+            withComment.slaStatus = sla.slaStatus;
             return { status: 200, body: { data: withComment } };
+          }
+
+          if (body.action === 'CREATE_OS') {
+            const resOs = this.repo.createServiceOrderFromTicket(idOrKey, {
+              technicianName: body.technicianName ? String(body.technicianName) : undefined,
+              totalAmount: body.totalAmount !== undefined ? Number(body.totalAmount) : undefined,
+              description: body.description ? String(body.description) : undefined,
+            });
+            if (!resOs) return { status: 404, body: { error: 'Chamado não encontrado.' } };
+            return { status: 200, body: { data: resOs.ticket, serviceOrder: resOs.serviceOrder } };
           }
 
           const updated = this.repo.updateServiceTicket(idOrKey, body);
           if (!updated) {
             return { status: 404, body: { error: 'Chamado não encontrado.' } };
+          }
+          const sla = computeRealtimeTicketSla(updated);
+          if (!body.slaStatus) {
+            updated.slaStatus = sla.slaStatus;
           }
           return { status: 200, body: { data: updated } };
         }
@@ -1464,6 +1631,256 @@ export class CrmApiRouter {
           }
           return { status: 200, body: { success: true, deletedId: idOrKey } };
         }
+      }
+
+      // ======================================================================
+      // PORTAL EXTERNO DO CLIENTE SETA TELECOM (/api/portal/tickets)
+      // ======================================================================
+      if (cleanPath === '/api/portal/tickets') {
+        if (method === 'GET') {
+          const contactsMap = new Map(this.repo.listContacts().map((c) => [c.id, c]));
+          const companiesMap = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
+          const erpState = this.repo.getErpOverview();
+          const contractsMap = new Map((erpState.rentalContracts || []).map((c) => [c.id, c]));
+          const serviceOrdersMap = new Map((erpState.serviceOrders || []).map((os) => [os.id, os]));
+
+          const { tickets: allEvaluated } = computeRealtimeTicketsAndKpis(
+            this.repo.listServiceTickets()
+          );
+
+          const qKey = (query.key || query.ticket || "").trim().toLowerCase();
+          const qEmail = (query.email || "").trim().toLowerCase();
+          const qSearch = (query.search || "").trim().toLowerCase();
+
+          const filtered = allEvaluated.filter((t) => {
+            const contact = t.contactId ? contactsMap.get(t.contactId) : undefined;
+            const company = t.companyId ? companiesMap.get(t.companyId) : undefined;
+            if (qKey) {
+              return t.key.toLowerCase() === qKey || t.id.toLowerCase() === qKey;
+            }
+            if (qEmail) {
+              return (contact?.email || "").toLowerCase().includes(qEmail);
+            }
+            if (qSearch) {
+              const hay = `${t.key} ${t.subject} ${contact?.email || ""} ${contact?.firstName || ""} ${company?.name || ""} ${company?.cnpj || ""} ${t.equipmentSerial || ""}`.toLowerCase();
+              return hay.includes(qSearch);
+            }
+            return true;
+          });
+
+          const sanitized = filtered.map((t) => {
+            const contact = t.contactId ? contactsMap.get(t.contactId) || null : null;
+            const company = t.companyId ? companiesMap.get(t.companyId) || null : null;
+            const contract = t.contractId ? contractsMap.get(t.contractId) || null : null;
+            const serviceOrder = t.serviceOrderId ? serviceOrdersMap.get(t.serviceOrderId) || null : null;
+            return {
+              ...t,
+              // CRITICAL SECURITY RULE: Never expose internal NOC/SRE notes in the public customer portal
+              comments: (t.comments || []).filter((c) => !c.isInternal),
+              contact: contact
+                ? {
+                    id: contact.id,
+                    firstName: contact.firstName,
+                    lastName: contact.lastName,
+                    email: contact.email,
+                  }
+                : null,
+              company: company
+                ? {
+                    id: company.id,
+                    name: company.name,
+                    cnpj: company.cnpj,
+                  }
+                : null,
+              contract: contract
+                ? {
+                    id: contract.id,
+                    contractNumber: contract.contractNumber,
+                    title: contract.title,
+                  }
+                : null,
+              serviceOrder: serviceOrder
+                ? {
+                    id: serviceOrder.id,
+                    code: serviceOrder.code,
+                    status: serviceOrder.status,
+                    technicianName: serviceOrder.technicianName,
+                  }
+                : null,
+            };
+          });
+
+          return {
+            status: 200,
+            body: {
+              data: sanitized,
+              total: sanitized.length,
+            },
+          };
+        }
+
+        if (method === 'POST') {
+          const subject = String(body.subject || "").trim();
+          const email = String(body.email || "").trim().toLowerCase();
+          const name = String(body.name || body.firstName || "Cliente Seta Telecom").trim();
+          const companyName = String(body.companyName || body.company || "").trim();
+          const phone = body.phone ? String(body.phone).trim() : null;
+          const description = String(
+            body.description || "Chamado técnico aberto via Portal do Cliente Seta Telecom."
+          ).trim();
+          const category = (body.category as TicketCategory) || "INCIDENT";
+          const priority = (body.priority as TicketPriority) || "HIGH";
+          const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim() : null;
+
+          if (!subject) {
+            return { status: 400, body: { error: 'O assunto do chamado ("subject") é obrigatório.' } };
+          }
+
+          let contact = email
+            ? this.repo.listContacts().find((c) => c.email.toLowerCase() === email)
+            : undefined;
+          let companyId = contact?.companyId || null;
+
+          if (companyName && !companyId) {
+            let comp = this.repo
+              .listCompanies()
+              .find((c) => c.name.toLowerCase() === companyName.toLowerCase());
+            if (!comp) {
+              comp = this.repo.createCompany({ name: companyName });
+            }
+            companyId = comp.id;
+          }
+
+          if (!contact && email) {
+            const parts = name.split(" ");
+            contact = this.repo.createContact({
+              email,
+              firstName: parts[0] || "Cliente",
+              lastName: parts.slice(1).join(" ") || "Portal",
+              phone,
+              companyId,
+              lifecycleStage: "CUSTOMER",
+            });
+          }
+
+          const created = this.repo.createServiceTicket({
+            subject,
+            description,
+            category,
+            priority,
+            status: "OPEN",
+            channel: "WEB_PORTAL",
+            contactId: contact?.id || null,
+            companyId,
+            equipmentSerial,
+            comments: [
+              {
+                id: `cmt-portal-${Date.now()}`,
+                author: contact ? `${contact.firstName} ${contact.lastName}`.trim() : name,
+                authorRole: "CUSTOMER",
+                isInternal: false,
+                body: description,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          });
+
+          const sla = computeRealtimeTicketSla(created);
+          created.slaStatus = sla.slaStatus;
+
+          return {
+            status: 201,
+            body: {
+              data: {
+                ...created,
+                ...sla,
+                comments: created.comments.filter((c) => !c.isInternal),
+              },
+            },
+          };
+        }
+      }
+
+      const portalReplyMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/reply$/);
+      if (portalReplyMatch && method === 'POST') {
+        const idOrKey = decodeURIComponent(portalReplyMatch[1]);
+        const messageBody = String(body.body || body.message || "").trim();
+        if (!messageBody) {
+          return { status: 400, body: { error: 'A mensagem de resposta ("body") é obrigatória.' } };
+        }
+        const ticket = this.repo.getServiceTicketById(idOrKey);
+        if (!ticket) {
+          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
+        }
+        const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
+        const authorName = body.author
+          ? String(body.author)
+          : contact
+            ? `${contact.firstName} ${contact.lastName}`.trim()
+            : "Cliente (Portal Web)";
+
+        const updated = this.repo.addTicketComment(idOrKey, {
+          author: authorName,
+          authorRole: "CUSTOMER",
+          isInternal: false,
+          body: messageBody,
+          newStatus: ticket.status === "WAITING_CUSTOMER" ? "IN_PROGRESS" : undefined,
+        });
+        if (!updated) {
+          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
+        }
+        const sla = computeRealtimeTicketSla(updated);
+        updated.slaStatus = sla.slaStatus;
+        return {
+          status: 201,
+          body: {
+            data: {
+              ...updated,
+              ...sla,
+              comments: updated.comments.filter((c) => !c.isInternal),
+            },
+          },
+        };
+      }
+
+      const portalCsatMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/csat$/);
+      if (portalCsatMatch && method === 'POST') {
+        const idOrKey = decodeURIComponent(portalCsatMatch[1]);
+        const score = Number(body.score ?? body.csatScore);
+        if (!Number.isFinite(score) || score < 1 || score > 5) {
+          return {
+            status: 400,
+            body: { error: 'A nota CSAT ("score") deve ser um número entre 1 e 5.' },
+          };
+        }
+        const ticket = this.repo.getServiceTicketById(idOrKey);
+        if (!ticket) {
+          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
+        }
+
+        const updated = this.repo.updateServiceTicket(idOrKey, {
+          csatScore: Math.round(score),
+        });
+        if (body.feedback && String(body.feedback).trim()) {
+          this.repo.addTicketComment(idOrKey, {
+            author: body.author ? String(body.author) : "Avaliação CSAT do Cliente",
+            authorRole: "CUSTOMER",
+            isInternal: false,
+            body: `⭐ Avaliação CSAT: ${Math.round(score)}/5 — ${String(body.feedback).trim()}`,
+          });
+        }
+        const refreshed = this.repo.getServiceTicketById(idOrKey) || updated!;
+        const sla = computeRealtimeTicketSla(refreshed);
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...refreshed,
+              ...sla,
+              comments: refreshed.comments.filter((c) => !c.isInternal),
+            },
+          },
+        };
       }
 
       // ======================================================================
@@ -1877,6 +2294,35 @@ export class CrmApiRouter {
         return { status: 201, body: { data: nfe } };
       }
 
+      const renewCtrMatch = cleanPath.match(
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)\/renew$/
+      );
+      if (renewCtrMatch && method === 'POST') {
+        const ctrId = decodeURIComponent(renewCtrMatch[1]);
+        const extraMonths = body.months !== undefined ? Number(body.months) : 12;
+        const renewed = this.repo.renewRentalContract(ctrId, extraMonths);
+        if (!renewed) {
+          return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+        }
+        return { status: 200, body: { data: renewed } };
+      }
+
+      const readjustCtrMatch = cleanPath.match(
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)\/readjust$/
+      );
+      if (readjustCtrMatch && method === 'POST') {
+        const ctrId = decodeURIComponent(readjustCtrMatch[1]);
+        const readjusted = this.repo.applyContractReadjustment(ctrId, {
+          percentage: body.percentage !== undefined ? Number(body.percentage) : undefined,
+          index: body.index as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL' | undefined,
+          note: typeof body.note === 'string' ? body.note : undefined,
+        });
+        if (!readjusted) {
+          return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+        }
+        return { status: 200, body: { data: readjusted } };
+      }
+
       const contractIdMatch = cleanPath.match(
         /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)$/
       );
@@ -2069,6 +2515,290 @@ export class CrmApiRouter {
       if (cleanPath === '/api/erp/gestaoclick/config' && (method === 'PATCH' || method === 'POST')) {
         const cfg = this.repo.updateGestaoClickConfig(body);
         return { status: 200, body: { data: cfg } };
+      }
+
+      // ======================================================================
+      // STI-HUB UNIFIED CLIENT EMAIL DISPATCHER (/api/communications/send-email)
+      // ======================================================================
+      if (cleanPath === '/api/communications/send-email' && method === 'POST') {
+        const to = String(body.to || '').trim();
+        const subject = String(body.subject || '').trim();
+        const emailBody = String(body.body || '').trim();
+        const docType = String(body.docType || 'PROPOSAL').trim();
+        if (!to || !subject) {
+          return {
+            status: 400,
+            body: { error: 'Os campos "to" (destinatário) e "subject" (assunto) são obrigatórios.' },
+          };
+        }
+
+        const protocol = `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
+        const nowIso = new Date().toISOString();
+
+        // Optional external Resend HTTP relay if RESEND_API_KEY is configured
+        let externalRelay = 'LOGGED_STI_HUB';
+        const resendKey = (process.env.RESEND_API_KEY || '').trim();
+        if (resendKey) {
+          try {
+            const res = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${resendKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                from: process.env.STI_HUB_FROM_EMAIL || 'Seta Telecom <comercial@setatelecom.com.br>',
+                to: to.split(',').map((x) => x.trim()).filter(Boolean),
+                cc: body.cc
+                  ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
+                  : undefined,
+                subject,
+                text: emailBody,
+              }),
+            });
+            if (res.ok) externalRelay = 'SENT_VIA_RESEND';
+          } catch {
+            // Keep internal log if external relay is unreachable
+          }
+        }
+
+        // Record in CRM Timeline
+        const evt = this.repo.createTimelineEvent({
+          type: 'EMAIL',
+          title: `[${docType}] ${subject}`,
+          body: `Para: ${to}${body.cc ? ` | CC: ${String(body.cc)}` : ''} • Protocolo: ${protocol}\n\n${emailBody.slice(0, 600)}`,
+          contactId: body.contactId ? String(body.contactId) : null,
+          companyId: body.companyId ? String(body.companyId) : null,
+          dealId: body.dealId ? String(body.dealId) : null,
+          actor: 'Marcelo Lopes Mira (STI-hub Mailer)',
+          metadata: {
+            protocol,
+            docType,
+            to,
+            cc: body.cc || null,
+            documentCode: body.documentCode || null,
+            publicPdfUrl: body.publicPdfUrl || null,
+            externalRelay,
+          },
+        });
+
+        // If linked to a ticket, also append comment to ticket
+        if (body.ticketId) {
+          this.repo.addTicketComment(String(body.ticketId), {
+            author: 'Marcelo Lopes Mira (E-mail STI-hub)',
+            authorRole: 'AGENT',
+            isInternal: false,
+            body: `✉️ E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
+          });
+        }
+
+        let followUpTask = null;
+        if (body.createFollowUpTask) {
+          const daysOffset = typeof body.followUpDays === 'number' && body.followUpDays > 0 ? body.followUpDays : 2;
+          const dueDate =
+            typeof body.followUpDueDate === 'string' && body.followUpDueDate
+              ? body.followUpDueDate
+              : new Date(Date.now() + daysOffset * 86400000).toISOString().slice(0, 10);
+          followUpTask = this.repo.createTask({
+            title:
+              typeof body.followUpTitle === 'string' && body.followUpTitle.trim()
+                ? body.followUpTitle.trim()
+                : `Follow-up sobre [${docType}] ${subject}`,
+            notes: `Follow-up agendado automaticamente após envio de e-mail (${protocol}) para ${to}.`,
+            type: (body.followUpType as 'EMAIL' | 'CALL' | 'TODO') || 'EMAIL',
+            priority: (body.followUpPriority as 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE') || 'HIGH',
+            status: 'NOT_STARTED',
+            queueName: typeof body.followUpQueueName === 'string' ? body.followUpQueueName : 'Follow-up Comercial',
+            dueDate,
+            dueTime: typeof body.followUpDueTime === 'string' ? body.followUpDueTime : '09:30',
+            reminderMinutesBefore: 15,
+            assignedTo: typeof body.followUpAssignedTo === 'string' ? body.followUpAssignedTo : 'Marcelo Lopes Mira',
+            contactId: body.contactId ? String(body.contactId) : null,
+            companyId: body.companyId ? String(body.companyId) : null,
+            dealId: body.dealId ? String(body.dealId) : null,
+            createdByEmailSend: true,
+          });
+        }
+
+        return {
+          status: 200,
+          body: {
+            data: {
+              success: true,
+              protocol,
+              sentAt: nowIso,
+              to,
+              cc: body.cc || null,
+              subject,
+              docType,
+              externalRelay,
+              timelineEventId: evt.id,
+              followUpTask,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/communications/emails' && method === 'GET') {
+        const events = this.repo.listTimelineEvents({ type: 'EMAIL' });
+        return { status: 200, body: { data: events, total: events.length } };
+      }
+
+      // ======================================================================
+      // HUBSPOT-STYLE TASKS, EMAIL TEMPLATES, SNIPPETS & CARD EMAIL COMPOSER
+      // ======================================================================
+      if (cleanPath === '/api/tasks') {
+        if (method === 'GET') {
+          const rawTasks = this.repo.listTasks({
+            contactId: query.contactId,
+            companyId: query.companyId,
+            dealId: query.dealId,
+            status: query.status,
+            queueName: query.queueName,
+            type: query.type,
+            priority: query.priority,
+            assignedTo: query.assignedTo,
+          });
+          const contactsMap = new Map(this.repo.listContacts().map((c) => [c.id, c]));
+          const companiesMap = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
+          const dealsMap = new Map(this.repo.listDeals().map((d) => [d.id, d]));
+          const enriched = rawTasks.map((tk) => ({
+            ...tk,
+            contact: tk.contactId ? contactsMap.get(tk.contactId) || null : null,
+            company: tk.companyId ? companiesMap.get(tk.companyId) || null : null,
+            deal: tk.dealId ? dealsMap.get(tk.dealId) || null : null,
+          }));
+          return { status: 200, body: { data: enriched, total: enriched.length } };
+        }
+
+        if (method === 'POST') {
+          if (!body.title || !String(body.title).trim()) {
+            return {
+              status: 400,
+              body: { error: 'O campo "title" (Título da tarefa) é obrigatório.' },
+            };
+          }
+          const created = this.repo.createTask({
+            ...(body as Record<string, unknown>),
+            title: String(body.title).trim(),
+          });
+          const contact = created.contactId ? this.repo.getContactById(created.contactId) || null : null;
+          const company = created.companyId ? this.repo.getCompanyById(created.companyId) || null : null;
+          const deal = created.dealId ? this.repo.getDealById(created.dealId) || null : null;
+          return {
+            status: 201,
+            body: { data: { ...created, contact, company, deal } },
+          };
+        }
+      }
+
+      const taskCompleteMatch = cleanPath.match(/^\/api\/tasks\/([^/]+)\/complete$/);
+      if (taskCompleteMatch && method === 'POST') {
+        const completed = this.repo.completeTask(decodeURIComponent(taskCompleteMatch[1]));
+        if (!completed) {
+          return { status: 404, body: { error: 'Tarefa não encontrada.' } };
+        }
+        return { status: 200, body: { data: completed } };
+      }
+
+      const taskIdMatch = cleanPath.match(/^\/api\/tasks\/([^/]+)$/);
+      if (taskIdMatch) {
+        const taskId = decodeURIComponent(taskIdMatch[1]);
+        if (method === 'GET') {
+          const tk = this.repo.getTaskById(taskId);
+          if (!tk) return { status: 404, body: { error: 'Tarefa não encontrada.' } };
+          return { status: 200, body: { data: tk } };
+        }
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateTask(taskId, body);
+          if (!updated) return { status: 404, body: { error: 'Tarefa não encontrada.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteTask(taskId);
+          if (!deleted) return { status: 404, body: { error: 'Tarefa não encontrada.' } };
+          return { status: 200, body: { success: true, deletedId: taskId } };
+        }
+      }
+
+      if (cleanPath === '/api/email-templates') {
+        if (method === 'GET') {
+          const list = this.repo.listEmailTemplates();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.name || !body.subject || !body.body) {
+            return {
+              status: 400,
+              body: { error: 'Os campos "name", "subject" e "body" são obrigatórios.' },
+            };
+          }
+          const created = this.repo.createEmailTemplate({
+            ...(body as Record<string, unknown>),
+            name: String(body.name),
+            subject: String(body.subject),
+            body: String(body.body),
+          });
+          return { status: 201, body: { data: created } };
+        }
+      }
+
+      if (cleanPath === '/api/snippets') {
+        if (method === 'GET') {
+          const list = this.repo.listSnippets();
+          return { status: 200, body: { data: list, total: list.length } };
+        }
+        if (method === 'POST') {
+          if (!body.shortcut || !body.name || !body.content) {
+            return {
+              status: 400,
+              body: { error: 'Os campos "shortcut", "name" e "content" são obrigatórios.' },
+            };
+          }
+          const created = this.repo.createSnippet({
+            ...(body as Record<string, unknown>),
+            shortcut: String(body.shortcut),
+            name: String(body.name),
+            content: String(body.content),
+          });
+          return { status: 201, body: { data: created } };
+        }
+      }
+
+      if (cleanPath === '/api/emails/send' && method === 'POST') {
+        const to = body.to as string | string[] | undefined;
+        const subject = String(body.subject || '').trim();
+        const emailBody = String(body.body || '').trim();
+        if (!to || (Array.isArray(to) && to.length === 0) || !String(to).trim() || !subject) {
+          return {
+            status: 400,
+            body: { error: 'Os campos "to" (destinatário) e "subject" (assunto) são obrigatórios.' },
+          };
+        }
+        const res = this.repo.sendCrmEmail({
+          to,
+          cc: body.cc as string | string[] | undefined,
+          bcc: body.bcc as string | string[] | undefined,
+          subject,
+          body: emailBody,
+          senderName: body.senderName ? String(body.senderName) : 'Marcelo Lopes Mira',
+          senderEmail: body.senderEmail ? String(body.senderEmail) : 'comercial@setatelecom.com.br',
+          contactId: body.contactId ? String(body.contactId) : null,
+          companyId: body.companyId ? String(body.companyId) : null,
+          dealId: body.dealId ? String(body.dealId) : null,
+          templateId: body.templateId ? String(body.templateId) : null,
+          snippetIds: Array.isArray(body.snippetIds) ? (body.snippetIds as string[]) : undefined,
+          createFollowUpTask: Boolean(body.createFollowUpTask),
+          followUpDays: typeof body.followUpDays === 'number' ? body.followUpDays : undefined,
+          followUpDueDate: body.followUpDueDate ? String(body.followUpDueDate) : undefined,
+          followUpDueTime: body.followUpDueTime ? String(body.followUpDueTime) : undefined,
+          followUpType: body.followUpType as 'EMAIL' | 'CALL' | 'TODO' | undefined,
+          followUpPriority: body.followUpPriority as 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' | undefined,
+          followUpQueueName: body.followUpQueueName ? String(body.followUpQueueName) : undefined,
+          followUpTitle: body.followUpTitle ? String(body.followUpTitle) : undefined,
+          followUpAssignedTo: body.followUpAssignedTo ? String(body.followUpAssignedTo) : undefined,
+        });
+        return { status: 201, body: { data: res } };
       }
 
       // ======================================================================

@@ -27,8 +27,20 @@ import {
   ErpFiscalInvoice,
   ErpCatalogItem,
   ErpFinancialEntry,
+  ErpPurchaseOrder,
   ErpDatabaseState,
   GestaoClickConfig,
+  ErpServiceOrder,
+  ErpSaleOrder,
+  ErpSupplierRecord,
+  ErpEmployeeRecord,
+  CrmTask,
+  CrmTaskPriority,
+  CrmTaskStatus,
+  CrmTaskType,
+  CrmEmailTemplate,
+  CrmEmailTemplateCategory,
+  CrmSnippet,
 } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
@@ -71,9 +83,25 @@ export interface ClientDurableJournal {
   deletedContractIds?: string[];
   upsertedInvoices?: ErpFiscalInvoice[];
   deletedInvoiceIds?: string[];
+  upsertedCatalogItems?: ErpCatalogItem[];
+  deletedCatalogItemIds?: string[];
+  upsertedSuppliers?: ErpSupplierRecord[];
+  deletedSupplierIds?: string[];
+  upsertedEmployees?: ErpEmployeeRecord[];
+  deletedEmployeeIds?: string[];
+  upsertedSalesOrders?: ErpSaleOrder[];
+  deletedSalesOrderIds?: string[];
+  upsertedServiceOrders?: ErpServiceOrder[];
+  deletedServiceOrderIds?: string[];
+  upsertedPurchaseOrders?: ErpPurchaseOrder[];
+  deletedPurchaseOrderIds?: string[];
   upsertedForms?: WebForm[];
   upsertedWorkflows?: Workflow[];
   upsertedSequences?: EmailSequence[];
+  upsertedTasks?: CrmTask[];
+  deletedTaskIds?: string[];
+  upsertedEmailTemplates?: CrmEmailTemplate[];
+  upsertedSnippets?: CrmSnippet[];
   timelineEvents?: TimelineEvent[];
 }
 
@@ -104,6 +132,28 @@ export class CrmRepository {
         const parsed = JSON.parse(raw) as CrmDatabaseState;
         this.state = this.hydrateParsedState(parsed);
         this.lastLoadedMtimeMs = stat.mtimeMs;
+        const needsContactBackfill = (parsed.contacts || []).some(
+          (c) => !c.ownerName || !c.buyingRole
+        );
+        const needsCompanyBackfill = (parsed.companies || []).some(
+          (comp) => !comp.ownerName || comp.isTargetAccount === undefined || comp.icpTier === undefined
+        );
+        const needsTasksOrTemplates =
+          !Array.isArray(parsed.tasks) ||
+          parsed.tasks.length === 0 ||
+          !Array.isArray(parsed.emailTemplates) ||
+          parsed.emailTemplates.length === 0 ||
+          !Array.isArray(parsed.snippets) ||
+          parsed.snippets.length === 0;
+        if (
+          (parsed.pipelines?.length || 0) < this.state.pipelines.length ||
+          (parsed.deals?.length || 0) < this.state.deals.length ||
+          needsContactBackfill ||
+          needsCompanyBackfill ||
+          needsTasksOrTemplates
+        ) {
+          this.save();
+        }
         return;
       } catch {
         // Fallback to seed if corrupted
@@ -135,12 +185,104 @@ export class CrmRepository {
 
   private hydrateParsedState(parsed: CrmDatabaseState): CrmDatabaseState {
     const seedFallback = createInitialSeedState();
+
+    // Ensure all 3 Seta Telecom pipelines exist with their canonical names & stages while preserving custom pipelines
+    const parsedPipelines = Array.isArray(parsed.pipelines) ? parsed.pipelines : [];
+    const seedPipeIds = new Set(seedFallback.pipelines.map((p) => p.id));
+    const mergedPipelines = [...seedFallback.pipelines];
+    for (const p of parsedPipelines) {
+      if (!seedPipeIds.has(p.id)) {
+        mergedPipelines.push(p);
+      }
+    }
+
+    // Merge deals: preserve all user/existing deals + ensure seed deals for all 3 pipelines exist & have enriched fields
+    const parsedDeals = Array.isArray(parsed.deals) ? parsed.deals : [];
+    const seedDealMap = new Map(seedFallback.deals.map((d) => [d.id, d]));
+    const existingDealIds = new Set(parsedDeals.map((d) => d.id));
+    const hydratedDeals = parsedDeals.map((d) => {
+      const seedMatch = seedDealMap.get(d.id);
+      if (!seedMatch) return d;
+      return {
+        ...seedMatch,
+        ...d,
+        ownerName: d.ownerName || seedMatch.ownerName || "Marcelo Lopes Mira",
+        priority: d.priority || seedMatch.priority,
+        dealType: d.dealType || seedMatch.dealType,
+        mrr: d.mrr ?? seedMatch.mrr,
+        contractMonths: d.contractMonths ?? seedMatch.contractMonths,
+        tcv: d.tcv ?? seedMatch.tcv,
+      };
+    });
+    for (const sd of seedFallback.deals) {
+      if (!existingDealIds.has(sd.id)) {
+        hydratedDeals.push(sd);
+      }
+    }
+
+    // Backfill contacts with ownerName, buyingRole, isUnworked & GestãoClick metadata from seed
+    const parsedContacts = Array.isArray(parsed.contacts) ? parsed.contacts : seedFallback.contacts;
+    const seedContactMap = new Map(seedFallback.contacts.map((c) => [c.id, c]));
+    const hydratedContacts = parsedContacts.map((c) => {
+      const seedMatch = seedContactMap.get(c.id);
+      const mergedProps = {
+        ...(seedMatch?.customProperties || {}),
+        ...(c.customProperties || {}),
+      };
+      const resolvedOwnerName =
+        c.ownerName ||
+        (c.customProperties?.ownerName as string) ||
+        seedMatch?.ownerName ||
+        "Marcelo Lopes Mira";
+      if (!mergedProps.ownerName) {
+        mergedProps.ownerName = resolvedOwnerName;
+      }
+      return {
+        ...(seedMatch || {}),
+        ...c,
+        ownerId: c.ownerId ?? seedMatch?.ownerId ?? "owner-marcello",
+        ownerName: resolvedOwnerName,
+        buyingRole: c.buyingRole ?? seedMatch?.buyingRole ?? "DECISOR",
+        isUnworked: c.isUnworked ?? seedMatch?.isUnworked ?? false,
+        enrichmentSource: c.enrichmentSource || seedMatch?.enrichmentSource || null,
+        customProperties: mergedProps,
+      };
+    });
+
+    // Backfill companies with ownerName, isTargetAccount, icpTier & GestãoClick metadata from seed
+    const parsedCompanies = Array.isArray(parsed.companies) ? parsed.companies : seedFallback.companies;
+    const seedCompanyMap = new Map(seedFallback.companies.map((comp) => [comp.id, comp]));
+    const hydratedCompanies = parsedCompanies.map((comp) => {
+      const seedMatch = seedCompanyMap.get(comp.id);
+      const mergedProps = {
+        ...(seedMatch?.customProperties || {}),
+        ...(comp.customProperties || {}),
+      };
+      const resolvedOwnerName =
+        comp.ownerName ||
+        (comp.customProperties?.accountExecutive as string) ||
+        seedMatch?.ownerName ||
+        "Marcelo Lopes Mira";
+      if (!mergedProps.accountExecutive) {
+        mergedProps.accountExecutive = resolvedOwnerName;
+      }
+      return {
+        ...(seedMatch || {}),
+        ...comp,
+        ownerName: resolvedOwnerName,
+        isTargetAccount: comp.isTargetAccount ?? seedMatch?.isTargetAccount ?? false,
+        icpTier: comp.icpTier !== undefined ? comp.icpTier : (seedMatch?.icpTier ?? null),
+        enrichmentSource: comp.enrichmentSource || seedMatch?.enrichmentSource || null,
+        customProperties: mergedProps,
+      };
+    });
+
     return {
       ...seedFallback,
       ...parsed,
-      contacts: Array.isArray(parsed.contacts) ? parsed.contacts : seedFallback.contacts,
-      companies: Array.isArray(parsed.companies) ? parsed.companies : seedFallback.companies,
-      deals: Array.isArray(parsed.deals) ? parsed.deals : seedFallback.deals,
+      contacts: hydratedContacts,
+      companies: hydratedCompanies,
+      deals: hydratedDeals,
       webForms:
         Array.isArray(parsed.webForms) && parsed.webForms.length > 0
           ? parsed.webForms
@@ -148,14 +290,23 @@ export class CrmRepository {
       formSubmissions: Array.isArray(parsed.formSubmissions)
         ? parsed.formSubmissions
         : seedFallback.formSubmissions,
-      pipelines:
-        Array.isArray(parsed.pipelines) && parsed.pipelines.length >= 3
-          ? parsed.pipelines
-          : seedFallback.pipelines,
+      pipelines: mergedPipelines,
       serviceTickets:
         Array.isArray(parsed.serviceTickets) && parsed.serviceTickets.length > 0
           ? parsed.serviceTickets
           : seedFallback.serviceTickets,
+      tasks:
+        Array.isArray(parsed.tasks) && parsed.tasks.length > 0
+          ? parsed.tasks
+          : seedFallback.tasks || [],
+      emailTemplates:
+        Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length > 0
+          ? parsed.emailTemplates
+          : seedFallback.emailTemplates || [],
+      snippets:
+        Array.isArray(parsed.snippets) && parsed.snippets.length > 0
+          ? parsed.snippets
+          : seedFallback.snippets || [],
       erp:
         parsed.erp && Array.isArray(parsed.erp.proposals)
           ? parsed.erp
@@ -284,6 +435,18 @@ export class CrmRepository {
     upsertCollection(this.state.webForms, journal.upsertedForms);
     upsertCollection(this.state.workflows, journal.upsertedWorkflows);
     upsertCollection(this.state.sequences, journal.upsertedSequences);
+    if (!this.state.tasks) this.state.tasks = [];
+    const deletedTasks = new Set(journal.deletedTaskIds || []);
+    if (deletedTasks.size > 0) {
+      const before = this.state.tasks.length;
+      this.state.tasks = this.state.tasks.filter((t) => !deletedTasks.has(t.id));
+      appliedCount += before - this.state.tasks.length;
+    }
+    upsertCollection(this.state.tasks, journal.upsertedTasks, deletedTasks);
+    if (!this.state.emailTemplates) this.state.emailTemplates = [];
+    upsertCollection(this.state.emailTemplates, journal.upsertedEmailTemplates);
+    if (!this.state.snippets) this.state.snippets = [];
+    upsertCollection(this.state.snippets, journal.upsertedSnippets);
 
     const erp = this.ensureErp();
     const deletedProposals = new Set(journal.deletedProposalIds || []);
@@ -310,9 +473,64 @@ export class CrmRepository {
       );
       appliedCount += before - erp.invoices.length;
     }
+    const deletedCatalog = new Set(journal.deletedCatalogItemIds || []);
+    if (deletedCatalog.size > 0 && Array.isArray(erp.catalog)) {
+      const before = erp.catalog.length;
+      erp.catalog = erp.catalog.filter(
+        (c) => !deletedCatalog.has(c.id) && !deletedCatalog.has(c.gestaoClickCode)
+      );
+      appliedCount += before - erp.catalog.length;
+    }
+    const deletedSuppliers = new Set(journal.deletedSupplierIds || []);
+    if (deletedSuppliers.size > 0 && Array.isArray(erp.suppliers)) {
+      const before = erp.suppliers.length;
+      erp.suppliers = erp.suppliers.filter((s) => !deletedSuppliers.has(s.id));
+      appliedCount += before - erp.suppliers.length;
+    }
+    const deletedEmployees = new Set(journal.deletedEmployeeIds || []);
+    if (deletedEmployees.size > 0 && Array.isArray(erp.employees)) {
+      const before = erp.employees.length;
+      erp.employees = erp.employees.filter((e) => !deletedEmployees.has(e.id));
+      appliedCount += before - erp.employees.length;
+    }
+    const deletedSales = new Set(journal.deletedSalesOrderIds || []);
+    if (deletedSales.size > 0 && Array.isArray(erp.salesOrders)) {
+      const before = erp.salesOrders.length;
+      erp.salesOrders = erp.salesOrders.filter(
+        (v) => !deletedSales.has(v.id) && !deletedSales.has(v.code)
+      );
+      appliedCount += before - erp.salesOrders.length;
+    }
+    const deletedServiceOrders = new Set(journal.deletedServiceOrderIds || []);
+    if (deletedServiceOrders.size > 0 && Array.isArray(erp.serviceOrders)) {
+      const before = erp.serviceOrders.length;
+      erp.serviceOrders = erp.serviceOrders.filter(
+        (os) => !deletedServiceOrders.has(os.id) && !deletedServiceOrders.has(os.code)
+      );
+      appliedCount += before - erp.serviceOrders.length;
+    }
+    const deletedPurchases = new Set(journal.deletedPurchaseOrderIds || []);
+    if (deletedPurchases.size > 0 && Array.isArray(erp.purchaseOrders)) {
+      const before = erp.purchaseOrders.length;
+      erp.purchaseOrders = erp.purchaseOrders.filter(
+        (po) => !deletedPurchases.has(po.id) && !deletedPurchases.has(po.code)
+      );
+      appliedCount += before - erp.purchaseOrders.length;
+    }
+    if (!erp.suppliers) erp.suppliers = [];
+    if (!erp.employees) erp.employees = [];
+    if (!erp.salesOrders) erp.salesOrders = [];
+    if (!erp.serviceOrders) erp.serviceOrders = [];
+    if (!erp.purchaseOrders) erp.purchaseOrders = [];
     upsertCollection(erp.proposals, journal.upsertedProposals, deletedProposals);
     upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
     upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
+    upsertCollection(erp.catalog, journal.upsertedCatalogItems, deletedCatalog);
+    upsertCollection(erp.suppliers, journal.upsertedSuppliers, deletedSuppliers);
+    upsertCollection(erp.employees, journal.upsertedEmployees, deletedEmployees);
+    upsertCollection(erp.salesOrders, journal.upsertedSalesOrders, deletedSales);
+    upsertCollection(erp.serviceOrders, journal.upsertedServiceOrders, deletedServiceOrders);
+    upsertCollection(erp.purchaseOrders, journal.upsertedPurchaseOrders, deletedPurchases);
 
     if (Array.isArray(journal.timelineEvents) && journal.timelineEvents.length > 0) {
       const existingEvtIds = new Set(this.state.timelineEvents.map((e) => e.id));
@@ -588,8 +806,22 @@ export class CrmRepository {
         patch.ownerId !== undefined
           ? patch.ownerId
           : typeof patch.ownerName === 'string'
-            ? patch.ownerName
+            ? patch.ownerName.toLowerCase().includes('evelyn')
+              ? 'owner-evelyn'
+              : 'owner-marcello'
             : existing.ownerId,
+      ownerName:
+        patch.ownerName !== undefined
+          ? String(patch.ownerName).trim()
+          : existing.ownerName || (mergedCustomProps.ownerName as string) || 'Marcelo Lopes Mira',
+      buyingRole:
+        patch.buyingRole !== undefined
+          ? (patch.buyingRole as Contact['buyingRole'])
+          : existing.buyingRole ?? 'DECISOR',
+      isUnworked:
+        patch.isUnworked !== undefined
+          ? Boolean(patch.isUnworked)
+          : existing.isUnworked ?? false,
       customProperties: mergedCustomProps,
       isValidEmail: patch.isValidEmail !== undefined ? patch.isValidEmail : emailVal.isValid,
       isDisposableEmail: emailVal.isDisposable,
@@ -671,6 +903,31 @@ export class CrmRepository {
     const domVal = normalizeCorporateDomain(input.domain);
     const cnpjVal = validateCnpj(input.cnpj);
 
+    const rawInputRecord = input as Record<string, unknown>;
+    const resolvedOwnerName =
+      input.ownerName ||
+      (typeof rawInputRecord.accountOwner === 'string' ? rawInputRecord.accountOwner : undefined) ||
+      (input.customProperties?.accountExecutive as string) ||
+      'Marcelo Lopes Mira';
+    const resolvedIcpTier =
+      input.icpTier !== undefined
+        ? input.icpTier
+        : typeof rawInputRecord.icpTier === 'string' && rawInputRecord.icpTier
+          ? (rawInputRecord.icpTier as Company['icpTier'])
+          : null;
+    const resolvedIsTargetAccount =
+      input.isTargetAccount !== undefined
+        ? Boolean(input.isTargetAccount)
+        : resolvedIcpTier === 'TIER_1';
+
+    const customProps: Record<string, unknown> = {
+      ...(input.customProperties || {}),
+      accountExecutive: resolvedOwnerName,
+    };
+    if (resolvedIcpTier) {
+      customProps.icpTier = resolvedIcpTier;
+    }
+
     const draft: Company = {
       id: input.id || `comp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: input.name.trim(),
@@ -683,9 +940,12 @@ export class CrmRepository {
       state: input.state ?? null,
       country: input.country ?? 'Brasil',
       completenessScore: 0,
+      isTargetAccount: resolvedIsTargetAccount,
+      icpTier: resolvedIcpTier,
+      ownerName: resolvedOwnerName,
       enrichedAt: input.enrichedAt ?? null,
       enrichmentSource: input.enrichmentSource ?? null,
-      customProperties: input.customProperties || {},
+      customProperties: customProps,
       lastActivityAt: input.lastActivityAt ?? now,
       createdAt: input.createdAt || now,
       updatedAt: now,
@@ -728,9 +988,28 @@ export class CrmRepository {
       ...(existing.customProperties || {}),
       ...(patch.customProperties || {}),
     };
+    const nextOwnerName =
+      patch.ownerName !== undefined
+        ? String(patch.ownerName).trim()
+        : typeof patch.accountOwner === 'string'
+          ? patch.accountOwner.trim()
+          : typeof patch.accountExecutive === 'string'
+            ? patch.accountExecutive.trim()
+            : existing.ownerName || (existing.customProperties?.accountExecutive as string) || 'Marcelo Lopes Mira';
+
+    const nextIsTargetAccount =
+      patch.isTargetAccount !== undefined
+        ? Boolean(patch.isTargetAccount)
+        : existing.isTargetAccount ?? false;
+
+    const nextIcpTier =
+      patch.icpTier !== undefined
+        ? ((patch.icpTier || null) as Company['icpTier'])
+        : existing.icpTier ?? null;
+
     if (patch.tier !== undefined) mergedCustomProps.tier = patch.tier;
-    if (patch.accountOwner !== undefined) mergedCustomProps.accountExecutive = patch.accountOwner;
-    if (patch.accountExecutive !== undefined) mergedCustomProps.accountExecutive = patch.accountExecutive;
+    if (nextOwnerName) mergedCustomProps.accountExecutive = nextOwnerName;
+    if (nextIcpTier) mergedCustomProps.icpTier = nextIcpTier;
     if (patch.healthScore !== undefined) mergedCustomProps.healthScore = patch.healthScore;
 
     const updated: Company = {
@@ -742,6 +1021,9 @@ export class CrmRepository {
       cnpj: rawCnpj ? (cnpjVal.isValid ? cnpjVal.formatted : rawCnpj) : null,
       size: nextSize ?? null,
       annualRevenue: nextAnnualRevenue !== null && nextAnnualRevenue !== undefined ? Number(nextAnnualRevenue) : null,
+      isTargetAccount: nextIsTargetAccount,
+      icpTier: nextIcpTier,
+      ownerName: nextOwnerName,
       customProperties: mergedCustomProps,
       updatedAt: now,
     };
@@ -835,33 +1117,79 @@ export class CrmRepository {
   createDeal(input: Partial<Deal> & { title: string; value: number }): Deal {
     const now = new Date().toISOString();
     const defaultPipeline = this.state.pipelines[0];
-    const pipelineId = input.pipelineId || defaultPipeline?.id || 'pipe-enterprise-b2b';
+    const matchedPipeForStage = input.stageId
+      ? this.state.pipelines.find((p) => p.stages.some((s) => s.id === input.stageId))
+      : undefined;
+    const pipelineId =
+      input.pipelineId || matchedPipeForStage?.id || defaultPipeline?.id || "pipe-enterprise-b2b";
     const pipeline = this.getPipelineById(pipelineId) || defaultPipeline;
-    const stageId = input.stageId || pipeline?.stages[0]?.id || 'stage-discovery';
+    const stageId = input.stageId || pipeline?.stages[0]?.id || "stage-discovery";
     const stage = pipeline?.stages.find((s) => s.id === stageId);
+
+    const contractMonths =
+      input.contractMonths !== undefined && input.contractMonths !== null
+        ? Math.max(1, Number(input.contractMonths) || 24)
+        : 24;
+    const rawValue = Number(input.value) || 0;
+    const mrr =
+      input.mrr !== undefined && input.mrr !== null && Number(input.mrr) > 0
+        ? Number(input.mrr)
+        : Math.round(rawValue / contractMonths);
+    const totalValue = rawValue > 0 ? rawValue : mrr * contractMonths;
+    const tcv =
+      input.tcv !== undefined && input.tcv !== null && Number(input.tcv) > 0
+        ? Number(input.tcv)
+        : totalValue;
+
+    const defaultDealType =
+      pipelineId === "pipeline-locacao-equipamentos"
+        ? "LOCACAO_RECORRENTE"
+        : pipelineId === "pipeline-expansao-renovacao"
+          ? "UPSELL_RENOVACAO"
+          : "NEW_BUSINESS";
+
+    const priority =
+      input.priority ||
+      (totalValue >= 150000 ? "ALTA" : totalValue >= 60000 ? "MEDIA" : "BAIXA");
+
+    const ownerName = input.ownerName || "Marcelo Lopes Mira";
+    const ownerId =
+      input.ownerId ||
+      (ownerName.toLowerCase().includes("evelyn")
+        ? "owner-evelyn"
+        : ownerName.toLowerCase().includes("contato")
+          ? "owner-contato-seta"
+          : "owner-marcello");
 
     const deal: Deal = {
       id: input.id || `deal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: input.title.trim(),
-      value: Number(input.value) || 0,
-      currency: input.currency || 'BRL',
+      value: totalValue,
+      currency: input.currency || "BRL",
+      mrr,
+      contractMonths,
+      tcv,
+      priority,
+      dealType: input.dealType || defaultDealType,
       pipelineId,
       stageId,
       probability: input.probability ?? stage?.defaultProbability ?? 20,
       expectedCloseDate: input.expectedCloseDate ?? null,
       contactId: input.contactId ?? null,
       companyId: input.companyId ?? null,
-      ownerId: input.ownerId ?? 'owner-marcello',
-      status: input.status || (stage?.isWon ? 'WON' : stage?.isClosed ? 'LOST' : 'OPEN'),
+      ownerId,
+      ownerName,
+      status: input.status || (stage?.isWon ? "WON" : stage?.isClosed ? "LOST" : "OPEN"),
       stageEnteredAt: input.stageEnteredAt || now,
       lastActivityAt: input.lastActivityAt || now,
       closedAt: input.closedAt ?? null,
       lostReason: input.lostReason ?? null,
+      wonReason: input.wonReason ?? null,
       nextBestAction: input.nextBestAction ?? {
-        actionType: 'FOLLOW_UP',
-        title: 'Qualificar escopo e cronograma da oportunidade',
-        reason: 'Negócio recém-criado no pipeline.',
-        priority: 'MEDIUM',
+        actionType: "FOLLOW_UP",
+        title: "Qualificar escopo e cronograma da oportunidade",
+        reason: "Negócio recém-criado no pipeline.",
+        priority: "MEDIUM",
         suggestedDueInDays: 2,
       },
       customProperties: input.customProperties || {},
@@ -880,35 +1208,58 @@ export class CrmRepository {
 
     const existing = this.state.deals[idx];
     const now = new Date().toISOString();
-    const stageChanged = patch.stageId && patch.stageId !== existing.stageId;
+    const stageChanged = Boolean(patch.stageId && patch.stageId !== existing.stageId);
 
+    let nextPipelineId = patch.pipelineId || existing.pipelineId;
     let nextProbability = patch.probability ?? existing.probability;
     let nextStatus = patch.status ?? existing.status;
     let nextClosedAt = patch.closedAt !== undefined ? patch.closedAt : existing.closedAt;
+    let targetStageName = patch.stageId || existing.stageId;
 
     if (stageChanged) {
-      const pipeline = this.getPipelineById(patch.pipelineId || existing.pipelineId);
-      const targetStage = pipeline?.stages.find((s) => s.id === patch.stageId);
+      const matchedPipe =
+        this.getPipelineById(nextPipelineId) ||
+        this.state.pipelines.find((p) => p.stages.some((s) => s.id === patch.stageId));
+      if (matchedPipe) {
+        nextPipelineId = matchedPipe.id;
+      }
+      const targetStage = matchedPipe?.stages.find((s) => s.id === patch.stageId);
       if (targetStage) {
+        targetStageName = targetStage.name;
         if (patch.probability === undefined) {
           nextProbability = targetStage.defaultProbability;
         }
         if (targetStage.isWon) {
-          nextStatus = 'WON';
+          nextStatus = "WON";
           nextClosedAt = now;
         } else if (targetStage.isClosed && !targetStage.isWon) {
-          nextStatus = 'LOST';
+          nextStatus = "LOST";
           nextClosedAt = now;
         } else if (patch.status === undefined) {
-          nextStatus = 'OPEN';
+          nextStatus = "OPEN";
         }
       }
     }
+
+    const nextValue = patch.value !== undefined ? Number(patch.value) || 0 : existing.value;
+    const nextContractMonths =
+      patch.contractMonths !== undefined
+        ? Math.max(1, Number(patch.contractMonths) || 24)
+        : existing.contractMonths || 24;
+    const nextMrr =
+      patch.mrr !== undefined
+        ? Number(patch.mrr) || 0
+        : existing.mrr || Math.round(nextValue / nextContractMonths);
 
     const updated: Deal = {
       ...existing,
       ...patch,
       id: existing.id,
+      value: nextValue,
+      mrr: nextMrr,
+      contractMonths: nextContractMonths,
+      tcv: patch.tcv !== undefined ? Number(patch.tcv) : nextValue,
+      pipelineId: nextPipelineId,
       probability: nextProbability,
       status: nextStatus,
       closedAt: nextClosedAt,
@@ -921,12 +1272,13 @@ export class CrmRepository {
 
     if (stageChanged) {
       this.createTimelineEvent({
-        type: 'STAGE_CHANGE',
-        title: `Estágio do negócio alterado para ${patch.stageId}`,
-        body: `O negócio "${updated.title}" avançou de ${existing.stageId} para ${updated.stageId} (Probabilidade: ${updated.probability}%).`,
+        type: "STAGE_CHANGE",
+        title: `Estágio do negócio alterado para ${targetStageName}`,
+        body: `O negócio "${updated.title}" avançou para "${targetStageName}" (Probabilidade: ${updated.probability}%).`,
         contactId: updated.contactId,
         companyId: updated.companyId,
         dealId: updated.id,
+        actor: updated.ownerName || "Marcéllo Mira",
         metadata: {
           fromStageId: existing.stageId,
           toStageId: updated.stageId,
@@ -1263,6 +1615,7 @@ export class CrmRepository {
     priority?: string;
     slaStatus?: string;
     category?: string;
+    assignee?: string;
     contactId?: string;
     companyId?: string;
     search?: string;
@@ -1273,6 +1626,7 @@ export class CrmRepository {
     if (filters?.priority) list = list.filter((t) => t.priority === filters.priority);
     if (filters?.slaStatus) list = list.filter((t) => t.slaStatus === filters.slaStatus);
     if (filters?.category) list = list.filter((t) => t.category === filters.category);
+    if (filters?.assignee) list = list.filter((t) => t.assignee === filters.assignee);
     if (filters?.contactId) list = list.filter((t) => t.contactId === filters.contactId);
     if (filters?.companyId) list = list.filter((t) => t.companyId === filters.companyId);
     if (filters?.search) {
@@ -1282,7 +1636,8 @@ export class CrmRepository {
           t.key.toLowerCase().includes(q) ||
           t.subject.toLowerCase().includes(q) ||
           t.description.toLowerCase().includes(q) ||
-          t.assignee.toLowerCase().includes(q)
+          t.assignee.toLowerCase().includes(q) ||
+          (t.equipmentSerial || "").toLowerCase().includes(q)
       );
     }
     return list;
@@ -1325,11 +1680,11 @@ export class CrmRepository {
       new Date(now.getTime() + slaSpec.resolveHours * 60 * 60 * 1000).toISOString();
 
     const defaultAssigneeMap: Record<string, string> = {
-      INCIDENT: 'Equipe N2 SRE & Integrações',
-      BUG: 'Engenharia Produto N3',
-      BILLING: 'Financeiro & Billing',
-      FEATURE_REQUEST: 'Product Management',
-      SUPPORT: 'CS Enterprise',
+      INCIDENT: 'NOC N2 - Voz SIP, PABX IP & SD-WAN',
+      BUG: 'NOC N3 - Engenharia Core & Entroncamento E1',
+      BILLING: 'Financeiro & Faturamento Telecom',
+      FEATURE_REQUEST: 'Field Service - RMA & Substituição de Locação',
+      SUPPORT: 'NOC N1 - Triagem & Monitoramento Zabbix',
     };
 
     const category = input.category || 'SUPPORT';
@@ -1346,7 +1701,13 @@ export class CrmRepository {
       contactId: input.contactId ?? null,
       companyId: input.companyId ?? null,
       dealId: input.dealId ?? null,
-      assignee: input.assignee || defaultAssigneeMap[category] || 'CS Enterprise',
+      assignee: input.assignee || defaultAssigneeMap[category] || 'NOC N1 - Triagem & Monitoramento Zabbix',
+      contractId: input.contractId ?? null,
+      serviceOrderId: input.serviceOrderId ?? null,
+      equipmentSerial: input.equipmentSerial ?? null,
+      slaPausedAt: input.slaPausedAt ?? null,
+      totalPausedMinutes: input.totalPausedMinutes ?? 0,
+      resolution: input.resolution ?? null,
       slaFirstResponseDueAt: firstRespDue,
       slaResolutionDueAt: resolveDue,
       firstRespondedAt: input.firstRespondedAt ?? null,
@@ -1364,12 +1725,12 @@ export class CrmRepository {
     this.createTimelineEvent({
       type: 'TICKET_EVENT',
       title: `Chamado [${ticket.key}] aberto: ${ticket.subject}`,
-      body: `Prioridade: ${ticket.priority} | Canal: ${ticket.channel} | Fila: ${ticket.assignee}`,
+      body: `Prioridade: ${ticket.priority} | Canal: ${ticket.channel} | Fila: ${ticket.assignee}${ticket.equipmentSerial ? ` | Serial/Circuito: ${ticket.equipmentSerial}` : ''}`,
       contactId: ticket.contactId,
       companyId: ticket.companyId,
       dealId: ticket.dealId,
       metadata: { ticketId: ticket.id, ticketKey: ticket.key, priority: ticket.priority },
-      actor: 'Service Desk (JSM)',
+      actor: 'Service Desk (NOC Seta Telecom)',
     });
 
     this.save();
@@ -1384,16 +1745,64 @@ export class CrmRepository {
     if (idx === -1) return null;
 
     const existing = this.state.serviceTickets[idx];
-    const nowIso = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    let nextFirstRespDue =
+      patch.slaFirstResponseDueAt !== undefined
+        ? patch.slaFirstResponseDueAt
+        : existing.slaFirstResponseDueAt;
+    let nextResolveDue =
+      patch.slaResolutionDueAt !== undefined
+        ? patch.slaResolutionDueAt
+        : existing.slaResolutionDueAt;
+
+    // Recalculate SLA proportionally from createdAt if priority changed
+    if (patch.priority && patch.priority !== existing.priority) {
+      const slaHoursMap: Record<TicketPriority, { firstRespHours: number; resolveHours: number }> = {
+        CRITICAL: { firstRespHours: 1, resolveHours: 4 },
+        HIGH: { firstRespHours: 2, resolveHours: 8 },
+        MEDIUM: { firstRespHours: 4, resolveHours: 24 },
+        LOW: { firstRespHours: 8, resolveHours: 48 },
+      };
+      const spec = slaHoursMap[patch.priority] || slaHoursMap.MEDIUM;
+      const baseTime = new Date(existing.createdAt).getTime() || now.getTime();
+      const pausedMs = (existing.totalPausedMinutes || 0) * 60 * 1000;
+      if (patch.slaFirstResponseDueAt === undefined) {
+        nextFirstRespDue = new Date(baseTime + spec.firstRespHours * 60 * 60 * 1000 + pausedMs).toISOString();
+      }
+      if (patch.slaResolutionDueAt === undefined) {
+        nextResolveDue = new Date(baseTime + spec.resolveHours * 60 * 60 * 1000 + pausedMs).toISOString();
+      }
+    }
+
+    // SLA Pause / Resume when entering/leaving WAITING_CUSTOMER
+    let nextPausedAt = patch.slaPausedAt !== undefined ? patch.slaPausedAt : existing.slaPausedAt;
+    let nextPausedMinutes =
+      patch.totalPausedMinutes !== undefined ? patch.totalPausedMinutes : existing.totalPausedMinutes || 0;
+
+    if (patch.status && patch.status !== existing.status) {
+      if (patch.status === 'WAITING_CUSTOMER' && !existing.slaPausedAt) {
+        nextPausedAt = nowIso;
+      } else if (existing.status === 'WAITING_CUSTOMER' && existing.slaPausedAt) {
+        const pausedDiffMs = Math.max(0, now.getTime() - new Date(existing.slaPausedAt).getTime());
+        const addMins = Math.round(pausedDiffMs / 60000);
+        nextPausedMinutes += addMins;
+        nextPausedAt = null;
+        if (addMins > 0 && patch.slaResolutionDueAt === undefined) {
+          nextResolveDue = new Date(new Date(nextResolveDue).getTime() + pausedDiffMs).toISOString();
+        }
+      }
+    }
 
     let nextResolvedAt = patch.resolvedAt !== undefined ? patch.resolvedAt : existing.resolvedAt;
     let nextSlaStatus: TicketSlaStatus = patch.slaStatus || existing.slaStatus;
 
     if (patch.status && (patch.status === 'RESOLVED' || patch.status === 'CLOSED')) {
       if (!nextResolvedAt) nextResolvedAt = nowIso;
-      if (existing.slaStatus !== 'BREACHED') {
-        nextSlaStatus = 'ON_TRACK';
-      }
+      const resMs = new Date(nextResolvedAt).getTime();
+      const dueMs = new Date(nextResolveDue).getTime();
+      nextSlaStatus = resMs <= dueMs ? 'ON_TRACK' : 'BREACHED';
     }
 
     const updated: ServiceTicket = {
@@ -1401,6 +1810,10 @@ export class CrmRepository {
       ...patch,
       id: existing.id,
       key: existing.key,
+      slaFirstResponseDueAt: nextFirstRespDue,
+      slaResolutionDueAt: nextResolveDue,
+      slaPausedAt: nextPausedAt,
+      totalPausedMinutes: nextPausedMinutes,
       resolvedAt: nextResolvedAt,
       slaStatus: nextSlaStatus,
       updatedAt: nowIso,
@@ -1448,10 +1861,88 @@ export class CrmRepository {
       }
     } else if (comment.authorRole === 'AGENT' && !comment.isInternal && ticket.status === 'OPEN') {
       ticket.status = 'IN_PROGRESS';
+    } else if (comment.authorRole === 'CUSTOMER' && ticket.status === 'WAITING_CUSTOMER') {
+      ticket.status = 'IN_PROGRESS';
     }
 
     this.save();
     return ticket;
+  }
+
+  createServiceOrderFromTicket(
+    idOrKey: string,
+    options?: {
+      technicianName?: string;
+      totalAmount?: number;
+      description?: string;
+    }
+  ): { ticket: ServiceTicket; serviceOrder: ErpServiceOrder } | null {
+    const ticket = this.getServiceTicketById(idOrKey);
+    if (!ticket) return null;
+
+    const erp = this.ensureErp();
+    if (!erp.serviceOrders) erp.serviceOrders = [];
+
+    // If already linked to an existing service order, return or create new if not found
+    const existingOs = ticket.serviceOrderId
+      ? erp.serviceOrders.find((os) => os.id === ticket.serviceOrderId || os.code === ticket.serviceOrderId)
+      : undefined;
+    if (existingOs) {
+      return { ticket, serviceOrder: existingOs };
+    }
+
+    const company = ticket.companyId ? this.getCompanyById(ticket.companyId) : undefined;
+    const maxCode = erp.serviceOrders.reduce((max, os) => {
+      const n = Number(String(os.code).replace(/\D+/g, ""));
+      return Number.isFinite(n) ? Math.max(max, n) : max;
+    }, 1518);
+
+    const nextCode = String(maxCode + 1);
+    const nowDateBr = new Date().toLocaleDateString('pt-BR');
+    const newOs: ErpServiceOrder = {
+      id: `os-${Date.now()}`,
+      code: nextCode,
+      companyName: company?.name || 'Cliente Seta Telecom',
+      sellerName: 'Marcelo Mira',
+      technicianName: options?.technicianName || ticket.assignee || 'NOC N2 - Voz SIP, PABX IP & SD-WAN',
+      entryDate: nowDateBr,
+      exitDate: '—',
+      status: 'Em andamento',
+      totalAmount: options?.totalAmount !== undefined ? Number(options.totalAmount) : 0,
+      description:
+        options?.description ||
+        `[${ticket.key}] ${ticket.subject}${ticket.equipmentSerial ? ` (S/N: ${ticket.equipmentSerial})` : ''} — ${ticket.description}`,
+    };
+
+    erp.serviceOrders.unshift(newOs);
+
+    ticket.serviceOrderId = newOs.id;
+    if (ticket.status === 'OPEN') {
+      ticket.status = 'IN_PROGRESS';
+    }
+    ticket.comments.push({
+      id: `cmt-os-${Date.now()}`,
+      author: 'Integração NOC ↔ GestãoClick ERP',
+      authorRole: 'AGENT',
+      isInternal: true,
+      body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no GestãoClick ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
+      createdAt: new Date().toISOString(),
+    });
+    ticket.updatedAt = new Date().toISOString();
+
+    this.createTimelineEvent({
+      type: 'TICKET_EVENT',
+      title: `O.S. #${newOs.code} gerada a partir do chamado [${ticket.key}]`,
+      body: `Cliente: ${newOs.companyName} | Fila/Técnico: ${newOs.technicianName}`,
+      contactId: ticket.contactId,
+      companyId: ticket.companyId,
+      dealId: ticket.dealId,
+      metadata: { ticketId: ticket.id, ticketKey: ticket.key, serviceOrderId: newOs.id, osCode: newOs.code },
+      actor: 'NOC Seta Telecom',
+    });
+
+    this.save();
+    return { ticket, serviceOrder: newOs };
   }
 
   deleteServiceTicket(idOrKey: string): boolean {
@@ -1546,8 +2037,10 @@ export class CrmRepository {
   private ensureErp(): ErpDatabaseState {
     if (!this.state.erp || !Array.isArray(this.state.erp.proposals)) {
       this.state.erp = createSeedErpState();
-    } else if (!this.state.erp.bankAccounts || !this.state.erp.dashboardSummary) {
-      const seedErp = createSeedErpState();
+      return this.state.erp;
+    }
+    const seedErp = createSeedErpState();
+    if (!this.state.erp.bankAccounts || !this.state.erp.dashboardSummary) {
       this.state.erp = {
         ...seedErp,
         ...this.state.erp,
@@ -1559,6 +2052,31 @@ export class CrmRepository {
         employees: this.state.erp.employees || seedErp.employees,
         purchaseOrders: this.state.erp.purchaseOrders || seedErp.purchaseOrders,
       };
+    }
+    // Ensure new seed fiscal document types (NFE_VENDA_PRODUTO, NFCE_CONSUMIDOR, NFE_REMESSA_LOCACAO) exist
+    if (Array.isArray(this.state.erp.invoices)) {
+      const existingIds = new Set(this.state.erp.invoices.map((i) => i.id));
+      for (const seedInv of seedErp.invoices) {
+        if (!existingIds.has(seedInv.id)) {
+          this.state.erp.invoices.push(seedInv);
+        }
+      }
+    }
+    // Enrich existing purchaseOrders with fiscal metadata from seed & add any new seed purchaseOrders
+    if (!Array.isArray(this.state.erp.purchaseOrders) || this.state.erp.purchaseOrders.length === 0) {
+      this.state.erp.purchaseOrders = seedErp.purchaseOrders;
+    } else if (Array.isArray(seedErp.purchaseOrders)) {
+      const seedPoMap = new Map(seedErp.purchaseOrders.map((po) => [po.id, po]));
+      this.state.erp.purchaseOrders = this.state.erp.purchaseOrders.map((po) => {
+        const seedMatch = seedPoMap.get(po.id);
+        return seedMatch ? { ...seedMatch, ...po, cfopEntrada: po.cfopEntrada || seedMatch.cfopEntrada, supplierCnpj: po.supplierCnpj || seedMatch.supplierCnpj, nfeAccessKey: po.nfeAccessKey || seedMatch.nfeAccessKey, itemsSummary: po.itemsSummary || seedMatch.itemsSummary, costCenter: po.costCenter || seedMatch.costCenter, icmsCreditAmount: po.icmsCreditAmount ?? seedMatch.icmsCreditAmount, pisCofinsCreditAmount: po.pisCofinsCreditAmount ?? seedMatch.pisCofinsCreditAmount } : po;
+      });
+      const existingPoIds = new Set(this.state.erp.purchaseOrders.map((po) => po.id));
+      for (const seedPo of seedErp.purchaseOrders) {
+        if (!existingPoIds.has(seedPo.id)) {
+          this.state.erp.purchaseOrders.push(seedPo);
+        }
+      }
     }
     return this.state.erp;
   }
@@ -1657,25 +2175,111 @@ export class CrmRepository {
             },
           ];
 
+    const normalizedItems = items.map((it) => {
+      const itemType =
+        it.itemType ||
+        (it.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+        it.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+          ? 'SERVICE'
+          : 'PRODUCT');
+      const qty = Math.max(1, Number(it.quantity || 1));
+      const unitPrice = Math.max(0, Number(it.unitPrice || 0));
+      const discPct = Math.max(0, Math.min(100, Number(it.discountPercent || 0)));
+      const discAmt = Math.max(0, Number(it.discountAmount || 0));
+      const gross = qty * unitPrice;
+      const net = Math.max(0, Math.round((gross * (1 - discPct / 100) - discAmt) * 100) / 100);
+      return {
+        ...it,
+        itemType,
+        unit: it.unit || (itemType === 'SERVICE' ? 'SV' : it.isRecurring !== false ? 'MÊS' : 'UN'),
+        quantity: qty,
+        unitPrice,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        subtotal: net,
+        totalMonthly: net,
+      };
+    });
+
+    const productsSubtotal = normalizedItems
+      .filter((i) => i.itemType === 'PRODUCT')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
+    const servicesSubtotal = normalizedItems
+      .filter((i) => i.itemType === 'SERVICE')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
+
     const contractMonths = Number(input.contractMonths || 24);
+    const shippingCost = Math.max(0, Number(input.shippingCost || 0));
+    const discountAmount = Math.max(0, Number(input.discountAmount || 0));
+    const discountPercentGlobal = Math.max(0, Math.min(100, Number(input.discountPercentGlobal || 0)));
+
+    const recSum = normalizedItems
+      .filter((i) => i.isRecurring !== false)
+      .reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
+    const setupSum = normalizedItems
+      .filter((i) => i.isRecurring === false)
+      .reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
+
+    const computedMrr =
+      recSum > 0
+        ? Math.max(0, Math.round((recSum - discountAmount - (recSum * discountPercentGlobal) / 100) * 100) / 100)
+        : 0;
+    const computedSetup =
+      recSum > 0
+        ? Math.max(0, Math.round((setupSum + shippingCost) * 100) / 100)
+        : Math.max(
+            0,
+            Math.round(
+              (setupSum - discountAmount - (setupSum * discountPercentGlobal) / 100 + shippingCost) * 100
+            ) / 100
+          );
+
     const monthlyRecurringTotal =
-      input.monthlyRecurringTotal !== undefined
-        ? Number(input.monthlyRecurringTotal)
-        : items
-            .filter((i) => i.isRecurring)
-            .reduce((s, i) => s + Number(i.totalMonthly || i.quantity * i.unitPrice), 0);
+      input.monthlyRecurringTotal !== undefined ? Number(input.monthlyRecurringTotal) : computedMrr;
     const oneTimeSetupTotal =
-      input.oneTimeSetupTotal !== undefined
-        ? Number(input.oneTimeSetupTotal)
-        : items
-            .filter((i) => !i.isRecurring)
-            .reduce((s, i) => s + Number(i.totalMonthly || i.quantity * i.unitPrice), 0);
-    const totalContractValue = monthlyRecurringTotal * contractMonths + oneTimeSetupTotal;
+      input.oneTimeSetupTotal !== undefined ? Number(input.oneTimeSetupTotal) : computedSetup;
+    const totalContractValue =
+      input.totalContractValue !== undefined
+        ? Number(input.totalContractValue)
+        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal) * 100) / 100;
+
+    const inferredBudgetType =
+      input.budgetType ||
+      (productsSubtotal > 0 && servicesSubtotal > 0
+        ? 'CONJUNTO'
+        : servicesSubtotal > 0 && productsSubtotal === 0
+          ? 'SERVICOS'
+          : normalizedItems.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
+            ? 'LOCACAO'
+            : 'PRODUTOS');
 
     const proposal: ErpCommercialProposal = {
+      ...input,
       id: input.id || `prop-${Date.now()}`,
       code,
       title: input.title.trim(),
+      budgetType: inferredBudgetType,
+      storeName: input.storeName || 'Matriz',
+      salesChannel: input.salesChannel || 'Comercial B2B / Consultivo',
+      costCenter: input.costCenter || 'Comercial Telecom & TI',
+      proposalDate: input.proposalDate || now.slice(0, 10),
+      deliveryForecast: input.deliveryForecast || 'Imediato (até 48h úteis após aceite)',
+      careOf:
+        input.careOf ||
+        input.contactName ||
+        (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
+      introductionText:
+        input.introductionText ||
+        'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
+      internalNotes: input.internalNotes || '',
+      shippingCost,
+      shippingCarrier: input.shippingCarrier || 'Frota Própria Seta Telecom',
+      deliveryAddress: input.deliveryAddress || '',
+      discountAmount,
+      discountPercentGlobal,
+      productsSubtotal: input.productsSubtotal ?? productsSubtotal,
+      servicesSubtotal: input.servicesSubtotal ?? servicesSubtotal,
+      installments: Array.isArray(input.installments) ? input.installments : [],
       companyId: input.companyId || company?.id || null,
       companyName: input.companyName || company?.name || 'Empresa Cliente B2B',
       companyCnpj: input.companyCnpj || company?.cnpj || '18.236.120/0001-58',
@@ -1683,13 +2287,16 @@ export class CrmRepository {
       contactName:
         input.contactName ||
         (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
+      contactEmail: input.contactEmail || contact?.email || undefined,
       dealId: input.dealId || null,
       sellerName: input.sellerName || 'Marcelo Lopes Mira',
       status: input.status || 'ENVIADA',
+      modality: input.modality,
+      readjustmentIndex: input.readjustmentIndex || 'IPCA',
       contractMonths,
       paymentCondition: input.paymentCondition || 'Boleto / PIX Corporativo — Vencimento dia 10',
-      validUntil: input.validUntil || new Date(Date.now() + 15 * 86400000).toISOString(),
-      items,
+      validUntil: input.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      items: normalizedItems,
       monthlyRecurringTotal,
       oneTimeSetupTotal,
       totalContractValue,
@@ -1699,9 +2306,9 @@ export class CrmRepository {
       technicalClauses:
         input.technicalClauses ||
         `SLA 99,95% Seta Telecom com substituição expressa de hardware. Vigência contratual de ${contractMonths} meses.`,
-      convertedContractId: null,
-      convertedInvoiceId: null,
-      createdAt: now,
+      convertedContractId: input.convertedContractId ?? null,
+      convertedInvoiceId: input.convertedInvoiceId ?? null,
+      createdAt: input.createdAt || now,
       updatedAt: now,
     };
 
@@ -1798,7 +2405,18 @@ export class CrmRepository {
     const idx = erp.rentalContracts.findIndex(
       (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
     );
-    if (idx === -1) return null;
+    if (idx === -1) {
+      if (patch.title && patch.companyName) {
+        return this.createRentalContract({
+          ...patch,
+          id: idOrNum,
+          title: String(patch.title),
+          companyName: String(patch.companyName),
+          monthlyValue: Number(patch.monthlyValue || 0),
+        });
+      }
+      return null;
+    }
     const current = erp.rentalContracts[idx];
     const updated: ErpRentalContract = {
       ...current,
@@ -1812,6 +2430,125 @@ export class CrmRepository {
       updatedAt: new Date().toISOString(),
     };
     erp.rentalContracts[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  renewRentalContract(idOrNum: string, extraMonths = 12): ErpRentalContract | null {
+    const erp = this.ensureErp();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.rentalContracts[idx];
+    const monthsToAdd = Math.max(1, Number(extraMonths || 12));
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    const parsedEnd = current.endDate ? new Date(`${current.endDate}T12:00:00Z`) : now;
+    const baseDate =
+      !Number.isNaN(parsedEnd.getTime()) && parsedEnd.getTime() > now.getTime()
+        ? parsedEnd
+        : now;
+    const nextEnd = new Date(baseDate.getTime());
+    nextEnd.setUTCMonth(nextEnd.getUTCMonth() + monthsToAdd);
+    const nextEndDateStr = nextEnd.toISOString().slice(0, 10);
+
+    const updated: ErpRentalContract = {
+      ...current,
+      endDate: nextEndDateStr,
+      contractMonths: Number(current.contractMonths || 24) + monthsToAdd,
+      status: 'ATIVO',
+      updatedAt: nowIso,
+    };
+    erp.rentalContracts[idx] = updated;
+
+    if (current.companyId || current.dealId || current.contactId) {
+      this.createTimelineEvent({
+        type: 'NOTE',
+        title: `Vigência do Contrato ${current.contractNumber} renovada (+${monthsToAdd} meses)`,
+        body: `Nova data de término: ${nextEndDateStr}. Status atualizado para ATIVO.`,
+        companyId: current.companyId,
+        contactId: current.contactId,
+        dealId: current.dealId,
+        actor: 'Gestão de Contratos Seta Telecom',
+      });
+    }
+
+    this.save();
+    return updated;
+  }
+
+  applyContractReadjustment(
+    idOrNum: string,
+    input: {
+      percentage?: number;
+      index?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
+      note?: string;
+    }
+  ): ErpRentalContract | null {
+    const erp = this.ensureErp();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.rentalContracts[idx];
+    const index = input.index || current.readjustmentIndex || 'IPCA';
+    const defaultPct = index === 'IGP-M' ? 3.8 : index === 'FIXO' ? 0 : 4.5;
+    const percentage =
+      input.percentage !== undefined && !Number.isNaN(Number(input.percentage))
+        ? Number(input.percentage)
+        : defaultPct;
+
+    const factor = 1 + percentage / 100;
+    const previousMonthlyValue = Number(current.monthlyValue || 0);
+    const newMonthlyValue = Math.round((previousMonthlyValue * factor + Number.EPSILON) * 100) / 100;
+    const nowIso = new Date().toISOString();
+    const appliedDate = nowIso.slice(0, 10);
+
+    const updatedEquipments = (current.equipments || []).map((eq) => ({
+      ...eq,
+      unitMonthlyRent:
+        Math.round((Number(eq.unitMonthlyRent || 0) * factor + Number.EPSILON) * 100) / 100,
+    }));
+
+    const historyEntry = {
+      id: `readj-${Date.now()}`,
+      appliedAt: appliedDate,
+      index,
+      percentage,
+      previousMonthlyValue,
+      newMonthlyValue,
+      note:
+        input.note ||
+        `Reajuste contratual anual (${index} +${percentage.toFixed(2)}%): de R$ ${previousMonthlyValue.toFixed(2)} para R$ ${newMonthlyValue.toFixed(2)}`,
+    };
+
+    const updated: ErpRentalContract = {
+      ...current,
+      readjustmentIndex: index,
+      monthlyValue: newMonthlyValue,
+      equipments: updatedEquipments,
+      lastReadjustmentDate: appliedDate,
+      lastReadjustmentPercent: percentage,
+      readjustmentHistory: [historyEntry, ...(current.readjustmentHistory || [])],
+      updatedAt: nowIso,
+    };
+
+    erp.rentalContracts[idx] = updated;
+
+    if (current.companyId || current.dealId || current.contactId) {
+      this.createTimelineEvent({
+        type: 'NOTE',
+        title: `Reajuste anual (${index} ${percentage.toFixed(2)}%) aplicado ao Contrato ${current.contractNumber}`,
+        body: historyEntry.note || null,
+        companyId: current.companyId,
+        contactId: current.contactId,
+        dealId: current.dealId,
+        actor: 'Motor de Reajuste Contratual',
+      });
+    }
+
     this.save();
     return updated;
   }
@@ -2008,11 +2745,34 @@ export class CrmRepository {
     const contractNumber = `LOC-${now.getFullYear()}-${100 + erp.rentalContracts.length + 1}`;
     const remessaNfeNumber = `000.419.${100 + erp.invoices.length + 1}`;
 
+    const hasLocacao = proposal.items.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
+    const hasServico = proposal.items.some((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM');
+    const hasScm = proposal.items.some((i) => i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
+    const mappedModality =
+      proposal.modality === 'SERVICE'
+        ? 'SERVICO'
+        : proposal.modality === 'HYBRID'
+          ? 'HIBRIDO'
+          : proposal.modality === 'RENTAL'
+            ? 'LOCACAO'
+            : hasLocacao && hasServico
+              ? 'HIBRIDO'
+              : hasScm && !hasLocacao
+                ? 'ASSINATURA'
+                : hasServico && !hasLocacao
+                  ? 'SERVICO'
+                  : 'LOCACAO';
+
     const equipments = proposal.items.map((item, idx) => ({
       id: `eq-${Date.now()}-${idx + 1}`,
       skuGestaoClick: item.sku || `GC-EQ-00${idx + 1}`,
       description: item.description,
-      serialNumber: `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      serialNumber:
+        item.serialNumber && item.serialNumber.trim()
+          ? item.serialNumber.trim()
+          : `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      assetTag: `PAT-SETA-${1000 + erp.rentalContracts.length * 10 + idx + 1}`,
+      assetStatus: 'EM_CLIENTE' as const,
       ncm: item.ncmOrServiceCode.replace('NCM ', '') || '8517.62.14',
       quantity: item.quantity,
       unitMonthlyRent: item.unitPrice,
@@ -2025,6 +2785,7 @@ export class CrmRepository {
       id: `ctr-${Date.now()}`,
       contractNumber,
       title: `Contrato de Locação — ${proposal.companyName} (${proposal.code})`,
+      modality: mappedModality,
       companyId: proposal.companyId,
       companyName: proposal.companyName,
       companyCnpj: proposal.companyCnpj,
@@ -2040,7 +2801,7 @@ export class CrmRepository {
         .toISOString()
         .slice(0, 10),
       contractMonths: proposal.contractMonths,
-      readjustmentIndex: 'IPCA',
+      readjustmentIndex: proposal.readjustmentIndex || 'IPCA',
       status: 'ATIVO',
       equipments,
       remessaNfeNumber,
@@ -2089,6 +2850,7 @@ export class CrmRepository {
       id: input.id || `ctr-${Date.now()}`,
       contractNumber,
       title: input.title.trim(),
+      modality: input.modality || 'LOCACAO',
       companyId: input.companyId || null,
       companyName: input.companyName,
       companyCnpj: input.companyCnpj || '18.236.120/0001-58',
@@ -2315,13 +3077,47 @@ export class CrmRepository {
         ? 'FAT-LOC-2026-'
         : input.documentType === 'NFSE_SERVICO'
           ? 'NFSE-2026-'
-          : input.documentType === 'NFCOM_TELECOM'
-            ? 'NFCOM-2026-'
-            : 'NFE-REM-';
+          : input.documentType === 'NFE_VENDA_PRODUTO'
+            ? 'NFE-VND-00'
+            : input.documentType === 'NFCE_CONSUMIDOR'
+              ? 'NFCE-65-00'
+              : input.documentType === 'NFCOM_TELECOM'
+                ? 'NFCOM-2026-'
+                : 'NFE-REM-';
     const docNum =
       input.documentNumber || `${prefix}${String(erp.invoices.length + 1).padStart(4, '0')}`;
     const dueDate =
       input.dueDate || new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+
+    const defaultCfop =
+      input.cfop ||
+      (input.documentType === 'NFE_REMESSA_LOCACAO'
+        ? '5.908 — Remessa de bem por conta de contrato de locação'
+        : input.documentType === 'NFE_VENDA_PRODUTO'
+          ? '5.102 — Venda de mercadoria adquirida ou recebida de terceiros'
+          : input.documentType === 'NFCE_CONSUMIDOR'
+            ? '5.102 — Venda de mercadoria a consumidor final (PDV / Balcão)'
+            : input.documentType === 'NFCOM_TELECOM'
+              ? '5.303 — Prestação de serviço de comunicação a estabelecimento comercial'
+              : input.documentType === 'NFSE_SERVICO'
+                ? '5.933 — Prestação de serviço tributado pelo ISSQN'
+                : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
+
+    const defaultCstIcms =
+      input.cstIcms ||
+      (input.documentType === 'NFE_VENDA_PRODUTO' || input.documentType === 'NFCE_CONSUMIDOR'
+        ? '000 - Tributada integralmente (ICMS 18% Operação Interna)'
+        : input.documentType === 'NFSE_SERVICO'
+          ? 'N/A (ISSQN Municipal)'
+          : '041 - Não Tributada');
+
+    const defaultCstPisCofins =
+      input.cstPisCofins ||
+      (input.documentType === 'NFE_REMESSA_LOCACAO'
+        ? '08 - Operação sem incidência da contribuição'
+        : input.documentType === 'NFSE_SERVICO'
+          ? '01 - Retenção na Fonte CSRF 4,65% + IRRF 1,5%'
+          : '01 - Operação Tributável Alíquota Básica (PIS 0,65% / COFINS 3,00%)');
 
     const invoice: ErpFiscalInvoice = {
       id: input.id || `inv-${Date.now()}`,
@@ -2338,25 +3134,26 @@ export class CrmRepository {
       grossAmount,
       discountAmount,
       netAmount: taxBreakdown.netReceivableAmount,
-      status: input.status || 'EMITIDA',
+      status: input.status || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PAGA' : 'EMITIDA'),
       issueDate: input.issueDate || nowIso.slice(0, 10),
       dueDate,
-      paidAt: input.paidAt || null,
-      paymentMethod: input.paymentMethod || 'BOLETO_PIX',
+      paidAt: input.paidAt || (input.documentType === 'NFCE_CONSUMIDOR' ? nowIso.slice(0, 10) : null),
+      paymentMethod: input.paymentMethod || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PIX_CORPORATIVO' : 'BOLETO_PIX'),
       serviceCodeLc116:
-        input.documentType === 'FATURA_LOCACAO'
-          ? 'N/A — Locação de Bens Móveis (LC 116/03 + SV 31 STF)'
-          : input.documentType === 'NFSE_SERVICO'
-            ? '01.07 — Suporte técnico em informática, instalação e manutenção'
-            : null,
-      cfop:
-        input.documentType === 'NFE_REMESSA_LOCACAO'
-          ? '5.908'
-          : input.documentType === 'NFCOM_TELECOM'
-            ? '5.303'
-            : 'N/A',
-      cstIcms: '41 - Não Tributada',
-      cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+        input.serviceCodeLc116 !== undefined
+          ? input.serviceCodeLc116
+          : input.documentType === 'FATURA_LOCACAO'
+            ? 'N/A — Locação de Bens Móveis (LC 116/03 + SV 31 STF)'
+            : input.documentType === 'NFSE_SERVICO'
+              ? '01.07 — Suporte técnico em informática, instalação e manutenção'
+              : input.documentType === 'NFE_VENDA_PRODUTO'
+                ? 'N/A — Venda de Equipamento / Mercadoria (NCM 8517.62.59)'
+                : input.documentType === 'NFCE_CONSUMIDOR'
+                  ? 'N/A — NFC-e Modelo 65 (Venda a Consumidor Final)'
+                  : null,
+      cfop: defaultCfop,
+      cstIcms: defaultCstIcms,
+      cstPisCofins: defaultCstPisCofins,
       verificationCodeOrKey: `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
       pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304B8C1`,
       boletoDigitableLine: `34191.79001 01043.510047 91020.150008 1 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
@@ -2664,6 +3461,13 @@ export class CrmRepository {
     if (snapshot.mappedBankAccounts && snapshot.mappedBankAccounts.length > 0) {
       erp.bankAccounts = snapshot.mappedBankAccounts;
     }
+    if (!erp.dashboardSummary) {
+      erp.dashboardSummary = createSeedErpState().dashboardSummary;
+    } else if (erp.bankAccounts && erp.bankAccounts.length > 0) {
+      erp.dashboardSummary.availableBalanceToday = Number(
+        erp.bankAccounts.reduce((acc, b) => acc + Number(b.balance || 0), 0).toFixed(2)
+      );
+    }
     if (snapshot.mappedSalesOrders && snapshot.mappedSalesOrders.length > 0) {
       erp.salesOrders = snapshot.mappedSalesOrders;
     }
@@ -2732,6 +3536,450 @@ export class CrmRepository {
     };
     this.save();
     return erp.gestaoClickConfig;
+  }
+
+  // ==========================================================================
+  // HUBSPOT-STYLE TASKS (FOLLOW-UP & QUEUES), EMAIL TEMPLATES & SNIPPETS
+  // ==========================================================================
+  private ensureTasksAndTemplates(): void {
+    if (!Array.isArray(this.state.tasks)) {
+      this.state.tasks = createInitialSeedState().tasks || [];
+    }
+    if (!Array.isArray(this.state.emailTemplates)) {
+      this.state.emailTemplates = createInitialSeedState().emailTemplates || [];
+    }
+    if (!Array.isArray(this.state.snippets)) {
+      this.state.snippets = createInitialSeedState().snippets || [];
+    }
+  }
+
+  listTasks(filters?: {
+    contactId?: string;
+    companyId?: string;
+    dealId?: string;
+    status?: string;
+    queueName?: string;
+    type?: string;
+    priority?: string;
+    assignedTo?: string;
+  }): CrmTask[] {
+    this.ensureTasksAndTemplates();
+    let list = [...(this.state.tasks || [])];
+    if (filters?.contactId) {
+      list = list.filter((t) => t.contactId === filters.contactId);
+    }
+    if (filters?.companyId) {
+      list = list.filter((t) => t.companyId === filters.companyId);
+    }
+    if (filters?.dealId) {
+      list = list.filter((t) => t.dealId === filters.dealId);
+    }
+    if (filters?.status && filters.status !== "ALL") {
+      if (filters.status === "OPEN") {
+        list = list.filter((t) => t.status !== "COMPLETED");
+      } else {
+        list = list.filter((t) => t.status === filters.status);
+      }
+    }
+    if (filters?.queueName && filters.queueName !== "ALL") {
+      list = list.filter((t) => t.queueName === filters.queueName);
+    }
+    if (filters?.type && filters.type !== "ALL") {
+      list = list.filter((t) => t.type === filters.type);
+    }
+    if (filters?.priority && filters.priority !== "ALL") {
+      list = list.filter((t) => t.priority === filters.priority);
+    }
+    if (filters?.assignedTo && filters.assignedTo !== "ALL") {
+      const q = normalizeSearchText(filters.assignedTo);
+      list = list.filter((t) => normalizeSearchText(t.assignedTo).includes(q));
+    }
+    return list.sort((a, b) => {
+      if (a.status === "COMPLETED" && b.status !== "COMPLETED") return 1;
+      if (a.status !== "COMPLETED" && b.status === "COMPLETED") return -1;
+      const aDt = `${a.dueDate || "9999-12-31"}T${a.dueTime || "23:59"}`;
+      const bDt = `${b.dueDate || "9999-12-31"}T${b.dueTime || "23:59"}`;
+      return aDt.localeCompare(bDt);
+    });
+  }
+
+  getTaskById(id: string): CrmTask | undefined {
+    this.ensureTasksAndTemplates();
+    return (this.state.tasks || []).find((t) => t.id === id);
+  }
+
+  createTask(input: Partial<CrmTask> & { title: string }): CrmTask {
+    this.ensureTasksAndTemplates();
+    const now = new Date().toISOString();
+    const tomorrowYmd = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    let resolvedCompanyId = input.companyId ?? null;
+    if (!resolvedCompanyId && input.contactId) {
+      const c = this.getContactById(input.contactId);
+      if (c?.companyId) resolvedCompanyId = c.companyId;
+    }
+
+    const task: CrmTask = {
+      id: input.id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: input.title.trim(),
+      notes: (input.notes || "").trim(),
+      type: (input.type as CrmTaskType) || "TODO",
+      priority: (input.priority as CrmTaskPriority) || "MEDIUM",
+      status: (input.status as CrmTaskStatus) || "NOT_STARTED",
+      queueName: (input.queueName || "Follow-up Comercial").trim(),
+      dueDate: input.dueDate || tomorrowYmd,
+      dueTime: input.dueTime || "09:00",
+      reminderMinutesBefore:
+        input.reminderMinutesBefore !== undefined ? input.reminderMinutesBefore : 15,
+      assignedTo: (input.assignedTo || "Marcelo Lopes Mira").trim(),
+      contactId: input.contactId ?? null,
+      companyId: resolvedCompanyId,
+      dealId: input.dealId ?? null,
+      createdByEmailSend: Boolean(input.createdByEmailSend),
+      completedAt: input.status === "COMPLETED" ? input.completedAt || now : null,
+      createdAt: input.createdAt || now,
+      updatedAt: now,
+    };
+
+    this.state.tasks!.unshift(task);
+
+    // Record timeline event for task creation if linked to an entity
+    if (task.contactId || task.companyId || task.dealId) {
+      this.createTimelineEvent({
+        type: "TASK",
+        title: `Tarefa agendada [${task.type} • ${task.queueName}]: ${task.title}`,
+        body: `Vencimento: ${task.dueDate} às ${task.dueTime} | Prioridade: ${task.priority} | Responsável: ${task.assignedTo}${task.notes ? `\nNotas: ${task.notes}` : ""}`,
+        contactId: task.contactId,
+        companyId: task.companyId,
+        dealId: task.dealId,
+        actor: task.assignedTo,
+        metadata: {
+          taskId: task.id,
+          taskType: task.type,
+          priority: task.priority,
+          queueName: task.queueName,
+          dueDate: task.dueDate,
+          dueTime: task.dueTime,
+        },
+      });
+    }
+
+    this.save();
+    return task;
+  }
+
+  updateTask(id: string, patch: Partial<CrmTask>): CrmTask | null {
+    this.ensureTasksAndTemplates();
+    const idx = this.state.tasks!.findIndex((t) => t.id === id);
+    if (idx === -1) return null;
+
+    const existing = this.state.tasks![idx];
+    const now = new Date().toISOString();
+    const nextStatus = (patch.status || existing.status) as CrmTaskStatus;
+    const completedAt =
+      nextStatus === "COMPLETED"
+        ? existing.completedAt || now
+        : patch.status !== undefined
+          ? null
+          : existing.completedAt;
+
+    const updated: CrmTask = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+      title: patch.title !== undefined ? String(patch.title).trim() : existing.title,
+      notes: patch.notes !== undefined ? String(patch.notes) : existing.notes,
+      status: nextStatus,
+      completedAt,
+      updatedAt: now,
+    };
+
+    this.state.tasks![idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  completeTask(id: string): CrmTask | null {
+    const updated = this.updateTask(id, { status: "COMPLETED" });
+    if (updated && (updated.contactId || updated.companyId || updated.dealId)) {
+      this.createTimelineEvent({
+        type: "TASK",
+        title: `✅ Tarefa concluída: ${updated.title}`,
+        body: `Fila: ${updated.queueName} • Concluída por ${updated.assignedTo}.`,
+        contactId: updated.contactId,
+        companyId: updated.companyId,
+        dealId: updated.dealId,
+        actor: updated.assignedTo,
+        metadata: { taskId: updated.id, status: "COMPLETED" },
+      });
+    }
+    return updated;
+  }
+
+  deleteTask(id: string): boolean {
+    this.ensureTasksAndTemplates();
+    const before = this.state.tasks!.length;
+    this.state.tasks = this.state.tasks!.filter((t) => t.id !== id);
+    if (this.state.tasks.length < before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  listEmailTemplates(): CrmEmailTemplate[] {
+    this.ensureTasksAndTemplates();
+    return [...(this.state.emailTemplates || [])];
+  }
+
+  createEmailTemplate(
+    input: Partial<CrmEmailTemplate> & { name: string; subject: string; body: string }
+  ): CrmEmailTemplate {
+    this.ensureTasksAndTemplates();
+    const now = new Date().toISOString();
+    const tpl: CrmEmailTemplate = {
+      id: input.id || `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      category: (input.category as CrmEmailTemplateCategory) || "FOLLOW_UP",
+      subject: input.subject.trim(),
+      body: input.body,
+      createdBy: (input.createdBy || "Marcelo Lopes Mira").trim(),
+      usageCount: input.usageCount ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.emailTemplates!.unshift(tpl);
+    this.save();
+    return tpl;
+  }
+
+  listSnippets(): CrmSnippet[] {
+    this.ensureTasksAndTemplates();
+    return [...(this.state.snippets || [])];
+  }
+
+  createSnippet(
+    input: Partial<CrmSnippet> & { shortcut: string; name: string; content: string }
+  ): CrmSnippet {
+    this.ensureTasksAndTemplates();
+    const now = new Date().toISOString();
+    const rawShortcut = input.shortcut.trim();
+    const shortcut = rawShortcut.startsWith("#") ? rawShortcut : `#${rawShortcut}`;
+    const snippet: CrmSnippet = {
+      id: input.id || `snip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      shortcut,
+      name: input.name.trim(),
+      category: (input.category || "Comercial & Follow-up").trim(),
+      content: input.content,
+      usageCount: input.usageCount ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.snippets!.unshift(snippet);
+    this.save();
+    return snippet;
+  }
+
+  sendCrmEmail(input: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    body: string;
+    senderName?: string;
+    senderEmail?: string;
+    contactId?: string | null;
+    companyId?: string | null;
+    dealId?: string | null;
+    templateId?: string | null;
+    snippetIds?: string[];
+    createFollowUpTask?: boolean;
+    followUpDays?: number;
+    followUpDueDate?: string;
+    followUpDueTime?: string;
+    followUpType?: CrmTaskType;
+    followUpPriority?: CrmTaskPriority;
+    followUpQueueName?: string;
+    followUpTitle?: string;
+    followUpAssignedTo?: string;
+  }): {
+    protocol: string;
+    sentAt: string;
+    toList: string[];
+    ccList: string[];
+    bccList: string[];
+    timelineEvent: TimelineEvent;
+    followUpTask: CrmTask | null;
+  } {
+    this.ensureTasksAndTemplates();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const protocol = `HS-MAIL-${Date.now().toString(36).toUpperCase()}`;
+
+    const parseRecipients = (val?: string | string[] | null): string[] => {
+      if (!val) return [];
+      const arr = Array.isArray(val) ? val : String(val).split(/[,;]+/);
+      return arr.map((s) => s.trim()).filter(Boolean);
+    };
+
+    const toList = parseRecipients(input.to);
+    const ccList = parseRecipients(input.cc);
+    const bccList = parseRecipients(input.bcc);
+    const senderName = (input.senderName || "Marcelo Lopes Mira").trim();
+
+    if (input.templateId) {
+      const tpl = this.state.emailTemplates!.find((t) => t.id === input.templateId);
+      if (tpl) {
+        tpl.usageCount = (tpl.usageCount || 0) + 1;
+        tpl.updatedAt = nowIso;
+      }
+    }
+    if (Array.isArray(input.snippetIds)) {
+      for (const sid of input.snippetIds) {
+        const sn = this.state.snippets!.find((s) => s.id === sid || s.shortcut === sid);
+        if (sn) {
+          sn.usageCount = (sn.usageCount || 0) + 1;
+          sn.updatedAt = nowIso;
+        }
+      }
+    }
+
+    // Resolve primary contact / company if not explicitly provided
+    let resolvedContactId = input.contactId ?? null;
+    let resolvedCompanyId = input.companyId ?? null;
+    if (!resolvedContactId && toList.length > 0) {
+      const matchedContact = this.state.contacts.find(
+        (c) => c.email.toLowerCase() === toList[0].toLowerCase()
+      );
+      if (matchedContact) {
+        resolvedContactId = matchedContact.id;
+        if (!resolvedCompanyId && matchedContact.companyId) {
+          resolvedCompanyId = matchedContact.companyId;
+        }
+      }
+    } else if (resolvedContactId && !resolvedCompanyId) {
+      const c = this.getContactById(resolvedContactId);
+      if (c?.companyId) resolvedCompanyId = c.companyId;
+    }
+
+    // Update lastActivityAt and mark contact as worked
+    if (resolvedContactId) {
+      const c = this.getContactById(resolvedContactId);
+      if (c) {
+        c.lastActivityAt = nowIso;
+        c.isUnworked = false;
+        c.updatedAt = nowIso;
+      }
+    }
+    if (resolvedCompanyId) {
+      const comp = this.getCompanyById(resolvedCompanyId);
+      if (comp) {
+        comp.lastActivityAt = nowIso;
+        comp.updatedAt = nowIso;
+      }
+    }
+    if (input.dealId) {
+      const deal = this.getDealById(input.dealId);
+      if (deal) {
+        deal.lastActivityAt = nowIso;
+        deal.updatedAt = nowIso;
+      }
+    }
+
+    const recipientsHeader = [
+      `Para: ${toList.join(", ")}`,
+      ccList.length > 0 ? `CC: ${ccList.join(", ")}` : null,
+      bccList.length > 0 ? `CCO: ${bccList.join(", ")}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const timelineEvent = this.createTimelineEvent({
+      type: "EMAIL",
+      title: `✉️ E-mail enviado: ${input.subject.trim()}`,
+      body: `${recipientsHeader} • Protocolo: ${protocol}\n\n${input.body}`,
+      contactId: resolvedContactId,
+      companyId: resolvedCompanyId,
+      dealId: input.dealId ?? null,
+      actor: senderName,
+      metadata: {
+        protocol,
+        to: toList,
+        cc: ccList,
+        bcc: bccList,
+        templateId: input.templateId || null,
+        snippetIds: input.snippetIds || [],
+      },
+    });
+
+    // Also log timeline event on any additional CRM contacts included in To/CC
+    const allRecipientEmails = new Set(
+      [...toList, ...ccList].map((e) => e.toLowerCase())
+    );
+    for (const contact of this.state.contacts) {
+      if (
+        contact.id !== resolvedContactId &&
+        allRecipientEmails.has(contact.email.toLowerCase())
+      ) {
+        contact.lastActivityAt = nowIso;
+        contact.isUnworked = false;
+        this.createTimelineEvent({
+          type: "EMAIL",
+          title: `✉️ E-mail enviado (Destinatário vinculado): ${input.subject.trim()}`,
+          body: `${recipientsHeader} • Protocolo: ${protocol}\n\n${input.body}`,
+          contactId: contact.id,
+          companyId: contact.companyId || resolvedCompanyId,
+          dealId: input.dealId ?? null,
+          actor: senderName,
+          metadata: { protocol, to: toList, cc: ccList },
+        });
+      }
+    }
+
+    let followUpTask: CrmTask | null = null;
+    if (input.createFollowUpTask) {
+      const daysOffset =
+        typeof input.followUpDays === "number" && input.followUpDays > 0
+          ? input.followUpDays
+          : 2;
+      const dueDate =
+        input.followUpDueDate ||
+        new Date(now.getTime() + daysOffset * 86400000).toISOString().slice(0, 10);
+      const primaryContact = resolvedContactId ? this.getContactById(resolvedContactId) : null;
+      const targetLabel = primaryContact
+        ? `${primaryContact.firstName} ${primaryContact.lastName}`.trim()
+        : toList[0] || "Cliente";
+
+      followUpTask = this.createTask({
+        title:
+          input.followUpTitle?.trim() ||
+          `Follow-up sobre e-mail "${input.subject.trim()}" com ${targetLabel}`,
+        notes: `Tarefa automática de follow-up gerada no envio do e-mail (${protocol}) para ${toList.join(", ")}.`,
+        type: input.followUpType || "EMAIL",
+        priority: input.followUpPriority || "HIGH",
+        status: "NOT_STARTED",
+        queueName: input.followUpQueueName || "Follow-up Comercial",
+        dueDate,
+        dueTime: input.followUpDueTime || "09:30",
+        reminderMinutesBefore: 15,
+        assignedTo: input.followUpAssignedTo || senderName,
+        contactId: resolvedContactId,
+        companyId: resolvedCompanyId,
+        dealId: input.dealId ?? null,
+        createdByEmailSend: true,
+      });
+    }
+
+    this.save();
+    return {
+      protocol,
+      sentAt: nowIso,
+      toList,
+      ccList,
+      bccList,
+      timelineEvent,
+      followUpTask,
+    };
   }
 
 }

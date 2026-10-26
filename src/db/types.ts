@@ -455,6 +455,11 @@ export interface ServiceTicket {
   companyId: string | null;
   dealId: string | null;
   assignee: string;
+  contractId?: string | null;
+  serviceOrderId?: string | null;
+  equipmentSerial?: string | null;
+  slaPausedAt?: string | null;
+  totalPausedMinutes?: number;
   resolution?: string | null;
   slaFirstResponseDueAt: string;
   slaResolutionDueAt: string;
@@ -493,20 +498,48 @@ export interface ErpProposalItem {
   id: string;
   sku: string;
   description: string;
+  itemType?: 'PRODUCT' | 'SERVICE';
+  unit?: string;
   fiscalNature: ErpFiscalNature;
   ncmOrServiceCode: string;
   serialNumber?: string;
   quantity: number;
   unitPrice: number;
   discountPercent: number;
+  discountAmount?: number;
+  subtotal?: number;
   isRecurring: boolean;
   totalMonthly: number;
+}
+
+export interface ErpProposalInstallment {
+  number: number;
+  dueDate: string;
+  amount: number;
+  paymentMethod: string;
+  notes?: string;
 }
 
 export interface ErpCommercialProposal {
   id: string;
   code: string;
   title: string;
+  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO';
+  storeName?: string;
+  salesChannel?: string;
+  costCenter?: string;
+  proposalDate?: string;
+  deliveryForecast?: string;
+  careOf?: string;
+  introductionText?: string;
+  internalNotes?: string;
+  shippingCost?: number;
+  shippingCarrier?: string;
+  deliveryAddress?: string;
+  discountPercentGlobal?: number;
+  productsSubtotal?: number;
+  servicesSubtotal?: number;
+  installments?: ErpProposalInstallment[];
   companyId: string | null;
   companyName: string;
   companyCnpj: string;
@@ -517,7 +550,7 @@ export interface ErpCommercialProposal {
   sellerName: string;
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
-  readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO';
+  readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
   discountAmount?: number;
   contractMonths: number;
   paymentCondition: string;
@@ -534,11 +567,15 @@ export interface ErpCommercialProposal {
   updatedAt: string;
 }
 
+export type ErpAssetStatus = 'EM_CLIENTE' | 'MANUTENCAO_RMA' | 'DEVOLVIDO';
+
 export interface ErpRentalEquipmentItem {
   id: string;
   skuGestaoClick: string;
   description: string;
   serialNumber: string;
+  assetTag?: string;
+  assetStatus?: ErpAssetStatus;
   ncm: string;
   quantity: number;
   unitMonthlyRent: number;
@@ -553,10 +590,23 @@ export type ErpRentalContractStatus =
   | 'RENOVACAO_PROXIMA'
   | 'ENCERRADO';
 
+export type ErpContractModality = 'LOCACAO' | 'SERVICO' | 'ASSINATURA' | 'HIBRIDO';
+
+export interface ErpReadjustmentHistoryEntry {
+  id: string;
+  appliedAt: string;
+  index: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
+  percentage: number;
+  previousMonthlyValue: number;
+  newMonthlyValue: number;
+  note?: string;
+}
+
 export interface ErpRentalContract {
   id: string;
   contractNumber: string;
   title: string;
+  modality?: ErpContractModality;
   companyId: string | null;
   companyName: string;
   companyCnpj: string;
@@ -568,7 +618,10 @@ export interface ErpRentalContract {
   startDate: string;
   endDate: string;
   contractMonths: number;
-  readjustmentIndex: 'IGP-M' | 'IPCA' | 'FIXO';
+  readjustmentIndex: 'IGP-M' | 'IPCA' | 'FIXO' | 'IST_ANATEL';
+  lastReadjustmentDate?: string | null;
+  lastReadjustmentPercent?: number | null;
+  readjustmentHistory?: ErpReadjustmentHistoryEntry[];
   status: ErpRentalContractStatus;
   equipments: ErpRentalEquipmentItem[];
   remessaNfeNumber: string;
@@ -583,6 +636,8 @@ export type ErpFiscalDocumentType =
   | 'FATURA_LOCACAO'
   | 'NFSE_SERVICO'
   | 'NFE_REMESSA_LOCACAO'
+  | 'NFE_VENDA_PRODUTO'
+  | 'NFCE_CONSUMIDOR'
   | 'NFCOM_TELECOM';
 
 export interface ErpTaxBreakdown {
@@ -731,6 +786,9 @@ export interface ErpSaleOrder {
   status: string;
   totalAmount: number;
   itemsSummary: string;
+  paymentMethod?: string;
+  saleType?: 'PRODUTO' | 'SERVICO' | 'BALCAO' | 'DEVOLUCAO';
+  commissionAmount?: number;
 }
 
 export interface ErpServiceOrder {
@@ -744,6 +802,10 @@ export interface ErpServiceOrder {
   status: string;
   totalAmount: number;
   description: string;
+  equipmentName?: string;
+  serialNumber?: string;
+  technicalReport?: string;
+  priority?: 'BAIXA' | 'NORMAL' | 'ALTA' | 'CRITICA';
 }
 
 export interface ErpSupplierRecord {
@@ -754,6 +816,9 @@ export interface ErpSupplierRecord {
   phone: string;
   email: string;
   active: boolean;
+  supplierType?: 'FORNECEDOR' | 'TRANSPORTADORA';
+  cityState?: string;
+  modalFrete?: string;
 }
 
 export interface ErpEmployeeRecord {
@@ -769,9 +834,17 @@ export interface ErpPurchaseOrder {
   id: string;
   code: string;
   supplierName: string;
+  supplierCnpj?: string;
   issueDate: string;
   status: string;
   nfeNumber: string;
+  nfeAccessKey?: string;
+  cfopEntrada?: string;
+  fiscalNature?: string;
+  itemsSummary?: string;
+  costCenter?: string;
+  icmsCreditAmount?: number;
+  pisCofinsCreditAmount?: number;
   totalAmount: number;
 }
 
@@ -838,6 +911,70 @@ export interface ErpDatabaseState {
   purchaseOrders?: ErpPurchaseOrder[];
 }
 
+// ============================================================================
+// HubSpot-Style Tasks (Follow-up & Queues), Email Templates & Snippets
+// ============================================================================
+
+export type CrmTaskType = "EMAIL" | "CALL" | "TODO";
+export type CrmTaskPriority = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+export type CrmTaskStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "WAITING"
+  | "COMPLETED"
+  | "DEFERRED";
+
+export interface CrmTask {
+  id: string;
+  title: string;
+  notes: string;
+  type: CrmTaskType;
+  priority: CrmTaskPriority;
+  status: CrmTaskStatus;
+  queueName: string;
+  dueDate: string; // YYYY-MM-DD
+  dueTime: string; // HH:mm
+  reminderMinutesBefore: number | null; // 0, 15, 30, 60, 1440 or null
+  assignedTo: string;
+  contactId: string | null;
+  companyId: string | null;
+  dealId: string | null;
+  createdByEmailSend?: boolean;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CrmEmailTemplateCategory =
+  | "PROSPECCAO"
+  | "FOLLOW_UP"
+  | "PROPOSTA"
+  | "DIAGNOSTICO"
+  | "RENOVACAO";
+
+export interface CrmEmailTemplate {
+  id: string;
+  name: string;
+  category: CrmEmailTemplateCategory;
+  subject: string;
+  body: string;
+  createdBy: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrmSnippet {
+  id: string;
+  shortcut: string; // e.g. "#sla-seta"
+  name: string;
+  category: string;
+  content: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmDatabaseState {
   contacts: Contact[];
   companies: Company[];
@@ -852,5 +989,8 @@ export interface CrmDatabaseState {
   webForms: WebForm[];
   formSubmissions: FormSubmission[];
   serviceTickets: ServiceTicket[];
+  tasks?: CrmTask[];
+  emailTemplates?: CrmEmailTemplate[];
+  snippets?: CrmSnippet[];
   erp?: ErpDatabaseState;
 }

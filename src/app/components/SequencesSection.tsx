@@ -3,16 +3,13 @@
 import React, { useState } from 'react';
 import {
   Mail,
-  Send,
-  MousePointerClick,
   MessageSquareReply,
   PauseCircle,
   Play,
   Plus,
   UserPlus,
   CheckCircle2,
-  Clock,
-  Sparkles,
+  Filter,
   X,
 } from 'lucide-react';
 import {
@@ -68,6 +65,9 @@ export default function SequencesSection({
   const [enrollContactId, setEnrollContactId] = useState<string>(contacts[0]?.id || '');
   const [enrollDealId, setEnrollDealId] = useState<string>('');
   const [enrolling, setEnrolling] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'ACTIVE' | 'PAUSED_ON_REPLY' | 'COMPLETED'
+  >('ALL');
 
   const [replyModalEnrollment, setReplyModalEnrollment] = useState<EnrichedEnrollment | null>(null);
   const [replyText, setReplyText] = useState(
@@ -95,10 +95,22 @@ export default function SequencesSection({
   const [step2Body, setStep2Body] = useState(
     '{{firstName}}, conseguiu avaliar o diagnóstico enviado? Podemos conversar 10 minutos esta semana?'
   );
+  const [includeStep3, setIncludeStep3] = useState(true);
+  const [step3Subject, setStep3Subject] = useState(
+    'Último contato: Condição Executiva Locação {{companyName}}'
+  );
+  const [step3Body, setStep3Body] = useState(
+    '{{firstName}}, encerrando nossos follow-ups desta semana. Caso faça sentido retomar a cotação de locação (0% ISS), estou à disposição.'
+  );
   const [creatingSeq, setCreatingSeq] = useState(false);
 
   const activeSequence =
     sequences.find((s) => s.id === selectedSequenceId) || sequences[0] || null;
+
+  const filteredEnrollments =
+    statusFilter === 'ALL'
+      ? enrollments
+      : enrollments.filter((e) => e.status === statusFilter);
 
   const handleEnrollSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,6 +186,22 @@ export default function SequencesSection({
           replyCount: 0,
         },
       ];
+      if (includeStep3 && step3Subject.trim()) {
+        steps.push({
+          id: `step-${Date.now()}-3`,
+          stepOrder: 3,
+          dayOffset: 6,
+          delayDays: 3,
+          subject: step3Subject.trim(),
+          bodyTemplate: step3Body.trim(),
+          stepType: 'BREAKUP',
+          condition: 'IF_NO_REPLY',
+          sentCount: 0,
+          openCount: 0,
+          clickCount: 0,
+          replyCount: 0,
+        });
+      }
       await onCreateSequence({
         name: seqName.trim(),
         description: seqDesc.trim() || 'Cadência comercial automatizada com pausa na resposta.',
@@ -397,19 +425,36 @@ export default function SequencesSection({
 
       {/* ENROLLMENTS & AUTO-PAUSE ON REPLY MONITOR */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Monitor de Contatos Inscritos &amp; Pausa Automática na Resposta ({enrollments.length})
+              Monitor de Contatos Inscritos &amp; Pausa Automática na Resposta ({filteredEnrollments.length})
             </h3>
             <p className="text-xs text-slate-500">
               Simule avanço de etapa, abertura, clique ou resposta do lead para validar o encerramento imediato (`PAUSED_ON_REPLY`).
             </p>
           </div>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+            <Filter className="w-3.5 h-3.5 text-slate-500" />
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value as 'ALL' | 'ACTIVE' | 'PAUSED_ON_REPLY' | 'COMPLETED'
+                )
+              }
+              className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+            >
+              <option value="ALL">Todos ({enrollments.length})</option>
+              <option value="ACTIVE">ACTIVE (Em andamento)</option>
+              <option value="PAUSED_ON_REPLY">PAUSED_ON_REPLY (Respondeu)</option>
+              <option value="COMPLETED">COMPLETED (Finalizado)</option>
+            </select>
+          </div>
         </div>
 
         <div className="p-6 space-y-3">
-          {enrollments.map((enr) => {
+          {filteredEnrollments.map((enr) => {
             const isPausedOnReply = enr.status === 'PAUSED_ON_REPLY';
             const isProcessing = processingEnrollmentId === enr.id;
 
@@ -610,8 +655,8 @@ export default function SequencesSection({
 
       {/* CREATE SEQUENCE MODAL */}
       {showCreateSeqModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden my-8">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Mail className="w-5 h-5 text-[#ff7a59]" />
@@ -711,6 +756,33 @@ export default function SequencesSection({
                   onChange={(e) => setStep2Body(e.target.value)}
                   className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-900 bg-white"
                 />
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={includeStep3}
+                    onChange={(e) => setIncludeStep3(e.target.checked)}
+                  />
+                  Incluir Passo 3 Breakup (Dia 6 - Encerramento Executivo)
+                </label>
+                {includeStep3 && (
+                  <>
+                    <input
+                      type="text"
+                      value={step3Subject}
+                      onChange={(e) => setStep3Subject(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-900 bg-white"
+                    />
+                    <textarea
+                      rows={2}
+                      value={step3Body}
+                      onChange={(e) => setStep3Body(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-900 bg-white"
+                    />
+                  </>
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

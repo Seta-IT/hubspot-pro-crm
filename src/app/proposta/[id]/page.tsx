@@ -28,7 +28,8 @@ import {
   decodeProposalFromQueryParam,
   encodeProposalToQueryParam,
 } from '../../lib/proposal-share';
-import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
+import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
+import ClientEmailComposerModal, { ClientEmailInitialPayload } from '../../components/ClientEmailComposerModal';
 
 function PublicProposalPrintContent() {
   const params = useParams<{ id: string }>();
@@ -45,8 +46,14 @@ function PublicProposalPrintContent() {
 
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
+  const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [approvingContract, setApprovingContract] = useState(false);
+  const [convertedContractInfo, setConvertedContractInfo] = useState<{
+    contractNumber: string;
+    invoiceNumber: string;
+  } | null>(null);
   const [draft, setDraft] = useState<ErpCommercialProposal | null>(null);
 
   useEffect(() => {
@@ -170,6 +177,46 @@ function PublicProposalPrintContent() {
     }
   };
 
+  const handleApproveAndConvertInPage = async () => {
+    if (!proposal) return;
+    setApprovingContract(true);
+    try {
+      await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proposal),
+      }).catch(() => null);
+
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const nextProp: ErpCommercialProposal = json?.data?.proposal || {
+          ...proposal,
+          status: "CONVERTIDA_CONTRATO",
+          convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
+        };
+        if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
+        if (json?.data?.contract) recordUpsertedContract(json.data.contract);
+        if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
+        setProposal(nextProp);
+        setConvertedContractInfo({
+          contractNumber: json?.data?.contract?.contractNumber || nextProp.convertedContractId || "LOC-2026",
+          invoiceNumber: json?.data?.invoice?.documentNumber || "FAT-LOC-2026",
+        });
+        if (typeof window !== "undefined") {
+          const newEncoded = encodeProposalToQueryParam(nextProp);
+          const url = new URL(window.location.href);
+          if (newEncoded) url.searchParams.set("d", newEncoded);
+          window.history.replaceState({}, "", url.toString());
+        }
+      }
+    } finally {
+      setApprovingContract(false);
+    }
+  };
+
   const handleCopyPublicLink = () => {
     if (!proposal) return;
     const url = buildPublicProposalUrl(proposal);
@@ -268,6 +315,26 @@ function PublicProposalPrintContent() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={() =>
+              setEmailModalPayload({
+                docType: 'PROPOSAL',
+                companyName: proposal.companyName,
+                companyCnpj: proposal.companyCnpj,
+                recipientName: proposal.contactName,
+                documentCode: proposal.code,
+                amountBrl: proposal.monthlyRecurringTotal,
+                publicPdfUrl: buildPublicProposalUrl(proposal),
+                proposalId: proposal.id,
+              })
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
+          >
+            <Mail className="w-4 h-4" />
+            ✉️ Enviar por E-mail
+          </button>
+
+          <button
+            type="button"
             onClick={openEditor}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
           >
@@ -293,6 +360,26 @@ function PublicProposalPrintContent() {
             )}
           </button>
 
+          {proposal.status !== "CONVERTIDA_CONTRATO" && !proposal.convertedContractId ? (
+            <button
+              type="button"
+              disabled={approvingContract}
+              onClick={handleApproveAndConvertInPage}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {approvingContract ? "Gerando Contrato..." : "Aprovar Proposta & Converter em Contrato"}
+            </button>
+          ) : (
+            <a
+              href="/"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black shadow-sm"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Contrato Ativo ({convertedContractInfo?.contractNumber || proposal.convertedContractId || "LOC"})
+            </a>
+          )}
+
           <button
             type="button"
             onClick={() => window.print()}
@@ -303,6 +390,42 @@ function PublicProposalPrintContent() {
           </button>
         </div>
       </div>
+
+      {(convertedContractInfo || proposal.status === "CONVERTIDA_CONTRATO") && (
+        <div className="max-w-4xl mx-auto mb-5 bg-emerald-950 text-white rounded-lg px-5 py-3.5 border border-emerald-500 shadow-md flex flex-wrap items-center justify-between gap-3 print:hidden">
+          <div className="flex items-center gap-2.5 text-xs">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <strong className="text-emerald-300 block">
+                Proposta Aprovada &amp; Convertida em Contrato de Locação!
+              </strong>
+              <span>
+                Contrato gerado:{" "}
+                <strong className="font-mono">
+                  {convertedContractInfo?.contractNumber || proposal.convertedContractId || "LOC-2026"}
+                </strong>
+                {convertedContractInfo?.invoiceNumber
+                  ? ` • 1ª Fatura de Locação (0% ISS): ${convertedContractInfo.invoiceNumber}`
+                  : ""}{" "}
+                • Reajuste Anual: <strong>{proposal.readjustmentIndex || "IPCA"}</strong>
+              </span>
+            </div>
+          </div>
+          <a
+            href="/"
+            className="px-3.5 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold"
+          >
+            Abrir Gestão de Contratos no ERP →
+          </a>
+        </div>
+      )}
+
+      {emailModalPayload && (
+        <ClientEmailComposerModal
+          payload={emailModalPayload}
+          onClose={() => setEmailModalPayload(null)}
+        />
+      )}
 
       {/* IN-PAGE FULL PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
       {isEditing && draft && (
@@ -721,7 +844,7 @@ function PublicProposalPrintContent() {
               <div className="text-xs text-slate-600 flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <span>
-                  Prazo Contratual: <strong>{proposal.contractMonths} meses</strong>
+                  Prazo Contratual: <strong>{proposal.contractMonths} meses</strong> • Reajuste Anual: <strong>{proposal.readjustmentIndex || 'IPCA'}</strong>
                 </span>
               </div>
               <div className="text-xs text-slate-600">
@@ -763,7 +886,7 @@ function PublicProposalPrintContent() {
                       <div className="font-bold text-slate-900">{item.description}</div>
                       <div className="text-[10px] text-slate-500">
                         Classificação: {item.ncmOrServiceCode} •{' '}
-                        {item.isRecurring !== false ? 'Mensal Recorrente' : 'Taxa Única (Setup/Venda)'}
+                        {item.isRecurring !== false ? 'Mensal Recorrente' : 'Taxa Única (Setup/Venda)'}{item.serialNumber ? ` • S/N: ${item.serialNumber}` : ''}
                       </div>
                     </td>
                     <td className="py-3 px-3">

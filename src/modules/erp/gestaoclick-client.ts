@@ -314,10 +314,10 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
   await sleep(360);
 
-  // Batch 5 (recebimentos + pagamentos)
+  // Batch 5 (recebimentos + pagamentos — até 100 registros por página)
   const [recebimentosRes, pagamentosRes] = await Promise.all([
-    fetchGcEndpoint<Record<string, unknown>>('/recebimentos', creds),
-    fetchGcEndpoint<Record<string, unknown>>('/pagamentos', creds),
+    fetchGcEndpoint<Record<string, unknown>>('/recebimentos?limite=100&limite_por_pagina=100', creds),
+    fetchGcEndpoint<Record<string, unknown>>('/pagamentos?limite=100&limite_por_pagina=100', creds),
   ]);
 
   await sleep(360);
@@ -685,7 +685,8 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   const mappedInvoices: ErpFiscalInvoice[] = [];
   const mappedFinancialEntries: ErpFinancialEntry[] = [];
 
-  for (const r of recebimentosRes.data.slice(0, 12)) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  for (const r of recebimentosRes.data.slice(0, 100)) {
     const gcId = String(r.id || '');
     const codigo = String(r.codigo || gcId);
     const desc = String(r.descricao || `Recebimento #${codigo}`).trim();
@@ -724,7 +725,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       grossAmount: amount,
       discountAmount: Number(r.desconto || 0),
       netAmount: taxBreakdown.netReceivableAmount,
-      status: isPaid ? 'PAGA' : 'EMITIDA',
+      status: isPaid ? 'PAGA' : dueDate < todayIso ? 'VENCIDA' : 'EMITIDA',
       issueDate: String(r.data_competencia || dueDate),
       dueDate,
       paidAt,
@@ -765,13 +766,13 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       amount,
       dueDate,
       paidAt,
-      status: isPaid ? 'PAGO' : 'ABERTO',
+      status: isPaid ? 'PAGO' : dueDate < todayIso ? 'ATRASADO' : 'ABERTO',
       invoiceId: `inv-gc-${gcId}`,
-      paymentMethod: String(r.nome_forma_pagamento || 'Boleto / TED'),
+      paymentMethod: `${String(r.nome_forma_pagamento || 'Boleto / PIX')} • ${String(r.nome_conta_bancaria || 'Banco Itaú')}`,
     });
   }
 
-  for (const p of pagamentosRes.data.slice(0, 8)) {
+  for (const p of pagamentosRes.data.slice(0, 100)) {
     const gcId = String(p.id || '');
     const codigo = String(p.codigo || gcId);
     const desc = String(p.descricao || `Pagamento #${codigo}`).trim();
@@ -781,18 +782,26 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     const isPaid = String(p.liquidado || '0') === '1';
     const dueDate = String(p.data_vencimento || '2026-10-10');
     const paidAt = isPaid ? String(p.data_liquidacao || dueDate) : null;
+    const planoLower = String(p.nome_plano_conta || '').toLowerCase();
+    const descLower = desc.toLowerCase();
+    const category =
+      planoLower.includes('imposto') || planoLower.includes('tributo') || descLower.includes('darf') || descLower.includes('simples') || descLower.includes('iss')
+        ? 'IMPOSTOS_TRIBUTOS'
+        : planoLower.includes('fornecedor') || planoLower.includes('equipamento') || planoLower.includes('link') || planoLower.includes('compra')
+          ? 'FORNECEDOR_LINK_HARDWARE'
+          : 'OPERACIONAL';
 
     mappedFinancialEntries.push({
       id: `fin-gc-pag-${gcId}`,
       type: 'PAGAR',
-      category: 'OPERACIONAL',
+      category,
       description: `[GC #${codigo}] ${desc} (${String(p.nome_plano_conta || 'Operacional')})`,
       companyName: supplier,
-      costCenter: String(p.nome_centro_custo || 'OPERACIONAL'),
+      costCenter: String(p.nome_centro_custo || 'OPERACIONAL') || 'OPERACIONAL',
       amount,
       dueDate,
       paidAt,
-      status: isPaid ? 'PAGO' : 'ABERTO',
+      status: isPaid ? 'PAGO' : dueDate < todayIso ? 'ATRASADO' : 'ABERTO',
       invoiceId: null,
       paymentMethod: `${String(p.nome_forma_pagamento || 'Boleto / PIX')} • ${String(p.nome_conta_bancaria || 'Banco Itaú')}`,
     });

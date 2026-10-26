@@ -5,9 +5,18 @@ import {
   Contact,
   Deal,
   EmailSequence,
+  CrmEmailTemplate,
+  CrmSnippet,
+  CrmTask,
+  ErpCatalogItem,
   ErpCommercialProposal,
+  ErpEmployeeRecord,
   ErpFiscalInvoice,
+  ErpPurchaseOrder,
   ErpRentalContract,
+  ErpSaleOrder,
+  ErpServiceOrder,
+  ErpSupplierRecord,
   Pipeline,
   ServiceTicket,
   TimelineEvent,
@@ -38,9 +47,25 @@ function createEmptyJournal(): Required<ClientDurableJournal> {
     deletedContractIds: [],
     upsertedInvoices: [],
     deletedInvoiceIds: [],
+    upsertedCatalogItems: [],
+    deletedCatalogItemIds: [],
+    upsertedSuppliers: [],
+    deletedSupplierIds: [],
+    upsertedEmployees: [],
+    deletedEmployeeIds: [],
+    upsertedSalesOrders: [],
+    deletedSalesOrderIds: [],
+    upsertedServiceOrders: [],
+    deletedServiceOrderIds: [],
+    upsertedPurchaseOrders: [],
+    deletedPurchaseOrderIds: [],
     upsertedForms: [],
     upsertedWorkflows: [],
     upsertedSequences: [],
+    upsertedTasks: [],
+    deletedTaskIds: [],
+    upsertedEmailTemplates: [],
+    upsertedSnippets: [],
     timelineEvents: [],
   };
 }
@@ -87,6 +112,18 @@ export function hasDurableJournalEntries(journal?: ClientDurableJournal | null):
       (journal.deletedContractIds && journal.deletedContractIds.length > 0) ||
       (journal.upsertedInvoices && journal.upsertedInvoices.length > 0) ||
       (journal.deletedInvoiceIds && journal.deletedInvoiceIds.length > 0) ||
+      (journal.upsertedCatalogItems && journal.upsertedCatalogItems.length > 0) ||
+      (journal.deletedCatalogItemIds && journal.deletedCatalogItemIds.length > 0) ||
+      (journal.upsertedSuppliers && journal.upsertedSuppliers.length > 0) ||
+      (journal.deletedSupplierIds && journal.deletedSupplierIds.length > 0) ||
+      (journal.upsertedEmployees && journal.upsertedEmployees.length > 0) ||
+      (journal.deletedEmployeeIds && journal.deletedEmployeeIds.length > 0) ||
+      (journal.upsertedSalesOrders && journal.upsertedSalesOrders.length > 0) ||
+      (journal.deletedSalesOrderIds && journal.deletedSalesOrderIds.length > 0) ||
+      (journal.upsertedServiceOrders && journal.upsertedServiceOrders.length > 0) ||
+      (journal.deletedServiceOrderIds && journal.deletedServiceOrderIds.length > 0) ||
+      (journal.upsertedPurchaseOrders && journal.upsertedPurchaseOrders.length > 0) ||
+      (journal.deletedPurchaseOrderIds && journal.deletedPurchaseOrderIds.length > 0) ||
       (journal.upsertedForms && journal.upsertedForms.length > 0) ||
       (journal.upsertedWorkflows && journal.upsertedWorkflows.length > 0) ||
       (journal.upsertedSequences && journal.upsertedSequences.length > 0) ||
@@ -231,6 +268,118 @@ export function recordDeletedInvoice(invoiceIdOrDoc: string): void {
   saveDurableJournal(j);
 }
 
+export function recordUpsertedCatalogItem(item: ErpCatalogItem): void {
+  const j = loadDurableJournal();
+  j.deletedCatalogItemIds = (j.deletedCatalogItemIds || []).filter(
+    (id) => id !== item.id && id !== item.gestaoClickCode
+  );
+  j.upsertedCatalogItems = upsertInArray(j.upsertedCatalogItems || [], item);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedCatalogItem(idOrSku: string): void {
+  const j = loadDurableJournal();
+  j.upsertedCatalogItems = (j.upsertedCatalogItems || []).filter(
+    (c) => c.id !== idOrSku && c.gestaoClickCode !== idOrSku
+  );
+  if (!j.deletedCatalogItemIds.includes(idOrSku)) {
+    j.deletedCatalogItemIds.push(idOrSku);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedSupplier(supplier: ErpSupplierRecord): void {
+  const j = loadDurableJournal();
+  j.deletedSupplierIds = (j.deletedSupplierIds || []).filter((id) => id !== supplier.id);
+  j.upsertedSuppliers = upsertInArray(j.upsertedSuppliers || [], supplier);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedSupplier(supplierId: string): void {
+  const j = loadDurableJournal();
+  j.upsertedSuppliers = (j.upsertedSuppliers || []).filter((s) => s.id !== supplierId);
+  if (!j.deletedSupplierIds.includes(supplierId)) {
+    j.deletedSupplierIds.push(supplierId);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedEmployee(emp: ErpEmployeeRecord): void {
+  const j = loadDurableJournal();
+  j.deletedEmployeeIds = (j.deletedEmployeeIds || []).filter((id) => id !== emp.id);
+  j.upsertedEmployees = upsertInArray(j.upsertedEmployees || [], emp);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedEmployee(empId: string): void {
+  const j = loadDurableJournal();
+  j.upsertedEmployees = (j.upsertedEmployees || []).filter((e) => e.id !== empId);
+  if (!j.deletedEmployeeIds.includes(empId)) {
+    j.deletedEmployeeIds.push(empId);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedSaleOrder(sale: ErpSaleOrder): void {
+  const j = loadDurableJournal();
+  j.deletedSalesOrderIds = (j.deletedSalesOrderIds || []).filter(
+    (id) => id !== sale.id && id !== sale.code
+  );
+  j.upsertedSalesOrders = upsertInArray(j.upsertedSalesOrders || [], sale);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedSaleOrder(saleIdOrCode: string): void {
+  const j = loadDurableJournal();
+  j.upsertedSalesOrders = (j.upsertedSalesOrders || []).filter(
+    (v) => v.id !== saleIdOrCode && v.code !== saleIdOrCode
+  );
+  if (!j.deletedSalesOrderIds.includes(saleIdOrCode)) {
+    j.deletedSalesOrderIds.push(saleIdOrCode);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedServiceOrder(os: ErpServiceOrder): void {
+  const j = loadDurableJournal();
+  j.deletedServiceOrderIds = (j.deletedServiceOrderIds || []).filter(
+    (id) => id !== os.id && id !== os.code
+  );
+  j.upsertedServiceOrders = upsertInArray(j.upsertedServiceOrders || [], os);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedServiceOrder(osIdOrCode: string): void {
+  const j = loadDurableJournal();
+  j.upsertedServiceOrders = (j.upsertedServiceOrders || []).filter(
+    (o) => o.id !== osIdOrCode && o.code !== osIdOrCode
+  );
+  if (!j.deletedServiceOrderIds.includes(osIdOrCode)) {
+    j.deletedServiceOrderIds.push(osIdOrCode);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedPurchaseOrder(po: ErpPurchaseOrder): void {
+  const j = loadDurableJournal();
+  j.deletedPurchaseOrderIds = (j.deletedPurchaseOrderIds || []).filter(
+    (id) => id !== po.id && id !== po.code
+  );
+  j.upsertedPurchaseOrders = upsertInArray(j.upsertedPurchaseOrders || [], po);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedPurchaseOrder(poIdOrCode: string): void {
+  const j = loadDurableJournal();
+  j.upsertedPurchaseOrders = (j.upsertedPurchaseOrders || []).filter(
+    (p) => p.id !== poIdOrCode && p.code !== poIdOrCode
+  );
+  if (!j.deletedPurchaseOrderIds.includes(poIdOrCode)) {
+    j.deletedPurchaseOrderIds.push(poIdOrCode);
+  }
+  saveDurableJournal(j);
+}
+
 export function recordUpsertedForm(form: WebForm): void {
   const j = loadDurableJournal();
   j.upsertedForms = upsertInArray(j.upsertedForms, form);
@@ -246,6 +395,34 @@ export function recordUpsertedWorkflow(workflow: Workflow): void {
 export function recordUpsertedSequence(sequence: EmailSequence): void {
   const j = loadDurableJournal();
   j.upsertedSequences = upsertInArray(j.upsertedSequences, sequence);
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedTask(task: CrmTask): void {
+  const j = loadDurableJournal();
+  j.deletedTaskIds = (j.deletedTaskIds || []).filter((id) => id !== task.id);
+  j.upsertedTasks = upsertInArray(j.upsertedTasks || [], task);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedTask(taskId: string): void {
+  const j = loadDurableJournal();
+  j.upsertedTasks = (j.upsertedTasks || []).filter((t) => t.id !== taskId);
+  if (!j.deletedTaskIds.includes(taskId)) {
+    j.deletedTaskIds.push(taskId);
+  }
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedEmailTemplate(template: CrmEmailTemplate): void {
+  const j = loadDurableJournal();
+  j.upsertedEmailTemplates = upsertInArray(j.upsertedEmailTemplates || [], template);
+  saveDurableJournal(j);
+}
+
+export function recordUpsertedSnippet(snippet: CrmSnippet): void {
+  const j = loadDurableJournal();
+  j.upsertedSnippets = upsertInArray(j.upsertedSnippets || [], snippet);
   saveDurableJournal(j);
 }
 
