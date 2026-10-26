@@ -19,7 +19,7 @@ import {
   Truck,
   CreditCard,
 } from 'lucide-react';
-import { ErpCommercialProposal } from '../../../db/types';
+import { ErpCommercialProposal, ErpProposalDigitalSignature } from '../../../db/types';
 import { formatBRL } from '../../components/ui-helpers';
 import {
   buildPublicProposalUrl,
@@ -52,6 +52,13 @@ function PublicProposalPrintContent() {
     contractNumber: string;
     invoiceNumber: string;
   } | null>(null);
+  const [showIcpSignatureModal, setShowIcpSignatureModal] = useState(false);
+  const [signerName, setSignerName] = useState('');
+  const [signerCpf, setSignerCpf] = useState('284.910.538-09');
+  const [signerRole, setSignerRole] = useState('Diretor / Representante Legal');
+  const [signatureModality, setSignatureModality] = useState<
+    'ICP_BRASIL_A1' | 'ICP_BRASIL_A3' | 'GOV_BR_OURO'
+  >('ICP_BRASIL_A1');
 
   useEffect(() => {
     const decoded = decodeProposalFromQueryParam(encodedData);
@@ -142,30 +149,44 @@ function PublicProposalPrintContent() {
     if (!proposal) return;
     setApprovingContract(true);
     try {
+      const effectiveSignerName =
+        signerName.trim() || proposal.careOf || proposal.contactName || 'Representante Legal Autorizado';
       await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(proposal),
       }).catch(() => null);
 
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
-        method: "POST",
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signerName: effectiveSignerName,
+          signerCpf: signerCpf.trim() || '284.910.538-09',
+          signerRole: signerRole.trim() || 'Diretor / Representante Legal',
+          modality: signatureModality,
+        }),
       });
       if (res.ok) {
         const json = await res.json();
+        const sig: ErpProposalDigitalSignature | undefined =
+          json?.data?.digitalSignature || json?.data?.proposal?.digitalSignature;
         const nextProp: ErpCommercialProposal = json?.data?.proposal || {
           ...proposal,
-          status: "CONVERTIDA_CONTRATO",
+          status: 'CONVERTIDA_CONTRATO',
           convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
+          digitalSignature: sig || null,
         };
         if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
         if (json?.data?.contract) recordUpsertedContract(json.data.contract);
         if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
         setProposal(nextProp);
         setConvertedContractInfo({
-          contractNumber: json?.data?.contract?.contractNumber || nextProp.convertedContractId || "LOC-2026",
-          invoiceNumber: json?.data?.invoice?.documentNumber || "FAT-LOC-2026",
+          contractNumber:
+            json?.data?.contract?.contractNumber || nextProp.convertedContractId || 'LOC-2026',
+          invoiceNumber: json?.data?.invoice?.documentNumber || 'FAT-LOC-2026',
         });
+        setShowIcpSignatureModal(false);
       }
     } finally {
       setApprovingContract(false);
@@ -358,11 +379,16 @@ function PublicProposalPrintContent() {
             <button
               type="button"
               disabled={approvingContract}
-              onClick={handleApproveAndConvertInPage}
+              onClick={() => {
+                if (!signerName.trim()) {
+                  setSignerName(proposal.careOf || proposal.contactName || 'Representante Legal');
+                }
+                setShowIcpSignatureModal(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              {approvingContract ? 'Convertendo...' : 'Aprovar & Gerar Contrato'}
+              <ShieldCheck className="w-4 h-4" />
+              {approvingContract ? 'Assinando...' : 'Assinar ICP-Brasil / Gov.br & Aprovar'}
             </button>
           ) : (
             <a
@@ -393,6 +419,128 @@ function PublicProposalPrintContent() {
             onClose={() => setIsEditing(false)}
             onSave={handleSaveEdit}
           />
+        </div>
+      )}
+
+      {showIcpSignatureModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-300" />
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                    Validade Jurídica MP 2.200-2/2001 &amp; Lei 14.063/2020
+                  </span>
+                  <h3 className="text-sm font-extrabold">
+                    Assinatura Eletrônica ICP-Brasil / Gov.br ({proposal.code})
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowIcpSignatureModal(false)}
+                className="text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs text-slate-800">
+              <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-900">{proposal.companyName}</div>
+                <div className="text-slate-600">
+                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Mensalidade (MRR):{' '}
+                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Prazo:{' '}
+                  <strong>{proposal.contractMonths} meses</strong>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Nome Completo do Signatário (Representante Legal) *
+                  </label>
+                  <input
+                    type="text"
+                    value={signerName}
+                    onChange={(e) => setSignerName(e.target.value)}
+                    placeholder="Ex.: Carlos Eduardo Almeida"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">CPF do Signatário *</label>
+                    <input
+                      type="text"
+                      value={signerCpf}
+                      onChange={(e) => setSignerCpf(e.target.value)}
+                      placeholder="000.000.000-00"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Cargo / Qualificação *</label>
+                    <input
+                      type="text"
+                      value={signerRole}
+                      onChange={(e) => setSignerRole(e.target.value)}
+                      placeholder="Diretor / Procurador"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Modalidade de Certificação Digital
+                  </label>
+                  <select
+                    value={signatureModality}
+                    onChange={(e) =>
+                      setSignatureModality(
+                        e.target.value as 'ICP_BRASIL_A1' | 'ICP_BRASIL_A3' | 'GOV_BR_OURO'
+                      )
+                    }
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                  >
+                    <option value="ICP_BRASIL_A1">
+                      Certificado Digital e-CNPJ / e-CPF ICP-Brasil Tipo A1
+                    </option>
+                    <option value="ICP_BRASIL_A3">
+                      Token / Smartcard Criptográfico ICP-Brasil Tipo A3
+                    </option>
+                    <option value="GOV_BR_OURO">
+                      Assinatura Eletrônica Avançada / Qualificada Gov.br (Nível Ouro — ITI)
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowIcpSignatureModal(false)}
+                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={approvingContract}
+                  onClick={handleApproveAndConvertInPage}
+                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {approvingContract
+                    ? 'Gerando Hash SHA-256 & Contrato...'
+                    : 'Confirmar Assinatura ICP-Brasil & Gerar Contrato'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -829,9 +977,75 @@ function PublicProposalPrintContent() {
               <div className="border-t border-slate-400 pt-2 text-center">
                 <div className="text-xs font-extrabold text-slate-900">{proposal.companyName}</div>
                 <div className="text-[11px] text-slate-500">
-                  CNPJ {proposal.companyCnpj} • {proposal.careOf || proposal.contactName} (Assinatura / Carimbo)
+                  CNPJ {proposal.companyCnpj} •{' '}
+                  {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{' '}
+                  ({proposal.digitalSignature?.signerRole || 'Assinatura / Carimbo'})
                 </div>
               </div>
+            </div>
+
+            {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL / GOV.BR NO RODAPÉ A4 */}
+            <div className="mt-6 p-4 rounded-lg border border-emerald-300 bg-emerald-50/70 text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-extrabold text-emerald-950 uppercase text-[11px]">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                  Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil / Gov.br (ITI)
+                </div>
+                <span className="px-2 py-0.5 rounded bg-emerald-700 text-white text-[10px] font-extrabold">
+                  {proposal.digitalSignature
+                    ? `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
+                    : 'HABILITADO PARA ASSINATURA ICP-BRASIL / GOV.BR'}
+                </span>
+              </div>
+
+              {proposal.digitalSignature ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-emerald-950 pt-1 border-t border-emerald-200">
+                  <div>
+                    <div>
+                      <strong>Signatário:</strong> {proposal.digitalSignature.signerName} (CPF:{' '}
+                      {proposal.digitalSignature.signerCpf})
+                    </div>
+                    <div>
+                      <strong>Cargo:</strong> {proposal.digitalSignature.signerRole} •{' '}
+                      <strong>Modalidade:</strong> {proposal.digitalSignature.modality}
+                    </div>
+                    <div>
+                      <strong>Autoridade Certificadora:</strong>{' '}
+                      {proposal.digitalSignature.certificateIssuer}
+                    </div>
+                  </div>
+                  <div className="font-mono text-[10px] text-emerald-900 space-y-0.5">
+                    <div>
+                      <strong>Carimbo de Tempo (ACT/ITI):</strong>{' '}
+                      {proposal.digitalSignature.timestampToken}
+                    </div>
+                    <div>
+                      <strong>Data/Hora UTC:</strong> {proposal.digitalSignature.signedAt}
+                    </div>
+                    <div className="break-all">
+                      <strong>Hash SHA-256:</strong> {proposal.digitalSignature.signatureHashSha256}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-900">
+                  <span>
+                    Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3) e Lei nº 14.063/2020 (Gov.br).
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!signerName.trim()) {
+                        setSignerName(proposal.careOf || proposal.contactName || 'Representante Legal');
+                      }
+                      setShowIcpSignatureModal(true);
+                    }}
+                    className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer print:hidden"
+                  >
+                    Assinar com ICP-Brasil / Gov.br
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

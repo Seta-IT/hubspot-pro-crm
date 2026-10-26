@@ -67,6 +67,7 @@ import {
   GestaoClickConfig,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import ErpFinanceiroAndBanksView from './ErpFinanceiroAndBanksView';
 import {
   recordDeletedCatalogItem,
   recordDeletedCompany,
@@ -4250,6 +4251,8 @@ export default function ErpGestaoClickTab({
                     catalogCount={catalog.length}
                     purchasesCount={purchaseOrders.length}
                     suppliers={suppliers}
+                    onRefresh={onRefresh}
+                    onShowToast={onShowToast}
                     onCreateStockTransfer={() =>
                       setGenericModal({
                         title: 'Registrar Ajuste de Inventário / Transferência Matriz #118887',
@@ -5031,163 +5034,23 @@ export default function ErpGestaoClickTab({
           })()}
 
           {activeSection === 'FINANCEIRO' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                  Financeiro &gt; {activeSubId}
-                </span>
-                <h2 className="text-base font-extrabold text-slate-900">Contas Bancárias Seta Telecom</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {bankAccounts.map((b) => (
-                    <div key={b.id} className="p-3.5 rounded border border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
-                      <div>
-                        <div className="text-xs font-extrabold text-slate-800">{b.name}</div>
-                        <div className="text-[10px] text-slate-500">{b.lastMovedAt}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className={`text-sm font-black ${b.balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{formatBRL(b.balance)}</div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openCollectionEditor('bankAccounts', `Editar Conta — ${b.name}`, b as unknown as Record<string, unknown>, [
-                              { key: 'name', label: 'Nome do Banco / Conta' },
-                              { key: 'balance', label: 'Saldo Atual (R$)', type: 'number' },
-                              { key: 'lastMovedAt', label: 'Última Movimentação' },
-                            ])
-                          }
-                          className="text-[10px] font-bold text-[#1e3a6e] hover:underline cursor-pointer"
-                        >
-                          ✏️ Editar Saldo
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-extrabold text-slate-900">
-                    Contas a Receber &amp; Contas a Pagar ({financialEntries.length})
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGenericModal({
-                        title: 'Novo Lançamento Financeiro (Receber / Pagar)',
-                        initialValues: {
-                          type: activeSubId === 'FIN_PAGAR' ? 'PAGAR' : 'RECEBER',
-                          description: '',
-                          companyName: companies[0]?.name || 'Cliente / Fornecedor',
-                          costCenter: 'CC-101 • Locação de Equipamentos',
-                          amount: 2500,
-                          dueDate: new Date().toISOString().slice(0, 10),
-                          status: 'ABERTO',
-                        },
-                        fields: [
-                          { key: 'type', label: 'Tipo', type: 'select', options: ['RECEBER', 'PAGAR'] },
-                          { key: 'description', label: 'Descrição do Lançamento *' },
-                          { key: 'companyName', label: 'Cliente / Fornecedor' },
-                          { key: 'costCenter', label: 'Centro de Custo' },
-                          { key: 'amount', label: 'Valor (R$)', type: 'number' },
-                          { key: 'dueDate', label: 'Data de Vencimento (AAAA-MM-DD)' },
-                          { key: 'status', label: 'Status', type: 'select', options: ['ABERTO', 'PAGO', 'ATRASADO'] },
-                        ],
-                        onSave: async (vals) => {
-                          await fetch('/api/erp/financial', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(vals),
-                          });
-                          setGenericModal(null);
-                          onShowToast('Lançamento financeiro registrado!');
-                          await onRefresh();
-                        },
-                      })
-                    }
-                    className="px-3.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
-                  >
-                    + Novo Lançamento
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {financialEntries.map((fin) => (
-                    <div key={fin.id} className="p-3 rounded border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <div>
-                        <div className="font-bold text-slate-800">{fin.description}</div>
-                        <div className="text-[11px] text-slate-500">{fin.companyName} • {fin.costCenter} • Venc: {fin.dueDate}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right">
-                          <div className={`font-extrabold ${fin.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {fin.type === 'RECEBER' ? '+' : '-'}{formatBRL(fin.amount)}
-                          </div>
-                          <span className="text-[10px] font-bold">{fin.status}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setGenericModal({
-                              title: 'Editar Lançamento Financeiro',
-                              initialValues: fin as unknown as Record<string, unknown>,
-                              fields: [
-                                { key: 'type', label: 'Tipo', type: 'select', options: ['RECEBER', 'PAGAR'] },
-                                { key: 'description', label: 'Descrição' },
-                                { key: 'companyName', label: 'Empresa' },
-                                { key: 'costCenter', label: 'Centro de Custo' },
-                                { key: 'amount', label: 'Valor (R$)', type: 'number' },
-                                { key: 'dueDate', label: 'Vencimento' },
-                                { key: 'status', label: 'Status', type: 'select', options: ['ABERTO', 'PAGO', 'ATRASADO'] },
-                              ],
-                              onSave: async (vals) => {
-                                await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify(vals),
-                                });
-                                setGenericModal(null);
-                                onShowToast('Lançamento atualizado!');
-                                await onRefresh();
-                              },
-                            })
-                          }
-                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEmailModalPayload({
-                              docType: 'BOLETO',
-                              companyName: fin.companyName,
-                              documentCode: fin.id.toUpperCase(),
-                              amountBrl: fin.amount,
-                              dueDate: fin.dueDate,
-                            })
-                          }
-                          className="px-2.5 py-1 rounded bg-sky-600 text-white text-[11px] font-bold cursor-pointer"
-                        >
-                          ✉️ Boleto E-mail
-                        </button>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, { method: 'DELETE' });
-                            onShowToast('Lançamento excluído.');
-                            await onRefresh();
-                          }}
-                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ErpFinanceiroAndBanksView
+              activeSubId={activeSubId}
+              onSelectSubId={(sub) => setActiveSubId(sub)}
+              bankAccounts={bankAccounts}
+              financialEntries={financialEntries}
+              invoices={invoices}
+              dashboardSummary={dashboardSummary}
+              companies={companies.map((c) => ({ id: c.id, name: c.name, cnpj: (c as unknown as { cnpj?: string | null }).cnpj ?? undefined }))}
+              hideBalances={hideBalances}
+              onRefresh={onRefresh}
+              onShowToast={onShowToast}
+              openCollectionEditor={openCollectionEditor as any}
+              setGenericModal={setGenericModal}
+              setEmailModalPayload={setEmailModalPayload}
+              setSelectedInvoiceForPrint={setSelectedInvoiceForPrint}
+              setShowNewInvoiceModal={setShowNewInvoiceModal}
+            />
           )}
 
           {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (

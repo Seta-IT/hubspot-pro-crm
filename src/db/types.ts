@@ -512,6 +512,20 @@ export interface ErpProposalItem {
   totalMonthly: number;
 }
 
+export interface ErpProposalDigitalSignature {
+  signerName: string;
+  signerCpf: string;
+  signerRole: string;
+  signerEmail?: string;
+  modality: "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO";
+  certificateIssuer: string;
+  certificateSerial: string;
+  signatureHashSha256: string;
+  timestampToken: string;
+  signedAt: string;
+  ipAddress?: string;
+}
+
 export interface ErpProposalInstallment {
   number: number;
   dueDate: string;
@@ -569,6 +583,7 @@ export interface ErpCommercialProposal {
   technicalClauses: string;
   convertedContractId?: string | null;
   convertedInvoiceId?: string | null;
+  digitalSignature?: ErpProposalDigitalSignature | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -662,6 +677,7 @@ export interface ErpRentalContract {
   remessaCfop: '5.908' | '6.908';
   legalBasisNote: string;
   lastBilledCompetence: string | null;
+  digitalSignature?: ErpProposalDigitalSignature | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -917,6 +933,90 @@ export interface ErpEmployeeRecord {
   active: boolean;
 }
 
+export interface ErpOfxTransactionItem {
+  fitId: string;
+  trnType: "CREDIT" | "DEBIT";
+  dtPosted: string;
+  amount: number;
+  memo: string;
+  bankCode: "077" | "341";
+  bankName: string;
+  matchedFinancialEntryId?: string | null;
+  matchedInvoiceId?: string | null;
+  matchedCompanyName?: string | null;
+  status: "CONCILIADO_BAIXADO" | "NOVO_LANCAMENTO_CRIADO" | "JA_CONCILIADO";
+}
+
+export interface ErpOfxReconciliationResult {
+  reconciledAt: string;
+  bankCode: "077" | "341";
+  bankName: string;
+  companyCnpj: string;
+  totalTransactionsParsed: number;
+  reconciledEntriesCount: number;
+  createdEntriesCount: number;
+  totalCreditsBrl: number;
+  totalDebitsBrl: number;
+  netStatementDeltaBrl: number;
+  updatedBankBalanceBrl: number;
+  transactions: ErpOfxTransactionItem[];
+}
+
+export interface ErpDreLineItem {
+  code: string;
+  label: string;
+  level: "GROUP" | "SUBITEM" | "TOTAL";
+  monthlyBrl: number;
+  ytdBrl: number;
+  verticalPct: number;
+  highlight?: "SV31_SAVINGS" | "EBITDA" | "NET_PROFIT";
+}
+
+export interface ErpDreReport {
+  companyLegalName: string;
+  companyCnpj: string;
+  storeId: string;
+  taxRegime: ErpTaxRegime;
+  competenceMonth: string;
+  grossRevenueRentalSv31: number;
+  grossRevenueServicesLc116: number;
+  grossRevenueHardwareSales: number;
+  grossRevenueTotal: number;
+  deductionsPisCofins: number;
+  deductionsIssLc116: number;
+  deductionsIcmsSales: number;
+  deductionsReturns: number;
+  deductionsTotal: number;
+  issSavedBySv31Stf: number;
+  netOperatingRevenue: number;
+  costCogsAndCapexDepreciation: number;
+  costFieldServiceAndNoc: number;
+  costTotal: number;
+  grossProfit: number;
+  grossMarginPercent: number;
+  expensesCommercialAndMarketing: number;
+  expensesAdminAndPersonnel: number;
+  expensesTotal: number;
+  ebitda: number;
+  ebitdaMarginPercent: number;
+  financialResultNet: number;
+  irpjCsllProvision: number;
+  netProfit: number;
+  netMarginPercent: number;
+  lines: ErpDreLineItem[];
+}
+
+export interface ErpNfeXmlParsedItem {
+  sku: string;
+  description: string;
+  ncm: string;
+  cfop: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  serialNumbers: string[];
+}
+
 export interface ErpPurchaseOrder {
   id: string;
   code: string;
@@ -932,6 +1032,8 @@ export interface ErpPurchaseOrder {
   costCenter?: string;
   icmsCreditAmount?: number;
   pisCofinsCreditAmount?: number;
+  serialNumbers?: string[];
+  parsedItems?: ErpNfeXmlParsedItem[];
   totalAmount: number;
 }
 

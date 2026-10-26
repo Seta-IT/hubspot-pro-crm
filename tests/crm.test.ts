@@ -1499,4 +1499,187 @@ describe('12. Devolução Parcial com Rateio Proporcional (Pro-Rata Die s/ Pausa
     assert.ok(cnpjData.serasa.score >= 850);
     assert.equal(cnpjData.serasa.protestosCount, 0);
   });
+  it('executa conciliação bancária OFX (Inter 077 / Itaú 341), DRE Gerencial Vertical, importação XML NF-e (SEFAZ Mod. 55 com S/N), assinatura ICP-Brasil / Gov.br em propostas e sincronização diária incremental', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Conciliação Bancária OFX (Banco Inter 077)
+    const sampleOfx = `OFXHEADER:100
+DATA:OFXSGML
+<OFX>
+  <BANKMSGSRSV1>
+    <STMTTRNRS>
+      <STMTRS>
+        <BANKACCTFROM><BANKID>077</BANKID><ACCTID>237906</ACCTID></BANKACCTFROM>
+        <BANKTRANLIST>
+          <STMTTRN>
+            <TRNTYPE>CREDIT
+            <DTPOSTED>20261026
+            <TRNAMT>6600.00
+            <FITID>INTER-20261026-001
+            <MEMO>LIQ PIX/BOLETO FATURA LOCACAO RD STATION
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>DEBIT
+            <DTPOSTED>20261026
+            <TRNAMT>-843.15
+            <FITID>INTER-20261026-002
+            <MEMO>PAGTO DARF PIS COFINS CUMULATIVO
+          </STMTTRN>
+        </BANKTRANLIST>
+      </STMTRS>
+    </STMTTRNRS>
+  </BANKMSGSRSV1>
+</OFX>`;
+
+    const ofxRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/financial/reconcile-ofx',
+      body: {
+        bankId: 'Banco Inter',
+        ofxContent: sampleOfx,
+        autoPayMatched: true,
+      },
+    });
+    assert.equal(ofxRes.status, 200);
+    const ofxBody = ofxRes.body as {
+      matchedCount: number;
+      data: {
+        bankCode: string;
+        companyCnpj: string;
+        totalTransactionsParsed: number;
+        totalCreditsBrl: number;
+        totalDebitsBrl: number;
+      };
+    };
+    assert.equal(ofxBody.data.bankCode, '077');
+    assert.equal(ofxBody.data.companyCnpj, '14.806.925/0001-32');
+    assert.equal(ofxBody.data.totalTransactionsParsed, 2);
+    assert.equal(ofxBody.data.totalCreditsBrl, 6600);
+    assert.equal(ofxBody.data.totalDebitsBrl, 843.15);
+    assert.ok(ofxBody.matchedCount >= 1);
+
+    // 2. DRE Gerencial Vertical (GET /api/erp/financial/dre)
+    const dreRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/financial/dre',
+      query: { competenceMonth: '10/2026' },
+    });
+    assert.equal(dreRes.status, 200);
+    const dreData = (dreRes.body as {
+      data: {
+        companyCnpj: string;
+        storeId: string;
+        grossRevenueRentalSv31: number;
+        grossRevenueServicesLc116: number;
+        grossRevenueHardwareSales: number;
+        grossRevenueTotal: number;
+        issSavedBySv31Stf: number;
+        netOperatingRevenue: number;
+        ebitda: number;
+        netProfit: number;
+        lines: Array<{ code: string; label: string; monthlyBrl: number }>;
+      };
+    }).data;
+    assert.equal(dreData.companyCnpj, '14.806.925/0001-32');
+    assert.equal(dreData.storeId, '118887');
+    assert.ok(dreData.grossRevenueRentalSv31 > 0);
+    assert.ok(dreData.grossRevenueServicesLc116 > 0);
+    assert.ok(dreData.grossRevenueHardwareSales > 0);
+    assert.ok(dreData.issSavedBySv31Stf > 0);
+    assert.ok(dreData.ebitda > 0);
+    assert.ok(dreData.netProfit > 0);
+    assert.ok(dreData.lines.length >= 15);
+
+    // 3. Importação de XML SEFAZ NF-e Mod. 55 em Compras/Estoque (POST /api/erp/purchases/import-xml)
+    const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35261068993641000802550010000109991000109994">
+      <ide><nNF>10999</nNF><dhEmi>2026-10-26T10:00:00-03:00</dhEmi></ide>
+      <emit>
+        <CNPJ>68993641000802</CNPJ>
+        <xNome>AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.</xNome>
+      </emit>
+      <det nItem="1">
+        <prod>
+          <cProd>GC-EQ-00103</cProd>
+          <xProd>Kit Terminais IP Gigabit Yealink SIP-T43U PoE</xProd>
+          <NCM>85171899</NCM>
+          <CFOP>5102</CFOP>
+          <qCom>3</qCom>
+          <vUnCom>1500.00</vUnCom>
+          <vProd>4500.00</vProd>
+        </prod>
+        <infAdProd>S/N: SN-YLK-XML-01, SN-YLK-XML-02, SN-YLK-XML-03</infAdProd>
+      </det>
+      <total><ICMSTot><vNF>4500.00</vNF><vICMS>810.00</vICMS><vPIS>29.25</vPIS><vCOFINS>135.00</vCOFINS></ICMSTot></total>
+    </infNFe>
+  </NFe>
+</nfeProc>`;
+
+    const xmlRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/purchases/import-xml',
+      body: {
+        xmlContent: sampleXml,
+        cfopEntrada: '1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)',
+        autoReceiveStock: true,
+      },
+    });
+    assert.equal(xmlRes.status, 201);
+    const xmlData = (xmlRes.body as {
+      data: {
+        purchaseOrder: {
+          nfeAccessKey: string;
+          cfopEntrada: string;
+          totalAmount: number;
+          serialNumbers: string[];
+        };
+        updatedCatalogItems: Array<{ gestaoClickCode: string; stockAvailable: number }>;
+      };
+    }).data;
+    assert.equal(xmlData.purchaseOrder.nfeAccessKey, '35261068993641000802550010000109991000109994');
+    assert.ok(xmlData.purchaseOrder.cfopEntrada.startsWith('1.551'));
+    assert.equal(xmlData.purchaseOrder.totalAmount, 4500);
+    assert.equal(xmlData.purchaseOrder.serialNumbers.length, 3);
+    assert.ok(xmlData.updatedCatalogItems.length >= 1);
+
+    // 4. Assinatura Eletrônica ICP-Brasil / Gov.br na aprovação de proposta (/api/erp/proposals/:id/approve)
+    const approveRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals/prop-seta-002/approve',
+      body: {
+        signerName: 'Maria Luiza Fontes',
+        signerCpf: '319.482.107-44',
+        signerRole: 'Diretora de TI & Compras',
+        modality: 'ICP_BRASIL_A1',
+      },
+    });
+    assert.equal(approveRes.status, 200);
+    const approveData = (approveRes.body as {
+      data: {
+        proposal: { status: string; digitalSignature: { signerName: string; signatureHashSha256: string; modality: string } };
+        digitalSignature: { signerName: string; signerCpf: string; signatureHashSha256: string; timestampToken: string };
+      };
+    }).data;
+    assert.equal(approveData.proposal.status, 'CONVERTIDA_CONTRATO');
+    assert.equal(approveData.digitalSignature.signerName, 'Maria Luiza Fontes');
+    assert.equal(approveData.digitalSignature.signerCpf, '319.482.107-44');
+    assert.equal(approveData.digitalSignature.signatureHashSha256.length, 64);
+    assert.ok(approveData.digitalSignature.timestampToken.startsWith('ACT-ITI-'));
+
+    // 5. Sincronização Diária Incremental (/api/erp/daily-sync)
+    const syncRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/daily-sync',
+    });
+    assert.equal(syncRes.status, 200);
+    const syncData = (syncRes.body as {
+      data: { storeId: string; companyCnpj: string; fictitiousDataPurged: boolean };
+    }).data;
+    assert.equal(syncData.storeId, '118887');
+    assert.equal(syncData.companyCnpj, '14.806.925/0001-32');
+    assert.equal(syncData.fictitiousDataPurged, true);
+  });
 });

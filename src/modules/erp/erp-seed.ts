@@ -1533,7 +1533,7 @@ export function createSeedErpState(): ErpDatabaseState {
       accessTokenMasked: '218b7f••••••••••••••••••••••••••••826f0',
       secretTokenMasked: 'd5402c••••••••••••••••••••••••••••f4a6b',
       companyLegalName: 'SETA TELECOM LTDA',
-      companyCnpj: '18.456.789/0001-90',
+      companyCnpj: '14.806.925/0001-32',
       municipalRegistration: 'CCM 4.891.203-1 (São Paulo/SP)',
       stateRegistration: '149.882.410.114',
       taxRegime: 'LUCRO_PRESUMIDO',

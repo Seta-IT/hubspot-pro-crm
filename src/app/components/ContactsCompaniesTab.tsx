@@ -21,6 +21,7 @@ import {
 import { BuyingRoleType, Company, Contact, CrmTask, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
 import { calculateContactCompleteness, CompletenessResult } from '../../modules/data-health/completeness';
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
+import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './GestaoClickCompanyModal';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
 import {
@@ -195,6 +196,7 @@ export default function ContactsCompaniesTab({
   const [newlySavedContactIds, setNewlySavedContactIds] = useState<string[]>([]);
 
   const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
+  const [gestaoClickModalCompany, setGestaoClickModalCompany] = useState<EnrichedCompanyItem | null>(null);
   const [compName, setCompName] = useState('');
   const [compDomain, setCompDomain] = useState('');
   const [compCnpj, setCompCnpj] = useState('');
@@ -1187,11 +1189,11 @@ export default function ContactsCompaniesTab({
                 <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={() => handleSelectCompany(company.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-xs transition"
+                    onClick={() => setGestaoClickModalCompany(company)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-xs transition cursor-pointer"
                   >
-                    <Pencil className="w-3.5 h-3.5" />
-                    ✏️ Editar Empresa
+                    <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    Editar / Abrir Cadastro
                   </button>
                   <button
                     type="button"
@@ -1876,199 +1878,48 @@ export default function ContactsCompaniesTab({
         </div>
       )}
 
-      {showNewCompanyModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-[#ff7a59]" />
-                <h3 className="text-base font-bold">Cadastrar Nova Empresa B2B</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNewCompanyModal(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateCompanySubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                  Razão Social / Nome Fantasia *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={compName}
-                  onChange={(e) => setCompName(e.target.value)}
-                  placeholder="Ex: Stone Pagamentos S.A."
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Domínio Corporativo
-                  </label>
-                  <input
-                    type="text"
-                    value={compDomain}
-                    onChange={(e) => setCompDomain(e.target.value)}
-                    placeholder="Ex: stone.com.br"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    CNPJ (Validação Mod-11)
-                  </label>
-                  <input
-                    type="text"
-                    value={compCnpj}
-                    onChange={(e) => setCompCnpj(e.target.value)}
-                    placeholder="18.236.120/0001-58"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Setor / Indústria
-                  </label>
-                  <input
-                    type="text"
-                    value={compIndustry}
-                    onChange={(e) => setCompIndustry(e.target.value)}
-                    placeholder="Ex: Fintech & Meios de Pagamento"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Porte
-                  </label>
-                  <select
-                    value={compSize}
-                    onChange={(e) => setCompSize(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
-                  >
-                    <option value="1-50 funcionários">1-50 funcionários</option>
-                    <option value="51-200 funcionários">51-200 funcionários</option>
-                    <option value="201-500 funcionários">201-500 funcionários</option>
-                    <option value="501-1000 funcionários">501-1000 funcionários</option>
-                    <option value="1000+ funcionários">1000+ funcionários</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Receita Anual (R$)
-                  </label>
-                  <input
-                    type="number"
-                    value={compRevenue}
-                    onChange={(e) => setCompRevenue(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Cidade
-                  </label>
-                  <input
-                    type="text"
-                    value={compCity}
-                    onChange={(e) => setCompCity(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    UF
-                  </label>
-                  <input
-                    type="text"
-                    value={compState}
-                    onChange={(e) => setCompState(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Classificação ICP (Tier)
-                  </label>
-                  <select
-                    value={compIcpTier}
-                    onChange={(e) =>
-                      setCompIcpTier(e.target.value as 'TIER_1' | 'TIER_2' | 'TIER_3' | '')
-                    }
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
-                  >
-                    <option value="">Sem Tier ICP</option>
-                    {ICP_TIER_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    Proprietário da Conta (Owner)
-                  </label>
-                  <select
-                    value={compOwnerName}
-                    onChange={(e) => setCompOwnerName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
-                  >
-                    {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
-                      <option key={ow} value={ow}>
-                        {ow}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-orange-50/70 text-xs font-extrabold text-[#e05835] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={compTargetAccount}
-                  onChange={(e) => setCompTargetAccount(e.target.checked)}
-                  className="rounded border-orange-300 text-[#ff7a59]"
-                />
-                <span>🎯 Marcar como Conta Alvo ABM (Target Account)</span>
-              </label>
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewCompanyModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingCompany}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition"
-                >
-                  {savingCompany ? 'Salvando...' : 'Criar Empresa'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {(showNewCompanyModal || gestaoClickModalCompany) && (
+        <GestaoClickCompanyModal
+          mode={gestaoClickModalCompany ? 'EDIT' : 'CREATE'}
+          initialCompany={gestaoClickModalCompany}
+          onClose={() => {
+            setShowNewCompanyModal(false);
+            setGestaoClickModalCompany(null);
+          }}
+          onSave={async (payload: GestaoClickCompanyFormPayload, existingId?: string) => {
+            if (existingId) {
+              await onUpdateCompany(existingId, payload as unknown as Record<string, unknown>);
+              if (selectedCompanyId === existingId) {
+                await fetchCompanyDetail(existingId);
+              }
+            } else {
+              await onCreateCompany({
+                name: payload.name,
+                domain: payload.domain || '',
+                cnpj: payload.cnpj || '',
+                industry: payload.industry || '',
+                size: payload.size || '51-200 funcionários',
+                annualRevenue: payload.annualRevenue,
+                city: payload.city || '',
+                state: payload.state || '',
+                icpTier: payload.icpTier,
+                isTargetAccount: payload.isTargetAccount,
+                ownerName: payload.ownerName,
+              });
+            }
+          }}
+          onDelete={
+            gestaoClickModalCompany
+              ? async (companyId: string) => {
+                  await onDeleteCompany(companyId);
+                  if (selectedCompanyId === companyId) {
+                    setSelectedCompanyId(null);
+                    setCompanyDetail(null);
+                  }
+                }
+              : undefined
+          }
+        />
       )}
     </div>
   );

@@ -42,6 +42,7 @@ import {
   GestaoClickConfig,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { recordUpsertedCatalogItem, recordUpsertedPurchaseOrder } from '../lib/durable-storage';
 import { GestaoClickMenuSection } from './ErpGestaoClickTab';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
@@ -770,6 +771,66 @@ export function SetaErpPdvPosView({
 // PILAR 4: ESTOQUE E COMPRAS (MOVIMENTAÇÕES, AJUSTES, TRANSFERÊNCIAS, COTAÇÕES & OCs)
 // ============================================================================
 
+const SAMPLE_SEFAZ_NFE_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe35261068993641000802550010000102451000102459" versao="4.00">
+      <ide>
+        <cUF>35</cUF>
+        <natOp>VENDA DE EQUIPAMENTOS TELECOM E REDES</natOp>
+        <mod>55</mod>
+        <serie>1</serie>
+        <nNF>10245</nNF>
+        <dhEmi>2026-10-26T10:30:00-03:00</dhEmi>
+      </ide>
+      <emit>
+        <CNPJ>68993641000802</CNPJ>
+        <xNome>AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.</xNome>
+        <xFant>AGIS DISTRIBUIDORA TI &amp; TELECOM</xFant>
+      </emit>
+      <dest>
+        <CNPJ>14806925000132</CNPJ>
+        <xNome>SETA TELECOM LTDA</xNome>
+      </dest>
+      <det nItem="1">
+        <prod>
+          <cProd>SIP-T46U</cProd>
+          <xProd>Telefone IP Gigabit Yealink SIP-T46U Dual USB PoE</xProd>
+          <NCM>85171899</NCM>
+          <CFOP>5102</CFOP>
+          <uCom>UN</uCom>
+          <qCom>4</qCom>
+          <vUnCom>1450.00</vUnCom>
+          <vProd>5800.00</vProd>
+        </prod>
+        <infAdProd>S/N: SN-YLK-T46U-9901, SN-YLK-T46U-9902, SN-YLK-T46U-9903, SN-YLK-T46U-9904</infAdProd>
+      </det>
+      <det nItem="2">
+        <prod>
+          <cProd>SL-44-SEC-K9</cProd>
+          <xProd>Appliance Router &amp; Licenca Cisco ISR 4400 Series Security</xProd>
+          <NCM>85176259</NCM>
+          <CFOP>5102</CFOP>
+          <uCom>UN</uCom>
+          <qCom>2</qCom>
+          <vUnCom>3100.00</vUnCom>
+          <vProd>6200.00</vProd>
+        </prod>
+        <infAdProd>S/N: SN-CISCO-4400-8811, SN-CISCO-4400-8812</infAdProd>
+      </det>
+      <total>
+        <ICMSTot>
+          <vProd>12000.00</vProd>
+          <vICMS>2160.00</vICMS>
+          <vPIS>78.00</vPIS>
+          <vCOFINS>360.00</vCOFINS>
+          <vNF>12000.00</vNF>
+        </ICMSTot>
+      </total>
+    </infNFe>
+  </NFe>
+</nfeProc>`;
+
 export function SetaErpStockAndPurchasesSubbar({
   activeSubId,
   onSelectSubId,
@@ -778,6 +839,8 @@ export function SetaErpStockAndPurchasesSubbar({
   suppliers,
   onCreatePurchaseOrder,
   onCreateStockTransfer,
+  onRefresh,
+  onShowToast,
 }: {
   activeSubId: string;
   onSelectSubId: (subId: string) => void;
@@ -786,14 +849,72 @@ export function SetaErpStockAndPurchasesSubbar({
   suppliers: ErpSupplierRecord[];
   onCreatePurchaseOrder: () => void;
   onCreateStockTransfer: () => void;
+  onRefresh?: () => Promise<void>;
+  onShowToast?: (msg: string) => void;
 }) {
+  const [showXmlModal, setShowXmlModal] = useState(false);
+  const [xmlContent, setXmlContent] = useState(SAMPLE_SEFAZ_NFE_XML);
+  const [cfopEntrada, setCfopEntrada] = useState(
+    '1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)'
+  );
+  const [costCenter, setCostCenter] = useState('CC-201 • CAPEX Ativos para Locação');
+  const [autoReceiveStock, setAutoReceiveStock] = useState(true);
+  const [importingXml, setImportingXml] = useState(false);
+  const [importedResult, setImportedResult] = useState<{
+    poCode: string;
+    nfeNumber: string;
+    supplierName: string;
+    nfeAccessKey: string;
+    totalAmount: number;
+    serialCount: number;
+  } | null>(null);
+
   const tabs = [
-    { id: 'EST_MOVIMENTACOES', label: `📦 Movimentações & S/N (${catalogCount})` },
-    { id: 'EST_AJUSTES', label: '⚖️ Ajustes de Inventário' },
-    { id: 'EST_TRANSFERENCIAS', label: '🔄 Transferências Matriz / Clientes' },
-    { id: 'EST_COTACOES', label: `📋 Cotações (${suppliers.length} Fornecedores)` },
-    { id: 'EST_COMPRAS', label: `🛒 Ordens de Compra / NF-e Entrada (${purchasesCount})` },
+    { id: 'EST_MOVIMENTACOES', label: `Movimentações & S/N (${catalogCount})` },
+    { id: 'EST_AJUSTES', label: 'Ajustes de Inventário' },
+    { id: 'EST_TRANSFERENCIAS', label: 'Transferências Matriz / Clientes' },
+    { id: 'EST_COTACOES', label: `Cotações (${suppliers.length} Fornecedores)` },
+    { id: 'EST_COMPRAS', label: `Ordens de Compra / NF-e Entrada (${purchasesCount})` },
   ];
+
+  const handleImportNfeXml = async () => {
+    if (!xmlContent.trim()) return;
+    setImportingXml(true);
+    try {
+      const res = await fetch('/api/erp/purchases/import-xml', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          xmlContent,
+          cfopEntrada,
+          costCenter,
+          autoReceiveStock,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const po = json?.data?.purchaseOrder;
+        const cats = json?.data?.updatedCatalogItems || [];
+        if (po) recordUpsertedPurchaseOrder(po);
+        for (const c of cats) recordUpsertedCatalogItem(c);
+        setImportedResult({
+          poCode: po?.code || '55',
+          nfeNumber: po?.nfeNumber || '000.010.245',
+          supplierName: po?.supplierName || 'Fornecedor Homologado',
+          nfeAccessKey: po?.nfeAccessKey || '',
+          totalAmount: Number(po?.totalAmount || 0),
+          serialCount: Array.isArray(po?.serialNumbers) ? po.serialNumbers.length : 0,
+        });
+        onShowToast?.(
+          `NF-e XML ${po?.nfeNumber} importada com sucesso! OC #${po?.code} criada e S/N registrados no estoque.`
+        );
+        onSelectSubId('EST_COMPRAS');
+        if (onRefresh) await onRefresh();
+      }
+    } finally {
+      setImportingXml(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-md border border-slate-200 p-3.5 space-y-3">
@@ -818,7 +939,17 @@ export function SetaErpStockAndPurchasesSubbar({
           })}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setImportedResult(null);
+              setShowXmlModal(true);
+            }}
+            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5"
+          >
+            <FileText className="w-3.5 h-3.5" /> Importar XML NF-e (SEFAZ)
+          </button>
           <button
             type="button"
             onClick={onCreateStockTransfer}
@@ -835,6 +966,143 @@ export function SetaErpStockAndPurchasesSubbar({
           </button>
         </div>
       </div>
+
+      {showXmlModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden">
+            <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                  Pilar 4 • Escrituração Automática SEFAZ Modelo 55 (Seta Telecom #118887)
+                </span>
+                <h3 className="text-sm font-extrabold">
+                  Importador de Arquivo XML de NF-e de Fornecedor (Compras &amp; Estoque S/N)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowXmlModal(false)}
+                className="text-slate-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Enquadramento CFOP de Entrada
+                  </label>
+                  <select
+                    value={cfopEntrada}
+                    onChange={(e) => setCfopEntrada(e.target.value)}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  >
+                    <option value="1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)">
+                      1.551 — Ativo Imobilizado (Parque de Locação)
+                    </option>
+                    <option value="2.551 — Compra interestadual de bem para o Ativo Imobilizado">
+                      2.551 — Ativo Imobilizado Interestadual
+                    </option>
+                    <option value="1.102 — Compra para comercialização / revenda de hardware">
+                      1.102 — Compra para Comercialização / Revenda
+                    </option>
+                    <option value="2.102 — Compra interestadual para comercialização">
+                      2.102 — Compra Interestadual para Revenda
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Centro de Custo</label>
+                  <input
+                    type="text"
+                    value={costCenter}
+                    onChange={(e) => setCostCenter(e.target.value)}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoReceiveStock}
+                    onChange={(e) => setAutoReceiveStock(e.target.checked)}
+                    className="w-4 h-4 accent-[#1e3a6e]"
+                  />
+                  Dar entrada física imediata no Estoque Matriz #118887 e registrar Números de Série (S/N)
+                </label>
+
+                <label className="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-bold text-slate-800 cursor-pointer">
+                  Selecionar Arquivo .XML
+                  <input
+                    type="file"
+                    accept=".xml,text/xml"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        setXmlContent(await f.text());
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Conteúdo XML da NF-e (Padrão SEFAZ 4.00 — tags &lt;infNFe&gt;, &lt;emit&gt;, &lt;det&gt;, &lt;ICMSTot&gt;)
+                </label>
+                <textarea
+                  value={xmlContent}
+                  onChange={(e) => setXmlContent(e.target.value)}
+                  rows={7}
+                  className="w-full p-2.5 rounded border border-slate-300 font-mono text-[11px] text-slate-800"
+                />
+              </div>
+
+              {importedResult && (
+                <div className="p-3.5 rounded bg-emerald-50 border border-emerald-200 space-y-1 text-emerald-950">
+                  <div className="font-extrabold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    NF-e {importedResult.nfeNumber} Escriturada — Ordem de Compra #{importedResult.poCode}
+                  </div>
+                  <div className="text-[11px]">
+                    Emitente: <strong>{importedResult.supplierName}</strong> • Total:{' '}
+                    <strong>{formatBRL(importedResult.totalAmount)}</strong> •{' '}
+                    <strong>{importedResult.serialCount} S/N</strong> incorporados ao almoxarifado.
+                  </div>
+                  {importedResult.nfeAccessKey && (
+                    <div className="font-mono text-[10px] text-emerald-800">
+                      Chave SEFAZ (44 dígitos): {importedResult.nfeAccessKey}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowXmlModal(false)}
+                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  disabled={importingXml}
+                  onClick={handleImportNfeXml}
+                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  {importingXml ? 'Importando XML SEFAZ...' : 'Processar XML & Gerar Ordem de Compra'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
