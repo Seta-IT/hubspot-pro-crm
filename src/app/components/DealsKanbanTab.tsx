@@ -235,7 +235,7 @@ export default function DealsKanbanTab({
   return (
     <div className="space-y-5">
       {/* SELETOR DE PIPELINE EM DESTAQUE (3 FUNIS SETA TELECOM) */}
-      <div className="bg-gradient-to-r from-[#1e293b] to-[#0f172a] rounded-2xl p-4 text-white shadow-md border border-slate-800">
+      <div className="bg-[#213343] rounded-[6px] p-4 text-white shadow-2xs border border-[#33475b]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#ff987f] block">
@@ -271,7 +271,7 @@ export default function DealsKanbanTab({
         </div>
       </div>
       {/* PIPELINE SUMMARY & TOOLBAR */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+      <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-5 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
@@ -393,14 +393,14 @@ export default function DealsKanbanTab({
                   if (dragOverStageId === stage.id) setDragOverStageId(null);
                 }}
                 onDrop={(e) => handleDropOnStage(e, stage.id)}
-                className={`w-80 shrink-0 rounded-2xl bg-slate-100/90 border transition flex flex-col max-h-[760px] ${headerAccent} ${
+                className={`w-80 shrink-0 rounded-[6px] bg-[#f5f8fa] border transition flex flex-col max-h-[760px] ${headerAccent} ${
                   isDragTarget
                     ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/30 bg-orange-50/40'
                     : 'border-slate-200/90'
                 }`}
               >
                 {/* Column Header */}
-                <div className="p-3.5 bg-white rounded-t-xl border-b border-slate-200/80">
+                <div className="p-3.5 bg-white rounded-t-[5px] border-b border-[#cbd6e2]">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[11px] font-bold inline-flex items-center justify-center shrink-0">
@@ -451,7 +451,7 @@ export default function DealsKanbanTab({
                             setDraggingDealId(null);
                             setDragOverStageId(null);
                           }}
-                          className={`group bg-white rounded-xl p-3.5 border shadow-sm hover:shadow-md transition cursor-grab active:cursor-grabbing ${
+                          className={`group bg-white rounded-[4px] p-3.5 border border-[#cbd6e2] shadow-2xs hover:border-[#0091ae] hover:shadow-md transition cursor-grab active:cursor-grabbing ${
                             deal.isRotting
                               ? 'border-rose-300 ring-1 ring-rose-200/60'
                               : 'border-slate-200 hover:border-[#ff7a59]/60'

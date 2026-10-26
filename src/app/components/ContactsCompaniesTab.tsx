@@ -112,6 +112,7 @@ export default function ContactsCompaniesTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('ALL');
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
+  const [activeSegment, setActiveSegment] = useState<"ALL" | "MARCELO" | "EVELYN" | "GESTAOCLICK" | "ABM">("ALL");
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [contactInitialEdit, setContactInitialEdit] = useState(false);
@@ -370,6 +371,7 @@ export default function ContactsCompaniesTab({
       setSubView('CONTACTS');
       setStageFilter('ALL');
       setMinScoreFilter(0);
+      setActiveSegment('ALL');
       if (searchQuery.trim()) {
         const qNorm = normalizeSearch(searchQuery);
         const createdHaystack = normalizeSearch(
@@ -431,6 +433,17 @@ export default function ContactsCompaniesTab({
 
   const filteredContacts = contacts
     .filter((c) => {
+      if (activeSegment === 'MARCELO') {
+        const ow = normalizeSearch(c.ownerName || (c.customProperties?.ownerName as string) || c.ownerId);
+        if (!ow.includes('marcelo') && !ow.includes('marcello')) return false;
+      } else if (activeSegment === 'EVELYN') {
+        const ow = normalizeSearch(c.ownerName || (c.customProperties?.ownerName as string) || c.ownerId);
+        if (!ow.includes('evelyn')) return false;
+      } else if (activeSegment === 'GESTAOCLICK') {
+        if (!c.id.startsWith('cont-gc-') && !c.customProperties?.gestaoClickClientId && !c.enrichmentSource?.includes('GestãoClick')) return false;
+      } else if (activeSegment === 'ABM') {
+        if (!c.company?.isTargetAccount && c.buyingRole !== 'DECISOR') return false;
+      }
       if (stageFilter !== 'ALL' && c.lifecycleStage !== stageFilter) return false;
       if (minScoreFilter > 0 && c.leadScore < minScoreFilter) return false;
       if (searchQuery.trim()) {
@@ -503,112 +516,168 @@ export default function ContactsCompaniesTab({
   });
 
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+    <div className="space-y-4">
+      {/* ====================================================================
+          HUBSPOT CRM OBJECT INDEX HEADER & SAVED VIEWS BAR
+      ==================================================================== */}
+      <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
+        {/* Top Row: Object Type Switcher + Primary HubSpot Actions */}
+        <div className="px-5 py-3.5 border-b border-[#cbd6e2] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex rounded-[4px] bg-[#eaf0f6] p-0.5 border border-[#cbd6e2]">
               <button
                 type="button"
-                onClick={() => setSubView('CONTACTS')}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
-                  subView === 'CONTACTS'
-                    ? 'bg-[#1e293b] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                onClick={() => setSubView("CONTACTS")}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
+                  subView === "CONTACTS"
+                    ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
+                    : "text-[#516f90] hover:text-[#33475b]"
                 }`}
               >
-                <Users className="w-4 h-4 text-[#ff7a59]" />
+                <Users className="w-3.5 h-3.5 text-[#0091ae]" />
                 Contatos ({contacts.length})
               </button>
               <button
                 type="button"
-                onClick={() => setSubView('COMPANIES')}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition ${
-                  subView === 'COMPANIES'
-                    ? 'bg-[#1e293b] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                onClick={() => setSubView("COMPANIES")}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
+                  subView === "COMPANIES"
+                    ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
+                    : "text-[#516f90] hover:text-[#33475b]"
                 }`}
               >
-                <Building2 className="w-4 h-4 text-[#ff7a59]" />
+                <Building2 className="w-3.5 h-3.5 text-[#0091ae]" />
                 Empresas B2B ({companies.length})
               </button>
             </div>
-            <div className="hidden sm:block text-xs text-slate-500">
-              Lead Scoring preditivo (0-100), Next Best Action e Enriquecimento por domínio corporativo.
-            </div>
+            <span className="text-xs text-[#516f90]">
+              Exibindo{" "}
+              <strong className="text-[#33475b]">
+                {subView === "CONTACTS" ? filteredContacts.length : filteredCompanies.length}
+              </strong>{" "}
+              de{" "}
+              <strong className="text-[#33475b]">
+                {subView === "CONTACTS" ? contacts.length : companies.length}
+              </strong>{" "}
+              registros sincronizados (HubSpot #4369067 + GestãoClick #118887)
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={batchEnriching}
               onClick={handleBatchEnrich}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#cbd6e2]/70 text-[#33475b] border border-[#cbd6e2] text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              {batchEnriching ? 'Enriquecendo Base...' : 'Enriquecer Base em Lote'}
+              <Sparkles className="w-3.5 h-3.5 text-[#0091ae]" />
+              {batchEnriching ? "Enriquecendo..." : "Enriquecer Base IA"}
             </button>
 
             <button
               type="button"
               onClick={() => setShowNewCompanyModal(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[#33475b] text-xs font-semibold transition cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              Nova Empresa
+              <Plus className="w-3.5 h-3.5 text-[#0091ae]" />
+              Criar Empresa
             </button>
 
             <button
               type="button"
               onClick={() => setShowNewContactModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold shadow-sm transition"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              Novo Contato
+              <Plus className="w-3.5 h-3.5" />
+              Criar Contato
             </button>
           </div>
         </div>
 
+        {/* HubSpot Index Saved Views Tabs (Active Lists) */}
+        {subView === "CONTACTS" && (
+          <div className="px-5 bg-white border-b border-[#cbd6e2] flex flex-wrap items-center gap-1">
+            {[
+              { id: "ALL", label: `Todos os Contatos (${contacts.length})` },
+              { id: "MARCELO", label: "Minha Carteira — Marcelo Mira" },
+              { id: "EVELYN", label: "Carteira — Evelyn Ternero" },
+              { id: "GESTAOCLICK", label: "Sincronizados GestãoClick (#118887)" },
+              { id: "ABM", label: "Decisores & Contas Alvo ABM" },
+            ].map((tab) => {
+              const active = activeSegment === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSegment(tab.id as typeof activeSegment)}
+                  className={`relative px-3.5 py-2.5 text-xs font-semibold transition cursor-pointer ${
+                    active
+                      ? "text-[#0091ae] font-bold bg-[#f5f8fa]/60"
+                      : "text-[#516f90] hover:text-[#33475b] hover:bg-[#f5f8fa]/40"
+                  }`}
+                >
+                  {tab.label}
+                  {active && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#0091ae]" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Feedback Banner */}
         {enrichmentFeedback && (
-          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2 text-xs text-emerald-800 font-medium">
+          <div className="mx-5 mt-3 p-3 rounded-[4px] bg-[#e5f8f6] border border-[#00bda5] flex items-center justify-between gap-2 text-xs text-[#007a6c] font-semibold">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#00bda5] shrink-0" />
               <span>{enrichmentFeedback}</span>
             </div>
             <button
               type="button"
               onClick={() => setEnrichmentFeedback(null)}
-              className="text-emerald-600 hover:text-emerald-900"
+              className="text-[#007a6c] hover:text-[#33475b]"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-2 border-t border-slate-100">
+        {/* HubSpot Filter & Search Toolbar (#f5f8fa) */}
+        <div className="px-5 py-3 bg-[#f5f8fa] grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-center">
           <div className="lg:col-span-5 relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[#516f90] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={
-                subView === 'CONTACTS'
-                  ? 'Buscar contato por nome, e-mail corporativo, cargo ou empresa...'
-                  : 'Buscar empresa por razão social, domínio, CNPJ ou setor...'
+                subView === "CONTACTS"
+                  ? "Pesquisar contato por nome, e-mail, telefone, cargo, empresa ou CNPJ..."
+                  : "Pesquisar empresa por razão social, domínio, CNPJ, cidade ou setor..."
               }
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#ff7a59]"
+              className="w-full pl-9 pr-8 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] placeholder-[#516f90] focus:outline-none focus:border-[#0091ae]"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                title="Limpar busca"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#516f90] hover:text-[#33475b] text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {subView === 'CONTACTS' ? (
+          {subView === "CONTACTS" ? (
             <div className="lg:col-span-3 flex items-center gap-2">
               <select
                 value={stageFilter}
                 onChange={(e) => setStageFilter(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:border-[#ff7a59]"
+                className="flex-1 px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
               >
-                <option value="ALL">Todas as Etapas (Lifecycle)</option>
+                <option value="ALL">Lifecycle: Todos</option>
                 <option value="LEAD">Lead</option>
                 <option value="MQL">MQL</option>
                 <option value="SQL">SQL Qualificado</option>
@@ -619,60 +688,60 @@ export default function ContactsCompaniesTab({
               <select
                 value={minScoreFilter}
                 onChange={(e) => setMinScoreFilter(Number(e.target.value))}
-                className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:border-[#ff7a59]"
+                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
               >
-                <option value={0}>Qualquer Score</option>
-                <option value={80}>Score ≥ 80 (Quentes)</option>
+                <option value={0}>Score: Todos</option>
+                <option value={80}>Score ≥ 80</option>
                 <option value={60}>Score ≥ 60</option>
               </select>
             </div>
           ) : (
-            <div className="lg:col-span-3 flex items-center text-xs text-slate-500">
-              Catálogo corporativo com validação CNPJ Mod-11 e inferência de porte.
+            <div className="lg:col-span-3 flex items-center text-xs text-[#516f90] font-medium">
+              Validação CNPJ Mod-11 + Sincronia GestãoClick #118887
             </div>
           )}
 
           <form onSubmit={handleLookupDomain} className="lg:col-span-4 flex items-center gap-2">
             <div className="relative flex-1">
-              <Globe className="w-3.5 h-3.5 text-indigo-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Globe className="w-3.5 h-3.5 text-[#0091ae] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={domainInput}
                 onChange={(e) => setDomainInput(e.target.value)}
-                placeholder="Testar domínio/e-mail (ex: @loggi.com, @totvs.com.br)"
-                className="w-full pl-8 pr-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50/30 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                placeholder="Enriquecer domínio (ex: @totvs.com.br)"
+                className="w-full pl-8 pr-3 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] placeholder-[#516f90] focus:outline-none focus:border-[#0091ae]"
               />
             </div>
             <button
               type="submit"
               disabled={lookingUpDomain}
-              className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shrink-0 transition"
+              className="px-3 py-1.5 rounded-[4px] bg-[#0091ae] hover:bg-[#007a94] text-white text-xs font-semibold shrink-0 transition cursor-pointer"
             >
-              {lookingUpDomain ? '...' : 'Inspecionar'}
+              {lookingUpDomain ? "..." : "Consultar"}
             </button>
           </form>
         </div>
 
         {domainPreview && (
-          <div className="p-3.5 rounded-xl bg-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-3.5 bg-[#213343] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-[#33475b]">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                  {domainPreview.isCorporate ? 'Domínio Corporativo B2B' : 'Provedor Gratuito / Pessoal'}
+                <span className="px-2 py-0.5 rounded-[3px] text-[10px] font-bold uppercase bg-[#0091ae] text-white">
+                  {domainPreview.isCorporate ? "Domínio Corporativo B2B" : "Provedor Pessoal"}
                 </span>
                 <span className="text-xs font-bold text-white">{domainPreview.domain}</span>
                 {domainPreview.adapterName && (
-                  <span className="text-[11px] text-indigo-300">Fonte: {domainPreview.adapterName}</span>
+                  <span className="text-[11px] text-[#99acc2]">Fonte: {domainPreview.adapterName}</span>
                 )}
               </div>
               {domainPreview.profile ? (
-                <p className="text-xs text-indigo-100">
-                  <strong>{domainPreview.profile.name}</strong> • Setor: {domainPreview.profile.industry} • Porte:{' '}
-                  {domainPreview.profile.size} • Receita Est.: {formatBRL(domainPreview.profile.annualRevenue)} •{' '}
+                <p className="text-xs text-[#cbd6e2]">
+                  <strong>{domainPreview.profile.name}</strong> • Setor: {domainPreview.profile.industry} • Porte:{" "}
+                  {domainPreview.profile.size} • Receita Est.: {formatBRL(domainPreview.profile.annualRevenue)} •{" "}
                   {domainPreview.profile.city}/{domainPreview.profile.state}
                 </p>
               ) : (
-                <p className="text-xs text-indigo-200">
+                <p className="text-xs text-[#cbd6e2]">
                   Nenhum perfil corporativo encontrado para este domínio.
                 </p>
               )}
@@ -680,7 +749,7 @@ export default function ContactsCompaniesTab({
             <button
               type="button"
               onClick={() => setDomainPreview(null)}
-              className="text-xs text-indigo-300 hover:text-white self-end sm:self-center"
+              className="text-xs text-[#99acc2] hover:text-white self-end sm:self-center"
             >
               Fechar
             </button>
@@ -758,11 +827,11 @@ export default function ContactsCompaniesTab({
               );
             })}
           </div>
-          <div className="hidden lg:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="hidden lg:block bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-bold uppercase tracking-wider text-[#516f90]">
                   <th className="py-3.5 px-4">Contato & Cargo</th>
                   <th className="py-3.5 px-4">Empresa</th>
                   <th className="py-3.5 px-4">Etapa & Status</th>
@@ -781,7 +850,7 @@ export default function ContactsCompaniesTab({
                     <tr
                       key={contact.id}
                       onClick={() => handleSelectContact(contact.id)}
-                      className="hover:bg-orange-50/30 transition cursor-pointer group"
+                      className="hover:bg-[#eaf0f6]/60 transition cursor-pointer group"
                     >
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
@@ -790,7 +859,7 @@ export default function ContactsCompaniesTab({
                             {contact.lastName ? contact.lastName.charAt(0) : ''}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900 group-hover:text-[#ff7a59] transition flex items-center gap-1.5">
+                            <div className="font-bold text-[#0091ae] group-hover:underline transition flex items-center gap-1.5">
                               {contact.firstName} {contact.lastName}
                               {newlySavedContactIds.includes(contact.id) && (
                                 <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-extrabold">

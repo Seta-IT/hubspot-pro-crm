@@ -981,243 +981,150 @@ export default function HubSpotProCrmApp() {
     },
   ];
 
+  const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
+    ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
+    : "Matriz #118887";
+
   return (
-    <div className="min-h-screen flex bg-[#f8fafc] text-slate-900">
-      {/* LEFT SIDEBAR — HUBSPOT PRO / TWENTY CRM STYLE */}
-      <aside className="hidden xl:flex flex-col w-68 bg-[#1e293b] text-slate-200 border-r border-slate-800 shrink-0 select-none">
-        {/* Brand Header */}
-        <div className="px-5 py-5 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#ff7a59] flex items-center justify-center text-white font-black text-lg shadow-md">
-            H
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-white text-base tracking-tight">
-                HubSpot Pro
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ff7a59]/20 text-[#ff987f] border border-[#ff7a59]/30">
-                ENTERPRISE
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">Sales, Marketing &amp; Service Suite</p>
-          </div>
-        </div>
-
-        {/* Navigation Links */}
-        <nav className="p-3.5 space-y-1.5 flex-1">
-          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Módulos da Plataforma
-          </div>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeModule === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveModule(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition ${
-                  isActive
-                    ? 'bg-[#ff7a59] text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Icon
-                    className={`w-4 h-4 ${
-                      isActive ? 'text-white' : 'text-[#ff7a59]'
-                    }`}
-                  />
-                  <span>{item.label}</span>
-                </div>
-                {item.badge !== undefined && (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                      isActive
-                        ? 'bg-white/20 text-white'
-                        : item.badgeTone === 'emerald'
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : item.badgeTone === 'amber'
-                            ? 'bg-amber-500/20 text-amber-300'
-                            : item.badgeTone === 'rose'
-                              ? 'bg-rose-500/20 text-rose-300'
-                              : 'bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {/* Sidebar Live Health & Pipeline Widget */}
-          <div className="mt-5 pt-4 border-t border-slate-800 px-2 space-y-3">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
-              Pulso da Operação (Tempo Real)
-            </div>
-
-            <div
-              onClick={() => setActiveModule('DATA_HEALTH')}
-              className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-2"
+    <div className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b]">
+      {/* ====================================================================
+          OFFICIAL HUBSPOT PRO CANVAS TOP GLOBAL NAVIGATION BAR (#213343)
+      ==================================================================== */}
+      <header className="sticky top-0 z-40 bg-[#213343] text-white border-b border-[#33475b] shadow-sm select-none">
+        {/* Top Primary Bar */}
+        <div className="max-w-[1680px] mx-auto px-3 sm:px-5 h-13 flex items-center justify-between gap-3 py-2">
+          {/* Brand + Portal Switcher */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setActiveModule("OVERVIEW_AI")}
+              className="flex items-center gap-2.5 group cursor-pointer shrink-0"
             >
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-medium">Saúde Global da Base</span>
-                <span className="font-extrabold text-emerald-400">
-                  {healthSummary?.globalHealthScore ?? 0}/100
+              <div className="w-8 h-8 rounded-[6px] bg-[#ff7a59] group-hover:bg-[#ff8f73] transition flex items-center justify-center text-white font-black text-base shadow-xs">
+                H
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-white text-sm tracking-tight">
+                    HubSpot Pro
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-extrabold uppercase tracking-wider bg-[#ff7a59] text-white">
+                    CRM + ERP
+                  </span>
+                </div>
+                <span className="hidden sm:block text-[10px] text-[#99acc2] leading-none">
+                  Seta Telecom LTDA • Hub ID 4369067
                 </span>
               </div>
-              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#ff7a59] rounded-full transition-all"
-                  style={{ width: `${healthSummary?.globalHealthScore ?? 0}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Duplicados: {duplicates?.totalDuplicates ?? 0}</span>
-                <span className="text-[#ff987f] font-semibold">Higienizar →</span>
-              </div>
-            </div>
+            </button>
 
-            <div
-              onClick={() => setActiveModule('DEALS_KANBAN')}
-              className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-[#ff7a59]/50 cursor-pointer transition space-y-1"
-            >
-              <span className="text-[11px] text-slate-400 block">Receita Ponderada (Forecast)</span>
-              <div className="text-base font-extrabold text-white">
-                {formatBRL(dealsForecast.weightedOpenValue)}
-              </div>
-              <div className="text-[11px] text-emerald-400 font-medium">
-                Ganho: {formatBRL(dealsForecast.closedWonValue)}
-              </div>
+            <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-[#33475b] text-[11px] text-[#cbd6e2]">
+              <span className="w-2 h-2 rounded-full bg-[#00bda5]" />
+              <span className="font-semibold text-white">GestãoClick ERP-GROK</span>
+              <span className="text-[#99acc2]">({gcStoreLabel} • MCP Online)</span>
             </div>
           </div>
-        </nav>
 
-        {/* Executive User Profile Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-[#ff7a59] text-white font-bold text-xs flex items-center justify-center">
-              MM
-            </div>
-            <div>
-              <div className="text-xs font-bold text-white">Marcéllo Mira</div>
-              <div className="text-[10px] text-slate-400">VP Revenue &amp; Admin</div>
-            </div>
-          </div>
-          <span className="w-2 h-2 rounded-full bg-emerald-400" title="PostgreSQL / API Ready" />
-        </div>
-      </aside>
-
-      {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* TOP EXECUTIVE HEADER */}
-        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 py-3">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            {/* Mobile / Tablet Nav + Breadcrumb */}
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div className="xl:hidden w-8 h-8 rounded-lg bg-[#ff7a59] text-white font-black flex items-center justify-center text-sm">
-                  H
+          {/* Global HubSpot Search Input */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 text-[#99acc2] absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              placeholder="Pesquisar no HubSpot & GestãoClick (contatos, empresas, e-mail, CNPJ)..."
+              className="w-full pl-8 pr-7 py-1.5 rounded-[4px] bg-[#33475b] border border-[#516f90] text-xs text-white placeholder-[#99acc2] focus:bg-white focus:text-[#33475b] focus:placeholder-[#516f90] focus:outline-none focus:border-[#0091ae] transition"
+            />
+            {globalSearch && (
+              <button
+                type="button"
+                onClick={() => setGlobalSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-[#99acc2] hover:text-white"
+              >
+                ✕
+              </button>
+            )}
+            {quickSearchContacts.length > 0 && (
+              <div className="absolute left-0 right-0 mt-1.5 bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl z-50 overflow-hidden text-[#33475b]">
+                <div className="px-3 py-1.5 bg-[#f5f8fa] border-b border-[#cbd6e2] text-[10px] font-bold uppercase tracking-wider text-[#516f90]">
+                  Resultados no CRM ({quickSearchContacts.length})
                 </div>
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                    <span>HubSpot Pro CRM</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                    <span className="text-[#ff7a59] font-bold">
-                      {navItems.find((n) => n.id === activeModule)?.label}
-                    </span>
-                  </div>
-                  <h1 className="text-sm sm:text-base font-extrabold text-slate-900">
-                    {navItems.find((n) => n.id === activeModule)?.label}
-                  </h1>
-                </div>
-              </div>
-            </div>
-
-            {/* Global Search & Live KPI Pills */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Quick Global Search */}
-              <div className="relative w-full sm:w-64">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={globalSearch}
-                  onChange={(e) => setGlobalSearch(e.target.value)}
-                  placeholder="Busca global (contato, e-mail)..."
-                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#ff7a59]"
-                />
-                {quickSearchContacts.length > 0 && (
-                  <div className="absolute left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl z-50 p-1.5 space-y-1">
-                    {quickSearchContacts.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setGlobalSearch('');
-                          setInitialContactIdForDrawer(c.id);
-                          setActiveModule('CONTACTS_COMPANIES');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-50 flex items-center justify-between text-xs"
-                      >
-                        <div>
-                          <div className="font-bold text-slate-900">
-                            {c.firstName} {c.lastName}
-                          </div>
-                          <div className="text-[11px] text-slate-500">{c.email}</div>
+                <div className="divide-y divide-[#eaf0f6] max-h-72 overflow-y-auto">
+                  {quickSearchContacts.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setGlobalSearch("");
+                        setInitialContactIdForDrawer(c.id);
+                        setActiveModule("CONTACTS_COMPANIES");
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-[#eaf0f6]/70 flex items-center justify-between text-xs transition"
+                    >
+                      <div>
+                        <div className="font-bold text-[#0091ae] hover:underline">
+                          {c.firstName} {c.lastName}
                         </div>
-                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px]">
-                          Score {c.leadScore}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        <div className="text-[11px] text-[#516f90]">
+                          {c.email} {c.company?.name ? `• ${c.company.name}` : ""}
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] text-[#007a6c] border border-[#00bda5]/30 font-bold text-[10px]">
+                        Score {c.leadScore}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              {/* Service Desk Pill */}
-              <button
-                type="button"
-                onClick={() => setActiveModule('SERVICE_DESK')}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-xs font-semibold text-purple-800 border border-purple-200 transition"
-              >
-                <Ticket className="w-3.5 h-3.5 text-purple-600" />
-                Tickets JSM: <strong>{ticketKpis.openCount} abertos</strong>
-              </button>
-
-              {/* Health Pill */}
-              <button
-                type="button"
-                onClick={() => setActiveModule('DATA_HEALTH')}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold text-slate-700 transition"
-              >
-                <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
-                Saúde: <strong>{healthSummary?.globalHealthScore ?? 0}/100</strong>
-              </button>
-
-              {/* Pipeline Pill */}
-              <button
-                type="button"
-                onClick={() => setActiveModule('DEALS_KANBAN')}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-xs font-semibold text-[#e05835] border border-orange-200 transition"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                Forecast: <strong>{formatBRL(dealsForecast.weightedOpenValue)}</strong>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fetchAllCrmData()}
-                title="Sincronizar dados com a API"
-                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingAll ? 'animate-spin text-[#ff7a59]' : ''}`} />
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* BARRA DE NAVEGAÇÃO PRINCIPAL 100% VISÍVEL (FLEX-WRAP — SEM CORTAR ABAS NO CELULAR OU DESKTOP) */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-3 mt-2 border-t border-slate-200">
+          {/* Right Status & Profile Controls */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveModule("DEALS_KANBAN")}
+              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-[#00bda5]" />
+              <span>Forecast:</span>
+              <strong className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</strong>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveModule("DATA_HEALTH")}
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+            >
+              <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+              <span>Saúde:</span>
+              <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fetchAllCrmData()}
+              title="Sincronizar dados com o Servidor & GestãoClick"
+              className="p-1.5 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] border border-[#516f90]/60 text-white transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#ff7a59]" : ""}`} />
+            </button>
+
+            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-[#33475b]">
+              <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-bold text-[11px] flex items-center justify-center">
+                MM
+              </div>
+              <div className="hidden xl:block leading-tight">
+                <div className="text-[11px] font-bold text-white">Marcéllo Mira</div>
+                <div className="text-[9px] text-[#99acc2]">Seta Telecom • Admin</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* HubSpot Primary Module Tabs Bar (100% Visible on Mobile & Desktop) */}
+        <div className="bg-[#2d3e50] border-t border-[#33475b] px-3 sm:px-5">
+          <div className="max-w-[1680px] mx-auto flex flex-wrap items-center gap-1 py-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeModule === item.id;
@@ -1226,81 +1133,135 @@ export default function HubSpotProCrmApp() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveModule(item.id)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer border ${
+                  className={`relative inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] text-xs font-semibold transition cursor-pointer ${
                     isActive
-                      ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-sm'
-                      : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200/80'
+                      ? "bg-[#213343] text-white shadow-xs"
+                      : "text-[#cbd6e2] hover:bg-[#33475b] hover:text-white"
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? "text-[#ff7a59]" : "text-[#99acc2]"}`} />
                   <span>{item.shortLabel}</span>
                   {item.badge !== undefined && (
                     <span
-                      className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                        isActive ? 'bg-white/25 text-white' : 'bg-white text-slate-700'
+                      className={`px-1.5 py-0.2 rounded-[3px] text-[10px] font-bold ${
+                        isActive
+                          ? "bg-[#ff7a59] text-white"
+                          : "bg-[#33475b] text-[#cbd6e2]"
                       }`}
                     >
                       {item.badge}
                     </span>
                   )}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-2 right-2 h-[3px] bg-[#ff7a59] rounded-t" />
+                  )}
                 </button>
               );
             })}
           </div>
+        </div>
+      </header>
 
-          {/* BARRA RÁPIDA DE ACESSO DIRETO: SELETOR DE PIPELINE + DEALS + SERVICE MANAGEMENT + ERP GESTÃOCLICK */}
-          <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3.5 py-2 rounded-xl">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-extrabold text-[#ff987f] uppercase tracking-wider">
-                🎯 Seletor de Pipeline (Seta Telecom):
+      {/* ====================================================================
+          HUBSPOT OBJECT INDEX CONTEXTUAL SUB-HEADER (WHITE + #CBD6E2 BORDER)
+      ==================================================================== */}
+      <div className="bg-white border-b border-[#cbd6e2] px-3 sm:px-6 py-2.5 shadow-2xs">
+        <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+          {/* Left Breadcrumb & Module Title */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium">
+              <span>HubSpot Pro</span>
+              <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
+              <span className="font-bold text-[#33475b] text-sm sm:text-base">
+                {navItems.find((n) => n.id === activeModule)?.label}
+              </span>
+            </div>
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] text-[#007a6c] border border-[#00bda5]/30 text-[11px] font-semibold">
+              ● {contacts.length} Contatos • {companies.length} Empresas
+            </span>
+            <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#eaf0f6] text-[#33475b] border border-[#cbd6e2] text-[11px] font-semibold">
+              ● ERP GestãoClick: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes / {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos
+            </span>
+          </div>
+
+          {/* Right Global Pipeline Selector + Quick HubSpot Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
+              <span className="text-[11px] font-bold text-[#516f90]">
+                Pipeline:
               </span>
               <select
                 aria-label="Seletor Global de Pipeline"
                 value={selectedPipelineId}
                 onChange={(e) => {
                   setSelectedPipelineId(e.target.value);
-                  setActiveModule('DEALS_KANBAN');
+                  setActiveModule("DEALS_KANBAN");
                 }}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-extrabold text-white focus:outline-none focus:border-[#ff7a59] cursor-pointer"
+                className="bg-transparent text-xs font-bold text-[#0091ae] focus:outline-none cursor-pointer"
               >
                 {pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <option key={p.id} value={p.id} className="text-[#33475b]">
                     {p.name} ({deals.filter((d) => d.pipelineId === p.id).length} deals)
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setActiveModule('DEALS_KANBAN')}
-                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold cursor-pointer transition"
-              >
-                💼 Abrir Deals &amp; Funis
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveModule('SERVICE_DESK')}
-                className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-extrabold cursor-pointer transition"
-              >
-                🎧 Abrir Service Management ({ticketKpis.openCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveModule('ERP_GESTAOCLICK')}
-                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold cursor-pointer transition"
-              >
-                🏢 Abrir ERP, Propostas &amp; Locação (GestãoClick)
-              </button>
-            </div>
-          </div>
-        </header>
+            <button
+              type="button"
+              onClick={() => setActiveModule("CONTACTS_COMPANIES")}
+              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
+                activeModule === "CONTACTS_COMPANIES"
+                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
+                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
+              }`}
+            >
+              👥 Contatos &amp; Empresas
+            </button>
 
+            <button
+              type="button"
+              onClick={() => setActiveModule("DEALS_KANBAN")}
+              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
+                activeModule === "DEALS_KANBAN"
+                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
+                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
+              }`}
+            >
+              💼 Deals &amp; Funis
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveModule("SERVICE_DESK")}
+              className={`px-3 py-1.5 rounded-[4px] text-xs font-semibold border transition cursor-pointer ${
+                activeModule === "SERVICE_DESK"
+                  ? "bg-[#eaf0f6] border-[#0091ae] text-[#0091ae]"
+                  : "bg-white hover:bg-[#f5f8fa] text-[#33475b] border-[#cbd6e2]"
+              }`}
+            >
+              🎧 Service Desk ({ticketKpis.openCount})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveModule("ERP_GESTAOCLICK")}
+              className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
+            >
+              🏢 ERP &amp; Locação (GestãoClick)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ====================================================================
+          MAIN WORKSPACE BODY
+      ==================================================================== */}
+      <div className="flex-1 flex flex-col min-w-0">
         {/* TOAST NOTIFICATION */}
         {toastMessage && (
-          <div className="fixed bottom-5 right-5 z-50 bg-[#1e293b] text-white px-4 py-3 rounded-xl shadow-2xl border border-[#ff7a59] flex items-center gap-2.5 text-xs font-semibold animate-bounce">
-            <CheckCircle2 className="w-4 h-4 text-[#ff7a59] shrink-0" />
+          <div className="fixed bottom-5 right-5 z-50 bg-[#213343] text-white px-4 py-3 rounded-[6px] shadow-2xl border-l-4 border-[#00bda5] flex items-center gap-2.5 text-xs font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-[#00bda5] shrink-0" />
             <span>{toastMessage}</span>
           </div>
         )}

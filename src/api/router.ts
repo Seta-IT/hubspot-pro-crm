@@ -43,6 +43,7 @@ export class CrmApiRouter {
   private repo: CrmRepository;
   private isSingletonRepo: boolean;
   private pgInitialized = false;
+  private gcInitialized = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
   private workflowEngine = new WorkflowEngine();
@@ -305,6 +306,14 @@ export class CrmApiRouter {
         (cleanPath === "/api/bootstrap" || cleanPath === "/api/state") &&
         (method === "GET" || method === "POST")
       ) {
+        if (this.isSingletonRepo && !this.gcInitialized && process.env.GESTAOCLICK_ACCESS_TOKEN) {
+          this.gcInitialized = true;
+          try {
+            await this.repo.syncLiveGestaoClick({ forceRefresh: false });
+          } catch {
+            // Continue with local state if live API times out
+          }
+        }
         let reconciliation = { reconciled: false, appliedCount: 0 };
         if (method === "POST" && body.reconcileJournal) {
           reconciliation = this.repo.reconcileClientState(
@@ -1905,9 +1914,35 @@ export class CrmApiRouter {
         return { status: 200, body: { data: paid } };
       }
 
+      if (cleanPath === '/api/erp/gestaoclick/status' && method === 'GET') {
+        const erp = this.repo.getErpOverview();
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...erp.gestaoClickConfig,
+              hasEnvCredentials: Boolean(process.env.GESTAOCLICK_ACCESS_TOKEN),
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/erp/gestaoclick/sync' && method === 'POST') {
-        const cfg = this.repo.syncGestaoClick();
-        return { status: 200, body: { data: cfg } };
+        const cfg = await this.repo.syncLiveGestaoClick({
+          forceRefresh: true,
+          accessToken: typeof body.accessToken === 'string' ? body.accessToken : undefined,
+          secretAccessToken:
+            typeof body.secretAccessToken === 'string' ? body.secretAccessToken : undefined,
+          apiBaseUrl: typeof body.apiBaseUrl === 'string' ? body.apiBaseUrl : undefined,
+          mcpServerUrl: typeof body.mcpServerUrl === 'string' ? body.mcpServerUrl : undefined,
+        });
+        return {
+          status: 200,
+          body: {
+            data: cfg,
+            erp: this.repo.getErpOverview(),
+          },
+        };
       }
 
       if (cleanPath === '/api/erp/gestaoclick/config' && (method === 'PATCH' || method === 'POST')) {

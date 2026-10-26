@@ -677,9 +677,29 @@ export interface ErpFinancialEntry {
   paymentMethod: string;
 }
 
+export interface GestaoClickLiveTotals {
+  lojas: number;
+  usuarios: number;
+  clientes: number;
+  produtos: number;
+  servicos: number;
+  orcamentos: number;
+  vendas: number;
+  contratos: number;
+  recebimentos: number;
+  pagamentos: number;
+}
+
 export interface GestaoClickConfig {
   connected: boolean;
   apiBaseUrl: string;
+  mcpServerUrl?: string;
+  credentialName?: string;
+  storeId?: string;
+  storeName?: string;
+  mcpStatus?: 'ONLINE' | 'OFFLINE' | 'NOT_CONFIGURED';
+  liveTotals?: GestaoClickLiveTotals;
+  users?: Array<{ id: string; nome: string; email: string; telefone: string; ativo: boolean }>;
   accessTokenMasked: string;
   secretTokenMasked: string;
   companyLegalName: string;

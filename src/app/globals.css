@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --hs-obsidian: #213343;
+  --hs-charcoal: #33475b;
+  --hs-battleship: #516f90;
+  --hs-koala: #eaf0f6;
+  --hs-gypsum: #f5f8fa;
+  --hs-great-white: #cbd6e2;
+  --hs-lorax: #ff7a59;
+  --hs-lorax-hover: #ff8f73;
+  --hs-calypso: #0091ae;
+  --hs-oz: #00bda5;
+  --hs-candy-apple: #f2545b;
+  --hs-marigold: #f5c26b;
+}
+
+body {
+  background-color: #f5f8fa;
+  color: #33475b;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Clean HubSpot Canvas Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f8fa;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd6e2;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #99acc2;
+}

@@ -32,6 +32,11 @@ import {
 } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
+import {
+  fetchLiveGestaoClickSnapshot,
+  maskSecretToken,
+  setRuntimeGestaoClickCredentials,
+} from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
@@ -2159,6 +2164,212 @@ export class CrmRepository {
       summary: `Sincronização GestãoClick concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
       recordsSynced: totalSynced,
     });
+
+    this.save();
+    return erp.gestaoClickConfig;
+  }
+
+  async syncLiveGestaoClick(options?: {
+    forceRefresh?: boolean;
+    accessToken?: string;
+    secretAccessToken?: string;
+    apiBaseUrl?: string;
+    mcpServerUrl?: string;
+  }): Promise<GestaoClickConfig> {
+    const erp = this.ensureErp();
+    if (options?.accessToken && options?.secretAccessToken) {
+      setRuntimeGestaoClickCredentials({
+        accessToken: options.accessToken.trim(),
+        secretAccessToken: options.secretAccessToken.trim(),
+        apiBaseUrl: options.apiBaseUrl || erp.gestaoClickConfig.apiBaseUrl,
+        mcpServerUrl: options.mcpServerUrl || erp.gestaoClickConfig.mcpServerUrl,
+      });
+      erp.gestaoClickConfig.accessTokenMasked = maskSecretToken(options.accessToken.trim());
+      erp.gestaoClickConfig.secretTokenMasked = maskSecretToken(options.secretAccessToken.trim());
+    }
+
+    const snapshot = await fetchLiveGestaoClickSnapshot({
+      forceRefresh: options?.forceRefresh,
+    });
+
+    if (!snapshot) {
+      return this.syncGestaoClick();
+    }
+
+    // 1. Merge real GestãoClick Companies
+    const existingCompById = new Map(this.state.companies.map((c) => [c.id, c]));
+    const existingCompByName = new Map(
+      this.state.companies.map((c) => [normalizeSearchText(c.name), c])
+    );
+
+    for (const gcComp of snapshot.mappedCompanies) {
+      const existing =
+        (gcComp.id && existingCompById.get(gcComp.id)) ||
+        existingCompByName.get(normalizeSearchText(gcComp.name));
+      if (!existing) {
+        const now = new Date().toISOString();
+        const created: Company = {
+          id: gcComp.id || `comp-gc-${gcComp.gestaoClickClientId}`,
+          name: gcComp.name,
+          domain: gcComp.domain || null,
+          cnpj: gcComp.cnpj || null,
+          industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
+          size: gcComp.size || '51-200 funcionários',
+          annualRevenue: gcComp.annualRevenue || 15_000_000,
+          city: gcComp.city || 'São Paulo',
+          state: gcComp.state || 'SP',
+          country: 'Brasil',
+          completenessScore: 88,
+          enrichedAt: now,
+          lastActivityAt: now,
+          enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
+          ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
+          isTargetAccount: true,
+          icpTier: 'TIER_1',
+          customProperties: {
+            gestaoClickClientId: gcComp.gestaoClickClientId,
+            accountExecutive: gcComp.ownerName || 'Marcelo Lopes Mira',
+            tier: 'ENTERPRISE',
+          },
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.state.companies.push(created);
+        existingCompById.set(created.id, created);
+        existingCompByName.set(normalizeSearchText(created.name), created);
+      }
+    }
+
+    // 2. Merge real GestãoClick Contacts (append after user-created contacts)
+    const existingContactByEmail = new Set(
+      this.state.contacts.map((c) => c.email.toLowerCase())
+    );
+    for (const gcCont of snapshot.mappedContacts) {
+      if (!existingContactByEmail.has(gcCont.email.toLowerCase())) {
+        const comp = existingCompByName.get(normalizeSearchText(gcCont.companyName));
+        const now = new Date().toISOString();
+        const contact: Contact = {
+          id: `cont-gc-${gcCont.gestaoClickClientId}`,
+          email: gcCont.email.toLowerCase(),
+          firstName: gcCont.firstName,
+          lastName: gcCont.lastName,
+          phone: gcCont.phone,
+          normalizedPhone: gcCont.phone,
+          jobTitle: 'Gestor Comercial / TI',
+          seniority: 'DIRECTOR',
+          department: 'OPERAÇÕES',
+          lifecycleStage: 'CUSTOMER',
+          leadStatus: 'CONNECTED',
+          leadScore: 86,
+          completenessScore: 90,
+          isValidEmail: true,
+          isCorporateEmail: true,
+          isValidPhone: Boolean(gcCont.phone),
+          ownerId: gcCont.ownerName.toLowerCase().includes('evelyn') ? 'owner-evelyn' : 'owner-marcello',
+          ownerName: gcCont.ownerName,
+          buyingRole: 'DECISOR',
+          isUnworked: false,
+          companyId: comp?.id || null,
+          enrichedAt: now,
+          enrichmentSource: 'GestãoClick ERP API',
+          nextBestAction: null,
+          customProperties: {
+            gestaoClickClientId: gcCont.gestaoClickClientId,
+            ownerName: gcCont.ownerName,
+          },
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.state.contacts.push(contact);
+        existingContactByEmail.add(contact.email);
+      }
+    }
+
+    // 3. Merge Catalog
+    const existingCatIds = new Set(erp.catalog.map((c) => c.id));
+    for (const item of snapshot.mappedCatalog) {
+      if (!existingCatIds.has(item.id)) {
+        erp.catalog.push(item);
+        existingCatIds.add(item.id);
+      }
+    }
+
+    // 4. Merge Proposals
+    const existingPropIds = new Set(erp.proposals.map((p) => p.id));
+    for (const prop of snapshot.mappedProposals) {
+      if (!existingPropIds.has(prop.id)) {
+        erp.proposals.push(prop);
+        existingPropIds.add(prop.id);
+      }
+    }
+
+    // 5. Merge Rental Contracts
+    const existingCtrIds = new Set(erp.rentalContracts.map((c) => c.id));
+    for (const ctr of snapshot.mappedRentalContracts) {
+      if (!existingCtrIds.has(ctr.id)) {
+        erp.rentalContracts.push(ctr);
+        existingCtrIds.add(ctr.id);
+      }
+    }
+
+    // 6. Merge Invoices
+    const existingInvIds = new Set(erp.invoices.map((i) => i.id));
+    for (const inv of snapshot.mappedInvoices) {
+      if (!existingInvIds.has(inv.id)) {
+        erp.invoices.push(inv);
+        existingInvIds.add(inv.id);
+      }
+    }
+
+    // 7. Merge Financial Entries
+    const existingFinIds = new Set(erp.financialEntries.map((f) => f.id));
+    for (const fin of snapshot.mappedFinancialEntries) {
+      if (!existingFinIds.has(fin.id)) {
+        erp.financialEntries.push(fin);
+        existingFinIds.add(fin.id);
+      }
+    }
+
+    const totalAccountRecords =
+      snapshot.totals.clientes +
+      snapshot.totals.produtos +
+      snapshot.totals.servicos +
+      snapshot.totals.orcamentos +
+      snapshot.totals.vendas +
+      snapshot.totals.contratos +
+      snapshot.totals.recebimentos +
+      snapshot.totals.pagamentos;
+
+    erp.gestaoClickConfig.connected = true;
+    erp.gestaoClickConfig.apiBaseUrl =
+      options?.apiBaseUrl || process.env.GESTAOCLICK_API_URL || 'https://api.gestaoclick.com/api';
+    erp.gestaoClickConfig.mcpServerUrl =
+      options?.mcpServerUrl || process.env.GESTAOCLICK_MCP_URL || 'https://api.gestaoclick.com/v1/mcp';
+    erp.gestaoClickConfig.credentialName = 'ERP-GROK';
+    erp.gestaoClickConfig.storeId = snapshot.store.id;
+    erp.gestaoClickConfig.storeName = snapshot.store.nome;
+    erp.gestaoClickConfig.mcpStatus = snapshot.mcpStatus;
+    erp.gestaoClickConfig.liveTotals = snapshot.totals;
+    erp.gestaoClickConfig.users = snapshot.users;
+    erp.gestaoClickConfig.lastSyncAt = snapshot.fetchedAt;
+
+    const historySummary = `Sincronização Ao Vivo GestãoClick [ERP-GROK • Loja ${snapshot.store.nome} #${snapshot.store.id} • MCP ${snapshot.mcpStatus}]: ${snapshot.totals.clientes} clientes, ${snapshot.totals.produtos} produtos, ${snapshot.totals.servicos} serviços, ${snapshot.totals.orcamentos} orçamentos, ${snapshot.totals.contratos} contratos de locação, ${snapshot.totals.recebimentos} recebimentos e ${snapshot.totals.pagamentos} pagamentos na base real.`;
+
+    if (
+      !erp.gestaoClickConfig.syncHistory.length ||
+      erp.gestaoClickConfig.syncHistory[0].summary !== historySummary
+    ) {
+      erp.gestaoClickConfig.syncHistory.unshift({
+        id: `sync-gc-live-${Date.now()}`,
+        timestamp: snapshot.fetchedAt,
+        status: 'SUCCESS',
+        summary: historySummary,
+        recordsSynced: totalAccountRecords,
+      });
+    } else {
+      erp.gestaoClickConfig.syncHistory[0].timestamp = snapshot.fetchedAt;
+    }
 
     this.save();
     return erp.gestaoClickConfig;
