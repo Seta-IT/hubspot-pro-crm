@@ -165,6 +165,53 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     assert.equal(totvsPair!.confidenceScore, 100);
   });
 
+  it('bloqueia detecção de duplicidade e rejeita merge (400) entre empresas com CNPJs diferentes mesmo com mesmo domínio (Matriz e Filial)', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // Cria uma Filial da TOTVS com o mesmo domínio totvs.com.br mas CNPJ filial /0002-03
+    const filialRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/companies',
+      body: {
+        name: 'TOTVS S.A. - Filial Rio de Janeiro',
+        domain: 'totvs.com.br',
+        cnpj: '53.113.791/0002-03',
+        city: 'Rio de Janeiro',
+        state: 'RJ',
+      },
+    });
+    assert.equal(filialRes.status, 201);
+    const filial = (filialRes.body as { data: { id: string; cnpj: string } }).data;
+
+    // 1. Verifica que detectDuplicateCompanies NÃO lista Matriz (53.113.791/0001-22) + Filial (53.113.791/0002-03) como duplicadas
+    const dups = detectDuplicateCompanies(repo.listCompanies());
+    const conflictingPair = dups.find(
+      (p) =>
+        (p.primary.id === 'comp-totvs' && p.duplicate.id === filial.id) ||
+        (p.primary.id === filial.id && p.duplicate.id === 'comp-totvs')
+    );
+    assert.equal(
+      conflictingPair,
+      undefined,
+      'Empresas com CNPJs diferentes jamais devem ser listadas como duplicadas'
+    );
+
+    // 2. Verifica que tentativa forçada de merge via API retorna 400 Bad Request (Bloqueio Fiscal)
+    const mergeAttempt = await router.dispatch({
+      method: 'POST',
+      path: '/api/data-health/merge',
+      body: {
+        entityType: 'COMPANY',
+        primaryId: 'comp-totvs',
+        duplicateId: filial.id,
+      },
+    });
+    assert.equal(mergeAttempt.status, 400);
+    const errBody = mergeAttempt.body as { error: string };
+    assert.ok(errBody.error.includes('Bloqueio Fiscal'));
+  });
+
   it('executa merge inteligente via API preservando campos mais completos, TimelineEvents e Deals', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);

@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { Company, Contact } from '../../db/types';
-import { DuplicateCandidatePair } from '../../modules/data-health/deduplication';
+import { detectProtectedBranchCompanies, DuplicateCandidatePair } from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
 import { formatBRL } from './ui-helpers';
 
@@ -146,6 +146,7 @@ export default function DataHealthTab({
   const incompleteContacts = contacts.filter((c) => c.completenessScore < 65);
   const incompleteCompanies = companies.filter((c) => c.completenessScore < 65);
   const invalidContacts = contacts.filter((c) => !c.isValidEmail || (c.phone && !c.isValidPhone));
+  const protectedBranches = detectProtectedBranchCompanies(companies);
 
   const statusBadgeColor =
     summary.statusLabel === 'EXCELLENT'
@@ -593,6 +594,55 @@ export default function DataHealthTab({
                   })}
                 </div>
               )}
+
+              {/* REGRA FISCAL DE PROTEÇÃO MATRIZ / FILIAL (CNPJs DISTINTOS NÃO UNIFICÁVEIS) */}
+              <div className="bg-white rounded-2xl border border-indigo-200 p-5 shadow-xs space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        🛡️ Trava Fiscal Ativa: Empresas com CNPJs Diferentes Não Podem Ser Unificadas
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Mesmo que compartilhem o mesmo domínio corporativo ou razão social (ex: Matriz <code>/0001-</code> e Filial <code>/0002-</code>), CNPJs distintos possuem personalidade jurídica e faturamento próprios.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                    🛡️ CNPJs Distintos — Unificação Bloqueada (Matriz/Filial)
+                  </span>
+                </div>
+
+                {protectedBranches.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    {protectedBranches.map((pb) => (
+                      <div
+                        key={`${pb.companyA.id}-${pb.companyB.id}`}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            {pb.companyA.name} (<span className="font-mono text-indigo-700">{pb.companyA.cnpj}</span>)
+                            {' '}×{' '}
+                            {pb.companyB.name} (<span className="font-mono text-indigo-700">{pb.companyB.cnpj}</span>)
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {pb.sharedDomainOrGroup} • {pb.reason}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled
+                          className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 text-xs font-extrabold cursor-not-allowed"
+                        >
+                          🛡️ CNPJs Distintos — Unificação Bloqueada
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Company Duplicates */}
               {duplicates.companyDuplicates.length > 0 && (

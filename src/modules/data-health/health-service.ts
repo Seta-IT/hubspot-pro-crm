@@ -17,6 +17,7 @@ import {
   buildContactMergePlan,
   detectDuplicateCompanies,
   detectDuplicateContacts,
+  haveConflictingCnpjs,
 } from './deduplication';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateEmail } from './validators';
 import { EnrichmentService } from '../enrichment/enrichment-service';
@@ -545,6 +546,11 @@ export class DataHealthService {
     const duplicateComp = repo.getCompanyById(params.duplicateId);
     if (!primaryComp || !duplicateComp) {
       throw new Error(`Empresa primária (${params.primaryId}) ou duplicada (${params.duplicateId}) não encontrada.`);
+    }
+    if (haveConflictingCnpjs(primaryComp.cnpj, duplicateComp.cnpj)) {
+      throw new Error(
+        `Bloqueio Fiscal: Empresas com CNPJs diferentes (${primaryComp.cnpj} vs ${duplicateComp.cnpj}) não podem ser unificadas (cada CNPJ possui personalidade jurídica e faturamento próprios).`
+      );
     }
 
     const plan = buildCompanyMergePlan(

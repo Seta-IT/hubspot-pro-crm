@@ -10,7 +10,7 @@ import {
   syncStateToPostgres,
 } from '../db/postgres';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
-import { detectDuplicateCompanies, detectDuplicateContacts } from '../modules/data-health/deduplication';
+import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
 import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
@@ -1089,10 +1089,16 @@ export class CrmApiRouter {
         };
       }
 
-      if (cleanPath === '/api/data-health/merge' && method === 'POST') {
-        const entityType = (String(body.entityType || 'CONTACT').toUpperCase() as 'CONTACT' | 'COMPANY');
+      if (
+        (cleanPath === '/api/data-health/merge' || cleanPath === '/api/companies/merge') &&
+        method === 'POST'
+      ) {
+        const entityType =
+          cleanPath === '/api/companies/merge'
+            ? 'COMPANY'
+            : (String(body.entityType || 'CONTACT').toUpperCase() as 'CONTACT' | 'COMPANY');
         const primaryId = String(body.primaryId || '');
-        const duplicateId = String(body.duplicateId || '');
+        const duplicateId = String(body.duplicateId || body.secondaryId || '');
 
         if (!primaryId || !duplicateId) {
           return {
@@ -1101,14 +1107,38 @@ export class CrmApiRouter {
           };
         }
 
-        const result = this.healthService.mergeRecords(this.repo, {
-          entityType,
-          primaryId,
-          duplicateId,
-          fieldOverrides: (body.fieldOverrides as Record<string, unknown>) || undefined,
-        });
+        if (entityType === 'COMPANY') {
+          const compA = this.repo.getCompanyById(primaryId);
+          const compB = this.repo.getCompanyById(duplicateId);
+          if (compA && compB && haveConflictingCnpjs(compA.cnpj, compB.cnpj)) {
+            return {
+              status: 400,
+              body: {
+                error:
+                  'Bloqueio Fiscal: Empresas com CNPJs diferentes não podem ser unificadas (cada CNPJ possui personalidade jurídica e faturamento próprios).',
+                code: 'CONFLICTING_CNPJ_MERGE_BLOCKED',
+                primaryCnpj: compA.cnpj,
+                duplicateCnpj: compB.cnpj,
+              },
+            };
+          }
+        }
 
-        return { status: 200, body: { data: result } };
+        try {
+          const result = this.healthService.mergeRecords(this.repo, {
+            entityType,
+            primaryId,
+            duplicateId,
+            fieldOverrides: (body.fieldOverrides as Record<string, unknown>) || undefined,
+          });
+          return { status: 200, body: { data: result } };
+        } catch (mergeErr) {
+          const msg = mergeErr instanceof Error ? mergeErr.message : 'Erro ao mesclar registros.';
+          return {
+            status: msg.includes('Bloqueio Fiscal') ? 400 : 404,
+            body: { error: msg },
+          };
+        }
       }
 
       if (cleanPath === '/api/data-health/auto-clean' && method === 'POST') {

@@ -462,6 +462,52 @@ export function detectDuplicateContacts(
   return results.sort((a, b) => b.confidenceScore - a.confidenceScore);
 }
 
+export function normalizeCnpjDigits(cnpj: string | null | undefined): string {
+  return String(cnpj || '').replace(/\D+/g, '');
+}
+
+export function haveConflictingCnpjs(
+  cnpjA: string | null | undefined,
+  cnpjB: string | null | undefined
+): boolean {
+  const digitsA = normalizeCnpjDigits(cnpjA);
+  const digitsB = normalizeCnpjDigits(cnpjB);
+  return Boolean(digitsA.length > 0 && digitsB.length > 0 && digitsA !== digitsB);
+}
+
+export interface ProtectedBranchPair {
+  companyA: Company;
+  companyB: Company;
+  sharedDomainOrGroup: string;
+  reason: string;
+}
+
+export function detectProtectedBranchCompanies(companies: Company[]): ProtectedBranchPair[] {
+  const pairs: ProtectedBranchPair[] = [];
+  for (let i = 0; i < companies.length; i++) {
+    for (let j = i + 1; j < companies.length; j++) {
+      const c1 = companies[i];
+      const c2 = companies[j];
+      if (!haveConflictingCnpjs(c1.cnpj, c2.cnpj)) continue;
+      const dom1 = normalizeCorporateDomain(c1.domain);
+      const dom2 = normalizeCorporateDomain(c2.domain);
+      const sameDom = Boolean(dom1.isValid && dom2.isValid && dom1.domain && dom1.domain === dom2.domain);
+      const n1 = normalizeCompanyNameForComparison(c1.name);
+      const n2 = normalizeCompanyNameForComparison(c2.name);
+      const sim = Math.max(jaroWinklerSimilarity(n1, n2), levenshteinSimilarity(n1, n2));
+      if (sameDom || sim >= 0.85) {
+        pairs.push({
+          companyA: c1,
+          companyB: c2,
+          sharedDomainOrGroup: sameDom ? `@${dom1.domain}` : 'Mesmo Grupo Econômico',
+          reason: `Bloqueio Fiscal: CNPJs distintos (${c1.cnpj} vs ${c2.cnpj}) não podem ser unificados.`,
+        });
+      }
+    }
+  }
+  return pairs;
+}
+
 export function detectDuplicateCompanies(
   companies: Company[],
   contacts: Contact[] = [],
@@ -474,6 +520,11 @@ export function detectDuplicateCompanies(
     for (let j = i + 1; j < companies.length; j++) {
       const comp1 = companies[i];
       const comp2 = companies[j];
+
+      // REGRA FISCAL ESTRITA: Empresas com CNPJs preenchidos e diferentes NUNCA são duplicadas (ex: Matriz e Filial)
+      if (haveConflictingCnpjs(comp1.cnpj, comp2.cnpj)) {
+        continue;
+      }
 
       const matchReasons: string[] = [];
       let maxConfidence = 0;
