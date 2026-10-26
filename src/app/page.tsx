@@ -30,6 +30,9 @@ import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './compone
 import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './components/ServiceDeskTab';
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
+import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
+import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
+import { Settings, Lock } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
@@ -87,7 +90,8 @@ type ActiveModule =
   | 'MARKETING_FORMS'
   | 'ERP_GESTAOCLICK'
   | 'DATA_HEALTH'
-  | 'AUTOMATIONS';
+  | 'AUTOMATIONS'
+  | 'ADMIN_RBAC';
 
 export default function HubSpotProCrmApp() {
   const [activeModule, setActiveModule] = useState<ActiveModule>('OVERVIEW_AI');
@@ -103,6 +107,9 @@ export default function HubSpotProCrmApp() {
   const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
   const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
+  const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
+  const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
+  const [activeRbacUser, setActiveRbacUser] = useState<StiHubUserRecord | null>(null);
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -193,6 +200,27 @@ export default function HubSpotProCrmApp() {
           setTickets(mergedTickets);
           if (d.ticketKpis) setTicketKpis(d.ticketKpis);
           if (d.erp) setErpData(d.erp);
+          if (d.emailTemplates) setEmailTemplatesState(d.emailTemplates);
+          if (d.rbac) {
+            setRbacState(d.rbac);
+            setActiveRbacUser((prev) => {
+              if (prev) {
+                return d.rbac.users.find((u: StiHubUserRecord) => u.id === prev.id) || prev;
+              }
+              if (typeof window !== 'undefined') {
+                try {
+                  const saved = JSON.parse(localStorage.getItem('stihub_active_session_v1') || 'null');
+                  if (saved?.user?.id) {
+                    const matched = d.rbac.users.find((u: StiHubUserRecord) => u.id === saved.user.id);
+                    if (matched) return matched;
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+              return d.rbac.users[0] || null;
+            });
+          }
         }
       }
     } finally {
@@ -970,6 +998,7 @@ export default function HubSpotProCrmApp() {
 
   const navItems: Array<{
     id: ActiveModule;
+    hubGroup: string;
     label: string;
     shortLabel: string;
     icon: React.ComponentType<{ className?: string }>;
@@ -978,6 +1007,7 @@ export default function HubSpotProCrmApp() {
   }> = [
     {
       id: 'OVERVIEW_AI',
+      hubGroup: 'BI & IA',
       label: 'Visão Geral & Copiloto IA',
       shortLabel: '📊 Visão Geral & IA',
       icon: Sparkles,
@@ -986,60 +1016,76 @@ export default function HubSpotProCrmApp() {
     },
     {
       id: 'DEALS_KANBAN',
-      label: 'Deals & Seletor de Pipeline',
-      shortLabel: '💼 Deals & Pipelines',
+      hubGroup: 'Sales Hub',
+      label: 'Sales Hub • Deals & Seletor de Pipeline',
+      shortLabel: '💼 Sales Hub: Deals',
       icon: Kanban,
       badge: `${deals.length} • ${pipelines.length} Funis`,
       badgeTone: 'indigo',
     },
     {
-      id: 'ERP_GESTAOCLICK',
-      label: 'ERP, Propostas & Locação (GC)',
-      shortLabel: '🏢 ERP & Locação (GC)',
-      icon: Receipt,
-      badge: erpData ? `${erpData.rentalContracts.length} Contratos` : 'NOVO',
-      badgeTone: 'emerald',
-    },
-    {
-      id: 'SERVICE_DESK',
-      label: 'Service Management (JSM)',
-      shortLabel: '🎧 Service Management',
-      icon: Ticket,
-      badge: ticketKpis.openCount,
-      badgeTone: ticketKpis.criticalCount > 0 ? 'rose' : 'indigo',
-    },
-    {
       id: 'CONTACTS_COMPANIES',
-      label: 'Contatos & Empresas',
-      shortLabel: '👥 Contatos & Contas',
+      hubGroup: 'Sales Hub',
+      label: 'Sales Hub • Contatos, Empresas & Tarefas',
+      shortLabel: '👥 Sales Hub: Contas',
       icon: Users,
       badge: contacts.length,
       badgeTone: 'emerald',
     },
     {
       id: 'MARKETING_FORMS',
-      label: 'Formulários Web & Migração',
-      shortLabel: '📝 Forms & HubSpot',
+      hubGroup: 'Marketing Hub',
+      label: 'Marketing Hub • Formulários Web & Migração',
+      shortLabel: '📝 Marketing Hub: Forms',
       icon: FileCode2,
       badge: webForms.length,
       badgeTone: 'emerald',
     },
     {
+      id: 'AUTOMATIONS',
+      hubGroup: 'Marketing Hub',
+      label: 'Marketing Hub • Workflows & Cadências',
+      shortLabel: '⚡ Marketing: Cadências',
+      icon: WorkflowIcon,
+      badge: workflows.length + sequences.length,
+      badgeTone: 'indigo',
+    },
+    {
+      id: 'SERVICE_DESK',
+      hubGroup: 'Service Hub',
+      label: 'Service Hub • NOC Service Management (JSM)',
+      shortLabel: '🎧 Service Hub: SLA',
+      icon: Ticket,
+      badge: ticketKpis.openCount,
+      badgeTone: ticketKpis.criticalCount > 0 ? 'rose' : 'indigo',
+    },
+    {
+      id: 'ERP_GESTAOCLICK',
+      hubGroup: 'SETA ERP',
+      label: 'SETA ERP (10 Pilares) • Propostas, Locação & Fiscal',
+      shortLabel: '🏢 SETA ERP (GC)',
+      icon: Receipt,
+      badge: erpData ? `10 Pilares • ${erpData.rentalContracts.length} Ctr` : '10 Pilares',
+      badgeTone: 'emerald',
+    },
+    {
       id: 'DATA_HEALTH',
-      label: 'Saúde da Base (Data Health)',
-      shortLabel: '🛡️ Data Health',
+      hubGroup: 'Governança',
+      label: 'Saúde da Base & Trava Fiscal CNPJ (Data Health)',
+      shortLabel: '🛡️ Data Health (CNPJ)',
       icon: ShieldCheck,
       badge: `${healthSummary?.globalHealthScore ?? 0}%`,
       badgeTone:
         (healthSummary?.globalHealthScore ?? 0) >= 85 ? 'emerald' : 'amber',
     },
     {
-      id: 'AUTOMATIONS',
-      label: 'Automações & Cadências',
-      shortLabel: '⚡ Automações',
-      icon: WorkflowIcon,
-      badge: workflows.length + sequences.length,
-      badgeTone: 'indigo',
+      id: 'ADMIN_RBAC',
+      hubGroup: 'Segurança',
+      label: 'Administração STI-hub • RBAC (9 Perfis / 22 Usuários), E-mails & MFA',
+      shortLabel: '⚙️ Admin & RBAC',
+      icon: Settings,
+      badge: rbacState ? `${rbacState.users.length} Usu.` : 'RBAC',
+      badgeTone: 'orange',
     },
   ];
 
@@ -1174,15 +1220,37 @@ export default function HubSpotProCrmApp() {
               <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#ff7a59]" : ""}`} />
             </button>
 
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-[#33475b]">
+            <button
+              type="button"
+              onClick={() => setActiveModule("ADMIN_RBAC")}
+              title="Abrir Matriz de Permissões RBAC, Modelos de E-mail e Segurança MFA"
+              className="hidden sm:flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] hover:bg-[#33475b] border border-transparent hover:border-[#516f90]/60 transition cursor-pointer"
+            >
               <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-bold text-[11px] flex items-center justify-center">
-                MM
+                {(activeRbacUser?.name || "Marcéllo Mira")
+                  .split(" ")
+                  .slice(0, 2)
+                  .map((p) => p[0])
+                  .join("")
+                  .toUpperCase()}
               </div>
-              <div className="hidden xl:block leading-tight">
-                <div className="text-[11px] font-bold text-white">Marcéllo Mira</div>
-                <div className="text-[9px] text-[#99acc2]">Seta Telecom • Admin</div>
+              <div className="hidden xl:block leading-tight text-left">
+                <div className="text-[11px] font-bold text-white">
+                  {activeRbacUser?.name || "Marcéllo Mira"}
+                </div>
+                <div className="text-[9px] text-[#00bda5] font-extrabold">
+                  {activeRbacUser?.roleId || "SUPER_ADMIN"} • Escopo: {activeRbacUser?.scope || "TODOS"}
+                </div>
               </div>
-            </div>
+            </button>
+            <a
+              href="/login"
+              title="Tela de Login Corporativo + Verificação MFA 2FA"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-[#0d2b4e] hover:bg-[#1e3a6e] border border-[#516f90] text-[10px] font-extrabold text-amber-300"
+            >
+              <Lock className="w-3 h-3 text-[#ff7a59]" />
+              <span className="hidden md:inline">MFA / Login</span>
+            </a>
           </div>
         </div>
 
@@ -1424,6 +1492,10 @@ export default function HubSpotProCrmApp() {
               companies={companies}
               contacts={contacts}
               deals={deals}
+              rbacState={rbacState}
+              emailTemplates={emailTemplatesState}
+              activeUser={activeRbacUser}
+              onSelectActiveUser={(u) => setActiveRbacUser(u)}
               onRefresh={async () => {
                 await fetchAllCrmData();
               }}
@@ -1431,6 +1503,19 @@ export default function HubSpotProCrmApp() {
               initialSection={erpInitialSection}
               autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
               prefillProposalFromDeal={prefillProposalDeal}
+            />
+          )}
+
+          {activeModule === 'ADMIN_RBAC' && (
+            <StiHubAdminRbacPanel
+              rbacState={rbacState}
+              emailTemplates={emailTemplatesState}
+              activeUser={activeRbacUser}
+              onSelectActiveUser={(u) => setActiveRbacUser(u)}
+              onRefresh={async () => {
+                await fetchAllCrmData();
+              }}
+              onShowToast={showToast}
             />
           )}
 

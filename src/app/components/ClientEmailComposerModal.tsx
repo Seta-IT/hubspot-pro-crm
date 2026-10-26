@@ -105,7 +105,7 @@ function buildDefaultBody(p: ClientEmailInitialPayload, docType: StiHubEmailDocT
     p.publicPdfUrl ||
     (typeof window !== 'undefined'
       ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
-      : `https://hubspot-pro-crm-nu.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`);
+      : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`);
 
   if (docType === 'PROPOSAL') {
     return `Olá, ${contact} (${comp}),

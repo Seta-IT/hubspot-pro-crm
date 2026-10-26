@@ -1283,3 +1283,119 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     assert.ok(completedTask.completedAt);
   });
 });
+
+
+describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de Rotas & Matriz RBAC (9 Perfis + 22 Usuários Seta Telecom)', () => {
+  it('retorna matriz RBAC completa com 9 perfis, 22 usuários da Seta Telecom, subdomínios oficiais e Custom Properties 4369067', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const rbacRes = await router.dispatch({ method: 'GET', path: '/api/admin/rbac' });
+    assert.equal(rbacRes.status, 200);
+    const rbacData = (rbacRes.body as {
+      data: {
+        roles: Array<{ id: string; actionGuards: Record<string, boolean> }>;
+        users: Array<{ id: string; name: string; email: string; roleId: string; scope: string; active: boolean }>;
+        securityConfig: {
+          enforceMfaOnAllLogins: boolean;
+          subdomains: Array<{ domain: string }>;
+          customProperties: Array<{ internalName: string }>;
+        };
+        summary: { totalRoles: number; totalUsers: number; activeUsersCount: number };
+      };
+    }).data;
+
+    assert.equal(rbacData.summary.totalRoles, 9);
+    assert.equal(rbacData.roles.length, 9);
+    assert.ok(rbacData.users.length >= 22);
+    assert.equal(rbacData.securityConfig.enforceMfaOnAllLogins, true);
+    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'sti-hub.vercel.app'));
+    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'stihub.setatelecom.com.br'));
+    assert.ok(rbacData.securityConfig.customProperties.some((p) => p.internalName === 'hs_buying_role'));
+
+    // Atualizar escopo e perfil de um usuário via PUT /api/admin/users/:id
+    const updUserRes = await router.dispatch({
+      method: 'PUT',
+      path: '/api/admin/users/usr-seta-03',
+      body: {
+        roleId: 'GERENTE_COMERCIAL',
+        scope: 'EQUIPE',
+      },
+    });
+    assert.equal(updUserRes.status, 200);
+    const updatedUser = (updUserRes.body as { data: { roleId: string; scope: string } }).data;
+    assert.equal(updatedUser.roleId, 'GERENTE_COMERCIAL');
+    assert.equal(updatedUser.scope, 'EQUIPE');
+  });
+
+  it('autentica usuário Seta Telecom em 2 etapas obrigatórias (Login + Código MFA 2FA de 6 dígitos) e emite sessão HttpOnly', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // Etapa 1: Credenciais corporativas -> Desafio MFA
+    const loginRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/login',
+      body: {
+        email: 'marcelo.mira@setatelecom.com.br',
+        password: 'Seta@2026#StiHub',
+      },
+    });
+    assert.equal(loginRes.status, 200);
+    const loginData = (loginRes.body as {
+      data: {
+        mfaRequired: boolean;
+        challengeId: string;
+        demoTotpCode: string;
+        user: { id: string; roleId: string };
+      };
+    }).data;
+    assert.equal(loginData.mfaRequired, true);
+    assert.ok(loginData.challengeId.startsWith('MFA-'));
+    assert.equal(loginData.user.roleId, 'SUPER_ADMIN');
+
+    // Etapa 2a: Rejeita código MFA incorreto (401)
+    const badMfaRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'marcelo.mira@setatelecom.com.br',
+        code: '000000',
+      },
+    });
+    assert.equal(badMfaRes.status, 401);
+
+    // Etapa 2b: Aprova código MFA correto (436906) e emite Set-Cookie HttpOnly
+    const okMfaRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'marcelo.mira@setatelecom.com.br',
+        code: loginData.demoTotpCode,
+      },
+    });
+    assert.equal(okMfaRes.status, 200);
+    assert.ok(okMfaRes.headers?.['Set-Cookie']?.includes('stihub_session='));
+    assert.ok(okMfaRes.headers?.['Set-Cookie']?.includes('HttpOnly'));
+
+    const mfaSession = (okMfaRes.body as {
+      data: { authenticated: boolean; mfaVerified: boolean; sessionToken: string };
+    }).data;
+    assert.equal(mfaSession.authenticated, true);
+    assert.equal(mfaSession.mfaVerified, true);
+
+    // Etapa 3: Valida resolução da sessão via GET /api/auth/session
+    const sessRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/auth/session',
+      query: { token: mfaSession.sessionToken },
+    });
+    assert.equal(sessRes.status, 200);
+    const sessData = (sessRes.body as {
+      data: { authenticated: boolean; mfaVerified: boolean; user: { email: string } };
+    }).data;
+    assert.equal(sessData.authenticated, true);
+    assert.equal(sessData.mfaVerified, true);
+    assert.equal(sessData.user.email, 'marcelo.mira@setatelecom.com.br');
+  });
+});

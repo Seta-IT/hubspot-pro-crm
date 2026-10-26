@@ -4,6 +4,7 @@
 
 import { CrmDatabaseState } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
+import { createSeedRbacState } from '../modules/erp/rbac-seed';
 
 function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -2356,5 +2357,6 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     emailTemplates,
     snippets,
     erp: createSeedErpState(),
+    rbac: createSeedRbacState(),
   };
 }

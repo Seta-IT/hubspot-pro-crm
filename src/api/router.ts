@@ -16,6 +16,8 @@ import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
 import { SequenceService } from '../modules/sequences/sequence-service';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
+import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
+import { StiHubRoleId } from '../db/types';
 import {
   LifecycleStage,
   ServiceTicket,
@@ -39,6 +41,7 @@ export interface ApiRequest {
 export interface ApiResponse<T = unknown> {
   status: number;
   body: T;
+  headers?: Record<string, string>;
 }
 
 
@@ -355,6 +358,7 @@ export class CrmApiRouter {
       emailTemplates,
       snippets,
       erp,
+      rbac: this.repo.getRbacState(),
       serverTimestamp: new Date().toISOString(),
     };
   }
@@ -3118,6 +3122,166 @@ export class CrmApiRouter {
           followUpAssignedTo: body.followUpAssignedTo ? String(body.followUpAssignedTo) : undefined,
         });
         return { status: 201, body: { data: res } };
+      }
+
+
+      // ======================================================================
+      // STI-HUB CORPORATE AUTH + MFA 2FA (/api/auth/*) & RBAC (/api/admin/*)
+      // ======================================================================
+      if (cleanPath === '/api/auth/login' && method === 'POST') {
+        const email = String(body.email || '').trim();
+        const password = body.password !== undefined ? String(body.password) : 'Seta@2026';
+        const challenge = this.repo.initiateLoginChallenge(email, password);
+        if (!challenge.ok) {
+          return {
+            status: 401,
+            body: { error: challenge.error || 'Falha na autenticação corporativa.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: {
+              mfaRequired: true,
+              challengeId: challenge.challengeId,
+              mfaMethod: challenge.mfaMethod,
+              demoTotpCode: challenge.demoTotpCode,
+              user: challenge.user,
+              role: challenge.role,
+              message: `Credenciais Seta Telecom validadas para ${challenge.user?.name}. Insira o código MFA de 6 dígitos.`,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/verify-mfa' && method === 'POST') {
+        const code = String(body.code || body.totpCode || '').trim();
+        const email = body.email ? String(body.email) : undefined;
+        const userId = body.userId ? String(body.userId) : undefined;
+        const verified = this.repo.verifyMfaAndCreateSession({ email, userId, code });
+        if (!verified.ok || !verified.sessionToken) {
+          return {
+            status: 401,
+            body: { error: verified.error || 'Código MFA 2FA inválido.' },
+          };
+        }
+        const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`;
+        return {
+          status: 200,
+          headers: {
+            'Set-Cookie': cookieHeader,
+          },
+          body: {
+            data: {
+              authenticated: true,
+              mfaVerified: true,
+              sessionToken: verified.sessionToken,
+              user: verified.user,
+              role: verified.role,
+              effectiveActionGuards: verified.effectiveActionGuards,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/session' && method === 'GET') {
+        const token = query.token || query._sessionToken || null;
+        const session = this.repo.resolveSessionFromToken(token);
+        return {
+          status: 200,
+          body: {
+            data: session,
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/logout' && method === 'POST') {
+        return {
+          status: 200,
+          headers: {
+            'Set-Cookie': 'stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+          },
+          body: {
+            data: {
+              loggedOut: true,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/admin/rbac' && method === 'GET') {
+        const rbac = this.repo.getRbacState();
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...rbac,
+              modulesList: STI_HUB_MODULES_LIST,
+              summary: {
+                totalRoles: rbac.roles.length,
+                totalUsers: rbac.users.length,
+                activeUsersCount: rbac.users.filter((u) => u.active).length,
+                inactiveUsersCount: rbac.users.filter((u) => !u.active).length,
+                mfaEnforcedCount: rbac.users.filter((u) => u.mfaEnabled).length,
+              },
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/admin/users' && (method === 'GET' || method === 'POST')) {
+        if (method === 'GET') {
+          const rbac = this.repo.getRbacState();
+          return {
+            status: 200,
+            body: { data: rbac.users, total: rbac.users.length },
+          };
+        }
+        if (!body.email && !body.name) {
+          return {
+            status: 400,
+            body: { error: 'Informe ao menos "name" ou "email" do colaborador.' },
+          };
+        }
+        const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
+        return {
+          status: 201,
+          body: { data: saved },
+        };
+      }
+
+      const adminUserIdMatch = cleanPath.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
+        const userId = decodeURIComponent(adminUserIdMatch[1]);
+        const saved = this.repo.upsertRbacUser({
+          ...(body as Record<string, unknown>),
+          id: userId,
+        });
+        return {
+          status: 200,
+          body: { data: saved },
+        };
+      }
+
+      const adminRoleIdMatch = cleanPath.match(/^\/api\/admin\/roles\/([^/]+)$/);
+      if (adminRoleIdMatch && (method === 'PUT' || method === 'PATCH')) {
+        const roleId = decodeURIComponent(adminRoleIdMatch[1]) as StiHubRoleId;
+        const updatedRole = this.repo.updateRbacRole(roleId, body as Record<string, unknown>);
+        if (!updatedRole) {
+          return { status: 404, body: { error: 'Perfil RBAC não encontrado.' } };
+        }
+        return {
+          status: 200,
+          body: { data: updatedRole },
+        };
+      }
+
+      if (cleanPath === '/api/admin/security' && (method === 'PUT' || method === 'PATCH' || method === 'POST')) {
+        const updatedSec = this.repo.updateSecurityAndMailerConfig(body as Record<string, unknown>);
+        return {
+          status: 200,
+          body: { data: updatedSec },
+        };
       }
 
       // ======================================================================

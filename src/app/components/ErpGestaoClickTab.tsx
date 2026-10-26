@@ -92,6 +92,8 @@ import {
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar from './GestaoClickSidebar';
+import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
+import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
 import {
   CATALOG_ITEM_EDITOR_FIELDS,
   ContractEditModal,
@@ -144,6 +146,10 @@ interface ErpGestaoClickTabProps {
   initialSection?: GestaoClickMenuSection;
   autoOpenNewProposalTrigger?: number;
   prefillProposalFromDeal?: Deal | null;
+  rbacState?: StiHubRbacState | null;
+  emailTemplates?: CrmEmailTemplate[];
+  activeUser?: StiHubUserRecord | null;
+  onSelectActiveUser?: (user: StiHubUserRecord) => void;
 }
 
 export type GestaoClickMenuSection =
@@ -275,6 +281,10 @@ export default function ErpGestaoClickTab({
   initialSection,
   autoOpenNewProposalTrigger,
   prefillProposalFromDeal,
+  rbacState,
+  emailTemplates = [],
+  activeUser,
+  onSelectActiveUser,
 }: ErpGestaoClickTabProps) {
   const [activeSection, setActiveSection] = useState<GestaoClickMenuSection>(
     initialSection || "INICIO"
@@ -4463,6 +4473,26 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
                 <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
               </div>
+
+              {rbacState && (
+                <div className="pt-3 border-t border-slate-200">
+                  <StiHubAdminRbacPanel
+                    rbacState={rbacState}
+                    emailTemplates={emailTemplates}
+                    initialSubView={
+                      activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
+                        ? 'EMAIL_TEMPLATES'
+                        : activeSubId === 'CFG_LOJAS' || activeSubId === 'CFG_MARCA'
+                          ? 'SUBDOMAIN_SECURITY'
+                          : 'USERS_RBAC'
+                    }
+                    activeUser={activeUser}
+                    onSelectActiveUser={onSelectActiveUser}
+                    onRefresh={onRefresh}
+                    onShowToast={onShowToast}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

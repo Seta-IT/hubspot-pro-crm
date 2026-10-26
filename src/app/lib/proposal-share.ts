@@ -365,7 +365,7 @@ export function buildPublicProposalUrl(
 ): string {
   const baseOrigin =
     options?.origin ||
-    (typeof window !== 'undefined' ? window.location.origin : 'https://hubspot-pro-crm-nu.vercel.app');
+    (typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app');
   const encoded = encodeProposalToQueryParam(prop);
   const params = new URLSearchParams();
   if (encoded) params.set('d', encoded);

@@ -29,6 +29,8 @@ import {
   WebFormTargetType,
 } from '../../db/types';
 import { formatDateTimeBR, getLifecycleBadge } from './ui-helpers';
+import { MarketingHubSuiteTop, MarketingHubSubView } from './MarketingAndSalesHubSuites';
+import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
 export interface FormsSummary {
   totalForms: number;
@@ -160,6 +162,8 @@ export default function FormsBuilderTab({
 
   // Create new form modal + dynamic fields editor
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [mktView, setMktView] = useState<MarketingHubSubView>('CAMPAIGNS_ROI');
+  const [mktEmailPayload, setMktEmailPayload] = useState<ClientEmailInitialPayload | null>(null);
   const [newName, setNewName] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -353,6 +357,17 @@ export default function FormsBuilderTab({
 
   return (
     <div className="space-y-6">
+      {mktEmailPayload && (
+        <ClientEmailComposerModal
+          payload={mktEmailPayload}
+          onClose={() => setMktEmailPayload(null)}
+        />
+      )}
+      <MarketingHubSuiteTop
+        activeView={mktView}
+        onSelectView={setMktView}
+        onOpenEmailModal={(p) => setMktEmailPayload(p)}
+      />
       {/* TOP KPI STRIP */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">

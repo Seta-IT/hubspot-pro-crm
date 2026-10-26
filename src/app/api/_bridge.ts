@@ -14,6 +14,11 @@ export async function forwardToCrmRouter(
     query[k] = v;
   });
 
+  const sessionCookie = req.cookies.get('stihub_session')?.value;
+  if (sessionCookie && !query._sessionToken) {
+    query._sessionToken = sessionCookie;
+  }
+
   let body: unknown = undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     try {
@@ -30,12 +35,15 @@ export async function forwardToCrmRouter(
     body,
   });
 
+  const responseHeaders: Record<string, string> = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    Pragma: 'no-cache',
+    Expires: '0',
+    ...(res.headers || {}),
+  };
+
   return NextResponse.json(res.body, {
     status: res.status,
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-      Pragma: 'no-cache',
-      Expires: '0',
-    },
+    headers: responseHeaders,
   });
 }

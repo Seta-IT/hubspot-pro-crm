@@ -1,3 +1,4 @@
+import { createSeedRbacState } from './rbac-seed';
 // ============================================================================
 // Seed de Dados ERP Seta Telecom LTDA (Padrão GestãoClick + Fiscal Brasil)
 // Hub ID: 4369067 | Moedas: BRL & USD | Súmula Vinculante 31 STF + LC 116/2003
@@ -1522,11 +1523,13 @@ export function createSeedErpState(): ErpDatabaseState {
         funcionarios: 14,
         compras: 54,
       },
-      users: [
-        { id: '203922', nome: 'Marcelo Mira', email: 'marcelo.mira@setatelecom.com.br', telefone: '(11)3958-4929', ativo: true },
-        { id: '1062504', nome: 'Evelyn Olivia de Rosa Ternero', email: 'evelyn@setatelecom.com.br', telefone: '(11)3958-4929', ativo: true },
-        { id: '206343', nome: 'Michelle da Rocha', email: 'michelle.rocha@setatelecom.com.br', telefone: '(11)3957-0498', ativo: true },
-      ],
+      users: createSeedRbacState().users.map((u) => ({
+        id: u.gestaoClickId || u.id,
+        nome: u.name,
+        email: u.email,
+        telefone: u.phone,
+        ativo: u.active,
+      })),
       accessTokenMasked: '218b7f••••••••••••••••••••••••••••826f0',
       secretTokenMasked: 'd5402c••••••••••••••••••••••••••••f4a6b',
       companyLegalName: 'SETA TELECOM LTDA',

@@ -1062,6 +1062,115 @@ export interface CrmSnippet {
   updatedAt: string;
 }
 
+
+// ============================================================================
+// STI-hub Corporate RBAC (9 Roles + 22 Seta Telecom Users), MFA Auth & Subdomain
+// ============================================================================
+
+export type StiHubRoleId =
+  | "SUPER_ADMIN"
+  | "DIRETORIA"
+  | "GERENTE_COMERCIAL"
+  | "VENDEDOR_SALES"
+  | "ANALISTA_MARKETING"
+  | "FINANCEIRO_FATURAMENTO"
+  | "FISCAL_CONTABIL"
+  | "TECNICO_NOC_OS"
+  | "OPERADOR_PDV_ESTOQUE";
+
+export type StiHubVisibilityScope = "TODOS" | "EQUIPE" | "PROPRIOS";
+
+export type StiHubModuleAccessLevel = "FULL" | "EDIT" | "VIEW" | "NONE";
+
+export interface StiHubActionGuards {
+  canViewFinancialBalances: boolean;
+  canIssueFiscalDocuments: boolean;
+  canApproveProposals: boolean;
+  canMergeRecords: boolean;
+  canDeleteRecords: boolean;
+  canExportData: boolean;
+  canManageUsersRbac: boolean;
+}
+
+export interface StiHubRoleDefinition {
+  id: StiHubRoleId;
+  name: string;
+  description: string;
+  hubCategory:
+    | "GLOBAL_DIRETORIA"
+    | "CRM_SALES"
+    | "CRM_MARKETING"
+    | "ERP_FINANCEIRO_FISCAL"
+    | "ERP_NOC_OPERACOES";
+  defaultScope: StiHubVisibilityScope;
+  modulePermissions: Record<string, StiHubModuleAccessLevel>;
+  actionGuards: StiHubActionGuards;
+  updatedAt: string;
+}
+
+export interface StiHubUserRecord {
+  id: string;
+  gestaoClickId?: string;
+  hubspotOwnerId?: string;
+  name: string;
+  email: string;
+  phone: string;
+  department: string;
+  jobTitle: string;
+  roleId: StiHubRoleId;
+  scope: StiHubVisibilityScope;
+  active: boolean;
+  mfaEnabled: boolean;
+  mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+  actionGuardsOverride?: Partial<StiHubActionGuards>;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StiHubSubdomainRecord {
+  domain: string;
+  type: "PRIMARY_VERCEL" | "CORPORATE_CNAME" | "ERP_ALIAS";
+  cnameTarget: string;
+  sslStatus: "ACTIVE_TLS_1_3" | "PENDING_DNS";
+  isDefaultPublicProposalDomain: boolean;
+  verifiedAt: string;
+}
+
+export interface StiHubCustomPropertySpec {
+  id: string;
+  objectType: "CONTACT" | "COMPANY" | "DEAL" | "TICKET";
+  internalName: string;
+  label: string;
+  fieldType: "ENUMERATION" | "TEXT" | "NUMBER" | "BOOLEAN";
+  hubspotGroup: string;
+  options?: string[];
+  description: string;
+  syncedWithPortal4369067: boolean;
+}
+
+export interface StiHubSecurityAndMailerConfig {
+  enforceMfaOnAllLogins: boolean;
+  sessionTtlHours: number;
+  defaultTotpDemoCode: string;
+  smtpProvider: "RESEND_HTTP_API" | "SMTP_SETA_TELECOM" | "GMAIL_CORPORATE_RELAY";
+  smtpHost: string;
+  smtpPort: number;
+  fromName: string;
+  fromEmail: string;
+  replyToEmail: string;
+  dkimSpfDmarcVerified: boolean;
+  subdomains: StiHubSubdomainRecord[];
+  customProperties: StiHubCustomPropertySpec[];
+  updatedAt: string;
+}
+
+export interface StiHubRbacState {
+  roles: StiHubRoleDefinition[];
+  users: StiHubUserRecord[];
+  securityConfig: StiHubSecurityAndMailerConfig;
+}
+
 export interface CrmDatabaseState {
   contacts: Contact[];
   companies: Company[];
@@ -1080,4 +1189,5 @@ export interface CrmDatabaseState {
   emailTemplates?: CrmEmailTemplate[];
   snippets?: CrmSnippet[];
   erp?: ErpDatabaseState;
+  rbac?: StiHubRbacState;
 }

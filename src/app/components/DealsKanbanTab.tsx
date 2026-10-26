@@ -35,6 +35,7 @@ import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 
 export interface EnrichedDeal extends Deal {
   stageName: string;
@@ -545,6 +546,10 @@ export default function DealsKanbanTab({
           </div>
         </div>
       )}
+      <SalesHubProToolsStrip
+        onOpenEmailModal={(p) => setEmailModalPayload(p)}
+        onShowToast={onShowToast}
+      />
       {/* SELETOR DE PIPELINE EM DESTAQUE (3 FUNIS SETA TELECOM) */}
       <div className="bg-[#213343] rounded-[6px] p-4 text-white shadow-2xs border border-[#33475b]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
