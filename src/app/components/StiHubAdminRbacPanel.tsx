@@ -30,8 +30,28 @@ import {
   StiHubVisibilityScope,
 } from '../../db/types';
 import { STI_HUB_MODULES_LIST } from '../../modules/erp/rbac-seed';
+import {
+  DEFAULT_CERTIFICATE_SERIES_SETTINGS,
+  DEFAULT_COMPANY_EMITTER_SETTINGS,
+  DEFAULT_GENERAL_PARAMETERS,
+  ErpSyncRunLog,
+  INITIAL_MIGRATION_CHECKLIST_11_MODULES,
+  INITIAL_SYNC_LOGS,
+  MigrationChecklistModuleItem,
+  StiHubCertificateAndSeriesSettings,
+  StiHubCompanyEmitterSettings,
+  StiHubGeneralSystemParameters,
+} from '../../modules/erp/daily-sync-service';
 
-export type AdminSubView = 'USERS_RBAC' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'SUBDOMAIN_SECURITY';
+export type AdminSubView =
+  | 'USERS_RBAC'
+  | 'COMPANY_EMITTER'
+  | 'CERTIFICATE_SERIES'
+  | 'EMAIL_TEMPLATES'
+  | 'CUSTOM_PROPERTIES'
+  | 'DAILY_SYNC_LOGS'
+  | 'MIGRATION_CHECKLIST'
+  | 'SUBDOMAIN_SECURITY';
 
 interface StiHubAdminRbacPanelProps {
   rbacState: StiHubRbacState | null;
@@ -119,6 +139,143 @@ export default function StiHubAdminRbacPanel({
     'Olá {{contact.firstName}},\n\nSegue o link oficial da Proposta Comercial em PDF A4 da Seta Telecom para {{company.name}} (isenta de ISS conforme Súmula Vinculante 31 STF):\n{{proposta.link_pdf}}\n\nAtenciosamente,\n{{sender.name}}'
   );
   const [savingTpl, setSavingTpl] = useState(false);
+
+  // User Edit Modal State
+  const [editingUser, setEditingUser] = useState<StiHubUserRecord | null>(null);
+
+  // Unified Admin Settings States (Company Emitter, Certificate A1, General Params, Checklist, Daily Sync)
+  const [companyEmitter, setCompanyEmitter] = useState<StiHubCompanyEmitterSettings>(
+    DEFAULT_COMPANY_EMITTER_SETTINGS
+  );
+  const [certificateSettings, setCertificateSettings] = useState<StiHubCertificateAndSeriesSettings>(
+    DEFAULT_CERTIFICATE_SERIES_SETTINGS
+  );
+  const [generalParameters, setGeneralParameters] = useState<StiHubGeneralSystemParameters>(
+    DEFAULT_GENERAL_PARAMETERS
+  );
+  const [migrationChecklist, setMigrationChecklist] = useState<MigrationChecklistModuleItem[]>(
+    INITIAL_MIGRATION_CHECKLIST_11_MODULES
+  );
+  const [syncLogs, setSyncLogs] = useState<ErpSyncRunLog[]>(INITIAL_SYNC_LOGS);
+  const [runningSyncNow, setRunningSyncNow] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [lookingUpEmitterCnpj, setLookingUpEmitterCnpj] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const d = json?.data;
+        if (!d) return;
+        if (d.companyEmitter) setCompanyEmitter(d.companyEmitter);
+        if (d.certificateSettings) setCertificateSettings(d.certificateSettings);
+        if (d.generalParameters) setGeneralParameters(d.generalParameters);
+        if (Array.isArray(d.migrationChecklist) && d.migrationChecklist.length > 0) {
+          setMigrationChecklist(d.migrationChecklist);
+        }
+        if (Array.isArray(d.syncLogs) && d.syncLogs.length > 0) {
+          setSyncLogs(d.syncLogs);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveAdminSettings = async (patch: Record<string, unknown>, successMsg: string) => {
+    setSavingSettings(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data?.companyEmitter) setCompanyEmitter(json.data.companyEmitter);
+        if (json?.data?.certificateSettings) setCertificateSettings(json.data.certificateSettings);
+        if (json?.data?.generalParameters) setGeneralParameters(json.data.generalParameters);
+        onShowToast(successMsg);
+        await onRefresh();
+      }
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleLookupEmitterCnpj = async () => {
+    setLookingUpEmitterCnpj(true);
+    try {
+      const res = await fetch(`/api/cnpj/lookup?cnpj=${encodeURIComponent(companyEmitter.cnpj)}`);
+      if (res.ok) {
+        const json = await res.json();
+        const d = json?.data;
+        if (d) {
+          setCompanyEmitter((prev) => ({
+            ...prev,
+            legalName: d.razaoSocial || prev.legalName,
+            tradeName: d.nomeFantasia || prev.tradeName,
+            stateRegistration: d.inscricaoEstadual || prev.stateRegistration,
+            municipalRegistration: d.inscricaoMunicipal || prev.municipalRegistration,
+            cnaeMain: d.cnaePrincipal ? `${d.cnaePrincipal} — ${d.cnaeDescricao}` : prev.cnaeMain,
+            cep: d.cep || prev.cep,
+            addressStreet: d.logradouro || prev.addressStreet,
+            addressNumber: d.numero || prev.addressNumber,
+            addressComplement: d.complemento || prev.addressComplement,
+            neighborhood: d.bairro || prev.neighborhood,
+            city: d.cidade || prev.city,
+            state: d.uf || prev.state,
+            ibgeCode: d.codigoIbge || prev.ibgeCode,
+            phone: d.telefone || prev.phone,
+            financialEmail: d.emailFinanceiroNfe || prev.financialEmail,
+          }));
+          onShowToast(`CNPJ ${d.cnpj} validado na Receita Federal (${d.razaoSocial})!`);
+        }
+      }
+    } finally {
+      setLookingUpEmitterCnpj(false);
+    }
+  };
+
+  const handleRunDailySyncNow = async () => {
+    setRunningSyncNow(true);
+    try {
+      const res = await fetch('/api/erp/daily-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'DAILY_INCREMENTAL_SYNC', incrementalCount: 9 }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json?.data?.logs)) {
+          setSyncLogs(json.data.logs);
+        }
+        onShowToast(
+          `Sincronização diária incremental executada (${json?.data?.latestRun?.runId || 'OK'})!`
+        );
+        await onRefresh();
+      }
+    } finally {
+      setRunningSyncNow(false);
+    }
+  };
+
+  const handleUpdateChecklistItem = async (
+    moduleNumber: number,
+    validationStatus: 'PASSOU' | 'FALHOU' | 'EM_CONFERENCIA',
+    auditorNotes?: string
+  ) => {
+    const res = await fetch('/api/admin/migration-checklist', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moduleNumber, validationStatus, auditorNotes }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.data)) {
+        setMigrationChecklist(json.data);
+      }
+      onShowToast(`Módulo #${moduleNumber} marcado como ${validationStatus} no Checklist de Homologação!`);
+    }
+  };
 
   useEffect(() => {
     setSubView(initialSubView);
@@ -305,7 +462,7 @@ export default function StiHubAdminRbacPanel({
             </span>
           </div>
           <h2 className="text-base sm:text-lg font-extrabold">
-            ⚙️ Administração STI-hub: Permissões RBAC (ERP + CRM), Modelos de E-mail, Custom Properties &amp; Segurança MFA
+            Central Unificada de Administração &amp; Configurações (CRM + SETA ERP)
           </h2>
           <p className="text-xs text-slate-300">
             Controle granular de acesso por perfil e colaborador (GestãoClick Loja #118887 + HubSpot Portal #4369067), escopo de visibilidade (Todos / Equipe / Próprios), disparo validado de e-mails e subdomínios oficiais.
@@ -334,22 +491,42 @@ export default function StiHubAdminRbacPanel({
         {[
           {
             id: 'USERS_RBAC' as const,
-            label: `👥 Usuários (${users.length}) & Matriz RBAC (9 Perfis)`,
+            label: `Usuários (${users.length}) & Matriz RBAC (9 Perfis)`,
             icon: Users,
           },
           {
+            id: 'COMPANY_EMITTER' as const,
+            label: 'Dados da Empresa & Fiscal',
+            icon: ShieldCheck,
+          },
+          {
+            id: 'CERTIFICATE_SERIES' as const,
+            label: 'Certificado A1, Séries NF & Parâmetros',
+            icon: KeyRound,
+          },
+          {
             id: 'EMAIL_TEMPLATES' as const,
-            label: `✉️ Envio Validado & Modelos de E-mail (${emailTemplates.length})`,
+            label: `E-mail Validado & Modelos (${emailTemplates.length})`,
             icon: Mail,
           },
           {
             id: 'CUSTOM_PROPERTIES' as const,
-            label: `🏷️ Custom Properties HubSpot (#4369067)`,
+            label: 'Campos Customizáveis (#4369067)',
             icon: Database,
           },
           {
+            id: 'MIGRATION_CHECKLIST' as const,
+            label: 'Homologação da Migração (11 Módulos)',
+            icon: CheckCircle2,
+          },
+          {
+            id: 'DAILY_SYNC_LOGS' as const,
+            label: `Sincronização Diária ERP & Logs (${syncLogs.length})`,
+            icon: RefreshCw,
+          },
+          {
             id: 'SUBDOMAIN_SECURITY' as const,
-            label: `🔒 Segurança MFA 2FA, Rotas & Subdomínio`,
+            label: 'Segurança MFA 2FA, Rotas & Subdomínio',
             icon: Globe,
           },
         ].map((tab) => {
@@ -678,20 +855,29 @@ export default function StiHubAdminRbacPanel({
                           </button>
                         </td>
                         <td className="py-2.5 px-3 text-right">
-                          {u.active && onSelectActiveUser && (
+                          <div className="inline-flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                onSelectActiveUser(u);
-                                onShowToast(
-                                  `Sessão RBAC alternada para ${u.name} (${u.roleId} • Escopo: ${u.scope})!`
-                                );
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#0d2b4e] text-white text-[11px] font-bold cursor-pointer"
+                              onClick={() => setEditingUser(u)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] font-bold cursor-pointer"
                             >
-                              <UserCheck className="w-3 h-3" /> Assumir Perfil
+                              <Edit3 className="w-3 h-3 text-[#ff7a59]" /> Editar
                             </button>
-                          )}
+                            {u.active && onSelectActiveUser && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onSelectActiveUser(u);
+                                  onShowToast(
+                                    `Sessão RBAC alternada para ${u.name} (${u.roleId} • Escopo: ${u.scope})!`
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#0d2b4e] text-white text-[11px] font-bold cursor-pointer"
+                              >
+                                <UserCheck className="w-3 h-3" /> Assumir Perfil
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -749,7 +935,7 @@ export default function StiHubAdminRbacPanel({
 
             <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3 text-xs">
               <div className="font-extrabold text-[#0d2b4e]">
-                🚀 Testar Disparo de E-mail Transacional Agora
+                Testar Disparo de E-mail Transacional Agora
               </div>
               <p className="text-[11px] text-slate-600">
                 Envia um e-mail de validação com o link público de Proposta PDF A4 (`https://sti-hub.vercel.app/proposta/prop-seta-001`) e registra protocolo na Timeline.
@@ -1026,6 +1212,798 @@ export default function StiHubAdminRbacPanel({
             >
               <Lock className="w-4 h-4 text-[#ff7a59]" /> Testar Fluxo de Login + MFA 2FA Agora
             </a>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: DADOS DA EMPRESA EMITENTE & FISCAL (CFG_EMPRESA)
+      ==================================================================== */}
+      {subView === 'COMPANY_EMITTER' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                CONFIGURAÇÕES &gt; DADOS DA EMPRESA EMITENTE (CFG_EMPRESA / LOJA MATRIZ #118887)
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Ficha Fiscal e Bancária da Seta Telecom LTDA
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleLookupEmitterCnpj}
+                disabled={lookingUpEmitterCnpj}
+                className="px-3.5 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+              >
+                {lookingUpEmitterCnpj ? 'Consultando RFB...' : 'Consultar CNPJ na Receita Federal'}
+              </button>
+              <button
+                type="button"
+                disabled={savingSettings}
+                onClick={() =>
+                  handleSaveAdminSettings(
+                    { companyEmitter },
+                    'Dados fiscais e bancários da Seta Telecom salvos com sucesso!'
+                  )
+                }
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+              >
+                {savingSettings ? 'Salvando...' : 'Salvar Dados da Empresa'}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Razão Social Emitente</label>
+              <input
+                type="text"
+                value={companyEmitter.legalName}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, legalName: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Nome Fantasia / Unidade</label>
+              <input
+                type="text"
+                value={companyEmitter.tradeName}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, tradeName: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">CNPJ Matriz</label>
+              <input
+                type="text"
+                value={companyEmitter.cnpj}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, cnpj: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono font-bold"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Inscrição Estadual (IE)</label>
+              <input
+                type="text"
+                value={companyEmitter.stateRegistration}
+                onChange={(e) =>
+                  setCompanyEmitter({ ...companyEmitter, stateRegistration: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Inscrição Municipal (IM)</label>
+              <input
+                type="text"
+                value={companyEmitter.municipalRegistration}
+                onChange={(e) =>
+                  setCompanyEmitter({ ...companyEmitter, municipalRegistration: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Regime Tributário</label>
+              <select
+                value={companyEmitter.taxRegime}
+                onChange={(e) =>
+                  setCompanyEmitter({
+                    ...companyEmitter,
+                    taxRegime: e.target.value as StiHubCompanyEmitterSettings['taxRegime'],
+                  })
+                }
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+              >
+                <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
+                <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
+                <option value="SIMPLES_NACIONAL">Simples Nacional</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block font-bold text-slate-700 mb-1">CNAE Principal Fiscal</label>
+              <input
+                type="text"
+                value={companyEmitter.cnaeMain}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, cnaeMain: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Código IBGE Município</label>
+              <input
+                type="text"
+                value={companyEmitter.ibgeCode}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, ibgeCode: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">CEP</label>
+              <input
+                type="text"
+                value={companyEmitter.cep}
+                onChange={(e) => setCompanyEmitter({ ...companyEmitter, cep: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block font-bold text-slate-700 mb-1">Logradouro &amp; Número</label>
+              <div className="grid grid-cols-4 gap-2">
+                <input
+                  type="text"
+                  value={companyEmitter.addressStreet}
+                  onChange={(e) =>
+                    setCompanyEmitter({ ...companyEmitter, addressStreet: e.target.value })
+                  }
+                  className="col-span-3 px-3 py-2 rounded-lg border border-slate-300"
+                />
+                <input
+                  type="text"
+                  value={companyEmitter.addressNumber}
+                  onChange={(e) =>
+                    setCompanyEmitter({ ...companyEmitter, addressNumber: e.target.value })
+                  }
+                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Cidade / UF</label>
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  value={companyEmitter.city}
+                  onChange={(e) => setCompanyEmitter({ ...companyEmitter, city: e.target.value })}
+                  className="col-span-2 px-3 py-2 rounded-lg border border-slate-300"
+                />
+                <input
+                  type="text"
+                  value={companyEmitter.state}
+                  onChange={(e) => setCompanyEmitter({ ...companyEmitter, state: e.target.value })}
+                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300 font-bold"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Conta Principal Banco Inter</label>
+              <input
+                type="text"
+                value={companyEmitter.defaultBankInterAccount}
+                onChange={(e) =>
+                  setCompanyEmitter({ ...companyEmitter, defaultBankInterAccount: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Conta Principal Banco Itaú</label>
+              <input
+                type="text"
+                value={companyEmitter.defaultBankItauAccount}
+                onChange={(e) =>
+                  setCompanyEmitter({ ...companyEmitter, defaultBankItauAccount: e.target.value })
+                }
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: CERTIFICADO DIGITAL A1, SÉRIES NF & PARÂMETROS GERAIS
+      ==================================================================== */}
+      {subView === 'CERTIFICATE_SERIES' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
+          <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                  CONFIGURAÇÕES &gt; CERTIFICADO DIGITAL A1 &amp; NUMERAÇÃO FISCAL (CFG_CERTIFICADO)
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Certificado ICP-Brasil (.pfx) e Séries NF-e / NFS-e / NFCom / Locação SV 31
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={savingSettings}
+                onClick={() =>
+                  handleSaveAdminSettings(
+                    { certificateSettings, generalParameters },
+                    'Certificado Digital A1, séries fiscais e parâmetros gerais salvos!'
+                  )
+                }
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+              >
+                {savingSettings ? 'Salvando...' : 'Salvar Parâmetros Fiscais'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Arquivo Certificado A1 (.pfx)</label>
+                <input
+                  type="text"
+                  value={certificateSettings.certificateFileName}
+                  onChange={(e) =>
+                    setCertificateSettings({
+                      ...certificateSettings,
+                      certificateFileName: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Ambiente SEFAZ / Prefeitura</label>
+                <select
+                  value={certificateSettings.sefazEnvironment}
+                  onChange={(e) =>
+                    setCertificateSettings({
+                      ...certificateSettings,
+                      sefazEnvironment: e.target.value as 'PRODUCAO' | 'HOMOLOGACAO',
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                >
+                  <option value="PRODUCAO">PRODUÇÃO (Validade Jurídica Ativa)</option>
+                  <option value="HOMOLOGACAO">HOMOLOGAÇÃO (Testes SEFAZ)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NF-e Produto (Mod. 55)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={certificateSettings.nfeProductSeries}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfeProductSeries: e.target.value,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                  <input
+                    type="number"
+                    value={certificateSettings.nfeProductNextNumber}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfeProductNextNumber: Number(e.target.value) || 1,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NFS-e Serviço (LC 116)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={certificateSettings.nfseServiceSeries}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfseServiceSeries: e.target.value,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                  <input
+                    type="number"
+                    value={certificateSettings.nfseServiceNextNumber}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfseServiceNextNumber: Number(e.target.value) || 1,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NFCom Telecom (Mod. 62)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={certificateSettings.nfcomTelecomSeries}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfcomTelecomSeries: e.target.value,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                  <input
+                    type="number"
+                    value={certificateSettings.nfcomTelecomNextNumber}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        nfcomTelecomNextNumber: Number(e.target.value) || 1,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Prefixo &amp; Próxima Fatura Locação (0% ISS SV 31)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={certificateSettings.rentalInvoicePrefix}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        rentalInvoicePrefix: e.target.value,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                  <input
+                    type="number"
+                    value={certificateSettings.rentalInvoiceNextNumber}
+                    onChange={(e) =>
+                      setCertificateSettings({
+                        ...certificateSettings,
+                        rentalInvoiceNextNumber: Number(e.target.value) || 1,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="border-b border-slate-200 pb-3">
+              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+                CONFIGURAÇÕES GERAIS DO SISTEMA (CFG_GERAIS)
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Regras Comerciais, Financeiras e Travas Globais
+              </h3>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Alçada Desconto Padrão (%)</label>
+                  <input
+                    type="number"
+                    value={generalParameters.defaultSalesDiscountLimitPercent}
+                    onChange={(e) =>
+                      setGeneralParameters({
+                        ...generalParameters,
+                        defaultSalesDiscountLimitPercent: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste Contratos</label>
+                  <select
+                    value={generalParameters.defaultContractReadjustmentIndex}
+                    onChange={(e) =>
+                      setGeneralParameters({
+                        ...generalParameters,
+                        defaultContractReadjustmentIndex: e.target
+                          .value as StiHubGeneralSystemParameters['defaultContractReadjustmentIndex'],
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                  >
+                    <option value="IPCA">IPCA (IBGE)</option>
+                    <option value="IGP-M">IGP-M (FGV)</option>
+                    <option value="IST_ANATEL">IST Anatel</option>
+                    <option value="FIXO">Fixo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Multa Atraso Boleto (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={generalParameters.boletoLateFeePercent}
+                    onChange={(e) =>
+                      setGeneralParameters({
+                        ...generalParameters,
+                        boletoLateFeePercent: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Juros Mensal Boleto (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={generalParameters.boletoMonthlyInterestPercent}
+                    onChange={(e) =>
+                      setGeneralParameters({
+                        ...generalParameters,
+                        boletoMonthlyInterestPercent: Number(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-1">
+                <div className="font-extrabold text-emerald-950">
+                  Trava Fiscal de CNPJ (Anti-Merge Matriz/Filial): ATIVA
+                </div>
+                <p className="text-[11px] text-emerald-800">
+                  Bloqueia automaticamente qualquer tentativa de unificar empresas com CNPJs diferentes no CRM e no ERP.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: CHECKLIST INTERATIVO DE HOMOLOGAÇÃO DOS 11 MÓDULOS (CFG_CHECKLIST)
+      ==================================================================== */}
+      {subView === 'MIGRATION_CHECKLIST' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase text-[#ff7a59] block">
+                HOMOLOGAÇÃO OFICIAL DA MIGRAÇÃO GESTÃOCLICK (#118887) &rarr; STI-HUB
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Checklist Verificável dos 11 Módulos Importados (6.414 Registros Reais)
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-extrabold">
+                Aprovados: {migrationChecklist.filter((m) => m.validationStatus === 'PASSOU').length} /{' '}
+                {migrationChecklist.length} Módulos
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {migrationChecklist.map((item) => (
+              <div
+                key={item.moduleKey}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded bg-[#0d2b4e] text-white font-extrabold">
+                        {item.moduleName}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded bg-blue-100 text-[#1e3a6e] font-black">
+                        {item.totalCount.toLocaleString('pt-BR')} registros
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-semibold">
+                        Destino: {item.targetDestination}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {(['PASSOU', 'EM_CONFERENCIA', 'FALHOU'] as const).map((st) => {
+                      const active = item.validationStatus === st;
+                      const cls =
+                        st === 'PASSOU'
+                          ? active
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white text-emerald-700 border border-emerald-300'
+                          : st === 'FALHOU'
+                            ? active
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-white text-rose-700 border border-rose-300'
+                            : active
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-white text-amber-800 border border-amber-300';
+                      return (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => handleUpdateChecklistItem(item.moduleNumber, st, item.auditorNotes)}
+                          className={`px-2.5 py-1 rounded font-extrabold text-[11px] cursor-pointer transition ${cls}`}
+                        >
+                          {st === 'PASSOU' ? '[x] PASSOU' : st === 'FALHOU' ? '[ ] FALHOU' : 'EM CONFERÊNCIA'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200">
+                    <strong className="text-slate-800 block mb-1">Amostragem Real para Conferência:</strong>
+                    <ul className="list-disc list-inside text-slate-600 space-y-0.5">
+                      {item.sampleRecords.map((sr, i) => (
+                        <li key={i}>{sr}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
+                    <div>
+                      <strong className="text-slate-800">Campos Verificados:</strong>{' '}
+                      <span className="text-slate-600">{item.requiredFieldsVerified.join(' • ')}</span>
+                    </div>
+                    <div>
+                      <strong className="text-slate-800">Trava Fiscal / CNPJ:</strong>{' '}
+                      <span className="text-emerald-700 font-semibold">{item.cnpjFiscalLockCheck}</span>
+                    </div>
+                    <div>
+                      <strong className="text-slate-800">Vínculos entre Cadastros:</strong>{' '}
+                      <span className="text-slate-600">{item.relationalIntegrityCheck}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-700 shrink-0">Observações da Conferência:</span>
+                  <input
+                    type="text"
+                    value={item.auditorNotes}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMigrationChecklist((prev) =>
+                        prev.map((m) =>
+                          m.moduleNumber === item.moduleNumber ? { ...m, auditorNotes: val } : m
+                        )
+                      );
+                    }}
+                    onBlur={(e) =>
+                      handleUpdateChecklistItem(
+                        item.moduleNumber,
+                        item.validationStatus,
+                        e.target.value
+                      )
+                    }
+                    className="flex-1 px-2.5 py-1 rounded border border-slate-300 bg-white text-[11px]"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: SINCRONIZAÇÃO DIÁRIA INCREMENTAL ERP & LOGS (CFG_LOGS)
+      ==================================================================== */}
+      {subView === 'DAILY_SYNC_LOGS' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+                SINCRONIZAÇÃO AUTOMÁTICA DIÁRIA • GESTÃOCLICK (#118887) &rarr; STI-HUB (/api/erp/daily-sync)
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Motor Incremental Diário (07h00 EDT) &amp; Histórico de Execuções
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={handleRunDailySyncNow}
+              disabled={runningSyncNow}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${runningSyncNow ? 'animate-spin' : ''}`} />
+              {runningSyncNow
+                ? 'Executando Sincronização Incremental...'
+                : 'Executar Sincronização Incremental Agora'}
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {syncLogs.map((log) => (
+              <div
+                key={log.runId}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-mono font-bold">
+                      {log.runId}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-extrabold text-[10px]">
+                      {log.mode === 'INITIAL_WIPE_AND_FULL_IMPORT'
+                        ? 'LIMPEZA + CARGA TOTAL INICIAL'
+                        : 'SINCRONIZAÇÃO DIÁRIA INCREMENTAL'}
+                    </span>
+                    <span className="text-slate-500">
+                      {new Date(log.timestamp).toLocaleString('pt-BR')} ({log.durationMs}ms)
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded bg-emerald-600 text-white font-extrabold text-[10px]">
+                    {log.status} • {log.incrementalNewOrUpdated} reg. sincronizados
+                  </span>
+                </div>
+                <p className="text-slate-700 font-medium">{log.summary}</p>
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 text-[11px]">
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    Clientes: <strong>{log.importedCounts.clientes}</strong>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    Fornecedores: <strong>{log.importedCounts.fornecedores}</strong>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    Produtos/Serv.: <strong>{log.importedCounts.produtos + log.importedCounts.servicos}</strong>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    Orçamentos: <strong>{log.importedCounts.orcamentos}</strong>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    Contratos: <strong>{log.importedCounts.contratos}</strong>
+                  </div>
+                  <div className="p-2 rounded bg-white border border-slate-200">
+                    O.S. / Chamados: <strong>{log.importedCounts.ordensServico}</strong>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Existing User */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4 text-xs">
+            <h3 className="text-base font-extrabold text-slate-900">
+              Editar Colaborador RBAC — {editingUser.name}
+            </h3>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                await handleUpdateUserInline(editingUser, editingUser);
+                setEditingUser(null);
+              }}
+              className="space-y-3"
+            >
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.name}
+                  onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                <input
+                  type="email"
+                  required
+                  value={editingUser.email}
+                  onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Departamento</label>
+                  <input
+                    type="text"
+                    value={editingUser.department}
+                    onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Cargo</label>
+                  <input
+                    type="text"
+                    value={editingUser.jobTitle}
+                    onChange={(e) => setEditingUser({ ...editingUser, jobTitle: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Perfil RBAC</label>
+                  <select
+                    value={editingUser.roleId}
+                    onChange={(e) =>
+                      setEditingUser({ ...editingUser, roleId: e.target.value as StiHubRoleId })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                  >
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Escopo de Carteira</label>
+                  <select
+                    value={editingUser.scope}
+                    onChange={(e) =>
+                      setEditingUser({
+                        ...editingUser,
+                        scope: e.target.value as StiHubVisibilityScope,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                  >
+                    <option value="TODOS">TODOS</option>
+                    <option value="EQUIPE">EQUIPE</option>
+                    <option value="PROPRIOS">PRÓPRIOS</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingUser.mfaEnabled}
+                    onChange={(e) =>
+                      setEditingUser({ ...editingUser, mfaEnabled: e.target.checked })
+                    }
+                  />
+                  <span>MFA 2FA Obrigatório Ativo</span>
+                </label>
+                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingUser.active}
+                    onChange={(e) => setEditingUser({ ...editingUser, active: e.target.checked })}
+                  />
+                  <span>Usuário Ativo</span>
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

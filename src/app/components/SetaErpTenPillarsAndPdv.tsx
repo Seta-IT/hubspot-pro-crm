@@ -424,7 +424,7 @@ export function SetaErpPdvPosView({
                 Pilar 9 • Frente de Caixa &amp; Venda Balcão (PDV Seta Telecom)
               </span>
               <h2 className="text-base font-extrabold text-slate-900">
-                🖥️ PDV Rápido — Loja Matriz #118887
+                PDV Rápido — Loja Matriz #118887
               </h2>
             </div>
             <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold">
@@ -595,11 +595,11 @@ export function SetaErpPdvPosView({
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {[
-                  { id: 'PIX', label: '💠 Pix Instantâneo (QR Code)', icon: QrCode },
-                  { id: 'CARTAO', label: '💳 Cartão Crédito / Débito', icon: CreditCard },
-                  { id: 'DINHEIRO', label: '💵 Dinheiro (Cálculo Troco)', icon: Banknote },
-                  { id: 'BOLETO_INTER', label: '🏦 Boleto Banco Inter', icon: Landmark },
-                  { id: 'CREDITO_CLIENTE', label: '🎁 Crédito / Vale-Compras', icon: Gift },
+                  { id: 'PIX', label: 'Pix Instantâneo (QR Code)', icon: QrCode },
+                  { id: 'CARTAO', label: 'Cartão Crédito / Débito', icon: CreditCard },
+                  { id: 'DINHEIRO', label: 'Dinheiro (Cálculo Troco)', icon: Banknote },
+                  { id: 'BOLETO_INTER', label: 'Boleto Banco Inter', icon: Landmark },
+                  { id: 'CREDITO_CLIENTE', label: 'Crédito / Vale-Compras', icon: Gift },
                 ].map((pm) => {
                   const Icon = pm.icon;
                   const active = paymentMethod === pm.id;
@@ -654,7 +654,7 @@ export function SetaErpPdvPosView({
               <CheckCircle2 className="w-4 h-4" />
               {submittingSale
                 ? 'Processando Venda PDV...'
-                : `✅ Finalizar Venda PDV (${formatBRL(totalNet)}) & Emitir Cupom`}
+                : `Finalizar Venda PDV (${formatBRL(totalNet)}) & Emitir Cupom`}
             </button>
           </div>
         </div>
@@ -665,7 +665,7 @@ export function SetaErpPdvPosView({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-xs font-extrabold uppercase text-slate-800">
-              📊 Conferência de Caixa do Turno por Forma de Pagamento (Matriz #118887)
+              Conferência de Caixa do Turno por Forma de Pagamento (Matriz #118887)
             </h3>
             <p className="text-[11px] text-slate-500">
               Conciliação automática das vendas realizadas no balcão/PDV.
@@ -678,11 +678,11 @@ export function SetaErpPdvPosView({
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
           {[
-            ['PIX', '💠 Pix Instantâneo'],
-            ['CARTAO', '💳 Cartão Créd./Déb.'],
-            ['DINHEIRO', '💵 Dinheiro em Espécie'],
-            ['BOLETO_INTER', '🏦 Boleto Banco Inter'],
-            ['CREDITO_CLIENTE', '🎁 Crédito do Cliente'],
+            ['PIX', 'Pix Instantâneo'],
+            ['CARTAO', 'Cartão Créd./Déb.'],
+            ['DINHEIRO', 'Dinheiro em Espécie'],
+            ['BOLETO_INTER', 'Boleto Banco Inter'],
+            ['CREDITO_CLIENTE', 'Crédito do Cliente'],
           ].map(([key, label]) => (
             <div key={key} className="p-2.5 rounded border border-slate-200 bg-slate-50">
               <span className="text-[10px] text-slate-500 block">{label}</span>
@@ -700,7 +700,7 @@ export function SetaErpPdvPosView({
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-md w-full overflow-hidden">
             <div className="px-5 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
               <span className="text-xs font-extrabold">
-                🧾 Cupom PDV / NFC-e #{emittedReceipt.code}
+                Cupom PDV / NFC-e #{emittedReceipt.code}
               </span>
               <button
                 type="button"
@@ -749,7 +749,7 @@ export function SetaErpPdvPosView({
                   }}
                   className="px-3 py-2 rounded bg-sky-600 text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-1"
                 >
-                  <Mail className="w-3.5 h-3.5" /> ✉️ Enviar p/ E-mail
+                  <Mail className="w-3.5 h-3.5" /> Enviar por E-mail
                 </button>
                 <button
                   type="button"

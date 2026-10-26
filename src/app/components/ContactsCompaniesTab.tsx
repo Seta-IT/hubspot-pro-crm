@@ -1114,7 +1114,7 @@ export default function ContactsCompaniesTab({
           {filteredCompanies.map((company) => (
             <div
               key={company.id}
-              onClick={() => handleSelectCompany(company.id)}
+              onClick={() => setGestaoClickModalCompany(company)}
               className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-[#ff7a59] transition flex flex-col justify-between gap-4 cursor-pointer group"
             >
               <div className="space-y-3">
@@ -1143,7 +1143,7 @@ export default function ContactsCompaniesTab({
                     <div className="flex flex-wrap items-center justify-end gap-1">
                       {company.isTargetAccount && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-[#e05835] border border-orange-200">
-                          🎯 Conta Alvo ABM
+                          Conta Alvo ABM
                         </span>
                       )}
                       {company.icpTier && getIcpTierBadge(company.icpTier)}

@@ -94,6 +94,7 @@ import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar from './GestaoClickSidebar';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
+import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
 import {
   CATALOG_ITEM_EDITOR_FIELDS,
@@ -3791,7 +3792,7 @@ export default function ErpGestaoClickTab({
                         onClick={() => setEditingCustomerModal({ company: selComp, isNew: false })}
                         className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
                       >
-                        ✏️ Editar Selecionado ({selComp.name.slice(0, 22)})
+                        Editar / Abrir Cadastro ({selComp.name.slice(0, 22)})
                       </button>
                     ) : null;
                   })()}
@@ -3974,37 +3975,15 @@ export default function ErpGestaoClickTab({
                                 </span>
                               </td>
                               <td className="py-2.5 px-3 text-slate-600">{phone}</td>
-                              <td className="py-2.5 px-3 text-right space-x-1">
+                              <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   type="button"
-                                  title="Visualizar / Consultar RFB & Serasa"
+                                  title="Abrir Ficha Completa do Cliente (Padrão GestãoClick + Consulta Receita Federal)"
                                   onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
-                                  className="px-2 py-1 rounded bg-cyan-500 hover:bg-cyan-600 text-white text-[11px] font-bold cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-bold transition shadow-2xs cursor-pointer"
                                 >
-                                  🔍
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Editar Cliente (7 Seções GestãoClick + Serasa)"
-                                  onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
-                                  className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-bold cursor-pointer"
-                                >
-                                  ✏️ Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Excluir Cliente"
-                                  onClick={async () => {
-                                    await fetch(`/api/companies/${encodeURIComponent(c.id)}`, {
-                                      method: 'DELETE',
-                                    });
-                                    recordDeletedCompany(c.id);
-                                    onShowToast(`Cliente ${c.name} removido.`);
-                                    await onRefresh();
-                                  }}
-                                  className="px-2 py-1 rounded bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold cursor-pointer"
-                                >
-                                  🗑️
+                                  <Edit3 className="w-3.5 h-3.5 text-[#ff7a59]" />
+                                  <span>Editar / Abrir Cadastro</span>
                                 </button>
                               </td>
                             </tr>
@@ -5128,11 +5107,17 @@ export default function ErpGestaoClickTab({
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={
-                      activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
-                        ? 'EMAIL_TEMPLATES'
-                        : activeSubId === 'CFG_LOJAS' || activeSubId === 'CFG_MARCA'
-                          ? 'SUBDOMAIN_SECURITY'
-                          : 'USERS_RBAC'
+                      activeSubId === 'CFG_EMPRESA' || activeSubId === 'CFG_LOJAS' || activeSubId === 'CFG_MARCA'
+                        ? 'COMPANY_EMITTER'
+                        : activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_PLANO'
+                          ? 'CERTIFICATE_SERIES'
+                          : activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
+                            ? 'EMAIL_TEMPLATES'
+                            : activeSubId === 'CFG_CHECKLIST'
+                              ? 'MIGRATION_CHECKLIST'
+                              : activeSubId === 'CFG_LOGS'
+                                ? 'DAILY_SYNC_LOGS'
+                                : 'USERS_RBAC'
                     }
                     activeUser={activeUser}
                     onSelectActiveUser={onSelectActiveUser}
@@ -5193,11 +5178,10 @@ export default function ErpGestaoClickTab({
       )}
 
       {editingCustomerModal && (
-        <GestaoClickCustomerEditModal
+        <GestaoClickCompanyModal
           company={editingCustomerModal.company}
           isNew={editingCustomerModal.isNew}
           onClose={() => setEditingCustomerModal(null)}
-          onShowToast={onShowToast}
           onSave={async (payload) => {
             const compId = editingCustomerModal.company.id;
             const res = await fetch(
@@ -5222,6 +5206,19 @@ export default function ErpGestaoClickTab({
             );
             await onRefresh();
           }}
+          onDelete={
+            editingCustomerModal.company.id && !editingCustomerModal.isNew
+              ? async (companyId: string) => {
+                  await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
+                    method: 'DELETE',
+                  });
+                  recordDeletedCompany(companyId);
+                  setEditingCustomerModal(null);
+                  onShowToast(`Cliente ${editingCustomerModal.company.name} excluído após confirmação.`);
+                  await onRefresh();
+                }
+              : undefined
+          }
         />
       )}
 

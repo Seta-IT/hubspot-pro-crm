@@ -436,7 +436,7 @@ export default function HubSpotProCrmApp() {
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       const msg = errJson.error || 'Erro ao salvar contato.';
-      showToast(`⚠️ ${msg}`);
+      showToast(`Alerta: ${msg}`);
       throw new Error(msg);
     }
 
@@ -467,7 +467,7 @@ export default function HubSpotProCrmApp() {
     });
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      showToast(`⚠️ ${errJson.error || 'Erro ao atualizar contato.'}`);
+      showToast(`Alerta: ${errJson.error || 'Erro ao atualizar contato.'}`);
       throw new Error(errJson.error || 'Erro ao atualizar contato');
     }
     const json = await res.json();
@@ -515,7 +515,7 @@ export default function HubSpotProCrmApp() {
     });
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      showToast(`⚠️ ${errJson.error || 'Erro ao cadastrar empresa.'}`);
+      showToast(`Alerta: ${errJson.error || 'Erro ao cadastrar empresa.'}`);
       throw new Error(errJson.error || 'Erro ao cadastrar empresa');
     }
     const json = await res.json();
@@ -1000,11 +1000,13 @@ export default function HubSpotProCrmApp() {
     : [];
 
   const isCrmActive =
+    activeModule === 'OVERVIEW_AI' ||
     activeModule === 'DEALS_KANBAN' ||
     activeModule === 'CONTACTS_COMPANIES' ||
     activeModule === 'MARKETING_FORMS' ||
     activeModule === 'AUTOMATIONS' ||
-    activeModule === 'DATA_HEALTH';
+    activeModule === 'DATA_HEALTH' ||
+    activeModule === 'ADMIN_RBAC';
 
   const macroNavItems: Array<{
     id: string;
@@ -1016,27 +1018,18 @@ export default function HubSpotProCrmApp() {
     onClick: () => void;
   }> = [
     {
-      id: 'OVERVIEW_AI',
-      label: 'Visão Geral',
-      shortLabel: '📊 Visão Geral',
-      icon: Sparkles,
-      badge: 'IA',
-      isActive: activeModule === 'OVERVIEW_AI',
-      onClick: () => setActiveModule('OVERVIEW_AI'),
-    },
-    {
       id: 'CRM',
       label: 'CRM',
-      shortLabel: '💼 CRM',
+      shortLabel: 'CRM',
       icon: Kanban,
-      badge: `${deals.length} Deals • ${contacts.length} Contatos`,
+      badge: `${deals.length} Deals | ${contacts.length} Contatos`,
       isActive: isCrmActive,
       onClick: () => setActiveModule(lastCrmSubModule || 'DEALS_KANBAN'),
     },
     {
       id: 'ERP',
       label: 'ERP',
-      shortLabel: '🏢 ERP',
+      shortLabel: 'ERP',
       icon: Receipt,
       badge: erpData ? `${erpData.rentalContracts.length} Contratos` : undefined,
       isActive: activeModule === 'ERP_GESTAOCLICK',
@@ -1045,20 +1038,11 @@ export default function HubSpotProCrmApp() {
     {
       id: 'SERVICE_DESK',
       label: 'Chamados',
-      shortLabel: '🎧 Chamados',
+      shortLabel: 'Chamados',
       icon: Ticket,
       badge: ticketKpis.openCount,
       isActive: activeModule === 'SERVICE_DESK',
       onClick: () => setActiveModule('SERVICE_DESK'),
-    },
-    {
-      id: 'ADMIN_RBAC',
-      label: 'Admin & RBAC',
-      shortLabel: '⚙️ Admin & RBAC',
-      icon: Settings,
-      badge: rbacState ? `${rbacState.users.length} Usu.` : 'RBAC',
-      isActive: activeModule === 'ADMIN_RBAC',
-      onClick: () => setActiveModule('ADMIN_RBAC'),
     },
   ];
 
@@ -1135,7 +1119,7 @@ export default function HubSpotProCrmApp() {
                 onClick={() => setGlobalSearch("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-[#99acc2] hover:text-white"
               >
-                ✕
+                Limpar
               </button>
             )}
             {quickSearchContacts.length > 0 && (
@@ -1323,7 +1307,7 @@ export default function HubSpotProCrmApp() {
               }}
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
             >
-              ● {contacts.length} Contatos →
+              {contacts.length} Contatos
             </button>
 
             <button
@@ -1334,7 +1318,7 @@ export default function HubSpotProCrmApp() {
               }}
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
             >
-              ● {companies.length} Empresas →
+              {companies.length} Empresas
             </button>
 
             <button
@@ -1345,7 +1329,7 @@ export default function HubSpotProCrmApp() {
               }}
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
             >
-              ● ERP: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes →
+              ERP: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes
             </button>
 
             <button
@@ -1356,7 +1340,7 @@ export default function HubSpotProCrmApp() {
               }}
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
             >
-              ● {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos Locação →
+              {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos Locação
             </button>
           </div>
 
@@ -1395,7 +1379,7 @@ export default function HubSpotProCrmApp() {
               }
               className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
             >
-              ✉️ Enviar E-mail p/ Cliente
+              Enviar E-mail ao Cliente
             </button>
 
             <button
@@ -1408,7 +1392,7 @@ export default function HubSpotProCrmApp() {
               }}
               className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
             >
-              📄 + Novo Orçamento / Proposta PDF
+              Novo Orçamento / Proposta PDF
             </button>
           </div>
         </div>
@@ -1435,40 +1419,6 @@ export default function HubSpotProCrmApp() {
 
         {/* MODULE VIEWPORT */}
         <main className="flex-1 p-4 sm:p-6 max-w-[1680px] w-full mx-auto">
-          {activeModule === 'OVERVIEW_AI' && (
-            <OverviewAiCopilotTab
-              report={aiReport}
-              loading={loadingAll}
-              onRefresh={() => fetchAllCrmData()}
-              onAskQuestion={handleAskAiQuestion}
-              askingQuestion={askingAi}
-              onNavigateToDeals={() => {
-                setLastCrmSubModule('DEALS_KANBAN');
-                setActiveModule('DEALS_KANBAN');
-              }}
-              onNavigateToContacts={(contactId) => {
-                if (contactId) setInitialContactIdForDrawer(contactId);
-                setLastCrmSubModule('CONTACTS_COMPANIES');
-                setActiveModule('CONTACTS_COMPANIES');
-              }}
-              onNavigateToDataHealth={() => {
-                setLastCrmSubModule('DATA_HEALTH');
-                setActiveModule('DATA_HEALTH');
-              }}
-              onNavigateToErpSection={(sec) => {
-                setErpInitialSection((sec as GestaoClickMenuSection) || 'INICIO');
-                setActiveModule('ERP_GESTAOCLICK');
-              }}
-              onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
-              onNavigateToAutomations={() => {
-                setLastCrmSubModule('AUTOMATIONS');
-                setActiveModule('AUTOMATIONS');
-              }}
-              onConvertOpportunityToDeal={handleConvertOpportunityToDeal}
-              onRegisterQuickFollowUp={handleRegisterQuickFollowUp}
-            />
-          )}
-
           {activeModule === 'ERP_GESTAOCLICK' && (
             <ErpGestaoClickTab
               erpData={erpData}
@@ -1505,19 +1455,6 @@ export default function HubSpotProCrmApp() {
             />
           )}
 
-          {activeModule === 'ADMIN_RBAC' && (
-            <StiHubAdminRbacPanel
-              rbacState={rbacState}
-              emailTemplates={emailTemplatesState}
-              activeUser={activeRbacUser}
-              onSelectActiveUser={(u) => setActiveRbacUser(u)}
-              onRefresh={async () => {
-                await fetchAllCrmData();
-              }}
-              onShowToast={showToast}
-            />
-          )}
-
           {isCrmActive && (
             <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex min-h-[780px]">
               <CrmSidebar
@@ -1532,6 +1469,10 @@ export default function HubSpotProCrmApp() {
                 formsCount={webForms.length}
                 automationsCount={workflows.length + sequences.length}
                 healthScore={healthSummary?.globalHealthScore ?? 0}
+                onSelectOverview={() => {
+                  setLastCrmSubModule('OVERVIEW_AI');
+                  setActiveModule('OVERVIEW_AI');
+                }}
                 onSelectPipeline={(pipeId) => {
                   setSelectedPipelineId(pipeId);
                   setLastCrmSubModule('DEALS_KANBAN');
@@ -1555,9 +1496,59 @@ export default function HubSpotProCrmApp() {
                   setLastCrmSubModule('DATA_HEALTH');
                   setActiveModule('DATA_HEALTH');
                 }}
+                onSelectAdminRbac={() => {
+                  setLastCrmSubModule('ADMIN_RBAC');
+                  setActiveModule('ADMIN_RBAC');
+                }}
               />
 
               <div className="flex-1 p-4 sm:p-6 overflow-x-hidden">
+                {activeModule === 'OVERVIEW_AI' && (
+                  <OverviewAiCopilotTab
+                    report={aiReport}
+                    loading={loadingAll}
+                    onRefresh={() => fetchAllCrmData()}
+                    onAskQuestion={handleAskAiQuestion}
+                    askingQuestion={askingAi}
+                    onNavigateToDeals={() => {
+                      setLastCrmSubModule('DEALS_KANBAN');
+                      setActiveModule('DEALS_KANBAN');
+                    }}
+                    onNavigateToContacts={(contactId) => {
+                      if (contactId) setInitialContactIdForDrawer(contactId);
+                      setLastCrmSubModule('CONTACTS_COMPANIES');
+                      setActiveModule('CONTACTS_COMPANIES');
+                    }}
+                    onNavigateToDataHealth={() => {
+                      setLastCrmSubModule('DATA_HEALTH');
+                      setActiveModule('DATA_HEALTH');
+                    }}
+                    onNavigateToErpSection={(sec) => {
+                      setErpInitialSection((sec as GestaoClickMenuSection) || 'INICIO');
+                      setActiveModule('ERP_GESTAOCLICK');
+                    }}
+                    onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
+                    onNavigateToAutomations={() => {
+                      setLastCrmSubModule('AUTOMATIONS');
+                      setActiveModule('AUTOMATIONS');
+                    }}
+                    onConvertOpportunityToDeal={handleConvertOpportunityToDeal}
+                    onRegisterQuickFollowUp={handleRegisterQuickFollowUp}
+                  />
+                )}
+
+                {activeModule === 'ADMIN_RBAC' && (
+                  <StiHubAdminRbacPanel
+                    rbacState={rbacState}
+                    emailTemplates={emailTemplatesState}
+                    activeUser={activeRbacUser}
+                    onSelectActiveUser={(u) => setActiveRbacUser(u)}
+                    onRefresh={async () => {
+                      await fetchAllCrmData();
+                    }}
+                    onShowToast={showToast}
+                  />
+                )}
                 {activeModule === 'DEALS_KANBAN' && (
                   <DealsKanbanTab
                     pipelines={pipelines}

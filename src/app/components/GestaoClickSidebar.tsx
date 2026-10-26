@@ -180,6 +180,8 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'CFG_CERTIFICADO', label: 'Certificado digital' },
       { id: 'CFG_EMAILS', label: 'Modelos de e-mails' },
       { id: 'CFG_AVISOS', label: 'Avisos por e-mail' },
+      { id: 'CFG_CHECKLIST', label: 'Homologação (11 Módulos)' },
+      { id: 'CFG_LOGS', label: 'Sincronização & Logs' },
     ],
   },
 ];
