@@ -193,7 +193,7 @@ export class CrmRepository {
     // Ensure all 3 Seta Telecom pipelines exist with their canonical names & stages while preserving custom pipelines
     const parsedPipelines = Array.isArray(parsed.pipelines) ? parsed.pipelines : [];
     const seedPipeIds = new Set(seedFallback.pipelines.map((p) => p.id));
-    const mergedPipelines = [...seedFallback.pipelines];
+    const mergedPipelines = [...seedFallback.pipelines].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     for (const p of parsedPipelines) {
       if (!seedPipeIds.has(p.id)) {
         mergedPipelines.push(p);

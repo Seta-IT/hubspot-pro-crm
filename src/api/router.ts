@@ -2380,7 +2380,7 @@ export class CrmApiRouter {
         return { status: 200, body: { data: result } };
       }
 
-      const cnpjLookupMatch = cleanPath.match(/^\/api\/erp\/cnpj\/([^/]+)$/);
+      const cnpjLookupMatch = cleanPath.match(/^\/api\/erp\/cnpj\/(.+)$/);
       if (cnpjLookupMatch && method === 'GET') {
         const rawCnpj = decodeURIComponent(cnpjLookupMatch[1]).replace(/\D/g, '');
         if (rawCnpj.length < 11) {

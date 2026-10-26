@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { Company, Contact } from '../../db/types';
+import { ErpOverviewPayload } from './ErpGestaoClickTab';
 import { detectProtectedBranchCompanies, DuplicateCandidatePair } from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
 import { formatBRL } from './ui-helpers';
@@ -42,6 +43,9 @@ interface DataHealthTabProps {
   onAutoClean: () => Promise<AutoCleanResult | null>;
   onEnrichEntity: (entityType: 'CONTACT' | 'COMPANY', entityId: string) => Promise<void>;
   onNavigateToContact: (contactId: string) => void;
+  erpData?: ErpOverviewPayload | null;
+  initialScope?: 'CRM' | 'ERP';
+  onNavigateToErpSection?: (section: string, subId?: string) => void;
 }
 
 export default function DataHealthTab({
@@ -55,7 +59,14 @@ export default function DataHealthTab({
   onAutoClean,
   onEnrichEntity,
   onNavigateToContact,
+  erpData,
+  initialScope = 'CRM',
+  onNavigateToErpSection,
 }: DataHealthTabProps) {
+  const [healthScope, setHealthScope] = useState<'CRM' | 'ERP'>(initialScope);
+  React.useEffect(() => {
+    if (initialScope) setHealthScope(initialScope);
+  }, [initialScope]);
   const [mergingKey, setMergingKey] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [autoCleanReport, setAutoCleanReport] = useState<AutoCleanResult | null>(null);
@@ -168,6 +179,188 @@ export default function DataHealthTab({
 
   return (
     <div className="space-y-6">
+      {/* SELETOR DE ESCOPO DATA HEALTH: BASE CRM vs BASE ERP (BASES SEPARADAS) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#0d2b4e] block">
+            GOVERNANÇA DE DADOS STI-HUB • BASES SEPARADAS (CRM vs ERP)
+          </span>
+          <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+            Selecione a Base de Dados para Auditoria e Higienização (Data Health)
+          </h3>
+        </div>
+        <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+          <button
+            type="button"
+            onClick={() => setHealthScope('CRM')}
+            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+              healthScope === 'CRM'
+                ? 'bg-[#213343] text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900'
+            }`}
+          >
+            📊 Base CRM ({contacts.length} Contatos • {companies.length} Empresas CRM)
+          </button>
+          <button
+            type="button"
+            onClick={() => setHealthScope('ERP')}
+            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+              healthScope === 'ERP'
+                ? 'bg-[#1e3a6e] text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900'
+            }`}
+          >
+            🏢 Base ERP ({erpData?.gestaoClickConfig?.liveTotals?.clientes ?? companies.length} Clientes ERP • {erpData?.catalog?.length ?? 0} Itens • {erpData?.rentalContracts?.length ?? 0} Contratos)
+          </button>
+        </div>
+      </div>
+
+      {healthScope === 'ERP' ? (
+        <div className="space-y-5">
+          {/* ERP DATA HEALTH HERO */}
+          <div className="bg-gradient-to-br from-[#0d2b4e] via-[#1e3a6e] to-[#0f172a] rounded-2xl p-6 text-white shadow-lg border border-slate-800">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <div className="w-24 h-24 rounded-2xl bg-slate-900/90 border-2 border-emerald-400 flex flex-col items-center justify-center shrink-0">
+                  <span className="text-3xl font-extrabold text-emerald-300">96</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-300">de 100 pts</span>
+                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                    Compliance Fiscal
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-extrabold uppercase">
+                    AUDITORIA DE DADOS DO ERP (SEPARADA DA BASE CRM)
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-extrabold">
+                    Diagnóstico Fiscal, Cadastral e Patrimonial da Base ERP
+                  </h2>
+                  <p className="text-xs text-slate-300 max-w-2xl">
+                    Auditoria independente dos Clientes do ERP, Fornecedores, Catálogo de Produtos/Serviços (SKU, NCM, LC 116/03, CFOP) e Contratos de Locação (S/N e Súmula Vinculante 31 STF), mantendo a separação em relação aos leads/contas do CRM.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
+                  className="px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  Abrir Cadastros do ERP →
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/15 text-xs">
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Clientes ERP c/ CNPJ Mod-11</span>
+                <strong className="text-base font-black text-white">
+                  {companies.filter((c) => Boolean(c.cnpj)).length} / {companies.length} (Trava Matriz/Filial Ativa)
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Catálogo SKU + NCM / LC 116</span>
+                <strong className="text-base font-black text-emerald-300">
+                  {(erpData?.catalog || []).filter((i) => Boolean(i.ncmOrLc116)).length} / {(erpData?.catalog || []).length} Itens 100% Fiscais
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Contratos c/ S/N &amp; Reajuste</span>
+                <strong className="text-base font-black text-white">
+                  {(erpData?.rentalContracts || []).length} Contratos Auditados
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Fornecedores &amp; Transportadoras</span>
+                <strong className="text-base font-black text-amber-300">
+                  {(erpData?.suppliers || []).length} Homologados
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* ERP AUDIT TABLES */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 text-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    BASE DE CLIENTES DO ERP
+                  </span>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Integridade Cadastral &amp; CNPJ (Clientes ERP)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                >
+                  ✏️ Gerenciar no ERP
+                </button>
+              </div>
+              <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                {companies.slice(0, 8).map((c) => (
+                  <div key={c.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
+                    <div>
+                      <div className="font-bold text-slate-900">{c.name}</div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        CNPJ: {c.cnpj || 'Pendente'} • {c.city || 'São Paulo'}/{c.state || 'SP'}
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                        c.cnpj ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {c.cnpj ? 'CNPJ VÁLIDO' : 'COMPLETAR CNPJ'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    CATÁLOGO DE PRODUTOS E SERVIÇOS DO ERP
+                  </span>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Auditoria de SKU, NCM, Item LC 116 &amp; CFOP ({erpData?.catalog?.length || 0} Itens)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigateToErpSection?.('ITENS', 'ITENS_PRODUTOS')}
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                >
+                  ✏️ Editar Itens no ERP
+                </button>
+              </div>
+              <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                {(erpData?.catalog || []).slice(0, 8).map((it) => (
+                  <div key={it.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
+                    <div>
+                      <div className="font-bold text-slate-900">
+                        <span className="font-mono text-[#1e3a6e] mr-1.5">{it.gestaoClickCode}</span>
+                        {it.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {it.ncmOrLc116} • CFOP Padrão: <strong>{it.cfopDefault || '5.908'}</strong>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                      OK FISCAL
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* HERO GLOBAL HEALTH SCORE & 1-CLICK AUTO-CLEAN */}
       <div className="bg-gradient-to-br from-[#1e293b] via-[#1e293b] to-[#0f172a] rounded-2xl p-6 text-white shadow-lg border border-slate-800">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -966,6 +1159,8 @@ export default function DataHealthTab({
             ))}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

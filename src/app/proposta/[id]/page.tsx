@@ -28,7 +28,7 @@ import {
   encodeProposalToQueryParam,
   inferProposalItemType,
 } from '../../lib/proposal-share';
-import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
+import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 
 function PublicProposalPrintContent() {
@@ -47,6 +47,11 @@ function PublicProposalPrintContent() {
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [approvingContract, setApprovingContract] = useState(false);
+  const [convertedContractInfo, setConvertedContractInfo] = useState<{
+    contractNumber: string;
+    invoiceNumber: string;
+  } | null>(null);
 
   useEffect(() => {
     const decoded = decodeProposalFromQueryParam(encodedData);
@@ -131,6 +136,40 @@ function PublicProposalPrintContent() {
 
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 3500);
+  };
+
+  const handleApproveAndConvertInPage = async () => {
+    if (!proposal) return;
+    setApprovingContract(true);
+    try {
+      await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proposal),
+      }).catch(() => null);
+
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const nextProp: ErpCommercialProposal = json?.data?.proposal || {
+          ...proposal,
+          status: "CONVERTIDA_CONTRATO",
+          convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
+        };
+        if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
+        if (json?.data?.contract) recordUpsertedContract(json.data.contract);
+        if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
+        setProposal(nextProp);
+        setConvertedContractInfo({
+          contractNumber: json?.data?.contract?.contractNumber || nextProp.convertedContractId || "LOC-2026",
+          invoiceNumber: json?.data?.invoice?.documentNumber || "FAT-LOC-2026",
+        });
+      }
+    } finally {
+      setApprovingContract(false);
+    }
   };
 
   const handleCopyPublicLink = () => {
@@ -293,6 +332,48 @@ function PublicProposalPrintContent() {
             )}
           </button>
 
+          <select
+            value={proposal.templateStyle || 'SETA_PREMIUM_TELECOM'}
+            onChange={(e) =>
+              setProposal({
+                ...proposal,
+                templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
+              })
+            }
+            className="px-2.5 py-2 rounded-md bg-white/15 text-white text-xs font-extrabold border border-white/25 cursor-pointer"
+            title="Escolher Template Visual do Documento A4"
+          >
+            <option value="SETA_PREMIUM_TELECOM" className="text-slate-900">
+              Template: Seta Premium Telecom
+            </option>
+            <option value="EXECUTIVO_CORPORATIVO" className="text-slate-900">
+              Template: Executivo Corporativo B2B
+            </option>
+            <option value="LOCACAO_DETALHADA_SLA" className="text-slate-900">
+              Template: Locação + SLA &amp; Rateio Pro-Rata
+            </option>
+          </select>
+
+          {proposal.status !== 'CONVERTIDA_CONTRATO' && !proposal.convertedContractId ? (
+            <button
+              type="button"
+              disabled={approvingContract}
+              onClick={handleApproveAndConvertInPage}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {approvingContract ? 'Convertendo...' : 'Aprovar & Gerar Contrato'}
+            </button>
+          ) : (
+            <a
+              href="/"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Contrato Gerado ({convertedContractInfo?.contractNumber || proposal.convertedContractId})
+            </a>
+          )}
+
           <button
             type="button"
             onClick={() => window.print()}
@@ -409,6 +490,46 @@ function PublicProposalPrintContent() {
               <div className="text-xs text-slate-600">
                 <strong>Condição de Pagamento:</strong> {proposal.paymentCondition}
               </div>
+            </div>
+          </div>
+
+          {/* FAIXA EXECUTIVA DE SLA, REAJUSTE E RATEIO PROPORCIONAL (PRO-RATA DIE) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-lg bg-indigo-950 text-white text-xs">
+            <div>
+              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+                Template &amp; Modalidade
+              </span>
+              <strong className="font-extrabold">
+                {proposal.templateStyle === 'LOCACAO_DETALHADA_SLA'
+                  ? 'Locação + SLA & Pro-Rata'
+                  : proposal.templateStyle === 'EXECUTIVO_CORPORATIVO'
+                    ? 'Executivo Corporativo B2B'
+                    : 'Seta Premium Telecom'}
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+                SLA Atendimento NOC 24x7
+              </span>
+              <strong className="font-extrabold">
+                {proposal.slaAvailabilityPercent || '99,95%'} • Resp. {proposal.slaResponseHours || 4}h
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+                Índice de Reajuste Anual
+              </span>
+              <strong className="font-extrabold">
+                {proposal.readjustmentIndex || 'IPCA'} (12 meses)
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+                Flexibilidade Contratual
+              </span>
+              <strong className="font-extrabold">
+                Rateio Pro-Rata s/ Pausar Contrato
+              </strong>
             </div>
           </div>
 

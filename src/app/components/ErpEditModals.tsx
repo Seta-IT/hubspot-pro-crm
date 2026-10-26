@@ -301,7 +301,22 @@ export function ProposalEditModal({
                   Tipo de orçamento, código, situação, cliente, vendedor, canal de venda, loja e introdução.
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-[11px] font-bold text-slate-600">Template PDF:</label>
+                <select
+                  value={draft.templateStyle || 'SETA_PREMIUM_TELECOM'}
+                  onChange={(e) =>
+                    updateDraft({
+                      templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
+                    })
+                  }
+                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 font-extrabold text-emerald-950"
+                >
+                  <option value="SETA_PREMIUM_TELECOM">Template Seta Premium Telecom (Padrão)</option>
+                  <option value="EXECUTIVO_CORPORATIVO">Template Executivo Corporativo B2B</option>
+                  <option value="LOCACAO_DETALHADA_SLA">Template Locação Detalhada + SLA &amp; Rateio Pro-Rata</option>
+                </select>
+
                 <label className="text-[11px] font-bold text-slate-600">Tipo de Orçamento:</label>
                 <select
                   value={draft.budgetType || 'LOCACAO'}

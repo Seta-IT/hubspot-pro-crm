@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Home,
   Users,
@@ -59,15 +59,17 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     subItems: [
       { id: 'ITENS_PRODUTOS', label: 'Produtos' },
       { id: 'ITENS_SERVICOS', label: 'Serviços' },
+      { id: 'ITENS_TODOS', label: 'Todos os itens' },
       { id: 'ITENS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },
   {
     id: 'ORCAMENTOS',
-    label: 'Orçamentos',
+    label: 'Orçamentos / Propostas',
     icon: FileText,
     subItems: [
-      { id: 'ORC_PRODUTOS', label: 'Produtos' },
+      { id: 'ORC_TODOS', label: 'Todos os orçamentos' },
+      { id: 'ORC_PRODUTOS', label: 'Produtos & Locação' },
       { id: 'ORC_SERVICOS', label: 'Serviços' },
       { id: 'ORC_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
@@ -79,7 +81,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     subItems: [
       { id: 'VENDAS_PRODUTOS', label: 'Produtos' },
       { id: 'VENDAS_SERVICOS', label: 'Serviços' },
-      { id: 'VENDAS_BALCAO', label: 'Balcão' },
+      { id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' },
       { id: 'VENDAS_DEVOLUCOES', label: 'Devoluções' },
       { id: 'VENDAS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
@@ -137,8 +139,8 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Contratos',
     icon: FileSignature,
     subItems: [
-      { id: 'CTR_SERVICOS', label: 'Serviços' },
       { id: 'CTR_LOCACOES', label: 'Locações' },
+      { id: 'CTR_SERVICOS', label: 'Serviços' },
       { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },
       { id: 'CTR_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
@@ -213,28 +215,43 @@ export default function GestaoClickSidebar({
     CONFIGURACOES: false,
   });
 
-  const toggleGroup = (group: GestaoClickNavGroup) => {
+  useEffect(() => {
+    if (activeSection) {
+      setExpanded((prev) => ({ ...prev, [activeSection]: true }));
+    }
+  }, [activeSection]);
+
+  const handleGroupClick = (group: GestaoClickNavGroup) => {
     if (!group.subItems || group.subItems.length === 0) {
       onSelect(group.id, group.id);
       return;
     }
-    const nextOpen = !expanded[group.id];
-    setExpanded((prev) => ({ ...prev, [group.id]: nextOpen }));
-    onSelect(group.id, group.subItems[0].id);
+    const isCurrentlyOpen = Boolean(expanded[group.id]);
+    if (activeSection === group.id) {
+      setExpanded((prev) => ({ ...prev, [group.id]: !isCurrentlyOpen }));
+    } else {
+      setExpanded((prev) => ({ ...prev, [group.id]: true }));
+      onSelect(group.id, group.subItems[0].id);
+    }
   };
 
   return (
     <aside className="w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex flex-col justify-between select-none">
       <div>
-        {/* LOGO OFICIAL SETA | IT (IDÊNTICO AO PRINT DO GESTÃOCLICK) */}
+        {/* LOGO OFICIAL SETA | IT */}
         <div className="p-3.5 bg-[#f8f9fb]">
           <div
             onClick={() => onSelect('INICIO', 'INICIO')}
-            className="bg-white border border-slate-200 rounded-lg py-5 px-4 flex items-center justify-center gap-2 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+            className="bg-white border border-slate-200 rounded-lg py-4 px-4 flex flex-col items-center justify-center gap-1 shadow-2xs cursor-pointer hover:border-slate-300 transition"
           >
-            <span className="text-2xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
-            <span className="w-[2px] h-6 bg-[#f26522] inline-block" />
-            <span className="text-2xl font-black tracking-tight text-[#f26522]">IT</span>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
+              <span className="w-[2px] h-6 bg-[#f26522] inline-block" />
+              <span className="text-2xl font-black tracking-tight text-[#f26522]">IT</span>
+            </div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+              Módulo ERP
+            </span>
           </div>
         </div>
 
@@ -245,35 +262,39 @@ export default function GestaoClickSidebar({
             onClick={onNewProposal}
             className="w-full py-2 px-3 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> + Nova Proposta (PDF)
+            <Plus className="w-4 h-4" /> + Nova Proposta / Orçamento
           </button>
         </div>
 
-        {/* ÁRVORE EXATA DE MENUS E SUBMENUS DO GESTÃOCLICK */}
+        {/* ÁRVORE VERTICAL DE MENUS E SUBMENUS DO ERP */}
         <nav className="px-2 pb-4 space-y-0.5">
           {GESTAO_CLICK_MENU_TREE.map((group) => {
             const Icon = group.icon;
             const hasSubs = Boolean(group.subItems && group.subItems.length > 0);
-            const isOpen = Boolean(expanded[group.id] || activeSection === group.id);
+            const isOpen = Boolean(expanded[group.id]);
             const isGroupActive = activeSection === group.id;
 
             return (
               <div key={group.id} className="rounded-md">
                 <button
                   type="button"
-                  onClick={() => toggleGroup(group)}
+                  onClick={() => handleGroupClick(group)}
                   className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                     isGroupActive
-                      ? 'bg-white text-[#1e3a6e] font-extrabold shadow-2xs'
-                      : 'text-[#1e3a6e] hover:bg-white/70 font-bold'
+                      ? 'bg-[#1e3a6e] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2.5 truncate">
-                    <Icon className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${
+                        isGroupActive ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      }`}
+                    />
                     <span className="truncate">{group.label}</span>
                   </span>
                   {hasSubs && (
-                    <span className="text-slate-400">
+                    <span className={isGroupActive ? 'text-white' : 'text-slate-400'}>
                       {isOpen ? (
                         <ChevronDown className="w-3.5 h-3.5" />
                       ) : (
@@ -284,10 +305,12 @@ export default function GestaoClickSidebar({
                 </button>
 
                 {hasSubs && isOpen && (
-                  <div className="ml-5 pl-3 my-1 border-l border-slate-200 space-y-0.5">
+                  <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#1e3a6e]/25 space-y-0.5">
                     {group.subItems!.map((sub) => {
                       const isSubActive =
-                        isGroupActive && (activeSubId === sub.id || (!activeSubId && sub === group.subItems![0]));
+                        isGroupActive &&
+                        (activeSubId === sub.id ||
+                          (!activeSubId && sub === group.subItems![0]));
                       return (
                         <button
                           key={sub.id}
@@ -295,8 +318,8 @@ export default function GestaoClickSidebar({
                           onClick={() => onSelect(group.id, sub.id)}
                           className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                             isSubActive
-                              ? 'bg-blue-50 text-[#1e3a6e] font-extrabold'
-                              : 'text-slate-500 hover:text-[#1e3a6e] hover:bg-white/60 font-medium'
+                              ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                              : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
                           }`}
                         >
                           <span className="truncate">{sub.label}</span>
@@ -315,7 +338,7 @@ export default function GestaoClickSidebar({
       </div>
 
       <div className="p-3 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-        <div className="font-bold text-[#0d2b4e]">SETA TELECOM LTDA</div>
+        <div className="font-bold text-[#0d2b4e]">ERP • SETA TELECOM LTDA</div>
         <div>CNPJ {companyCnpj}</div>
         <div>Regime: {taxRegime}</div>
       </div>

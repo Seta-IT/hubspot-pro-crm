@@ -106,6 +106,12 @@ import {
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
+import {
+  BatchRentalBillingAndEmailModal,
+  GestaoClickCustomerEditModal,
+  GestaoClickProductEditModal,
+  PartialEquipmentReturnProRataModal,
+} from './GestaoClickEnrichedModals';
 
 export interface ErpOverviewPayload {
   kpis: {
@@ -295,7 +301,10 @@ export default function ErpGestaoClickTab({
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
-  const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("CARDS");
+  const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);
   const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
@@ -346,6 +355,18 @@ export default function ErpGestaoClickTab({
     newAssetTag: string;
     newStatus: ErpAssetStatus;
   } | null>(null);
+  const [partialReturnModalContract, setPartialReturnModalContract] = useState<ErpRentalContract | null>(null);
+  const [showBatchBillingModal, setShowBatchBillingModal] = useState<boolean>(false);
+  const [selectedContractIdsForBatch, setSelectedContractIdsForBatch] = useState<string[]>([]);
+  const [editingCustomerModal, setEditingCustomerModal] = useState<{
+    company: Partial<Company>;
+    isNew: boolean;
+  } | null>(null);
+  const [editingProductModal, setEditingProductModal] = useState<{
+    item: Partial<ErpCatalogItem>;
+    isNew: boolean;
+  } | null>(null);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
   const [syncingGc, setSyncingGc] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -1350,34 +1371,39 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
 
-          {/* ABAS DE SUB-MENU SINCRONIZADAS COM A SIDEBAR E DASHBOARD */}
+          {/* BARRA DE SELEÇÃO E EDIÇÃO RÁPIDA DE ORÇAMENTOS (SUB-ITENS NA VERTICAL ESQUERDA) */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                { id: 'TODOS', label: `Todos os Orçamentos (${proposals.length})` },
-                {
-                  id: 'ORC_PRODUTOS',
-                  label: `📦 Produtos / Equipamentos (${proposals.filter(hasProductItem).length})`,
-                },
-                {
-                  id: 'ORC_SERVICOS',
-                  label: `🔧 Serviços Técnicos (${proposals.filter(hasServiceItem).length})`,
-                },
-                { id: 'ORC_AUXILIARES', label: '⚙️ Opções Auxiliares & Templates A4' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveSubId(tab.id)}
-                  className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
-                    effectiveOrcTab === tab.id
-                      ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {(() => {
+                const targetProp =
+                  filteredProposals.find((p) => p.id === selectedProposalId) ||
+                  filteredProposals[0];
+                return targetProp ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingProposalModal(false);
+                        setEditingProposal(targetProp);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Selecionado ({targetProp.code})
+                    </button>
+                    <a
+                      href={buildPublicProposalUrl(targetProp, { autoPrint: true })}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Imprimir PDF ({targetProp.code})
+                    </a>
+                  </>
+                ) : null;
+              })()}
+              <span className="text-[11px] text-slate-500">
+                💡 Clique em qualquer linha abaixo para selecionar ou clique em <strong>✏️ Editar</strong> para abrir o orçamento completo.
+              </span>
             </div>
 
             {effectiveOrcTab !== 'ORC_AUXILIARES' && (
@@ -1536,6 +1562,7 @@ export default function ErpGestaoClickTab({
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
                   <tr>
+                    <th className="py-2.5 px-3 w-8">Sel.</th>
                     <th className="py-2.5 px-3">Cód.</th>
                     <th className="py-2.5 px-3">Cliente / Razão Social</th>
                     <th className="py-2.5 px-3">Tipo</th>
@@ -1566,8 +1593,30 @@ export default function ErpGestaoClickTab({
                         .filter((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM')
                         .reduce((s, i) => s + i.totalMonthly, 0);
                     return (
-                      <tr key={prop.id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e]">
+                      <tr
+                        key={prop.id}
+                        onClick={() => setSelectedProposalId(prop.id)}
+                        className={`cursor-pointer transition ${
+                          (selectedProposalId || filteredProposals[0]?.id) === prop.id
+                            ? 'bg-blue-50/80 hover:bg-blue-100/60'
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={(selectedProposalId || filteredProposals[0]?.id) === prop.id}
+                            onChange={() => setSelectedProposalId(prop.id)}
+                            className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                          />
+                        </td>
+                        <td
+                          onClick={() => {
+                            setIsCreatingProposalModal(false);
+                            setEditingProposal(prop);
+                          }}
+                          className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e] underline"
+                        >
                           {prop.code}
                         </td>
                         <td className="py-2.5 px-3">
@@ -1629,9 +1678,9 @@ export default function ErpGestaoClickTab({
                                 setEditingProposal(prop);
                               }}
                               title="Editar Orçamento"
-                              className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+                              className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-extrabold cursor-pointer"
                             >
-                              ✏️
+                              ✏️ Editar
                             </button>
                             <a
                               href={printUrl}
@@ -2027,6 +2076,13 @@ export default function ErpGestaoClickTab({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() => setShowBatchBillingModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer shadow-xs"
+              >
+                ⚡ Faturamento em Massa &amp; E-mails ({selectedContractIdsForBatch.length > 0 ? selectedContractIdsForBatch.length : rentalContracts.filter((c) => c.status !== "ENCERRADO").length})
+              </button>
+              <button
+                type="button"
                 onClick={() => openNewContractPreset("LOCACAO")}
                 className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
               >
@@ -2085,6 +2141,73 @@ export default function ErpGestaoClickTab({
             ))}
           </div>
         </div>
+
+        {proposals.filter((p) => p.status !== "CONVERTIDA_CONTRATO" && !p.convertedContractId).length > 0 && (
+          <div className="bg-amber-50/90 rounded-md border border-amber-300 p-4 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-black uppercase text-amber-800 block">
+                  Propostas de Locação / Serviços Prontas para Virar Contrato
+                </span>
+                <h3 className="text-xs font-extrabold text-slate-900">
+                  Converta orçamentos aprovados em Contratos de Locação ativos com 1 clique (preservando S/N e índice de reajuste):
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSection("ORCAMENTOS")}
+                className="text-xs font-bold text-[#1e3a6e] underline cursor-pointer"
+              >
+                Ver todos os orçamentos ({proposals.length}) →
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {proposals
+                .filter((p) => p.status !== "CONVERTIDA_CONTRATO" && !p.convertedContractId)
+                .slice(0, 4)
+                .map((prop) => (
+                  <div
+                    key={prop.id}
+                    className="bg-white rounded border border-amber-200 p-3 flex items-center justify-between gap-2 text-xs shadow-2xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded bg-[#1e3a6e] text-white font-mono text-[10px] font-black">
+                          {prop.code}
+                        </span>
+                        <span className="font-bold text-slate-900 truncate max-w-[220px]">
+                          {prop.companyName}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          {formatBRL(prop.monthlyRecurringTotal)}/mês
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate max-w-xs mt-0.5">
+                        {prop.title} ({prop.contractMonths}m • {prop.readjustmentIndex || "IPCA"})
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setEditingProposal(prop)}
+                        className="px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 text-[11px] font-bold hover:bg-slate-50 cursor-pointer"
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === prop.id}
+                        onClick={() => handleApproveProposal(prop.id)}
+                        className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                      >
+                        {busyId === prop.id ? "Convertendo..." : "✓ Virar Contrato"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
 
         {effectiveTab === "CTR_AUXILIARES" ? (
           <div className="space-y-4">
@@ -2304,6 +2427,19 @@ export default function ErpGestaoClickTab({
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedContractIdsForBatch.includes(ctr.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedContractIdsForBatch((prev) => [...prev, ctr.id]);
+                          } else {
+                            setSelectedContractIdsForBatch((prev) => prev.filter((id) => id !== ctr.id));
+                          }
+                        }}
+                        title="Selecionar para Faturamento / E-mail em Massa"
+                        className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                      />
                       <span className="px-2.5 py-0.5 rounded text-xs font-black bg-indigo-950 text-white">
                         {ctr.contractNumber}
                       </span>
@@ -2391,6 +2527,15 @@ export default function ErpGestaoClickTab({
                       className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Contrato / S/N
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPartialReturnModalContract(ctr)}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold cursor-pointer shadow-2xs"
+                      title="Devolver parte dos equipamentos (ex: 2 de 10+) com rateio proporcional pro-rata sem pausar o contrato"
+                    >
+                      <Scale className="w-3.5 h-3.5" /> ⚖️ Devolução Parcial &amp; Rateio Pro-Rata
                     </button>
 
                     <button
@@ -2521,6 +2666,33 @@ export default function ErpGestaoClickTab({
                     </tbody>
                   </table>
                 </div>
+
+                {ctr.partialReturns && ctr.partialReturns.length > 0 && (
+                  <div className="p-3 rounded bg-purple-50/70 border border-purple-200 space-y-1.5 text-xs">
+                    <div className="flex items-center gap-1.5 font-extrabold text-purple-950 text-[11px] uppercase">
+                      <Scale className="w-3.5 h-3.5 text-purple-700" />
+                      Histórico de Devoluções Parciais &amp; Rateios Pro-Rata ({ctr.partialReturns.length}) — Contrato Mantido ATIVO
+                    </div>
+                    <div className="space-y-1">
+                      {ctr.partialReturns.map((pr) => (
+                        <div
+                          key={pr.id}
+                          className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-purple-950 bg-white/90 px-2.5 py-1.5 rounded border border-purple-100"
+                        >
+                          <span>
+                            <strong>{pr.returnedAt}</strong> • Uso no ciclo: <strong>{pr.cycleDaysUsed}/30 dias</strong> •{" "}
+                            {pr.returnedItems.map((ri) => `${ri.quantityReturned}x ${ri.description} (${ri.serialNumber})`).join(", ")}{" "}
+                            {pr.returnNfeNumber ? `• NF Retorno CFOP 5.909 Nº ${pr.returnNfeNumber}` : ""}
+                          </span>
+                          <span className="font-mono font-bold">
+                            Fatura Mês Pro-Rata: <strong className="text-amber-800">{formatBRL(pr.currentCycleProRataTotalBrl)}</strong> • Novo MRR:{" "}
+                            <strong className="text-emerald-700">{formatBRL(pr.newRecurringMonthlyValue)}/mês</strong>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {ctr.readjustmentHistory && ctr.readjustmentHistory.length > 0 && (
                   <div className="p-3 rounded bg-indigo-50/60 border border-indigo-200 space-y-1.5 text-xs">
@@ -2745,7 +2917,7 @@ export default function ErpGestaoClickTab({
                           }
                           const updatedPo: ErpPurchaseOrder = {
                             ...po,
-                            status: "Entrada em Estoque Concluída",
+                            status: "NF-e Recebida no Estoque",
                           };
                           const poRes = await fetch("/api/erp/records/purchaseOrders", {
                             method: "POST",
@@ -2762,7 +2934,7 @@ export default function ErpGestaoClickTab({
                         className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
                         title="Confirmar recebimento físico da NF-e e incrementar saldo no catálogo"
                       >
-                        📦 Dar Entrada no Estoque
+                        📦 Receber no Estoque
                       </button>
                       <button
                         type="button"
@@ -3430,7 +3602,7 @@ export default function ErpGestaoClickTab({
       {/* TOP BAR AZUL MARINHO GESTÃOCLICK (#1e3a6e) */}
       <div className="bg-[#1e3a6e] text-white px-4 h-12 flex items-center justify-between select-none">
         <div className="flex items-center gap-3">
-          <span className="text-base font-extrabold tracking-tight">Seta Telecom</span>
+          <span className="text-base font-extrabold tracking-tight">ERP</span>
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
@@ -3449,7 +3621,7 @@ export default function ErpGestaoClickTab({
             type="button"
             onClick={() => {
               setActiveSection('ORCAMENTOS');
-              setShowNewProposalModal(true);
+              openFullNewProposalModal('LOCACAO');
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-xs cursor-pointer"
           >
@@ -3516,20 +3688,7 @@ export default function ErpGestaoClickTab({
 
         {/* CONTEÚDO PRINCIPAL */}
         <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-x-hidden">
-          <SetaErpTenPillarsMatrix
-            activeSection={activeSection}
-            activeSubId={activeSubId}
-            onSelectPillar={(sec, subId) => {
-              setActiveSection(sec);
-              setActiveSubId(subId);
-              if (subId === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
-              if (subId === 'CAD_FORNECEDORES') setCadastrosSubTab('FORNECEDORES');
-              if (subId === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
-              if (subId === 'OS_PAINEL') setOsViewMode('PAINEL');
-              if (subId === 'OS_GERENCIAR') setOsViewMode('LISTA');
-              if (subId === 'CTR_LOCACOES') setContractsSubFilter('CTR_LOCACOES');
-            }}
-          />
+
           {/* BANNER DE PROPOSTA RECÉM-CRIADA COM LINK PÚBLICO */}
           {createdProposalBanner && (
             <div className="bg-emerald-950 text-white rounded-md p-4 border border-emerald-500 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -3608,50 +3767,57 @@ export default function ErpGestaoClickTab({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    Cadastros &gt; {cadastrosSubTab}
+                    ERP &gt; Cadastros &gt; {cadastrosSubTab} (Navegação na Barra Vertical Esquerda)
                   </span>
-                  <h2 className="text-base font-extrabold text-slate-900">Cadastros GestãoClick Seta Telecom</h2>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    {cadastrosSubTab === 'CLIENTES'
+                      ? `Clientes do ERP (${companies.length} cadastrados • Base ERP Separada do CRM)`
+                      : cadastrosSubTab === 'FORNECEDORES'
+                        ? `Fornecedores do ERP (${suppliers.length})`
+                        : cadastrosSubTab === 'FUNCIONARIOS'
+                          ? `Funcionários Seta Telecom (${employees.length})`
+                          : cadastrosSubTab === 'TRANSPORTADORAS'
+                            ? 'Transportadoras Homologadas'
+                            : 'Opções Auxiliares de Cadastros'}
+                  </h2>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(['CLIENTES', 'FORNECEDORES', 'FUNCIONARIOS'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setCadastrosSubTab(t)}
-                      className={`px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${cadastrosSubTab === t ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700'}`}
-                    >
-                      {t === 'CLIENTES' ? `Clientes (${companies.length})` : t === 'FORNECEDORES' ? `Fornecedores (${suppliers.length})` : `Funcionários (${employees.length})`}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  {cadastrosSubTab === 'CLIENTES' && (() => {
+                    const selComp = companies.find((c) => c.id === selectedCadastroId) || companies[0];
+                    return selComp ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingCustomerModal({ company: selComp, isNew: false })}
+                        className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                      >
+                        ✏️ Editar Selecionado ({selComp.name.slice(0, 22)})
+                      </button>
+                    ) : null;
+                  })()}
                   {cadastrosSubTab === 'CLIENTES' && (
                     <button
                       type="button"
                       onClick={() =>
-                        setGenericModal({
-                          title: 'Novo Cliente (Cadastro Seta Telecom)',
-                          initialValues: { name: '', cnpj: '', city: 'São Paulo', state: 'SP', ownerName: 'Marcelo Lopes Mira' },
-                          fields: [
-                            { key: 'name', label: 'Razão Social / Nome *' },
-                            { key: 'cnpj', label: 'CNPJ / CPF' },
-                            { key: 'city', label: 'Cidade' },
-                            { key: 'state', label: 'UF' },
-                            { key: 'ownerName', label: 'Executivo Responsável' },
-                          ],
-                          onSave: async (vals) => {
-                            await fetch('/api/companies', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify(vals),
-                            });
-                            setGenericModal(null);
-                            onShowToast('Cliente cadastrado com sucesso!');
-                            await onRefresh();
+                        setEditingCustomerModal({
+                          company: {
+                            name: '',
+                            cnpj: '',
+                            city: 'São Paulo',
+                            state: 'SP',
+                            ownerName: 'Marcelo Mira',
+                            customProperties: {
+                              customerType: 'Pessoa jurídica',
+                              situation: 'Novo',
+                              stateRegistrationExempt: true,
+                              sellerName: 'Marcelo Mira',
+                            },
                           },
+                          isNew: true,
                         })
                       }
-                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
                     >
-                      + Novo Cliente
+                      + Adicionar
                     </button>
                   )}
                   {cadastrosSubTab === 'FORNECEDORES' && (
@@ -3700,52 +3866,152 @@ export default function ErpGestaoClickTab({
               </div>
 
               {cadastrosSubTab === 'CLIENTES' && (
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                    <tr><th className="py-2 px-3">Cliente / Razão Social</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Cidade/UF</th><th className="py-2 px-3">Responsável</th><th className="py-2 px-3 text-right">Ações</th></tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {companies.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold">{c.name}</td>
-                        <td className="py-2 px-3 font-mono">{c.cnpj || '—'}</td>
-                        <td className="py-2 px-3">{c.city}/{c.state}</td>
-                        <td className="py-2 px-3">{c.ownerName || 'Marcelo Mira'}</td>
-                        <td className="py-2 px-3 text-right space-x-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setGenericModal({
-                                title: `Editar Cliente — ${c.name}`,
-                                initialValues: { name: c.name, cnpj: c.cnpj || '', city: c.city || 'São Paulo', state: c.state || 'SP', ownerName: c.ownerName || 'Marcelo Lopes Mira' },
-                                fields: [
-                                  { key: 'name', label: 'Razão Social / Nome' },
-                                  { key: 'cnpj', label: 'CNPJ' },
-                                  { key: 'city', label: 'Cidade' },
-                                  { key: 'state', label: 'UF' },
-                                  { key: 'ownerName', label: 'Executivo Responsável' },
-                                ],
-                                onSave: async (vals) => {
-                                  await fetch(`/api/companies/${encodeURIComponent(c.id)}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(vals),
-                                  });
-                                  setGenericModal(null);
-                                  onShowToast(`Cliente ${vals.name} atualizado!`);
-                                  await onRefresh();
-                                },
-                              })
-                            }
-                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                          >
-                            ✏️ Editar
-                          </button>
-                        </td>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingCustomerModal({
+                            company: {
+                              name: 'Digisystem Servicos Especializados LTDA',
+                              cnpj: '01.936.069/0001-94',
+                              city: 'São Paulo',
+                              state: 'SP',
+                              ownerName: 'Marcelo Mira',
+                              customProperties: {
+                                tradeName: '01.936.069/0001-94',
+                                customerType: 'Pessoa jurídica',
+                                situation: 'Ativo',
+                                stateRegistrationExempt: true,
+                                sellerName: 'Marcelo Mira',
+                              },
+                            },
+                            isNew: true,
+                          })
+                        }
+                        className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
+                      >
+                        + Adicionar
+                      </button>
+                      <span className="text-[11px] text-slate-500">
+                        Consulta integrada: <strong>Receita Federal (RFB)</strong> &amp; <strong>Serasa Experian Score</strong>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={customerSearchQuery}
+                        onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                        placeholder="Buscar por nome ou CNPJ..."
+                        className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                      />
+                    </div>
+                  </div>
+
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b">
+                      <tr>
+                        <th className="py-2.5 px-3 w-8">Sel.</th>
+                        <th className="py-2.5 px-3">Nome / Razão Social (Clique p/ Selecionar ou Editar)</th>
+                        <th className="py-2.5 px-3">Documento</th>
+                        <th className="py-2.5 px-3">Situação</th>
+                        <th className="py-2.5 px-3">Telefone</th>
+                        <th className="py-2.5 px-3 text-right">Ações</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y">
+                      {companies
+                        .filter((c) => {
+                          if (!customerSearchQuery.trim()) return true;
+                          const q = customerSearchQuery.toLowerCase();
+                          return (
+                            c.name.toLowerCase().includes(q) ||
+                            (c.cnpj || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .map((c) => {
+                          const cp = (c.customProperties || {}) as Record<string, unknown>;
+                          const tradeName = String(cp.tradeName || c.cnpj || c.domain || c.name);
+                          const sit = String(cp.situation || (c.completenessScore >= 95 ? 'Em dia' : 'Novo'));
+                          const phone = String(cp.phone || cp.commercialPhone || '(11) 3305-1200');
+                          return (
+                            <tr
+                              key={c.id}
+                              onClick={() => setSelectedCadastroId(c.id)}
+                              className={`cursor-pointer transition ${
+                                (selectedCadastroId || companies[0]?.id) === c.id
+                                  ? 'bg-blue-50/80 hover:bg-blue-100/60'
+                                  : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={(selectedCadastroId || companies[0]?.id) === c.id}
+                                  onChange={() => setSelectedCadastroId(c.id)}
+                                  className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                                />
+                              </td>
+                              <td
+                                onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
+                                className="py-2.5 px-3"
+                              >
+                                <div className="font-bold text-[#1e3a6e] hover:underline">{c.name}</div>
+                                <div className="italic text-[11px] text-slate-400">({tradeName})</div>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-slate-700">{c.cnpj || '—'}</td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    sit === 'Em dia' || sit === 'Ativo'
+                                      ? 'bg-emerald-500 text-white'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  {sit}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600">{phone}</td>
+                              <td className="py-2.5 px-3 text-right space-x-1">
+                                <button
+                                  type="button"
+                                  title="Visualizar / Consultar RFB & Serasa"
+                                  onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
+                                  className="px-2 py-1 rounded bg-cyan-500 hover:bg-cyan-600 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  🔍
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Editar Cliente (7 Seções GestãoClick + Serasa)"
+                                  onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
+                                  className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  ✏️ Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Excluir Cliente"
+                                  onClick={async () => {
+                                    await fetch(`/api/companies/${encodeURIComponent(c.id)}`, {
+                                      method: 'DELETE',
+                                    });
+                                    recordDeletedCompany(c.id);
+                                    onShowToast(`Cliente ${c.name} removido.`);
+                                    await onRefresh();
+                                  }}
+                                  className="px-2 py-1 rounded bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
               )}
 
               {cadastrosSubTab === 'FORNECEDORES' && (
@@ -3755,8 +4021,19 @@ export default function ErpGestaoClickTab({
                   </thead>
                   <tbody className="divide-y">
                     {suppliers.map((sup) => (
-                      <tr key={sup.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold">{sup.name}</td>
+                      <tr
+                        key={sup.id}
+                        onClick={() =>
+                          openCollectionEditor('suppliers', `Editar Fornecedor — ${sup.name}`, sup as unknown as Record<string, unknown>, [
+                            { key: 'name', label: 'Nome / Razão Social' },
+                            { key: 'cnpj', label: 'CNPJ' },
+                            { key: 'phone', label: 'Telefone' },
+                            { key: 'email', label: 'E-mail' },
+                          ])
+                        }
+                        className="hover:bg-blue-50/60 cursor-pointer transition"
+                      >
+                        <td className="py-2 px-3 font-bold text-[#1e3a6e] underline">{sup.name}</td>
                         <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
                         <td className="py-2 px-3">{sup.phone}</td>
                         <td className="py-2 px-3">{sup.email}</td>
@@ -3796,8 +4073,19 @@ export default function ErpGestaoClickTab({
                   </thead>
                   <tbody className="divide-y">
                     {employees.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold">{emp.name}</td>
+                      <tr
+                        key={emp.id}
+                        onClick={() =>
+                          openCollectionEditor('employees', `Editar Funcionário — ${emp.name}`, emp as unknown as Record<string, unknown>, [
+                            { key: 'name', label: 'Nome Completo' },
+                            { key: 'role', label: 'Cargo / Função' },
+                            { key: 'email', label: 'E-mail' },
+                            { key: 'phone', label: 'Telefone' },
+                          ])
+                        }
+                        className="hover:bg-blue-50/60 cursor-pointer transition"
+                      >
+                        <td className="py-2 px-3 font-bold text-[#1e3a6e] underline">{emp.name}</td>
                         <td className="py-2 px-3">{emp.role}</td>
                         <td className="py-2 px-3">{emp.email}</td>
                         <td className="py-2 px-3">{emp.phone}</td>
@@ -3829,421 +4117,918 @@ export default function ErpGestaoClickTab({
                   </tbody>
                 </table>
               )}
-            </div>
-          )}
-
-          {(activeSection === 'ITENS' || activeSection === 'ESTOQUE') && (
-            <div className="space-y-4">
-              {activeSection === 'ESTOQUE' && (
-                <SetaErpStockAndPurchasesSubbar
-                  activeSubId={activeSubId}
-                  onSelectSubId={(sub) => setActiveSubId(sub)}
-                  catalogCount={catalog.length}
-                  purchasesCount={purchaseOrders.length}
-                  suppliers={suppliers}
-                  onCreateStockTransfer={() =>
-                    setGenericModal({
-                      title: 'Registrar Ajuste de Inventário / Transferência Matriz #118887',
-                      initialValues: {
-                        sku: catalog[0]?.gestaoClickCode || 'SL-44-SEC-K9',
-                        movementType: 'ENTRADA_COMPRA',
-                        quantity: 2,
-                        destination: 'Almoxarifado Matriz #118887 — Corredor Telecom',
-                        notes: 'Conferência de Número de Série (S/N)',
-                      },
-                      fields: [
-                        { key: 'sku', label: 'SKU do Produto' },
-                        {
-                          key: 'movementType',
-                          label: 'Tipo de Movimentação',
-                          type: 'select',
-                          options: ['ENTRADA_COMPRA', 'TRANSFERENCIA_CLIENTE', 'RETORNO_LOCACAO', 'AJUSTE_INVENTARIO'],
-                        },
-                        { key: 'quantity', label: 'Quantidade', type: 'number' },
-                        { key: 'destination', label: 'Origem / Destino' },
-                        { key: 'notes', label: 'Observação / S/N' },
-                      ],
-                      onSave: async (vals) => {
-                        const targetItem = catalog.find((c) => c.gestaoClickCode === vals.sku) || catalog[0];
-                        if (targetItem) {
-                          const delta =
-                            vals.movementType === 'TRANSFERENCIA_CLIENTE'
-                              ? -Math.abs(Number(vals.quantity) || 1)
-                              : Math.abs(Number(vals.quantity) || 1);
-                          await fetch(`/api/erp/catalog/${encodeURIComponent(targetItem.id)}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              stockAvailable: Math.max(0, targetItem.stockAvailable + delta),
-                            }),
-                          });
-                        }
-                        setGenericModal(null);
-                        onShowToast(`Movimentação de estoque (${vals.sku}) registrada com sucesso!`);
-                        await onRefresh();
-                      },
-                    })
-                  }
-                  onCreatePurchaseOrder={() =>
-                    openCollectionEditor(
-                      'purchaseOrders',
-                      'Nova Cotação / Ordem de Compra (OC)',
-                      {
-                        id: `oc-${Date.now()}`,
-                        code: String(37 + purchaseOrders.length),
-                        supplierName: suppliers[0]?.name || 'AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.',
-                        issueDate: new Date().toLocaleDateString('pt-BR'),
-                        status: 'Confirmada',
-                        nfeNumber: String(9800 + purchaseOrders.length),
-                        totalAmount: 12400,
-                      },
-                      [
-                        { key: 'code', label: 'Nº da Cotação / OC' },
-                        { key: 'supplierName', label: 'Fornecedor Homologado Seta' },
-                        { key: 'issueDate', label: 'Data de Emissão' },
-                        {
-                          key: 'status',
-                          label: 'Situação',
-                          type: 'select',
-                          options: ['Em cotação', 'Aprovada', 'Confirmada', 'NF-e Recebida no Estoque'],
-                        },
-                        { key: 'nfeNumber', label: 'Nº NF-e de Entrada' },
-                        { key: 'totalAmount', label: 'Valor Total da Compra (R$)', type: 'number' },
-                      ]
-                    )
-                  }
-                />
-              )}
-              <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    {activeSection} &gt; {activeSubId}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    Catálogo de Produtos, Serviços &amp; Estoque Locado ({catalog.length} itens)
-                  </h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setGenericModal({
-                      title: 'Novo Produto / Serviço no Catálogo Seta Telecom',
-                      initialValues: {
-                        gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
-                        name: '',
-                        ncmOrLc116: 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
-                        cfopDefault: '5.908',
-                        stockAvailable: 10,
-                        stockRentedInClients: 0,
-                        monthlyRentalPrice: 1500,
-                      },
-                      fields: [
-                        { key: 'gestaoClickCode', label: 'Código / SKU GestãoClick' },
-                        { key: 'name', label: 'Descrição do Equipamento / Serviço *' },
-                        { key: 'ncmOrLc116', label: 'Classificação NCM / LC 116' },
-                        { key: 'cfopDefault', label: 'CFOP Padrão' },
-                        { key: 'stockAvailable', label: 'Estoque Disponível', type: 'number' },
-                        { key: 'stockRentedInClients', label: 'Qtd Locada em Clientes', type: 'number' },
-                        { key: 'monthlyRentalPrice', label: 'Valor Mensal Locação (R$)', type: 'number' },
-                      ],
-                      onSave: async (vals) => {
-                        await fetch('/api/erp/catalog', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(vals),
-                        });
-                        setGenericModal(null);
-                        onShowToast('Item adicionado ao catálogo!');
-                        await onRefresh();
-                      },
-                    })
-                  }
-                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Novo Produto / Serviço
-                </button>
-              </div>
-
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição</th><th className="py-2 px-3">Classificação Fiscal</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th><th className="py-2 px-3 text-right">Ações</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {catalog.map((it) => (
-                    <tr key={it.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">{it.gestaoClickCode}</td>
-                      <td className="py-2 px-3 font-semibold">{it.name}</td>
-                      <td className="py-2 px-3">{it.ncmOrLc116}</td>
-                      <td className="py-2 px-3 text-right font-bold">{it.stockAvailable}</td>
-                      <td className="py-2 px-3 text-right font-bold text-indigo-700">{it.stockRentedInClients}</td>
-                      <td className="py-2 px-3 text-right font-extrabold text-emerald-700">{formatBRL(it.monthlyRentalPrice)}</td>
-                      <td className="py-2 px-3 text-right space-x-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setGenericModal({
-                              title: `Editar Item — ${it.gestaoClickCode}`,
-                              initialValues: it as unknown as Record<string, unknown>,
-                              fields: [
-                                { key: 'gestaoClickCode', label: 'SKU GestãoClick' },
-                                { key: 'name', label: 'Descrição' },
-                                { key: 'ncmOrLc116', label: 'Classificação Fiscal' },
-                                { key: 'stockAvailable', label: 'Estoque Disponível', type: 'number' },
-                                { key: 'stockRentedInClients', label: 'Locados em Clientes', type: 'number' },
-                                { key: 'monthlyRentalPrice', label: 'Valor Mensal Locação (R$)', type: 'number' },
-                              ],
-                              onSave: async (vals) => {
-                                await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify(vals),
-                                });
-                                setGenericModal(null);
-                                onShowToast(`Item ${it.gestaoClickCode} atualizado!`);
-                                await onRefresh();
-                              },
-                            })
-                          }
-                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
-                            onShowToast(`Item ${it.gestaoClickCode} excluído.`);
-                            await onRefresh();
-                          }}
-                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                        >
-                          🗑️
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {activeSection === 'ESTOQUE' && (
-                <div className="pt-4 border-t border-slate-200">
-                  {renderPurchasesTable(`Estoque > ${activeSubId === "EST_COMPRAS" ? "Compras (NF-e Entrada)" : "Últimas Notas de Compras / Entradas CAPEX"}`)}
-                </div>
-              )}
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'VENDAS' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[
-                    { id: 'VENDAS_PRODUTOS', label: `📦 Pedidos de Produtos (${salesOrders.length})` },
-                    { id: 'VENDAS_SERVICOS', label: '🔧 Vendas de Serviços' },
-                    { id: 'VENDAS_BALCAO', label: '🖥️ PDV / Frente de Caixa (Balcão)' },
-                    { id: 'VENDAS_DEVOLUCOES', label: '↩️ Devoluções & Trocas' },
-                  ].map((tab) => (
+              {cadastrosSubTab === 'TRANSPORTADORAS' && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded bg-slate-50 border border-slate-200 text-xs">
+                    <div>
+                      <strong className="text-slate-900">Transportadoras Homologadas — Remessas de Locação (CFOP 5.908 / 6.908)</strong>
+                      <p className="text-[11px] text-slate-500">Operadores logísticos cadastrados para despacho de equipamentos telecom com seguro RCTR-C.</p>
+                    </div>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => setActiveSubId(tab.id)}
-                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
-                        activeSubId === tab.id
-                          ? 'bg-[#1e3a6e] text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
+                      onClick={() =>
+                        openCollectionEditor(
+                          'suppliers',
+                          'Nova Transportadora Homologada',
+                          { id: `trp-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', supplierType: 'TRANSPORTADORA', modalFrete: 'Rodoviário / Aéreo (CIF/FOB)', cityState: 'São Paulo/SP', active: true },
+                          [
+                            { key: 'name', label: 'Razão Social / Transportadora *' },
+                            { key: 'cnpj', label: 'CNPJ' },
+                            { key: 'modalFrete', label: 'Modal / Registro ANTT' },
+                            { key: 'cityState', label: 'Cidade / UF' },
+                            { key: 'phone', label: 'Telefone' },
+                            { key: 'email', label: 'E-mail' },
+                          ]
+                        )
+                      }
+                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
                     >
-                      {tab.label}
+                      + Nova Transportadora
                     </button>
-                  ))}
+                  </div>
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
+                      <tr><th className="py-2 px-3">Transportadora</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Modal / ANTT</th><th className="py-2 px-3">Cidade/UF</th><th className="py-2 px-3">Contato</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {(suppliers.filter((sp) => sp.supplierType === 'TRANSPORTADORA' || /transp|log|expresso|correios|jadlog/i.test(sp.name)).length > 0
+                        ? suppliers.filter((sp) => sp.supplierType === 'TRANSPORTADORA' || /transp|log|expresso|correios|jadlog/i.test(sp.name))
+                        : suppliers
+                      ).map((trp) => (
+                        <tr key={trp.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-bold">{trp.name}</td>
+                          <td className="py-2 px-3 font-mono">{trp.cnpj}</td>
+                          <td className="py-2 px-3">{trp.modalFrete || 'Rodoviário / Aéreo B2B (ANTT)'}</td>
+                          <td className="py-2 px-3">{trp.cityState || 'São Paulo/SP'}</td>
+                          <td className="py-2 px-3">{trp.phone || trp.email}</td>
+                          <td className="py-2 px-3 text-right space-x-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openCollectionEditor('suppliers', `Editar Transportadora — ${trp.name}`, { ...trp, supplierType: 'TRANSPORTADORA' } as unknown as Record<string, unknown>, [
+                                  { key: 'name', label: 'Razão Social / Transportadora' },
+                                  { key: 'cnpj', label: 'CNPJ' },
+                                  { key: 'modalFrete', label: 'Modal / Registro ANTT' },
+                                  { key: 'cityState', label: 'Cidade / UF' },
+                                  { key: 'phone', label: 'Telefone' },
+                                  { key: 'email', label: 'E-mail' },
+                                ])
+                              }
+                              className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCollectionRecord('suppliers', trp.id, trp.name)}
+                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              )}
 
-              {activeSubId === 'VENDAS_BALCAO' ? (
-                <SetaErpPdvPosView
-                  catalog={catalog}
-                  companies={companies}
-                  salesOrders={salesOrders}
-                  onRefresh={onRefresh}
-                  onShowToast={onShowToast}
-                  onOpenEmailModal={(p) => setEmailModalPayload(p)}
-                />
-              ) : (
+              {cadastrosSubTab === 'AUXILIARES' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
+                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Grupos de Clientes B2B</div>
+                    <div>• Contas Enterprise Locação Pura (0% ISS — SV 31 STF)</div>
+                    <div>• Indústria, Logística &amp; Varejo (CFOP 5.908 / 6.908)</div>
+                    <div>• Call Centers &amp; Operações Voz IP (SLA NOC 24x7)</div>
+                  </div>
+                  <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
+                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Cargos &amp; Equipes Seta Telecom</div>
+                    <div>• Diretoria &amp; Comercial: <strong>Marcelo Mira</strong></div>
+                    <div>• Liderança Bancada / O.S.: <strong>Michelle da Rocha</strong></div>
+                    <div>• Engenharia &amp; Contratos: <strong>Evelyn Ternero / Wesley Brito</strong></div>
+                  </div>
+                  <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
+                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Parâmetros Cadastrais</div>
+                    <div>• Consulta Receita Federal (CNPJ/CNAE): <strong className="text-emerald-700">ATIVA</strong></div>
+                    <div>• Score Serasa Experian B2B: <strong className="text-emerald-700">INTEGRADO</strong></div>
+                    <div>• Loja GestãoClick: <strong>Matriz #118887</strong></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(activeSection === 'ITENS' || activeSection === 'ESTOQUE') && (() => {
+            const isServiceCatItem = (it: ErpCatalogItem) =>
+              it.category === 'SERVICO_TECNICO_LC116' ||
+              it.category === 'TELECOM_SCM_SVA' ||
+              it.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+              it.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA' ||
+              /LC\s*116|SCM|SVA|SERVI/i.test(it.ncmOrLc116 || '');
+            const filteredCatalogItems = catalog.filter((it) => {
+              if (activeSection === 'ITENS') {
+                if (activeSubId === 'ITENS_PRODUTOS' && isServiceCatItem(it)) return false;
+                if (activeSubId === 'ITENS_SERVICOS' && !isServiceCatItem(it)) return false;
+              }
+              if (itensSearch.trim()) {
+                const q = itensSearch.toLowerCase();
+                return (
+                  it.name.toLowerCase().includes(q) ||
+                  it.gestaoClickCode.toLowerCase().includes(q) ||
+                  (it.ncmOrLc116 || '').toLowerCase().includes(q) ||
+                  (it.cfopDefault || '').toLowerCase().includes(q)
+                );
+              }
+              return true;
+            });
+            return (
+              <div className="space-y-4">
+                {activeSection === 'ESTOQUE' && (
+                  <SetaErpStockAndPurchasesSubbar
+                    activeSubId={activeSubId}
+                    onSelectSubId={(sub) => setActiveSubId(sub)}
+                    catalogCount={catalog.length}
+                    purchasesCount={purchaseOrders.length}
+                    suppliers={suppliers}
+                    onCreateStockTransfer={() =>
+                      setGenericModal({
+                        title: 'Registrar Ajuste de Inventário / Transferência Matriz #118887',
+                        initialValues: {
+                          sku: catalog[0]?.gestaoClickCode || 'SL-44-SEC-K9',
+                          movementType: 'ENTRADA_COMPRA',
+                          quantity: 2,
+                          destination: 'Almoxarifado Matriz #118887 — Corredor Telecom',
+                          notes: 'Conferência de Número de Série (S/N)',
+                        },
+                        fields: [
+                          { key: 'sku', label: 'SKU do Produto' },
+                          {
+                            key: 'movementType',
+                            label: 'Tipo de Movimentação',
+                            type: 'select',
+                            options: ['ENTRADA_COMPRA', 'TRANSFERENCIA_CLIENTE', 'RETORNO_LOCACAO', 'AJUSTE_INVENTARIO'],
+                          },
+                          { key: 'quantity', label: 'Quantidade', type: 'number' },
+                          { key: 'destination', label: 'Origem / Destino' },
+                          { key: 'notes', label: 'Observação / S/N' },
+                        ],
+                        onSave: async (vals) => {
+                          const targetItem = catalog.find((c) => c.gestaoClickCode === vals.sku) || catalog[0];
+                          if (targetItem) {
+                            const delta =
+                              vals.movementType === 'TRANSFERENCIA_CLIENTE'
+                                ? -Math.abs(Number(vals.quantity) || 1)
+                                : Math.abs(Number(vals.quantity) || 1);
+                            await fetch(`/api/erp/catalog/${encodeURIComponent(targetItem.id)}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                stockAvailable: Math.max(0, targetItem.stockAvailable + delta),
+                              }),
+                            });
+                          }
+                          setGenericModal(null);
+                          onShowToast(`Movimentação de estoque (${vals.sku}) registrada com sucesso!`);
+                          await onRefresh();
+                        },
+                      })
+                    }
+                    onCreatePurchaseOrder={() =>
+                      openCollectionEditor(
+                        'purchaseOrders',
+                        'Nova Cotação / Ordem de Compra (OC)',
+                        {
+                          id: `oc-${Date.now()}`,
+                          code: String(37 + purchaseOrders.length),
+                          supplierName: suppliers[0]?.name || 'AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.',
+                          issueDate: new Date().toLocaleDateString('pt-BR'),
+                          status: 'Confirmada',
+                          nfeNumber: String(9800 + purchaseOrders.length),
+                          totalAmount: 12400,
+                        },
+                        [
+                          { key: 'code', label: 'Nº da Cotação / OC' },
+                          { key: 'supplierName', label: 'Fornecedor Homologado Seta' },
+                          { key: 'issueDate', label: 'Data de Emissão' },
+                          {
+                            key: 'status',
+                            label: 'Situação',
+                            type: 'select',
+                            options: ['Em cotação', 'Aprovada', 'Confirmada', 'NF-e Recebida no Estoque'],
+                          },
+                          { key: 'nfeNumber', label: 'Nº NF-e de Entrada' },
+                          { key: 'totalAmount', label: 'Valor Total da Compra (R$)', type: 'number' },
+                        ]
+                      )
+                    }
+                  />
+                )}
+
+                {activeSection === 'ESTOQUE' && activeSubId === 'EST_COMPRAS' && (
+                  <div>
+                    {renderPurchasesTable('Estoque > Compras (NF-e Entrada & Recebimento no Estoque)')}
+                  </div>
+                )}
+
                 <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                        Vendas &gt; {activeSubId}
+                        {activeSection} &gt; {activeSubId}
                       </span>
-                      <h2 className="text-base font-extrabold text-slate-900">Pedidos de Venda Seta Telecom ({salesOrders.length})</h2>
+                      <h2 className="text-base font-extrabold text-slate-900">
+                        Catálogo de Produtos, Serviços &amp; Estoque Locado ({filteredCatalogItems.length} de {catalog.length} itens)
+                      </h2>
                     </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    openCollectionEditor(
-                      'salesOrders',
-                      'Novo Pedido de Venda',
-                      {
-                        id: `vnd-${Date.now()}`,
-                        code: String(2937 + salesOrders.length),
-                        companyName: companies[0]?.name || 'Cliente Seta Telecom',
-                        sellerName: 'Marcelo Mira',
-                        date: new Date().toLocaleDateString('pt-BR'),
-                        status: 'Concretizada',
-                        totalAmount: 5800,
-                      },
-                      [
-                        { key: 'code', label: 'Código da Venda' },
-                        { key: 'companyName', label: 'Cliente' },
-                        { key: 'sellerName', label: 'Vendedor' },
-                        { key: 'date', label: 'Data' },
-                        { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Cancelada'] },
-                        { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
-                      ]
-                    )
-                  }
-                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Nova Venda
-                </button>
-              </div>
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {salesOrders.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-mono font-bold">#{v.code}</td>
-                      <td className="py-2 px-3 font-semibold">{v.companyName}</td>
-                      <td className="py-2 px-3">{v.sellerName}</td>
-                      <td className="py-2 px-3">{v.date}</td>
-                      <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">{v.status}</span></td>
-                      <td className="py-2 px-3 text-right font-extrabold">{formatBRL(v.totalAmount)}</td>
-                      <td className="py-2 px-3 text-right space-x-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openCollectionEditor('salesOrders', `Editar Venda #${v.code}`, v as unknown as Record<string, unknown>, [
-                              { key: 'code', label: 'Código' },
-                              { key: 'companyName', label: 'Cliente' },
-                              { key: 'sellerName', label: 'Vendedor' },
-                              { key: 'date', label: 'Data' },
-                              { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Cancelada'] },
-                              { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
-                            ])
-                          }
-                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCollectionRecord('salesOrders', v.id, `Venda #${v.code}`)}
-                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                        >
-                          🗑️
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-                </div>
-              )}
-            </div>
-          )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setGenericModal({
+                            title: 'Novo Item no Catálogo (SKU, CFOP, Locação & Setup/Venda)',
+                            initialValues: {
+                              gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
+                              name: '',
+                              category: activeSubId === 'ITENS_SERVICOS' ? 'SERVICO_TECNICO_LC116' : 'EQUIPAMENTO_LOCACAO',
+                              fiscalNature: activeSubId === 'ITENS_SERVICOS' ? 'SERVICO_TECNICO_TI_TELECOM' : 'LOCACAO_BENS_MOVEIS',
+                              ncmOrLc116: activeSubId === 'ITENS_SERVICOS' ? 'LC 116/03 Item 01.07' : 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
+                              cfopDefault: activeSubId === 'ITENS_SERVICOS' ? '5.933' : '5.908',
+                              stockAvailable: 10,
+                              stockRentedInClients: 0,
+                              monthlyRentalPrice: 1500,
+                              saleOrSetupPrice: 8500,
+                            },
+                            fields: CATALOG_ITEM_EDITOR_FIELDS,
+                            onSave: async (vals) => {
+                              const res = await fetch('/api/erp/catalog', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(vals),
+                              });
+                              if (res.ok) {
+                                const j = await res.json();
+                                if (j.data) recordUpsertedCatalogItem(j.data);
+                              }
+                              setGenericModal(null);
+                              onShowToast('Item adicionado ao catálogo!');
+                              await onRefresh();
+                            },
+                          })
+                        }
+                        className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
+                      >
+                        + Cadastro Rápido (SKU/CFOP)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditingProductModal({
+                            item: {
+                              gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
+                              name: '',
+                              barcodeEan: '7905987537095',
+                              category: 'EQUIPAMENTO_LOCACAO',
+                              fiscalNature: 'LOCACAO_BENS_MOVEIS',
+                              ncmOrLc116: 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
+                              cfopDefault: '5.102',
+                              cfopRemessaLocacao: '5.908',
+                              cfopRetornoLocacao: '5.909',
+                              stockAvailable: 10,
+                              stockRentedInClients: 0,
+                              monthlyRentalPrice: 1500,
+                              saleOrSetupPrice: 8500,
+                            },
+                            isNew: true,
+                          })
+                        }
+                        className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                      >
+                        + Novo Produto / Serviço (7 Abas)
+                      </button>
+                    </div>
+                  </div>
 
-          {(activeSection === 'ORDENS_SERVICOS' || activeSection === 'ATENDIMENTOS') && (
-            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    {activeSection} &gt; {activeSubId}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">Ordens de Serviços Técnicas &amp; Atendimentos ({serviceOrders.length})</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(() => {
+                        const selItem =
+                          filteredCatalogItems.find((i) => i.id === selectedItemId) ||
+                          filteredCatalogItems[0];
+                        return selItem ? (
+                          <button
+                            type="button"
+                            onClick={() => setEditingProductModal({ item: selItem, isNew: false })}
+                            className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                          >
+                            ✏️ Editar Item Selecionado ({selItem.gestaoClickCode})
+                          </button>
+                        ) : null;
+                      })()}
+                      <span className="text-[11px] text-slate-500">
+                        💡 Sub-itens (<strong>Produtos</strong> / <strong>Serviços</strong>) na barra vertical esquerda. Clique em qualquer item para editar.
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={itensSearch}
+                      onChange={(e) => setItensSearch(e.target.value)}
+                      placeholder="Buscar por SKU, descrição, NCM ou CFOP..."
+                      className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                    />
+                  </div>
+
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
+                      <tr><th className="py-2 px-3 w-8">Sel.</th><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição (Clique p/ Editar)</th><th className="py-2 px-3">Classificação Fiscal &amp; CFOP</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th><th className="py-2 px-3 text-right">Venda/Setup</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredCatalogItems.map((it) => (
+                        <tr
+                          key={it.id}
+                          onClick={() => setSelectedItemId(it.id)}
+                          className={`cursor-pointer transition ${
+                            (selectedItemId || filteredCatalogItems[0]?.id) === it.id
+                              ? 'bg-blue-50/80 hover:bg-blue-100/60'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={(selectedItemId || filteredCatalogItems[0]?.id) === it.id}
+                              onChange={() => setSelectedItemId(it.id)}
+                              className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                            />
+                          </td>
+                          <td
+                            onClick={() => setEditingProductModal({ item: it, isNew: false })}
+                            className="py-2 px-3 font-mono font-bold text-[#1e3a6e] underline"
+                          >
+                            {it.gestaoClickCode}
+                          </td>
+                          <td
+                            onClick={() => setEditingProductModal({ item: it, isNew: false })}
+                            className="py-2 px-3 font-semibold text-slate-900 hover:text-[#1e3a6e]"
+                          >
+                            {it.name}
+                          </td>
+                          <td className="py-2 px-3">
+                            <div>{it.ncmOrLc116}</div>
+                            <span className="font-mono text-[10px] text-slate-500">CFOP: {it.cfopDefault || '5.908'}</span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold">{it.stockAvailable}</td>
+                          <td className="py-2 px-3 text-right font-bold text-indigo-700">{it.stockRentedInClients}</td>
+                          <td className="py-2 px-3 text-right font-extrabold text-emerald-700">{formatBRL(it.monthlyRentalPrice)}</td>
+                          <td className="py-2 px-3 text-right font-bold text-slate-700">{formatBRL(it.saleOrSetupPrice || 0)}</td>
+                          <td className="py-2 px-3 text-right space-x-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGenericModal({
+                                  title: `Editar Item — ${it.gestaoClickCode}`,
+                                  initialValues: it as unknown as Record<string, unknown>,
+                                  fields: CATALOG_ITEM_EDITOR_FIELDS,
+                                  onSave: async (vals) => {
+                                    const res = await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify(vals),
+                                    });
+                                    if (res.ok) {
+                                      const j = await res.json();
+                                      if (j.data) recordUpsertedCatalogItem(j.data);
+                                    }
+                                    setGenericModal(null);
+                                    onShowToast(`Item ${it.gestaoClickCode} atualizado!`);
+                                    await onRefresh();
+                                  },
+                                })
+                              }
+                              className="px-2 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              ⚙️ Rápido
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProductModal({ item: it, isNew: false })}
+                              className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              ✏️ Editar (7 Abas)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                                recordDeletedCatalogItem(it.id);
+                                onShowToast(`Item ${it.gestaoClickCode} excluído.`);
+                                await onRefresh();
+                              }}
+                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {activeSection === 'ESTOQUE' && activeSubId !== 'EST_COMPRAS' && (
+                    <div className="pt-4 border-t border-slate-200">
+                      {renderPurchasesTable('Estoque > Últimas Notas de Compras / Entradas CAPEX')}
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    openCollectionEditor(
-                      'serviceOrders',
-                      'Nova Ordem de Serviço (O.S.)',
-                      {
-                        id: `os-${Date.now()}`,
-                        code: String(1519 + serviceOrders.length),
-                        companyName: companies[0]?.name || 'Cliente Seta Telecom',
-                        sellerName: 'Marcelo Mira',
-                        technicianName: 'Michelle da Rocha',
-                        entryDate: new Date().toLocaleDateString('pt-BR'),
-                        exitDate: '—',
-                        status: 'Em andamento',
-                        totalAmount: 2450,
-                        description: 'Manutenção e vistoria de equipamentos telecom',
-                      },
-                      [
-                        { key: 'code', label: 'Nº da O.S.' },
-                        { key: 'companyName', label: 'Cliente' },
-                        { key: 'technicianName', label: 'Técnico Responsável' },
-                        { key: 'entryDate', label: 'Data de Entrada' },
-                        { key: 'status', label: 'Situação', type: 'select', options: ['Em andamento', 'Concluída', 'Aguardando peça', 'Cancelada'] },
-                        { key: 'totalAmount', label: 'Valor (R$)', type: 'number' },
-                        { key: 'description', label: 'Laudo / Descrição' },
-                      ]
-                    )
-                  }
-                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Nova O.S. / Atendimento
-                </button>
               </div>
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">OS Nº</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Técnico</th><th className="py-2 px-3">Entrada</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor</th><th className="py-2 px-3 text-right">Ações</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {serviceOrders.map((os) => (
-                    <tr key={os.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-mono font-bold">#{os.code}</td>
-                      <td className="py-2 px-3 font-semibold">{os.companyName}</td>
-                      <td className="py-2 px-3">{os.technicianName}</td>
-                      <td className="py-2 px-3">{os.entryDate}</td>
-                      <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">{os.status}</span></td>
-                      <td className="py-2 px-3 text-right font-extrabold">{formatBRL(os.totalAmount)}</td>
-                      <td className="py-2 px-3 text-right space-x-1">
+            );
+          })()}
+
+          {activeSection === 'VENDAS' && (() => {
+            const isReturnOrder = (v: ErpSaleOrder) =>
+              v.saleType === 'DEVOLUCAO' || /cancelad|devol|estorn/i.test(v.status || '');
+            const isServiceSale = (v: ErpSaleOrder) =>
+              v.saleType === 'SERVICO' || /servi|instala|manuten|noc|suporte|lc\s*116/i.test(v.itemsSummary || '');
+            const filteredSales = salesOrders.filter((v) => {
+              if (activeSubId === 'VENDAS_DEVOLUCOES') return isReturnOrder(v);
+              if (activeSubId === 'VENDAS_SERVICOS') {
+                const srvMatches = salesOrders.filter(isServiceSale);
+                if (srvMatches.length > 0 && !isServiceSale(v)) return false;
+              }
+              if (activeSubId === 'VENDAS_PRODUTOS' && isReturnOrder(v)) return false;
+              if (vendasSearch.trim()) {
+                const q = vendasSearch.toLowerCase();
+                return (
+                  v.companyName.toLowerCase().includes(q) ||
+                  v.code.toLowerCase().includes(q) ||
+                  (v.sellerName || '').toLowerCase().includes(q)
+                );
+              }
+              return true;
+            });
+            return (
+              <div className="space-y-4">
+                {activeSubId !== 'VENDAS_BALCAO' && (
+                  <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-600">
+                      💡 Alterne entre <strong>Produtos</strong>, <strong>Serviços</strong>, <strong>Balcão (PDV)</strong> e <strong>Devoluções</strong> na barra vertical esquerda.
+                    </span>
+                    <input
+                      type="text"
+                      value={vendasSearch}
+                      onChange={(e) => setVendasSearch(e.target.value)}
+                      placeholder="Buscar por cliente, código ou vendedor..."
+                      className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                    />
+                  </div>
+                )}
+
+                {activeSubId === 'VENDAS_BALCAO' ? (
+                  <SetaErpPdvPosView
+                    catalog={catalog}
+                    companies={companies}
+                    salesOrders={salesOrders}
+                    onRefresh={onRefresh}
+                    onShowToast={onShowToast}
+                    onOpenEmailModal={(p) => setEmailModalPayload(p)}
+                  />
+                ) : (
+                  <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                          Vendas &gt; {activeSubId}
+                        </span>
+                        <h2 className="text-base font-extrabold text-slate-900">
+                          {activeSubId === 'VENDAS_DEVOLUCOES'
+                            ? `Devoluções & Trocas de Vendas (${filteredSales.length})`
+                            : activeSubId === 'VENDAS_SERVICOS'
+                              ? `Vendas de Serviços Técnicos (${filteredSales.length})`
+                              : `Pedidos de Venda Seta Telecom (${filteredSales.length})`}
+                        </h2>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() =>
-                            openCollectionEditor('serviceOrders', `Editar O.S. #${os.code}`, os as unknown as Record<string, unknown>, [
-                              { key: 'code', label: 'Nº O.S.' },
-                              { key: 'companyName', label: 'Cliente' },
-                              { key: 'technicianName', label: 'Técnico' },
-                              { key: 'entryDate', label: 'Data de Entrada' },
-                              { key: 'status', label: 'Situação', type: 'select', options: ['Em andamento', 'Concluída', 'Aguardando peça', 'Cancelada'] },
-                              { key: 'totalAmount', label: 'Valor (R$)', type: 'number' },
-                              { key: 'description', label: 'Descrição' },
-                            ])
+                            openCollectionEditor(
+                              'salesOrders',
+                              'Registrar Devolução / Estorno de Venda',
+                              {
+                                id: `dev-${Date.now()}`,
+                                code: `DEV-${2937 + salesOrders.length}`,
+                                companyName: companies[0]?.name || 'Cliente Seta Telecom',
+                                sellerName: 'Marcelo Mira',
+                                date: new Date().toLocaleDateString('pt-BR'),
+                                status: 'Devolvida / Estornada',
+                                saleType: 'DEVOLUCAO',
+                                itemsSummary: 'Devolução comercial com retorno de equipamento ao estoque',
+                                totalAmount: 1850,
+                              },
+                              [
+                                { key: 'code', label: 'Código da Devolução' },
+                                { key: 'companyName', label: 'Cliente' },
+                                { key: 'sellerName', label: 'Responsável' },
+                                { key: 'date', label: 'Data' },
+                                { key: 'status', label: 'Situação', type: 'select', options: ['Devolvida / Estornada', 'Cancelada'] },
+                                { key: 'itemsSummary', label: 'Motivo / Item Devolvido' },
+                                { key: 'totalAmount', label: 'Valor Estornado (R$)', type: 'number' },
+                              ]
+                            )
                           }
-                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                          className="px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
                         >
-                          ✏️ Editar
+                          ↩️ + Registrar Devolução
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteCollectionRecord('serviceOrders', os.id, `O.S. #${os.code}`)}
-                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                          onClick={() =>
+                            openCollectionEditor(
+                              'salesOrders',
+                              'Novo Pedido de Venda',
+                              {
+                                id: `vnd-${Date.now()}`,
+                                code: String(2937 + salesOrders.length),
+                                companyName: companies[0]?.name || 'Cliente Seta Telecom',
+                                sellerName: 'Marcelo Mira',
+                                date: new Date().toLocaleDateString('pt-BR'),
+                                status: 'Concretizada',
+                                saleType: activeSubId === 'VENDAS_SERVICOS' ? 'SERVICO' : 'PRODUTO',
+                                itemsSummary: activeSubId === 'VENDAS_SERVICOS' ? 'Serviço Técnico de Instalação e Suporte NOC (LC 116)' : 'Equipamentos de Telecomunicações & Terminais IP',
+                                totalAmount: 5800,
+                              },
+                              [
+                                { key: 'code', label: 'Código da Venda' },
+                                { key: 'companyName', label: 'Cliente' },
+                                { key: 'sellerName', label: 'Vendedor' },
+                                { key: 'date', label: 'Data' },
+                                { key: 'saleType', label: 'Modalidade', type: 'select', options: ['PRODUTO', 'SERVICO', 'BALCAO', 'DEVOLUCAO'] },
+                                { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Devolvida / Estornada', 'Cancelada'] },
+                                { key: 'itemsSummary', label: 'Itens / Escopo' },
+                                { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
+                              ]
+                            )
+                          }
+                          className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
                         >
-                          🗑️
+                          + Nova Venda
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                      </div>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
+                        <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {(filteredSales.length > 0 ? filteredSales : salesOrders).map((v) => (
+                          <tr key={v.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-mono font-bold">#{v.code}</td>
+                            <td className="py-2 px-3 font-semibold">{v.companyName}</td>
+                            <td className="py-2 px-3">{v.sellerName}</td>
+                            <td className="py-2 px-3">{v.date}</td>
+                            <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isReturnOrder(v) ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>{v.status}</span></td>
+                            <td className="py-2 px-3 text-right font-extrabold">{formatBRL(v.totalAmount)}</td>
+                            <td className="py-2 px-3 text-right space-x-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openCollectionEditor('salesOrders', `Editar Venda #${v.code}`, v as unknown as Record<string, unknown>, [
+                                    { key: 'code', label: 'Código' },
+                                    { key: 'companyName', label: 'Cliente' },
+                                    { key: 'sellerName', label: 'Vendedor' },
+                                    { key: 'date', label: 'Data' },
+                                    { key: 'saleType', label: 'Modalidade', type: 'select', options: ['PRODUTO', 'SERVICO', 'BALCAO', 'DEVOLUCAO'] },
+                                    { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Devolvida / Estornada', 'Cancelada'] },
+                                    { key: 'itemsSummary', label: 'Itens / Escopo' },
+                                    { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
+                                  ])
+                                }
+                                className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                              >
+                                ✏️ Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCollectionRecord('salesOrders', v.id, `Venda #${v.code}`)}
+                                className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {(activeSection === 'ORDENS_SERVICOS' || activeSection === 'ATENDIMENTOS') && (() => {
+            const isKanban = osViewMode === 'PAINEL' || activeSubId === 'OS_PAINEL';
+            const filteredOs = serviceOrders.filter((os) => {
+              if (osTechFilter !== 'TODOS' && !(os.technicianName || '').toLowerCase().includes(osTechFilter.toLowerCase())) {
+                return false;
+              }
+              if (osSearch.trim()) {
+                const q = osSearch.toLowerCase();
+                return (
+                  os.companyName.toLowerCase().includes(q) ||
+                  os.code.toLowerCase().includes(q) ||
+                  (os.equipmentName || '').toLowerCase().includes(q) ||
+                  (os.serialNumber || '').toLowerCase().includes(q) ||
+                  (os.description || '').toLowerCase().includes(q)
+                );
+              }
+              return true;
+            });
+
+            const techLoads = [
+              { label: 'Michelle da Rocha', key: 'Michelle', role: 'Líder Bancada & PABX IP' },
+              { label: 'Evelyn Ternero', key: 'Evelyn', role: 'Engenharia & SLA Telecom' },
+              { label: 'Wesley Brito', key: 'Wesley', role: 'Campo, Fibra & RMA' },
+            ].map((t) => {
+              const all = serviceOrders.filter((o) => (o.technicianName || '').toLowerCase().includes(t.key.toLowerCase()));
+              const active = all.filter((o) => o.status !== 'Concluída' && o.status !== 'Cancelada').length;
+              return { ...t, total: all.length, active };
+            });
+
+            const kanbanCols: Array<{
+              status: 'Em andamento' | 'Aguardando peça' | 'Concluída' | 'Cancelada';
+              title: string;
+              nextStatus?: 'Aguardando peça' | 'Concluída' | 'Em andamento';
+              nextLabel?: string;
+            }> = [
+              { status: 'Em andamento', title: '🔧 Em andamento', nextStatus: 'Concluída', nextLabel: '✅ Concluir' },
+              { status: 'Aguardando peça', title: '⏳ Aguardando peça', nextStatus: 'Em andamento', nextLabel: '🔧 Retomar' },
+              { status: 'Concluída', title: '✅ Concluída' },
+              { status: 'Cancelada', title: '🚫 Cancelada' },
+            ];
+
+            const osEditorFields: GenericFieldSpec[] = [
+              { key: 'code', label: 'Nº da O.S.' },
+              { key: 'companyName', label: 'Cliente' },
+              { key: 'technicianName', label: 'Técnico Responsável' },
+              { key: 'equipmentName', label: 'Equipamento / Modelo' },
+              { key: 'serialNumber', label: 'Nº de Série / S/N' },
+              { key: 'priority', label: 'Prioridade / SLA', type: 'select', options: ['NORMAL', 'ALTA', 'CRITICA', 'BAIXA'] },
+              { key: 'entryDate', label: 'Data de Entrada' },
+              { key: 'status', label: 'Situação', type: 'select', options: ['Em andamento', 'Aguardando peça', 'Concluída', 'Cancelada'] },
+              { key: 'totalAmount', label: 'Valor (R$)', type: 'number' },
+              { key: 'description', label: 'Defeito Relatado / Descrição', type: 'textarea' },
+              { key: 'technicalReport', label: 'Laudo Técnico / Diagnóstico', type: 'textarea' },
+            ];
+
+            return (
+              <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                      {activeSection} &gt; {activeSubId}
+                    </span>
+                    <h2 className="text-base font-extrabold text-slate-900">
+                      Ordens de Serviços Técnicas &amp; Atendimentos ({filteredOs.length} de {serviceOrders.length})
+                    </h2>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOsViewMode('LISTA');
+                        setActiveSubId('OS_GERENCIAR');
+                      }}
+                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                        !isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      📋 Gerenciar O.S. (Lista)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOsViewMode('PAINEL');
+                        setActiveSubId('OS_PAINEL');
+                      }}
+                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                        isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      🗂️ Painel Kanban Técnico &amp; SLA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openCollectionEditor(
+                          'serviceOrders',
+                          'Nova Ordem de Serviço (O.S.)',
+                          {
+                            id: `os-${Date.now()}`,
+                            code: String(1519 + serviceOrders.length),
+                            companyName: companies[0]?.name || 'Cliente Seta Telecom',
+                            sellerName: 'Marcelo Mira',
+                            technicianName: 'Michelle da Rocha',
+                            equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
+                            serialNumber: `SN-SETA-${88200 + serviceOrders.length}`,
+                            priority: 'NORMAL',
+                            entryDate: new Date().toLocaleDateString('pt-BR'),
+                            exitDate: '—',
+                            status: 'Em andamento',
+                            totalAmount: 2450,
+                            description: 'Manutenção e vistoria de equipamentos telecom',
+                            technicalReport: 'Diagnóstico técnico NOC e testes de bancada em execução.',
+                          },
+                          osEditorFields
+                        )
+                      }
+                      className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                    >
+                      + Nova O.S. / Atendimento
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+                  {techLoads.map((t) => {
+                    const selected = osTechFilter === t.key;
+                    return (
+                      <button
+                        key={t.label}
+                        type="button"
+                        onClick={() => setOsTechFilter(selected ? 'TODOS' : t.key)}
+                        className={`text-left p-3 rounded border transition cursor-pointer ${
+                          selected ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold">{t.label}</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 text-[10px] font-black">
+                            {t.active} ativas / {t.total}
+                          </span>
+                        </div>
+                        <div className={`text-[11px] ${selected ? 'text-slate-200' : 'text-slate-500'}`}>{t.role}</div>
+                      </button>
+                    );
+                  })}
+                  <div className="p-3 rounded border border-slate-200 bg-slate-50 flex flex-col justify-center gap-1.5">
+                    <input
+                      type="text"
+                      value={osSearch}
+                      onChange={(e) => setOsSearch(e.target.value)}
+                      placeholder="Buscar O.S., cliente, equipamento ou S/N..."
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs"
+                    />
+                  </div>
+                </div>
+
+                {isKanban ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {kanbanCols.map((col) => {
+                      const cards = filteredOs.filter((o) =>
+                        col.status === 'Em andamento'
+                          ? o.status === 'Em andamento' || o.status === 'Aberta'
+                          : o.status === col.status
+                      );
+                      return (
+                        <div key={col.status} className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                            <span className="text-xs font-extrabold text-slate-900">{col.title}</span>
+                            <span className="px-2 py-0.5 rounded bg-white border text-[10px] font-black text-slate-700">
+                              {cards.length}
+                            </span>
+                          </div>
+                          <div className="space-y-2.5">
+                            {cards.map((os) => (
+                              <div key={os.id} className="bg-white rounded border border-slate-200 p-3 shadow-2xs space-y-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-mono font-black text-[#1e3a6e]">O.S. #{os.code}</span>
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                    SLA {os.priority || 'NORMAL'}
+                                  </span>
+                                </div>
+                                <div className="font-bold text-slate-900">{os.companyName}</div>
+                                <div className="p-2 rounded bg-slate-50 border border-slate-100 text-[11px] space-y-0.5">
+                                  <div className="font-semibold text-slate-800">
+                                    🖥️ {os.equipmentName || 'Appliance PABX IP / Switch PoE Seta'}
+                                  </div>
+                                  <div className="font-mono text-[10px] text-indigo-800">
+                                    S/N: {os.serialNumber || `SN-SETA-${os.code}`}
+                                  </div>
+                                  <div className="text-slate-600">{os.description}</div>
+                                  {os.technicalReport && (
+                                    <div className="text-emerald-800 font-medium pt-0.5">
+                                      Laudo: {os.technicalReport}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-slate-600">
+                                  <span>👷 {os.technicianName}</span>
+                                  <strong className="text-slate-900">{formatBRL(os.totalAmount)}</strong>
+                                </div>
+                                <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
+                                  {col.nextStatus ? (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        const updated: ErpServiceOrder = { ...os, status: col.nextStatus! };
+                                        await fetch('/api/erp/records/serviceOrders', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify(updated),
+                                        });
+                                        recordUpsertedServiceOrder(updated);
+                                        onShowToast(`O.S. #${os.code} avançada para ${col.nextStatus}!`);
+                                        await onRefresh();
+                                      }}
+                                      className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-extrabold cursor-pointer"
+                                    >
+                                      {col.nextLabel}
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400">Entrada: {os.entryDate}</span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openCollectionEditor(
+                                        'serviceOrders',
+                                        `Editar O.S. #${os.code}`,
+                                        {
+                                          equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
+                                          serialNumber: `SN-SETA-${os.code}`,
+                                          priority: 'NORMAL',
+                                          technicalReport: 'Diagnóstico técnico NOC concluído.',
+                                          ...os,
+                                        } as unknown as Record<string, unknown>,
+                                        osEditorFields
+                                      )
+                                    }
+                                    className="px-2 py-1 rounded bg-amber-500 text-white text-[10px] font-bold cursor-pointer"
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
+                      <tr><th className="py-2 px-3">OS Nº</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Equipamento / S/N</th><th className="py-2 px-3">Técnico</th><th className="py-2 px-3">Entrada</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredOs.map((os) => (
+                        <tr key={os.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-mono font-bold">#{os.code}</td>
+                          <td className="py-2 px-3 font-semibold">{os.companyName}</td>
+                          <td className="py-2 px-3">
+                            <div className="font-semibold text-slate-800">{os.equipmentName || os.description || 'Equipamento Telecom'}</div>
+                            <div className="font-mono text-[10px] text-slate-500">S/N: {os.serialNumber || `SN-SETA-${os.code}`}</div>
+                          </td>
+                          <td className="py-2 px-3">{os.technicianName}</td>
+                          <td className="py-2 px-3">{os.entryDate}</td>
+                          <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">{os.status}</span></td>
+                          <td className="py-2 px-3 text-right font-extrabold">{formatBRL(os.totalAmount)}</td>
+                          <td className="py-2 px-3 text-right space-x-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openCollectionEditor(
+                                  'serviceOrders',
+                                  `Editar O.S. #${os.code}`,
+                                  {
+                                    equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
+                                    serialNumber: `SN-SETA-${os.code}`,
+                                    priority: 'NORMAL',
+                                    technicalReport: 'Diagnóstico técnico NOC concluído.',
+                                    ...os,
+                                  } as unknown as Record<string, unknown>,
+                                  osEditorFields
+                                )
+                              }
+                              className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCollectionRecord('serviceOrders', os.id, `O.S. #${os.code}`)}
+                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })()}
 
           {activeSection === 'FINANCEIRO' && (
             <div className="space-y-4">
@@ -4541,6 +5326,110 @@ export default function ErpGestaoClickTab({
           fields={genericModal.fields}
           onClose={() => setGenericModal(null)}
           onSave={genericModal.onSave}
+        />
+      )}
+
+      {editingCustomerModal && (
+        <GestaoClickCustomerEditModal
+          company={editingCustomerModal.company}
+          isNew={editingCustomerModal.isNew}
+          onClose={() => setEditingCustomerModal(null)}
+          onShowToast={onShowToast}
+          onSave={async (payload) => {
+            const compId = editingCustomerModal.company.id;
+            const res = await fetch(
+              compId && !editingCustomerModal.isNew
+                ? `/api/companies/${encodeURIComponent(compId)}`
+                : '/api/companies',
+              {
+                method: compId && !editingCustomerModal.isNew ? 'PATCH' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              }
+            );
+            if (res.ok) {
+              const j = await res.json();
+              if (j.data) recordUpsertedCompany(j.data);
+            }
+            setEditingCustomerModal(null);
+            onShowToast(
+              editingCustomerModal.isNew
+                ? `Cliente ${payload.name} cadastrado com sucesso!`
+                : `Cliente ${payload.name} atualizado com sucesso!`
+            );
+            await onRefresh();
+          }}
+        />
+      )}
+
+      {editingProductModal && (
+        <GestaoClickProductEditModal
+          item={editingProductModal.item}
+          isNew={editingProductModal.isNew}
+          suppliers={suppliers}
+          onClose={() => setEditingProductModal(null)}
+          onShowToast={onShowToast}
+          onSave={async (payload) => {
+            const itemId = editingProductModal.item.id;
+            const res = await fetch(
+              itemId && !editingProductModal.isNew
+                ? `/api/erp/catalog/${encodeURIComponent(itemId)}`
+                : '/api/erp/catalog',
+              {
+                method: itemId && !editingProductModal.isNew ? 'PATCH' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              }
+            );
+            if (res.ok) {
+              const j = await res.json();
+              if (j.data) recordUpsertedCatalogItem(j.data);
+            }
+            setEditingProductModal(null);
+            onShowToast(
+              editingProductModal.isNew
+                ? `Produto ${payload.gestaoClickCode} cadastrado no catálogo!`
+                : `Produto ${payload.gestaoClickCode} atualizado com sucesso!`
+            );
+            await onRefresh();
+          }}
+        />
+      )}
+
+      {partialReturnModalContract && (
+        <PartialEquipmentReturnProRataModal
+          contract={partialReturnModalContract}
+          onClose={() => setPartialReturnModalContract(null)}
+          onShowToast={onShowToast}
+          onSuccess={async ({ contract: updatedCtr, returnNfe, proRataInvoice }) => {
+            recordUpsertedContract(updatedCtr);
+            if (returnNfe) recordUpsertedInvoice(returnNfe);
+            if (proRataInvoice) recordUpsertedInvoice(proRataInvoice);
+            setPartialReturnModalContract(null);
+            onShowToast(
+              `Devolução parcial e Rateio Pro-Rata aplicados ao contrato ${updatedCtr.contractNumber} (mantido ATIVO)! Novo MRR: ${formatBRL(updatedCtr.monthlyValue)}/mês.`
+            );
+            await onRefresh();
+            if (proRataInvoice) {
+              setSelectedInvoiceForPrint(proRataInvoice);
+            }
+          }}
+        />
+      )}
+
+      {showBatchBillingModal && (
+        <BatchRentalBillingAndEmailModal
+          contracts={rentalContracts}
+          initialSelectedIds={selectedContractIdsForBatch}
+          onClose={() => setShowBatchBillingModal(false)}
+          onShowToast={onShowToast}
+          onSuccess={async ({ invoices: createdInvs, contracts: updatedCtrs, summaryText }) => {
+            for (const inv of createdInvs) recordUpsertedInvoice(inv);
+            for (const ctr of updatedCtrs) recordUpsertedContract(ctr);
+            setShowBatchBillingModal(false);
+            onShowToast(summaryText);
+            await onRefresh();
+          }}
         />
       )}
 

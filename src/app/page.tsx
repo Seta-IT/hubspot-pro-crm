@@ -31,6 +31,7 @@ import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './compon
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
+import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Lock } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
@@ -106,6 +107,8 @@ export default function HubSpotProCrmApp() {
   const [autoOpenNewProposalTrigger, setAutoOpenNewProposalTrigger] = useState<number>(0);
   const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
   const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
+  const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
+  const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
@@ -996,98 +999,79 @@ export default function HubSpotProCrmApp() {
         .slice(0, 8)
     : [];
 
-  const navItems: Array<{
-    id: ActiveModule;
-    hubGroup: string;
+  const isCrmActive =
+    activeModule === 'DEALS_KANBAN' ||
+    activeModule === 'CONTACTS_COMPANIES' ||
+    activeModule === 'MARKETING_FORMS' ||
+    activeModule === 'AUTOMATIONS' ||
+    activeModule === 'DATA_HEALTH';
+
+  const macroNavItems: Array<{
+    id: string;
     label: string;
     shortLabel: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: string | number;
-    badgeTone?: 'orange' | 'emerald' | 'amber' | 'indigo' | 'rose';
+    isActive: boolean;
+    onClick: () => void;
   }> = [
     {
       id: 'OVERVIEW_AI',
-      hubGroup: 'BI & IA',
-      label: 'Visão Geral & Copiloto IA',
-      shortLabel: '📊 Visão Geral & IA',
+      label: 'Visão Geral',
+      shortLabel: '📊 Visão Geral',
       icon: Sparkles,
       badge: 'IA',
-      badgeTone: 'orange',
+      isActive: activeModule === 'OVERVIEW_AI',
+      onClick: () => setActiveModule('OVERVIEW_AI'),
     },
     {
-      id: 'DEALS_KANBAN',
-      hubGroup: 'Sales Hub',
-      label: 'Sales Hub • Deals & Seletor de Pipeline',
-      shortLabel: '💼 Sales Hub: Deals',
+      id: 'CRM',
+      label: 'CRM',
+      shortLabel: '💼 CRM',
       icon: Kanban,
-      badge: `${deals.length} • ${pipelines.length} Funis`,
-      badgeTone: 'indigo',
+      badge: `${deals.length} Deals • ${contacts.length} Contatos`,
+      isActive: isCrmActive,
+      onClick: () => setActiveModule(lastCrmSubModule || 'DEALS_KANBAN'),
     },
     {
-      id: 'CONTACTS_COMPANIES',
-      hubGroup: 'Sales Hub',
-      label: 'Sales Hub • Contatos, Empresas & Tarefas',
-      shortLabel: '👥 Sales Hub: Contas',
-      icon: Users,
-      badge: contacts.length,
-      badgeTone: 'emerald',
-    },
-    {
-      id: 'MARKETING_FORMS',
-      hubGroup: 'Marketing Hub',
-      label: 'Marketing Hub • Formulários Web & Migração',
-      shortLabel: '📝 Marketing Hub: Forms',
-      icon: FileCode2,
-      badge: webForms.length,
-      badgeTone: 'emerald',
-    },
-    {
-      id: 'AUTOMATIONS',
-      hubGroup: 'Marketing Hub',
-      label: 'Marketing Hub • Workflows & Cadências',
-      shortLabel: '⚡ Marketing: Cadências',
-      icon: WorkflowIcon,
-      badge: workflows.length + sequences.length,
-      badgeTone: 'indigo',
+      id: 'ERP',
+      label: 'ERP',
+      shortLabel: '🏢 ERP',
+      icon: Receipt,
+      badge: erpData ? `${erpData.rentalContracts.length} Contratos` : undefined,
+      isActive: activeModule === 'ERP_GESTAOCLICK',
+      onClick: () => setActiveModule('ERP_GESTAOCLICK'),
     },
     {
       id: 'SERVICE_DESK',
-      hubGroup: 'Service Hub',
-      label: 'Service Hub • NOC Service Management (JSM)',
-      shortLabel: '🎧 Service Hub: SLA',
+      label: 'Chamados',
+      shortLabel: '🎧 Chamados',
       icon: Ticket,
       badge: ticketKpis.openCount,
-      badgeTone: ticketKpis.criticalCount > 0 ? 'rose' : 'indigo',
-    },
-    {
-      id: 'ERP_GESTAOCLICK',
-      hubGroup: 'SETA ERP',
-      label: 'SETA ERP (10 Pilares) • Propostas, Locação & Fiscal',
-      shortLabel: '🏢 SETA ERP (GC)',
-      icon: Receipt,
-      badge: erpData ? `10 Pilares • ${erpData.rentalContracts.length} Ctr` : '10 Pilares',
-      badgeTone: 'emerald',
-    },
-    {
-      id: 'DATA_HEALTH',
-      hubGroup: 'Governança',
-      label: 'Saúde da Base & Trava Fiscal CNPJ (Data Health)',
-      shortLabel: '🛡️ Data Health (CNPJ)',
-      icon: ShieldCheck,
-      badge: `${healthSummary?.globalHealthScore ?? 0}%`,
-      badgeTone:
-        (healthSummary?.globalHealthScore ?? 0) >= 85 ? 'emerald' : 'amber',
+      isActive: activeModule === 'SERVICE_DESK',
+      onClick: () => setActiveModule('SERVICE_DESK'),
     },
     {
       id: 'ADMIN_RBAC',
-      hubGroup: 'Segurança',
-      label: 'Administração STI-hub • RBAC (9 Perfis / 22 Usuários), E-mails & MFA',
+      label: 'Admin & RBAC',
       shortLabel: '⚙️ Admin & RBAC',
       icon: Settings,
       badge: rbacState ? `${rbacState.users.length} Usu.` : 'RBAC',
-      badgeTone: 'orange',
+      isActive: activeModule === 'ADMIN_RBAC',
+      onClick: () => setActiveModule('ADMIN_RBAC'),
     },
   ];
+
+  const activeSectionLabel =
+    activeModule === 'ERP_GESTAOCLICK'
+      ? 'ERP'
+      : isCrmActive
+        ? 'CRM'
+        : activeModule === 'SERVICE_DESK'
+          ? 'Chamados'
+          : activeModule === 'ADMIN_RBAC'
+            ? 'Admin & RBAC'
+            : 'Visão Geral';
 
   const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
     ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
@@ -1272,22 +1256,22 @@ export default function HubSpotProCrmApp() {
 
         {/* HubSpot Primary Module Tabs Bar (100% Visible on Mobile & Desktop) */}
         <div className="bg-[#2d3e50] border-t border-[#33475b] px-3 sm:px-5">
-          <div className="max-w-[1680px] mx-auto flex flex-wrap items-center gap-1 py-1">
-            {navItems.map((item) => {
+          <div className="max-w-[1680px] mx-auto flex flex-wrap items-center gap-1.5 py-1">
+            {macroNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeModule === item.id;
+              const isActive = item.isActive;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setActiveModule(item.id)}
-                  className={`relative inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] text-xs font-semibold transition cursor-pointer ${
+                  onClick={item.onClick}
+                  className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-[4px] text-xs font-extrabold transition cursor-pointer ${
                     isActive
                       ? "bg-[#213343] text-white shadow-xs"
                       : "text-[#cbd6e2] hover:bg-[#33475b] hover:text-white"
                   }`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? "text-[#ff7a59]" : "text-[#99acc2]"}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#ff7a59]" : "text-[#99acc2]"}`} />
                   <span>{item.shortLabel}</span>
                   {item.badge !== undefined && (
                     <span
@@ -1327,7 +1311,7 @@ export default function HubSpotProCrmApp() {
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
               <span className="font-bold text-[#33475b] text-sm">
-                {navItems.find((n) => n.id === activeModule)?.label}
+                {activeSectionLabel}
               </span>
             </div>
 
@@ -1450,7 +1434,7 @@ export default function HubSpotProCrmApp() {
         )}
 
         {/* MODULE VIEWPORT */}
-        <main className="flex-1 p-4 sm:p-6 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 max-w-[1680px] w-full mx-auto">
           {activeModule === 'OVERVIEW_AI' && (
             <OverviewAiCopilotTab
               report={aiReport}
@@ -1458,47 +1442,30 @@ export default function HubSpotProCrmApp() {
               onRefresh={() => fetchAllCrmData()}
               onAskQuestion={handleAskAiQuestion}
               askingQuestion={askingAi}
-              onNavigateToDeals={() => setActiveModule('DEALS_KANBAN')}
+              onNavigateToDeals={() => {
+                setLastCrmSubModule('DEALS_KANBAN');
+                setActiveModule('DEALS_KANBAN');
+              }}
               onNavigateToContacts={(contactId) => {
                 if (contactId) setInitialContactIdForDrawer(contactId);
+                setLastCrmSubModule('CONTACTS_COMPANIES');
                 setActiveModule('CONTACTS_COMPANIES');
               }}
-              onNavigateToDataHealth={() => setActiveModule('DATA_HEALTH')}
+              onNavigateToDataHealth={() => {
+                setLastCrmSubModule('DATA_HEALTH');
+                setActiveModule('DATA_HEALTH');
+              }}
               onNavigateToErpSection={(sec) => {
                 setErpInitialSection((sec as GestaoClickMenuSection) || 'INICIO');
                 setActiveModule('ERP_GESTAOCLICK');
               }}
               onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
-              onNavigateToAutomations={() => setActiveModule('AUTOMATIONS')}
+              onNavigateToAutomations={() => {
+                setLastCrmSubModule('AUTOMATIONS');
+                setActiveModule('AUTOMATIONS');
+              }}
               onConvertOpportunityToDeal={handleConvertOpportunityToDeal}
               onRegisterQuickFollowUp={handleRegisterQuickFollowUp}
-            />
-          )}
-
-          {activeModule === 'DEALS_KANBAN' && (
-            <DealsKanbanTab
-              pipelines={pipelines}
-              deals={deals}
-              forecast={dealsForecast}
-              contacts={contacts}
-              companies={companies}
-              proposals={erpData?.proposals || []}
-              rentalContracts={erpData?.rentalContracts || []}
-              onMoveDealStage={handleMoveDealStage}
-              onCreateDeal={handleCreateDeal}
-              onAddDealNote={handleAddDealNote}
-              selectedPipelineId={selectedPipelineId}
-              onSelectPipeline={(id) => setSelectedPipelineId(id)}
-              onUpdateDeal={handleUpdateDeal}
-              onDeleteDeal={handleDeleteDeal}
-              onNavigateToErp={() => {
-                setErpInitialSection('INICIO');
-                setActiveModule('ERP_GESTAOCLICK');
-              }}
-              onShowToast={showToast}
-              onRefreshAll={async () => {
-                await fetchAllCrmData();
-              }}
             />
           )}
 
@@ -1522,39 +1489,6 @@ export default function HubSpotProCrmApp() {
             />
           )}
 
-          {activeModule === 'ADMIN_RBAC' && (
-            <StiHubAdminRbacPanel
-              rbacState={rbacState}
-              emailTemplates={emailTemplatesState}
-              activeUser={activeRbacUser}
-              onSelectActiveUser={(u) => setActiveRbacUser(u)}
-              onRefresh={async () => {
-                await fetchAllCrmData();
-              }}
-              onShowToast={showToast}
-            />
-          )}
-
-          {activeModule === 'CONTACTS_COMPANIES' && (
-            <ContactsCompaniesTab
-              contacts={contacts}
-              companies={companies}
-              initialSelectedContactId={initialContactIdForDrawer}
-              onClearInitialContact={() => setInitialContactIdForDrawer(null)}
-              initialSubView={contactsInitialSubView}
-              onCreateContact={handleCreateContact}
-              onUpdateContact={handleUpdateContact}
-              onDeleteContact={handleDeleteContact}
-              onCreateCompany={handleCreateCompany}
-              onUpdateCompany={handleUpdateCompany}
-              onDeleteCompany={handleDeleteCompany}
-              onEnrichContact={handleEnrichContact}
-              onEnrichCompany={handleEnrichCompany}
-              onBatchEnrichAll={handleBatchEnrichAll}
-              onAddContactActivity={handleAddContactActivity}
-            />
-          )}
-
           {activeModule === 'SERVICE_DESK' && (
             <ServiceDeskTab
               tickets={tickets}
@@ -1571,59 +1505,172 @@ export default function HubSpotProCrmApp() {
             />
           )}
 
-          {activeModule === 'MARKETING_FORMS' && (
-            <FormsBuilderTab
-              forms={webForms}
-              submissions={formSubmissions}
-              summary={formsSummary}
-              onSubmitForm={handleSubmitForm}
-              onCreateForm={handleCreateForm}
-              onRunHubSpotMigration={handleRunHubSpotMigration}
-              onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
-              onNavigateToDeals={() => setActiveModule('DEALS_KANBAN')}
+          {activeModule === 'ADMIN_RBAC' && (
+            <StiHubAdminRbacPanel
+              rbacState={rbacState}
+              emailTemplates={emailTemplatesState}
+              activeUser={activeRbacUser}
+              onSelectActiveUser={(u) => setActiveRbacUser(u)}
+              onRefresh={async () => {
+                await fetchAllCrmData();
+              }}
+              onShowToast={showToast}
             />
           )}
 
-          {activeModule === 'DATA_HEALTH' && (
-            <DataHealthTab
-              summary={healthSummary}
-              duplicates={duplicates}
-              contacts={contacts}
-              companies={companies}
-              loading={loadingAll}
-              onRefresh={() => fetchAllCrmData()}
-              onMergeDuplicate={handleMergeDuplicate}
-              onAutoClean={handleAutoClean}
-              onEnrichEntity={async (entityType, entityId) => {
-                if (entityType === 'CONTACT') {
-                  await handleEnrichContact(entityId);
-                } else {
-                  await handleEnrichCompany(entityId);
-                }
-              }}
-              onNavigateToContact={(contactId) => {
-                setInitialContactIdForDrawer(contactId);
-                setActiveModule('CONTACTS_COMPANIES');
-              }}
-            />
-          )}
+          {isCrmActive && (
+            <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex min-h-[780px]">
+              <CrmSidebar
+                activeModule={activeModule as CrmModuleId}
+                pipelines={pipelines}
+                selectedPipelineId={selectedPipelineId}
+                contactsSubView={contactsInitialSubView}
+                dataHealthScope={dataHealthScope}
+                contactsCount={contacts.length}
+                companiesCount={companies.length}
+                dealsCount={deals.length}
+                formsCount={webForms.length}
+                automationsCount={workflows.length + sequences.length}
+                healthScore={healthSummary?.globalHealthScore ?? 0}
+                onSelectPipeline={(pipeId) => {
+                  setSelectedPipelineId(pipeId);
+                  setLastCrmSubModule('DEALS_KANBAN');
+                  setActiveModule('DEALS_KANBAN');
+                }}
+                onSelectContactsSubView={(sub) => {
+                  setContactsInitialSubView(sub);
+                  setLastCrmSubModule('CONTACTS_COMPANIES');
+                  setActiveModule('CONTACTS_COMPANIES');
+                }}
+                onSelectForms={() => {
+                  setLastCrmSubModule('MARKETING_FORMS');
+                  setActiveModule('MARKETING_FORMS');
+                }}
+                onSelectAutomations={() => {
+                  setLastCrmSubModule('AUTOMATIONS');
+                  setActiveModule('AUTOMATIONS');
+                }}
+                onSelectDataHealth={(scope) => {
+                  setDataHealthScope(scope);
+                  setLastCrmSubModule('DATA_HEALTH');
+                  setActiveModule('DATA_HEALTH');
+                }}
+              />
 
-          {activeModule === 'AUTOMATIONS' && (
-            <AutomationsSequencesTab
-              workflows={workflows}
-              executions={workflowExecutions}
-              sequences={sequences}
-              enrollments={enrollments}
-              contacts={contacts}
-              deals={deals}
-              onToggleWorkflow={handleToggleWorkflow}
-              onTriggerWorkflowTest={handleTriggerWorkflowTest}
-              onCreateWorkflow={handleCreateWorkflow}
-              onEnrollContact={handleEnrollContactSequence}
-              onAdvanceStep={handleAdvanceSequenceStep}
-              onRecordInteraction={handleSequenceInteraction}
-              onCreateSequence={handleCreateSequence}
-            />
+              <div className="flex-1 p-4 sm:p-6 overflow-x-hidden">
+                {activeModule === 'DEALS_KANBAN' && (
+                  <DealsKanbanTab
+                    pipelines={pipelines}
+                    deals={deals}
+                    forecast={dealsForecast}
+                    contacts={contacts}
+                    companies={companies}
+                    proposals={erpData?.proposals || []}
+                    rentalContracts={erpData?.rentalContracts || []}
+                    onMoveDealStage={handleMoveDealStage}
+                    onCreateDeal={handleCreateDeal}
+                    onAddDealNote={handleAddDealNote}
+                    selectedPipelineId={selectedPipelineId}
+                    onSelectPipeline={(id) => setSelectedPipelineId(id)}
+                    onUpdateDeal={handleUpdateDeal}
+                    onDeleteDeal={handleDeleteDeal}
+                    onNavigateToErp={() => {
+                      setErpInitialSection('INICIO');
+                      setActiveModule('ERP_GESTAOCLICK');
+                    }}
+                    onShowToast={showToast}
+                    onRefreshAll={async () => {
+                      await fetchAllCrmData();
+                    }}
+                  />
+                )}
+
+                {activeModule === 'CONTACTS_COMPANIES' && (
+                  <ContactsCompaniesTab
+                    contacts={contacts}
+                    companies={companies}
+                    initialSelectedContactId={initialContactIdForDrawer}
+                    onClearInitialContact={() => setInitialContactIdForDrawer(null)}
+                    initialSubView={contactsInitialSubView}
+                    onCreateContact={handleCreateContact}
+                    onUpdateContact={handleUpdateContact}
+                    onDeleteContact={handleDeleteContact}
+                    onCreateCompany={handleCreateCompany}
+                    onUpdateCompany={handleUpdateCompany}
+                    onDeleteCompany={handleDeleteCompany}
+                    onEnrichContact={handleEnrichContact}
+                    onEnrichCompany={handleEnrichCompany}
+                    onBatchEnrichAll={handleBatchEnrichAll}
+                    onAddContactActivity={handleAddContactActivity}
+                  />
+                )}
+
+                {activeModule === 'MARKETING_FORMS' && (
+                  <FormsBuilderTab
+                    forms={webForms}
+                    submissions={formSubmissions}
+                    summary={formsSummary}
+                    onSubmitForm={handleSubmitForm}
+                    onCreateForm={handleCreateForm}
+                    onRunHubSpotMigration={handleRunHubSpotMigration}
+                    onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
+                    onNavigateToDeals={() => {
+                      setLastCrmSubModule('DEALS_KANBAN');
+                      setActiveModule('DEALS_KANBAN');
+                    }}
+                  />
+                )}
+
+                {activeModule === 'AUTOMATIONS' && (
+                  <AutomationsSequencesTab
+                    workflows={workflows}
+                    executions={workflowExecutions}
+                    sequences={sequences}
+                    enrollments={enrollments}
+                    contacts={contacts}
+                    deals={deals}
+                    onToggleWorkflow={handleToggleWorkflow}
+                    onTriggerWorkflowTest={handleTriggerWorkflowTest}
+                    onCreateWorkflow={handleCreateWorkflow}
+                    onEnrollContact={handleEnrollContactSequence}
+                    onAdvanceStep={handleAdvanceSequenceStep}
+                    onRecordInteraction={handleSequenceInteraction}
+                    onCreateSequence={handleCreateSequence}
+                  />
+                )}
+
+                {activeModule === 'DATA_HEALTH' && (
+                  <DataHealthTab
+                    summary={healthSummary}
+                    duplicates={duplicates}
+                    contacts={contacts}
+                    companies={companies}
+                    erpData={erpData}
+                    initialScope={dataHealthScope}
+                    onNavigateToErpSection={(sec, subId) => {
+                      setErpInitialSection((sec as GestaoClickMenuSection) || 'INICIO');
+                      setActiveModule('ERP_GESTAOCLICK');
+                    }}
+                    loading={loadingAll}
+                    onRefresh={() => fetchAllCrmData()}
+                    onMergeDuplicate={handleMergeDuplicate}
+                    onAutoClean={handleAutoClean}
+                    onEnrichEntity={async (entityType, entityId) => {
+                      if (entityType === 'CONTACT') {
+                        await handleEnrichContact(entityId);
+                      } else {
+                        await handleEnrichCompany(entityId);
+                      }
+                    }}
+                    onNavigateToContact={(contactId) => {
+                      setInitialContactIdForDrawer(contactId);
+                      setLastCrmSubModule('CONTACTS_COMPANIES');
+                      setActiveModule('CONTACTS_COMPANIES');
+                    }}
+                  />
+                )}
+              </div>
+            </div>
           )}
         </main>
       </div>
