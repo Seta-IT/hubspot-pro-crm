@@ -387,6 +387,9 @@ export default function HubSpotProCrmApp() {
     phone?: string;
     jobTitle?: string;
     lifecycleStage?: LifecycleStage;
+    buyingRole?: string;
+    ownerName?: string;
+    isUnworked?: boolean;
     companyId?: string;
     companyName?: string;
   }): Promise<EnrichedContactItem> => {
@@ -469,6 +472,9 @@ export default function HubSpotProCrmApp() {
     annualRevenue?: number;
     city?: string;
     state?: string;
+    isTargetAccount?: boolean;
+    icpTier?: "TIER_1" | "TIER_2" | "TIER_3" | null;
+    ownerName?: string;
   }) => {
     const res = await fetch('/api/companies', {
       method: 'POST',

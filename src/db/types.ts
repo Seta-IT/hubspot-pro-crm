@@ -550,6 +550,12 @@ export interface ErpCommercialProposal {
   sellerName: string;
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
+  templateStyle?: 'SETA_PREMIUM_TELECOM' | 'EXECUTIVO_CORPORATIVO' | 'LOCACAO_DETALHADA_SLA';
+  slaResponseHours?: number;
+  slaAvailabilityPercent?: string;
+  deliveryDays?: number;
+  warrantyTerms?: string;
+  technicalScopeNotes?: string;
   readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
   discountAmount?: number;
   contractMonths: number;
@@ -602,6 +608,31 @@ export interface ErpReadjustmentHistoryEntry {
   note?: string;
 }
 
+export interface ErpContractPartialReturnItem {
+  skuGestaoClick: string;
+  description: string;
+  serialNumber: string;
+  quantityReturned: number;
+  unitMonthlyRent: number;
+  proRataBilledBrl: number;
+  monthlyReductionBrl: number;
+  returnNfeCfop?: '5.909' | '6.909';
+  returnNfeNumber?: string;
+}
+
+export interface ErpContractPartialReturnEntry {
+  id: string;
+  returnedAt: string;
+  cycleDaysUsed: number;
+  returnedItems: ErpContractPartialReturnItem[];
+  previousMonthlyValue: number;
+  newRecurringMonthlyValue: number;
+  currentCycleProRataTotalBrl: number;
+  returnNfeNumber?: string;
+  reason?: string;
+  generatedProRataInvoiceId?: string;
+}
+
 export interface ErpRentalContract {
   id: string;
   contractNumber: string;
@@ -622,6 +653,9 @@ export interface ErpRentalContract {
   lastReadjustmentDate?: string | null;
   lastReadjustmentPercent?: number | null;
   readjustmentHistory?: ErpReadjustmentHistoryEntry[];
+  partialReturns?: ErpContractPartialReturnEntry[];
+  lastEmailSentAt?: string | null;
+  lastEmailRecipient?: string | null;
   status: ErpRentalContractStatus;
   equipments: ErpRentalEquipmentItem[];
   remessaNfeNumber: string;
@@ -715,6 +749,59 @@ export interface ErpCatalogItem {
   monthlyRentalPrice: number;
   saleOrSetupPrice: number;
   isActive: boolean;
+  // Aba 1: Dados
+  barcodeEan?: string;
+  productGroup?: string;
+  movesStock?: boolean;
+  enableNfe?: boolean;
+  hasVariations?: boolean;
+  hasComposition?: boolean;
+  unitOfMeasure?: string;
+  unitConversionToggle?: boolean;
+  nfeReferences?: string[];
+  // Aba 2: Detalhes
+  netWeightKg?: number;
+  grossWeightKg?: number;
+  widthCm?: number;
+  heightCm?: number;
+  lengthCm?: number;
+  brand?: string;
+  modelName?: string;
+  warrantyMonths?: number;
+  controlsSerialNumber?: boolean;
+  // Aba 3: Valores
+  costPrice?: number;
+  accessoryExpenses?: number;
+  profitMarginPercent?: number;
+  wholesalePrice?: number;
+  assetValueBrl?: number;
+  // Aba 4: Estoque
+  minStock?: number;
+  maxStock?: number;
+  warehouseLocation?: string;
+  stockMovements?: Array<{
+    id: string;
+    date: string;
+    type: 'ENTRADA' | 'SAIDA' | 'REMESSA_LOCACAO' | 'RETORNO_LOCACAO';
+    quantity: number;
+    documentRef: string;
+    notes: string;
+  }>;
+  // Aba 6: Fiscal
+  cest?: string;
+  merchandiseOrigin?: string;
+  cfopRemessaLocacao?: string;
+  cfopRetornoLocacao?: string;
+  cstIcms?: string;
+  cstPisCofins?: string;
+  ipiRatePercent?: number;
+  // Aba 7: Fornecedores
+  suppliersList?: Array<{
+    supplierName: string;
+    supplierCnpj: string;
+    supplierSku: string;
+    lastPurchaseCost: number;
+  }>;
 }
 
 export interface ErpFinancialEntry {

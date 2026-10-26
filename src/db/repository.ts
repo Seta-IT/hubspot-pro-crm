@@ -23,6 +23,8 @@ import {
   Workflow,
   WorkflowExecution,
   ErpCommercialProposal,
+  ErpContractPartialReturnEntry,
+  ErpContractPartialReturnItem,
   ErpRentalContract,
   ErpFiscalInvoice,
   ErpCatalogItem,
@@ -307,10 +309,41 @@ export class CrmRepository {
         Array.isArray(parsed.snippets) && parsed.snippets.length > 0
           ? parsed.snippets
           : seedFallback.snippets || [],
-      erp:
-        parsed.erp && Array.isArray(parsed.erp.proposals)
-          ? parsed.erp
-          : createSeedErpState(),
+      erp: (() => {
+        const seedErp = createSeedErpState();
+        if (!parsed.erp || !Array.isArray(parsed.erp.proposals)) {
+          return seedErp;
+        }
+        return {
+          ...seedErp,
+          ...parsed.erp,
+          bankAccounts:
+            Array.isArray(parsed.erp.bankAccounts) && parsed.erp.bankAccounts.length > 0
+              ? parsed.erp.bankAccounts
+              : seedErp.bankAccounts,
+          dashboardSummary: parsed.erp.dashboardSummary || seedErp.dashboardSummary,
+          salesOrders:
+            Array.isArray(parsed.erp.salesOrders) && parsed.erp.salesOrders.length > 0
+              ? parsed.erp.salesOrders
+              : seedErp.salesOrders,
+          serviceOrders:
+            Array.isArray(parsed.erp.serviceOrders) && parsed.erp.serviceOrders.length > 0
+              ? parsed.erp.serviceOrders
+              : seedErp.serviceOrders,
+          suppliers:
+            Array.isArray(parsed.erp.suppliers) && parsed.erp.suppliers.length > 0
+              ? parsed.erp.suppliers
+              : seedErp.suppliers,
+          employees:
+            Array.isArray(parsed.erp.employees) && parsed.erp.employees.length > 0
+              ? parsed.erp.employees
+              : seedErp.employees,
+          purchaseOrders:
+            Array.isArray(parsed.erp.purchaseOrders) && parsed.erp.purchaseOrders.length > 0
+              ? parsed.erp.purchaseOrders
+              : seedErp.purchaseOrders,
+        };
+      })(),
     };
   }
 
@@ -417,7 +450,7 @@ export class CrmRepository {
             ? new Date(target[idx].updatedAt!).getTime()
             : 0;
           const incomingTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-          if (incomingTime > existingTime) {
+          if (incomingTime >= existingTime) {
             target[idx] = { ...target[idx], ...structuredClone(item) };
             appliedCount++;
           }
@@ -2551,6 +2584,524 @@ export class CrmRepository {
 
     this.save();
     return updated;
+  }
+
+  applyPartialEquipmentReturn(
+    idOrNum: string,
+    input: {
+      returnDate?: string;
+      cycleDaysUsed?: number;
+      itemsToReturn: Array<{
+        equipmentId?: string;
+        equipmentIdx?: number;
+        serialNumber?: string;
+        quantityReturned: number;
+      }>;
+      emitReturnNfe?: boolean;
+      emitProRataInvoice?: boolean;
+      reason?: string;
+    }
+  ): {
+    contract: ErpRentalContract;
+    returnEntry: ErpContractPartialReturnEntry;
+    returnNfe: ErpFiscalInvoice | null;
+    proRataInvoice: ErpFiscalInvoice | null;
+  } | null {
+    const erp = this.ensureErp();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (idx === -1) return null;
+
+    const current = erp.rentalContracts[idx];
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const returnedAt = (input.returnDate || nowIso).slice(0, 10);
+    const cycleDaysUsed = Math.min(30, Math.max(1, Number(input.cycleDaysUsed ?? 15)));
+    const previousMonthlyValue = Number(current.monthlyValue || 0);
+
+    const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const nextEquipments = structuredClone(current.equipments || []);
+    const returnedItems: ErpContractPartialReturnItem[] = [];
+    let totalReturnedAssetValueBrl = 0;
+    const returnCfop: '5.909' | '6.909' = current.remessaCfop === '6.908' ? '6.909' : '5.909';
+    const returnNfeNumber = `000.509.${100 + erp.invoices.length + 1}`;
+
+    for (const reqItem of input.itemsToReturn || []) {
+      const qtyReq = Number(reqItem.quantityReturned || 0);
+      if (qtyReq <= 0) continue;
+
+      let eqIdx = -1;
+      if (typeof reqItem.equipmentIdx === 'number' && nextEquipments[reqItem.equipmentIdx]) {
+        eqIdx = reqItem.equipmentIdx;
+      } else if (reqItem.equipmentId) {
+        eqIdx = nextEquipments.findIndex((e) => e.id === reqItem.equipmentId);
+      } else if (reqItem.serialNumber) {
+        eqIdx = nextEquipments.findIndex(
+          (e) => e.serialNumber.toLowerCase() === String(reqItem.serialNumber).toLowerCase()
+        );
+      }
+      if (eqIdx === -1) continue;
+
+      const eq = nextEquipments[eqIdx];
+      if (eq.assetStatus === 'DEVOLVIDO' || eq.quantity <= 0) continue;
+
+      const actualQtyReturned = Math.min(eq.quantity, Math.max(1, qtyReq));
+      const unitRent = Number(eq.unitMonthlyRent || 0);
+      const monthlyReductionBrl = round2(actualQtyReturned * unitRent);
+      const proRataBilledBrl = round2(monthlyReductionBrl * (cycleDaysUsed / 30));
+      const unitAssetVal = eq.quantity > 0 ? Number(eq.assetValueBrl || 0) / eq.quantity : unitRent * 6;
+      totalReturnedAssetValueBrl = round2(totalReturnedAssetValueBrl + unitAssetVal * actualQtyReturned);
+
+      returnedItems.push({
+        skuGestaoClick: eq.skuGestaoClick,
+        description: eq.description,
+        serialNumber: eq.serialNumber,
+        quantityReturned: actualQtyReturned,
+        unitMonthlyRent: unitRent,
+        proRataBilledBrl,
+        monthlyReductionBrl,
+        returnNfeCfop: returnCfop,
+        returnNfeNumber,
+      });
+
+      if (actualQtyReturned < eq.quantity) {
+        const remainingQty = eq.quantity - actualQtyReturned;
+        eq.quantity = remainingQty;
+        eq.assetValueBrl = round2(unitAssetVal * remainingQty);
+        eq.assetStatus = 'EM_CLIENTE';
+      } else {
+        eq.assetStatus = 'DEVOLVIDO';
+      }
+    }
+
+    if (returnedItems.length === 0) return null;
+
+    const totalMonthlyReduction = round2(
+      returnedItems.reduce((s, r) => s + r.monthlyReductionBrl, 0)
+    );
+    const totalProRataReturned = round2(
+      returnedItems.reduce((s, r) => s + r.proRataBilledBrl, 0)
+    );
+    const newRecurringMonthlyValue = Math.max(
+      0,
+      round2(previousMonthlyValue - totalMonthlyReduction)
+    );
+    const currentCycleProRataTotalBrl = round2(newRecurringMonthlyValue + totalProRataReturned);
+
+    let returnNfe: ErpFiscalInvoice | null = null;
+    if (input.emitReturnNfe !== false) {
+      const taxRet = calculateBrazilianTaxBreakdown({
+        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        discountAmount: 0,
+        documentType: 'NFE_REMESSA_LOCACAO',
+        taxRegime: erp.gestaoClickConfig.taxRegime,
+      });
+      returnNfe = {
+        id: `inv-ret-${Date.now()}`,
+        documentNumber: `NFE-RET-${returnNfeNumber.replace(/\./g, '')}`,
+        documentType: 'NFE_REMESSA_LOCACAO',
+        competenceMonth: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
+        companyId: current.companyId,
+        companyName: current.companyName,
+        companyCnpj: current.companyCnpj,
+        companyAddress: 'Retorno Parcial de Bem Locado — Seta Telecom Matriz #118887',
+        rentalContractId: current.id,
+        proposalId: current.proposalId,
+        dealId: current.dealId,
+        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        discountAmount: 0,
+        netAmount: Math.max(100, totalReturnedAssetValueBrl),
+        status: 'PAGA',
+        issueDate: returnedAt,
+        dueDate: returnedAt,
+        paidAt: returnedAt,
+        paymentMethod: 'TED_BANCARIA',
+        serviceCodeLc116: null,
+        cfop: `${returnCfop} — Retorno de bem remetido por conta de contrato de locação`,
+        cstIcms: '041 - Não tributada (Art. 7º, X do RICMS — Retorno de Locação)',
+        cstPisCofins: '08 - Operação sem incidência da contribuição',
+        verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 5091 0110 0050 9991`,
+        pixCopyPaste: 'DOCUMENTO FISCAL DE RETORNO PATRIMONIAL PARCIAL — SEM COBRANÇA FINANCEIRA',
+        boletoDigitableLine: `SEM FATURA FINANCEIRA (CFOP ${returnCfop} - RETORNO PARCIAL DE LOCAÇÃO)`,
+        itemsDescription: returnedItems.map((ri) => ({
+          description: `Retorno Parcial de Locação (${current.contractNumber}): ${ri.description}`,
+          serialNumber: ri.serialNumber,
+          quantity: ri.quantityReturned,
+          unitValue: ri.unitMonthlyRent * 6,
+          totalValue: round2(ri.quantityReturned * ri.unitMonthlyRent * 6),
+        })),
+        taxBreakdown: taxRet,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      erp.invoices.unshift(returnNfe);
+    }
+
+    let proRataInvoice: ErpFiscalInvoice | null = null;
+    if (input.emitProRataInvoice !== false) {
+      const competence = `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      const taxProRata = calculateBrazilianTaxBreakdown({
+        grossAmount: currentCycleProRataTotalBrl,
+        discountAmount: 0,
+        documentType: 'FATURA_LOCACAO',
+        taxRegime: erp.gestaoClickConfig.taxRegime,
+      });
+      const seqNum = String(erp.invoices.length + 1).padStart(4, '0');
+      const docNum = `FAT-PRORATA-2026-${seqNum}`;
+      const dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+
+      const activeItemsDesc = nextEquipments
+        .filter((e) => e.assetStatus !== 'DEVOLVIDO' && e.quantity > 0)
+        .map((eq) => ({
+          description: `Locação Mensal Integral (30/30 dias): ${eq.description}`,
+          serialNumber: eq.serialNumber,
+          quantity: eq.quantity,
+          unitValue: eq.unitMonthlyRent,
+          totalValue: round2(eq.quantity * eq.unitMonthlyRent),
+        }));
+
+      const returnedItemsDesc = returnedItems.map((ri) => ({
+        description: `Rateio Proporcional Pro-Rata (${cycleDaysUsed}/30 dias até devolução em ${returnedAt}): ${ri.description}`,
+        serialNumber: ri.serialNumber,
+        quantity: ri.quantityReturned,
+        unitValue: round2((ri.unitMonthlyRent * cycleDaysUsed) / 30),
+        totalValue: ri.proRataBilledBrl,
+      }));
+
+      proRataInvoice = {
+        id: `inv-prorata-${Date.now()}`,
+        documentNumber: docNum,
+        documentType: 'FATURA_LOCACAO',
+        competenceMonth: competence,
+        companyId: current.companyId,
+        companyName: current.companyName,
+        companyCnpj: current.companyCnpj,
+        companyAddress: 'São Paulo/SP — Fatura com Rateio Proporcional (Pro-Rata Die)',
+        rentalContractId: current.id,
+        proposalId: current.proposalId,
+        dealId: current.dealId,
+        grossAmount: currentCycleProRataTotalBrl,
+        discountAmount: round2(totalMonthlyReduction - totalProRataReturned),
+        netAmount: taxProRata.netReceivableAmount,
+        status: 'EMITIDA',
+        issueDate: returnedAt,
+        dueDate,
+        paidAt: null,
+        paymentMethod: 'BOLETO_PIX',
+        serviceCodeLc116: 'N/A — Locação de Bens Móveis com Rateio Pro-Rata (SV 31 STF + LC 116/03)',
+        cfop: `N/A (Ref. NF-e Remessa ${current.remessaCfop} e NF-e Retorno Parcial ${returnCfop} nº ${returnNfeNumber})`,
+        cstIcms: '41 - Não Tributada',
+        cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+        verificationCodeOrKey: `AUTH-PRORATA-${Date.now().toString(36).toUpperCase()}`,
+        pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${currentCycleProRataTotalBrl.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304PR01`,
+        boletoDigitableLine: `34191.79001 01043.510047 91020.150008 7 9890${String(Math.round(currentCycleProRataTotalBrl * 100)).padStart(10, '0')}`,
+        itemsDescription: [...activeItemsDesc, ...returnedItemsDesc],
+        taxBreakdown: taxProRata,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      erp.invoices.unshift(proRataInvoice);
+
+      erp.financialEntries.unshift({
+        id: `fin-prorata-${Date.now()}`,
+        type: 'RECEBER',
+        category: 'LOCACAO_EQUIPAMENTOS',
+        description: `Fatura Pro-Rata ${docNum} — ${current.companyName} (Rateio Devolução Parcial s/ pausar contrato)`,
+        companyName: current.companyName,
+        costCenter: 'CC-101 • Receita Recorrente de Locação (MRR)',
+        amount: proRataInvoice.netAmount,
+        dueDate,
+        paidAt: null,
+        status: 'ABERTO',
+        invoiceId: proRataInvoice.id,
+        paymentMethod: 'Boleto Híbrido PIX',
+      });
+    }
+
+    const returnEntry: ErpContractPartialReturnEntry = {
+      id: `pret-${Date.now()}`,
+      returnedAt,
+      cycleDaysUsed,
+      returnedItems,
+      previousMonthlyValue,
+      newRecurringMonthlyValue,
+      currentCycleProRataTotalBrl,
+      returnNfeNumber,
+      reason:
+        input.reason ||
+        `Devolução parcial com rateio proporcional (${cycleDaysUsed}/30 dias) mantendo contrato ATIVO.`,
+      generatedProRataInvoiceId: proRataInvoice?.id,
+    };
+
+    const hasRemainingActiveItems = nextEquipments.some(
+      (e) => e.assetStatus !== 'DEVOLVIDO' && e.quantity > 0
+    );
+
+    const updatedContract: ErpRentalContract = {
+      ...current,
+      status: hasRemainingActiveItems ? 'ATIVO' : 'ENCERRADO',
+      monthlyValue: newRecurringMonthlyValue,
+      equipments: nextEquipments,
+      partialReturns: [returnEntry, ...(current.partialReturns || [])],
+      updatedAt: nowIso,
+    };
+
+    erp.rentalContracts[idx] = updatedContract;
+
+    if (current.companyId || current.dealId || current.contactId) {
+      this.createTimelineEvent({
+        type: 'NOTE',
+        title: `Rateio Pro-Rata & Devolução Parcial no Contrato ${current.contractNumber} (Contrato mantido ATIVO)`,
+        body: `Devolvidos ${returnedItems.reduce((s, i) => s + i.quantityReturned, 0)} equipamento(s) após ${cycleDaysUsed} dias de uso no ciclo. Fatura Pro-Rata deste mês: R$ ${currentCycleProRataTotalBrl.toFixed(2)}. Nova mensalidade recorrente: R$ ${newRecurringMonthlyValue.toFixed(2)}/mês.`,
+        companyId: current.companyId,
+        contactId: current.contactId,
+        dealId: current.dealId,
+        actor: 'Motor de Rateio Pro-Rata Seta Telecom',
+      });
+    }
+
+    this.save();
+    return {
+      contract: updatedContract,
+      returnEntry,
+      returnNfe,
+      proRataInvoice,
+    };
+  }
+
+  batchBillRentalContracts(input: {
+    competenceMonth?: string;
+    items?: Array<{
+      contractId: string;
+      customAmountBrl?: number;
+      discountBrl?: number;
+      extraBrl?: number;
+      notes?: string;
+      sendEmail?: boolean;
+      recipientEmail?: string;
+    }>;
+  }): {
+    competenceMonth: string;
+    invoicesGenerated: number;
+    emailsDispatched: number;
+    totalBilledBrl: number;
+    invoices: ErpFiscalInvoice[];
+    contracts: ErpRentalContract[];
+  } {
+    const erp = this.ensureErp();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const competenceMonth =
+      input.competenceMonth ||
+      `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+    const activeContracts = erp.rentalContracts.filter((c) => c.status !== 'ENCERRADO');
+    const batchItems =
+      Array.isArray(input.items) && input.items.length > 0
+        ? input.items
+        : activeContracts.map((c) => ({
+            contractId: c.id,
+            customAmountBrl: c.monthlyValue,
+            discountBrl: 0,
+            extraBrl: 0,
+            notes: undefined as string | undefined,
+            sendEmail: true,
+            recipientEmail: undefined as string | undefined,
+          }));
+
+    const createdInvoices: ErpFiscalInvoice[] = [];
+    const updatedContracts: ErpRentalContract[] = [];
+    let emailsDispatched = 0;
+    let totalBilledBrl = 0;
+
+    for (const item of batchItems) {
+      const ctr = erp.rentalContracts.find(
+        (c) => c.id === item.contractId || c.contractNumber === item.contractId
+      );
+      if (!ctr) continue;
+
+      const baseAmount =
+        item.customAmountBrl !== undefined ? Number(item.customAmountBrl) : ctr.monthlyValue;
+      const extraBrl = Number(item.extraBrl || 0);
+      const discountBrl = Number(item.discountBrl || 0);
+      const grossAmount = Math.max(0, Math.round((baseAmount + extraBrl) * 100) / 100);
+
+      const taxBreakdown = calculateBrazilianTaxBreakdown({
+        grossAmount,
+        discountAmount: discountBrl,
+        documentType: 'FATURA_LOCACAO',
+        taxRegime: erp.gestaoClickConfig.taxRegime,
+      });
+
+      const seqNum = String(erp.invoices.length + 1).padStart(4, '0');
+      const docNum = `FAT-LOC-2026-${seqNum}`;
+      const dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+
+      const invoice: ErpFiscalInvoice = {
+        id: `inv-batch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        documentNumber: docNum,
+        documentType: 'FATURA_LOCACAO',
+        competenceMonth,
+        companyId: ctr.companyId,
+        companyName: ctr.companyName,
+        companyCnpj: ctr.companyCnpj,
+        companyAddress: 'Endereço Cadastrado — Faturamento em Massa Seta Telecom',
+        rentalContractId: ctr.id,
+        proposalId: ctr.proposalId,
+        dealId: ctr.dealId,
+        grossAmount,
+        discountAmount: discountBrl,
+        netAmount: taxBreakdown.netReceivableAmount,
+        status: 'EMITIDA',
+        issueDate: nowIso.slice(0, 10),
+        dueDate,
+        paidAt: null,
+        paymentMethod: 'BOLETO_PIX',
+        serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+        cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${ctr.remessaCfop} nº ${ctr.remessaNfeNumber})`,
+        cstIcms: '41 - Não Tributada',
+        cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+        verificationCodeOrKey: `AUTH-BATCH-${Date.now().toString(36).toUpperCase()}`,
+        pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304BT01`,
+        boletoDigitableLine: `34191.79001 01043.510047 91020.150008 7 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
+        itemsDescription: [
+          ...ctr.equipments
+            .filter((e) => e.assetStatus !== 'DEVOLVIDO' && e.quantity > 0)
+            .map((eq) => ({
+              description: `Locação Mensal (${competenceMonth}): ${eq.description}`,
+              serialNumber: eq.serialNumber,
+              quantity: eq.quantity,
+              unitValue: eq.unitMonthlyRent,
+              totalValue: Math.round(eq.quantity * eq.unitMonthlyRent * 100) / 100,
+            })),
+          ...(item.notes
+            ? [
+                {
+                  description: `Observação / Ajuste Faturamento: ${item.notes}`,
+                  quantity: 1,
+                  unitValue: extraBrl - discountBrl,
+                  totalValue: extraBrl - discountBrl,
+                },
+              ]
+            : []),
+        ],
+        taxBreakdown,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      erp.invoices.unshift(invoice);
+      createdInvoices.push(invoice);
+      totalBilledBrl = Math.round((totalBilledBrl + invoice.netAmount) * 100) / 100;
+
+      erp.financialEntries.unshift({
+        id: `fin-batch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: 'RECEBER',
+        category: 'LOCACAO_EQUIPAMENTOS',
+        description: `[Lote ${competenceMonth}] Fatura ${docNum} — ${ctr.companyName}`,
+        companyName: ctr.companyName,
+        costCenter: 'CC-101 • Receita Recorrente de Locação (MRR)',
+        amount: invoice.netAmount,
+        dueDate,
+        paidAt: null,
+        status: 'ABERTO',
+        invoiceId: invoice.id,
+        paymentMethod: 'Boleto Híbrido PIX',
+      });
+
+      ctr.lastBilledCompetence = competenceMonth;
+      if (item.sendEmail !== false) {
+        const emailAddr =
+          item.recipientEmail ||
+          `financeiro@${ctr.companyName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}.com.br`;
+        ctr.lastEmailSentAt = nowIso;
+        ctr.lastEmailRecipient = emailAddr;
+        emailsDispatched++;
+
+        if (ctr.companyId || ctr.contactId || ctr.dealId) {
+          this.createTimelineEvent({
+            type: 'EMAIL',
+            title: `Fatura de Locação ${docNum} (${competenceMonth}) enviada em lote para ${emailAddr}`,
+            body: `Valor Líquido: R$ ${invoice.netAmount.toFixed(2)} (0% ISS — Súmula Vinculante 31 STF). Anexo: Espelho PDF + Relação de S/Ns + Boleto/PIX.`,
+            companyId: ctr.companyId,
+            contactId: ctr.contactId,
+            dealId: ctr.dealId,
+            actor: 'Motor de Faturamento em Massa Seta Telecom',
+          });
+        }
+      }
+      ctr.updatedAt = nowIso;
+      updatedContracts.push(ctr);
+    }
+
+    this.save();
+    return {
+      competenceMonth,
+      invoicesGenerated: createdInvoices.length,
+      emailsDispatched,
+      totalBilledBrl,
+      invoices: createdInvoices,
+      contracts: updatedContracts,
+    };
+  }
+
+  batchSendContractBillingEmails(input: {
+    contractIds?: string[];
+    competenceMonth?: string;
+    customMessage?: string;
+  }): {
+    sentCount: number;
+    recipients: Array<{ contractNumber: string; companyName: string; email: string }>;
+    timestamp: string;
+  } {
+    const erp = this.ensureErp();
+    const nowIso = new Date().toISOString();
+    const targetContracts =
+      Array.isArray(input.contractIds) && input.contractIds.length > 0
+        ? erp.rentalContracts.filter(
+            (c) => input.contractIds!.includes(c.id) || input.contractIds!.includes(c.contractNumber)
+          )
+        : erp.rentalContracts.filter((c) => c.status !== 'ENCERRADO');
+
+    const recipients: Array<{ contractNumber: string; companyName: string; email: string }> = [];
+
+    for (const ctr of targetContracts) {
+      const matchedContact = ctr.contactId ? this.getContactById(ctr.contactId) : undefined;
+      const email =
+        ctr.lastEmailRecipient ||
+        matchedContact?.email ||
+        `financeiro@${ctr.companyName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}.com.br`;
+
+      ctr.lastEmailSentAt = nowIso;
+      ctr.lastEmailRecipient = email;
+      recipients.push({
+        contractNumber: ctr.contractNumber,
+        companyName: ctr.companyName,
+        email,
+      });
+
+      if (ctr.companyId || ctr.contactId || ctr.dealId) {
+        this.createTimelineEvent({
+          type: 'EMAIL',
+          title: `Disparo em massa: Fatura & Demonstrativo de Locação (${ctr.contractNumber}) -> ${email}`,
+          body:
+            input.customMessage ||
+            `Enviado demonstrativo de equipamentos locados (${ctr.equipments.length} itens S/N), Fatura de Locação (0% ISS — SV 31 STF) e chave PIX/Boleto.`,
+          companyId: ctr.companyId,
+          contactId: ctr.contactId,
+          dealId: ctr.dealId,
+          actor: 'Disparo de E-mails em Massa Seta Telecom',
+        });
+      }
+    }
+
+    this.save();
+    return {
+      sentCount: recipients.length,
+      recipients,
+      timestamp: nowIso,
+    };
   }
 
   deleteRentalContract(idOrNum: string): boolean {

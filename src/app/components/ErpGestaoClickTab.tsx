@@ -68,27 +68,42 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import {
+  recordDeletedCatalogItem,
+  recordDeletedCompany,
   recordDeletedContract,
+  recordDeletedEmployee,
   recordDeletedInvoice,
   recordDeletedProposal,
   recordDeletedPurchaseOrder,
+  recordDeletedSaleOrder,
+  recordDeletedServiceOrder,
+  recordDeletedSupplier,
+  recordUpsertedCatalogItem,
+  recordUpsertedCompany,
   recordUpsertedContract,
+  recordUpsertedEmployee,
   recordUpsertedInvoice,
   recordUpsertedProposal,
   recordUpsertedPurchaseOrder,
+  recordUpsertedSaleOrder,
+  recordUpsertedServiceOrder,
+  recordUpsertedSupplier,
 } from '../lib/durable-storage';
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar from './GestaoClickSidebar';
 import {
+  CATALOG_ITEM_EDITOR_FIELDS,
   ContractEditModal,
   GenericFieldSpec,
   GenericRecordEditModal,
   InvoiceEditModal,
   ProposalEditModal,
+  SERVICE_ORDER_EDITOR_FIELDS,
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 
 export interface ErpOverviewPayload {
   kpis: {
@@ -267,6 +282,10 @@ export default function ErpGestaoClickTab({
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
+  const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
+  const [proposalsSearch, setProposalsSearch] = useState<string>("");
+  const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
+  const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("CARDS");
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);
   const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
@@ -277,7 +296,26 @@ export default function ErpGestaoClickTab({
     onSave: (values: Record<string, unknown>) => Promise<void>;
   } | null>(null);
   const [hideBalances, setHideBalances] = useState(false);
-  const [cadastrosSubTab, setCadastrosSubTab] = useState<"CLIENTES" | "FORNECEDORES" | "FUNCIONARIOS">("CLIENTES");
+  const [cadastrosSubTab, setCadastrosSubTab] = useState<
+    "CLIENTES" | "FORNECEDORES" | "FUNCIONARIOS" | "TRANSPORTADORAS" | "AUXILIARES"
+  >("CLIENTES");
+  const [cadastrosSearch, setCadastrosSearch] = useState<string>("");
+  const [itensSearch, setItensSearch] = useState<string>("");
+  const [vendasSearch, setVendasSearch] = useState<string>("");
+  const [pdvCustomerName, setPdvCustomerName] = useState<string>(
+    companies[0]?.name || "CONSUMIDOR FINAL / BALCÃO SETA TELECOM"
+  );
+  const [pdvSellerName, setPdvSellerName] = useState<string>("Marcelo Mira");
+  const [pdvPaymentMethod, setPdvPaymentMethod] = useState<string>("PIX Corporativo");
+  const [pdvSelectedSku, setPdvSelectedSku] = useState<string>("GC-EQ-00101");
+  const [pdvSelectedQty, setPdvSelectedQty] = useState<string>("1");
+  const [pdvCart, setPdvCart] = useState<
+    Array<{ sku: string; name: string; quantity: number; unitPrice: number }>
+  >([]);
+  const [osViewMode, setOsViewMode] = useState<"LISTA" | "PAINEL">("LISTA");
+  const [osSearch, setOsSearch] = useState<string>("");
+  const [osTechFilter, setOsTechFilter] = useState<string>("TODOS");
+  const [kardexFilter, setKardexFilter] = useState<"TODOS" | "ENTRADA" | "REMESSA" | "SAIDA">("TODOS");
   const [contractsSubFilter, setContractsSubFilter] = useState<
     "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES"
   >("TODOS");
@@ -820,11 +858,15 @@ export default function ErpGestaoClickTab({
   };
 
   const handleSaveEditedProposal = async (updated: ErpCommercialProposal) => {
-    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(updated.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated),
-    });
+    const isNew = isCreatingProposalModal || !proposals.some((p) => p.id === updated.id);
+    const res = await fetch(
+      isNew ? '/api/erp/proposals' : `/api/erp/proposals/${encodeURIComponent(updated.id)}`,
+      {
+        method: isNew ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      }
+    );
     const saved: ErpCommercialProposal = res.ok ? (await res.json())?.data || updated : updated;
     recordUpsertedProposal(saved);
     const publicUrl = buildPublicProposalUrl(saved);
@@ -835,7 +877,13 @@ export default function ErpGestaoClickTab({
       printUrl,
     });
     setEditingProposal(null);
-    onShowToast(`Proposta ${saved.code} atualizada com sucesso e Link PDF regenerado!`);
+    setIsCreatingProposalModal(false);
+    setActiveSection('ORCAMENTOS');
+    onShowToast(
+      isNew
+        ? `Orçamento ${saved.code} criado com sucesso e Link PDF A4 gerado!`
+        : `Orçamento ${saved.code} atualizado com sucesso e Link PDF regenerado!`
+    );
     await onRefresh();
   };
 
@@ -908,8 +956,12 @@ export default function ErpGestaoClickTab({
           body: JSON.stringify(payload),
         });
         const saved = res.ok ? (await res.json())?.data || payload : payload;
-        if (collection === 'purchaseOrders' && saved) {
-          recordUpsertedPurchaseOrder(saved as ErpPurchaseOrder);
+        if (saved) {
+          if (collection === 'purchaseOrders') recordUpsertedPurchaseOrder(saved as ErpPurchaseOrder);
+          if (collection === 'suppliers') recordUpsertedSupplier(saved as ErpSupplierRecord);
+          if (collection === 'employees') recordUpsertedEmployee(saved as ErpEmployeeRecord);
+          if (collection === 'salesOrders') recordUpsertedSaleOrder(saved as ErpSaleOrder);
+          if (collection === 'serviceOrders') recordUpsertedServiceOrder(saved as ErpServiceOrder);
         }
         setGenericModal(null);
         onShowToast(`${title} salvo com sucesso!`);
@@ -926,9 +978,11 @@ export default function ErpGestaoClickTab({
     await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
-    if (collection === 'purchaseOrders') {
-      recordDeletedPurchaseOrder(id);
-    }
+    if (collection === 'purchaseOrders') recordDeletedPurchaseOrder(id);
+    if (collection === 'suppliers') recordDeletedSupplier(id);
+    if (collection === 'employees') recordDeletedEmployee(id);
+    if (collection === 'salesOrders') recordDeletedSaleOrder(id);
+    if (collection === 'serviceOrders') recordDeletedServiceOrder(id);
     onShowToast(`${label} removido.`);
     await onRefresh();
   };
@@ -1017,181 +1071,848 @@ export default function ErpGestaoClickTab({
     });
   };
 
-  const renderProposalsList = () => (
-    <div className="space-y-4">
-      <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-extrabold text-slate-900">Orçamentos &amp; Propostas Comerciais ({proposals.length})</h2>
-          <p className="text-xs text-slate-500">Cada proposta gera um link público permanente para o cliente abrir, aprovar e imprimir o PDF timbrado A4.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowNewProposalModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> + Nova Proposta Comercial
-        </button>
-      </div>
+  const openFullNewProposalModal = (
+    presetBudgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO',
+    templateOverrides?: Partial<ErpCommercialProposal>
+  ) => {
+    const inferredType =
+      presetBudgetType ||
+      (activeSubId === 'ORC_SERVICOS'
+        ? 'SERVICOS'
+        : activeSubId === 'ORC_PRODUTOS'
+          ? 'PRODUTOS'
+          : 'LOCACAO');
+    const comp = companies[0];
+    const cont = contacts.find((c) => c.companyId === comp?.id) || contacts[0];
+    const nextNum = proposals.length + 1;
+    const defaultServiceItem: ErpProposalItem = {
+      id: `pi-srv-${Date.now()}`,
+      sku: 'GC-SV-00201',
+      description: 'Serviço Técnico de Instalação, Homologação e Suporte NOC 24x7',
+      itemType: 'SERVICE',
+      unit: 'SV',
+      fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+      ncmOrServiceCode: 'LC 116/03 Item 01.07',
+      quantity: 1,
+      unitPrice: 1800,
+      discountPercent: 0,
+      discountAmount: 0,
+      subtotal: 1800,
+      isRecurring: true,
+      totalMonthly: 1800,
+    };
+    const defaultProductItem: ErpProposalItem = {
+      id: `pi-prd-${Date.now()}`,
+      sku: 'GC-EQ-00101',
+      description: 'Locação Central PABX IP Seta Cloud Appliance High-Availability',
+      itemType: 'PRODUCT',
+      unit: inferredType === 'PRODUTOS' ? 'UN' : 'MÊS',
+      fiscalNature: inferredType === 'PRODUTOS' ? 'VENDA_EQUIPAMENTO' : 'LOCACAO_BENS_MOVEIS',
+      ncmOrServiceCode: 'NCM 8517.62.14 (0% ISS — SV 31 STF)',
+      quantity: 1,
+      unitPrice: 2850,
+      discountPercent: 0,
+      discountAmount: 0,
+      subtotal: 2850,
+      isRecurring: inferredType !== 'PRODUTOS',
+      totalMonthly: 2850,
+    };
 
-      {proposals.map((prop) => {
-        const isConverted = prop.status === "CONVERTIDA_CONTRATO" || Boolean(prop.convertedContractId);
-        const linkedContract = rentalContracts.find(
-          (c) => (prop.convertedContractId && c.id === prop.convertedContractId) || c.proposalId === prop.id || c.proposalId === prop.code
-        );
-        const isHighlighted = highlightedProposalId === prop.id || highlightedProposalId === prop.code;
-        const publicUrl = buildPublicProposalUrl(prop);
-        const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
-        return (
-          <div
-            key={prop.id}
-            className={`bg-white rounded-md border p-5 shadow-xs space-y-4 transition ${isHighlighted ? "border-2 border-[#ff7a59] ring-2 ring-[#ff7a59]/20" : "border-slate-200"}`}
-          >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded text-xs font-black bg-[#1e3a6e] text-white">{prop.code}</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${isConverted ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-amber-100 text-amber-800 border border-amber-200"}`}>
-                    {isConverted ? "CONVERTIDA EM CONTRATO & FATURA" : prop.status}
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-50 text-indigo-800 border border-indigo-200">
-                    Reajuste: {prop.readjustmentIndex || "IPCA"}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    Executivo: <strong>{prop.sellerName}</strong> • Prazo: <strong>{prop.contractMonths} meses</strong>
-                  </span>
-                </div>
-                <h3 className="text-base font-extrabold text-slate-900 mt-1.5">{prop.title}</h3>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  Cliente: <strong>{prop.companyName}</strong> (CNPJ: {prop.companyCnpj}) • Decisor: <strong>{prop.contactName}</strong>
-                </div>
-              </div>
+    const items =
+      inferredType === 'SERVICOS'
+        ? [defaultServiceItem]
+        : inferredType === 'CONJUNTO'
+          ? [defaultProductItem, defaultServiceItem]
+          : [defaultProductItem];
 
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Mensalidade (MRR)</span>
-                  <span className="text-base font-black text-emerald-700">{formatBRL(prop.monthlyRecurringTotal)}/mês</span>
-                  <span className="text-[11px] text-slate-500 block">TCV ({prop.contractMonths}m): {formatBRL(prop.totalContractValue)}</span>
-                </div>
+    const draftNew: ErpCommercialProposal = {
+      id: `prop-${Date.now()}`,
+      code: `PROP-2026-00${nextNum}`,
+      title:
+        inferredType === 'SERVICOS'
+          ? `Orçamento de Serviços Técnicos TI/Telecom — ${comp?.name || 'Cliente B2B'}`
+          : inferredType === 'PRODUTOS'
+            ? `Orçamento de Equipamentos & Hardware — ${comp?.name || 'Cliente B2B'}`
+            : `Proposta de Locação & Conectividade — ${comp?.name || 'Cliente B2B'}`,
+      budgetType: inferredType,
+      storeName: gestaoClickConfig.storeName || 'Matriz',
+      salesChannel: 'Comercial B2B / Consultivo',
+      costCenter:
+        inferredType === 'SERVICOS'
+          ? 'Projetos & Engenharia'
+          : inferredType === 'LOCACAO'
+            ? 'Locação de Ativos'
+            : 'Comercial Telecom & TI',
+      proposalDate: new Date().toISOString().slice(0, 10),
+      deliveryForecast: 'Imediato (até 48h úteis após aceite)',
+      careOf: cont ? `${cont.firstName} ${cont.lastName}`.trim() : 'Decisor Comercial',
+      introductionText:
+        'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
+      internalNotes: '',
+      shippingCost: 0,
+      shippingCarrier: 'Frota Própria Seta Telecom',
+      deliveryAddress: comp?.city ? `${comp.name} — ${comp.city}/${comp.state || 'SP'}` : '',
+      discountAmount: 0,
+      discountPercentGlobal: 0,
+      companyId: comp?.id || null,
+      companyName: comp?.name || 'Empresa Cliente B2B',
+      companyCnpj: comp?.cnpj || '18.236.120/0001-58',
+      contactId: cont?.id || null,
+      contactName: cont ? `${cont.firstName} ${cont.lastName}`.trim() : 'Decisor Comercial',
+      contactEmail: cont?.email || undefined,
+      dealId: deals[0]?.id || null,
+      sellerName: 'Marcelo Lopes Mira',
+      status: 'ENVIADA',
+      modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
+      readjustmentIndex: 'IPCA',
+      contractMonths: 24,
+      paymentCondition: 'Boleto / PIX Corporativo — Vencimento todo dia 10',
+      validUntil: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      items,
+      monthlyRecurringTotal: items.filter((i) => i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
+      oneTimeSetupTotal: items.filter((i) => !i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
+      totalContractValue:
+        items.filter((i) => i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0) * 24 +
+        items.filter((i) => !i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
+      commercialNotes:
+        'Faturamento mensal mediante Fatura/Recibo de Locação de Bens Móveis (dispensa legal de ISS conforme LC 116/2003 e Súmula Vinculante 31 do STF). Equipamentos enviados com NF-e de Remessa CFOP 5.908.',
+      technicalClauses:
+        'SLA 99,95% Seta Telecom com substituição expressa de hardware (Advance Replacement em até 4h na Grande SP). Vigência contratual de 24 meses.',
+      convertedContractId: null,
+      convertedInvoiceId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...templateOverrides,
+    };
 
-                <button
-                  type="button"
-                  onClick={() => setEditingProposal(prop)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Proposta
-                </button>
+    setIsCreatingProposalModal(true);
+    setEditingProposal(draftNew);
+  };
 
-                <button
-                  type="button"
-                  onClick={() => handleDeleteProposal(prop)}
-                  title="Excluir Proposta"
-                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+  const renderProposalsList = () => {
+    const effectiveOrcTab: 'TODOS' | 'ORC_PRODUTOS' | 'ORC_SERVICOS' | 'ORC_AUXILIARES' =
+      activeSubId === 'ORC_PRODUTOS' ||
+      activeSubId === 'ORC_SERVICOS' ||
+      activeSubId === 'ORC_AUXILIARES'
+        ? (activeSubId as 'ORC_PRODUTOS' | 'ORC_SERVICOS' | 'ORC_AUXILIARES')
+        : 'TODOS';
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(publicUrl);
-                    onShowToast(`Link da proposta ${prop.code} copiado para enviar ao cliente!`);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800 cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5 text-[#1e3a6e]" /> Copiar Link p/ Cliente
-                </button>
+    const hasProductItem = (p: ErpCommercialProposal) =>
+      p.budgetType === 'PRODUTOS' ||
+      p.budgetType === 'LOCACAO' ||
+      p.budgetType === 'CONJUNTO' ||
+      p.items.some(
+        (i) =>
+          i.itemType === 'PRODUCT' ||
+          i.fiscalNature === 'LOCACAO_BENS_MOVEIS' ||
+          i.fiscalNature === 'VENDA_EQUIPAMENTO'
+      );
 
-                <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold">
-                  <ExternalLink className="w-3.5 h-3.5" /> Abrir Link / PDF
-                </a>
+    const hasServiceItem = (p: ErpCommercialProposal) =>
+      p.budgetType === 'SERVICOS' ||
+      p.budgetType === 'CONJUNTO' ||
+      p.items.some(
+        (i) =>
+          i.itemType === 'SERVICE' ||
+          i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+          i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+      );
 
-                <a href={printUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold">
-                  <Printer className="w-3.5 h-3.5" /> Imprimir PDF
-                </a>
+    const tabFiltered =
+      effectiveOrcTab === 'ORC_PRODUTOS'
+        ? proposals.filter(hasProductItem)
+        : effectiveOrcTab === 'ORC_SERVICOS'
+          ? proposals.filter(hasServiceItem)
+          : proposals;
 
-                {isConverted && (linkedContract || prop.convertedContractId) ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = linkedContract?.id || prop.convertedContractId || null;
-                      setHighlightedContractId(targetId);
-                      setContractsSubFilter("TODOS");
-                      setActiveSubId("CTR_LOCACOES");
-                      setActiveSection("CONTRATOS");
-                      onShowToast(`Visualizando contrato gerado: ${linkedContract?.contractNumber || prop.convertedContractId}`);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-indigo-950 hover:bg-indigo-900 text-emerald-300 text-xs font-extrabold cursor-pointer shadow-xs"
-                  >
-                    <FileCheck2 className="w-4 h-4" />
-                    Ver Contrato Gerado ({linkedContract?.contractNumber || prop.convertedContractId})
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busyId === prop.id}
-                    onClick={() => handleApproveProposal(prop.id)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    {busyId === prop.id ? "Convertendo..." : "Aprovar & Gerar Contrato"}
-                  </button>
-                )}
-              </div>
-            </div>
+    const filteredProposals = tabFiltered.filter((p) => {
+      if (proposalsStatusFilter !== 'TODOS' && p.status !== proposalsStatusFilter) {
+        return false;
+      }
+      if (!proposalsSearch.trim()) return true;
+      const q = proposalsSearch.toLowerCase();
+      return (
+        p.code.toLowerCase().includes(q) ||
+        p.title.toLowerCase().includes(q) ||
+        p.companyName.toLowerCase().includes(q) ||
+        (p.companyCnpj || '').toLowerCase().includes(q) ||
+        (p.sellerName || '').toLowerCase().includes(q) ||
+        (p.contactName || '').toLowerCase().includes(q)
+      );
+    });
 
-            <div className="p-2.5 rounded bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-              <span className="text-emerald-900 truncate max-w-2xl">
-                <strong>Link Público do Cliente (PDF A4):</strong>{" "}
-                <a href={publicUrl} target="_blank" rel="noreferrer" className="underline font-mono text-[#1e3a6e]">
-                  {publicUrl.slice(0, 90)}...
-                </a>
+    const getStatusBadge = (p: ErpCommercialProposal) => {
+      const isConverted = p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId);
+      if (isConverted) {
+        return {
+          label: 'CONVERTIDO EM CONTRATO',
+          cls: 'bg-emerald-100 text-emerald-800 border border-emerald-300',
+        };
+      }
+      switch (p.status) {
+        case 'APROVADA':
+          return { label: 'APROVADO', cls: 'bg-emerald-50 text-emerald-800 border border-emerald-200' };
+        case 'EM_NEGOCIACAO':
+          return { label: 'EM NEGOCIAÇÃO', cls: 'bg-amber-100 text-amber-800 border border-amber-200' };
+        case 'RASCUNHO':
+          return { label: 'EM ABERTO', cls: 'bg-slate-100 text-slate-700 border border-slate-300' };
+        case 'RECUSADA':
+          return { label: 'CANCELADO', cls: 'bg-rose-100 text-rose-800 border border-rose-200' };
+        default:
+          return { label: 'ENVIADO AO CLIENTE', cls: 'bg-blue-100 text-blue-800 border border-blue-200' };
+      }
+    };
+
+    const getBudgetTypeLabel = (p: ErpCommercialProposal) => {
+      if (p.budgetType === 'SERVICOS') return 'Serviços (LC 116)';
+      if (p.budgetType === 'PRODUTOS') return 'Produtos / Hardware';
+      if (p.budgetType === 'CONJUNTO') return 'Conjunto (Prod + Serv)';
+      if (hasProductItem(p) && hasServiceItem(p)) return 'Conjunto (Prod + Serv)';
+      if (hasServiceItem(p) && !hasProductItem(p)) return 'Serviços (LC 116)';
+      return 'Locação & Produtos';
+    };
+
+    return (
+      <div className="space-y-4">
+        {/* CABEÇALHO E NAVEGAÇÃO DE SUB-MENUS DE ORÇAMENTOS (GESTÃOCLICK) */}
+        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                Orçamentos &gt;{' '}
+                {effectiveOrcTab === 'ORC_PRODUTOS'
+                  ? 'Produtos e Equipamentos'
+                  : effectiveOrcTab === 'ORC_SERVICOS'
+                    ? 'Serviços Técnicos TI/Telecom'
+                    : effectiveOrcTab === 'ORC_AUXILIARES'
+                      ? 'Opções Auxiliares'
+                      : 'Todos os Orçamentos e Propostas'}
               </span>
-              <span className="text-emerald-800 font-bold">Pronto para enviar por WhatsApp / E-mail</span>
+              <h2 className="text-base font-extrabold text-slate-900">
+                Orçamentos &amp; Propostas Comerciais ({filteredProposals.length} de {proposals.length})
+              </h2>
+              <p className="text-xs text-slate-500">
+                Gestão completa de orçamentos de Produtos (786 itens), Serviços (39 itens), frete, descontos, parcelas e link público PDF A4.
+              </p>
             </div>
 
-            <div className="overflow-x-auto border border-slate-200 rounded">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-md border border-slate-300 bg-slate-50 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setProposalsViewMode('CARDS')}
+                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                    proposalsViewMode === 'CARDS'
+                      ? 'bg-[#1e3a6e] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Visão Cards Executivos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProposalsViewMode('TABLE')}
+                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                    proposalsViewMode === 'TABLE'
+                      ? 'bg-[#1e3a6e] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Visão Tabela GestãoClick
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  openFullNewProposalModal(
+                    effectiveOrcTab === 'ORC_SERVICOS'
+                      ? 'SERVICOS'
+                      : effectiveOrcTab === 'ORC_PRODUTOS'
+                        ? 'PRODUTOS'
+                        : 'LOCACAO'
+                  )
+                }
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> + Novo Orçamento
+              </button>
+            </div>
+          </div>
+
+          {/* ABAS DE SUB-MENU SINCRONIZADAS COM A SIDEBAR E DASHBOARD */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'TODOS', label: `Todos os Orçamentos (${proposals.length})` },
+                {
+                  id: 'ORC_PRODUTOS',
+                  label: `📦 Produtos / Equipamentos (${proposals.filter(hasProductItem).length})`,
+                },
+                {
+                  id: 'ORC_SERVICOS',
+                  label: `🔧 Serviços Técnicos (${proposals.filter(hasServiceItem).length})`,
+                },
+                { id: 'ORC_AUXILIARES', label: '⚙️ Opções Auxiliares & Templates A4' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSubId(tab.id)}
+                  className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                    effectiveOrcTab === tab.id
+                      ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    value={proposalsSearch}
+                    onChange={(e) => setProposalsSearch(e.target.value)}
+                    placeholder="Buscar cliente, código, CNPJ, vendedor..."
+                    className="pl-8 pr-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                  />
+                </div>
+                <select
+                  value={proposalsStatusFilter}
+                  onChange={(e) => setProposalsStatusFilter(e.target.value)}
+                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                >
+                  <option value="TODOS">Situação: Todas</option>
+                  <option value="RASCUNHO">Em Aberto</option>
+                  <option value="ENVIADA">Enviado</option>
+                  <option value="EM_NEGOCIACAO">Em Negociação</option>
+                  <option value="APROVADA">Aprovado</option>
+                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato</option>
+                  <option value="RECUSADA">Cancelado / Recusado</option>
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* PAINEL DE OPÇÕES AUXILIARES DE ORÇAMENTOS (ORC_AUXILIARES) */}
+        {effectiveOrcTab === 'ORC_AUXILIARES' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                🏷️ Situações de Orçamento &amp; Canais de Venda (GestãoClick)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Fluxo de aprovação comercial sincronizado com o Kanban de Negócios e Geração Automática de Contratos.
+              </p>
+              <div className="space-y-2 text-xs">
+                {[
+                  { code: 'RASCUNHO', name: 'Em Aberto (Rascunho Comercial)', color: 'bg-slate-200 text-slate-800' },
+                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Público PDF Ativo)', color: 'bg-blue-100 text-blue-800' },
+                  { code: 'EM_NEGOCIACAO', name: 'Em Negociação / Revisão de Escopo', color: 'bg-amber-100 text-amber-800' },
+                  { code: 'APROVADA', name: 'Aprovado pelo Decisor', color: 'bg-emerald-100 text-emerald-800' },
+                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-600 text-white' },
+                ].map((st) => (
+                  <div key={st.code} className="flex items-center justify-between p-2 rounded border border-slate-200 bg-slate-50">
+                    <span className="font-semibold text-slate-800">{st.name}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${st.color}`}>
+                      {proposals.filter((p) => p.status === st.code).length} orçamento(s)
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-2 border-t border-slate-200">
+                <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                  Canais de Venda Habilitados na Loja Matriz #118887:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'Comercial B2B / Consultivo',
+                    'Presencial',
+                    'Telefone / Inside Sales',
+                    'WhatsApp Corporativo',
+                    'Cliente Recorrente (Upsell)',
+                    'E-commerce / Portal',
+                  ].map((ch) => (
+                    <span key={ch} className="px-2.5 py-1 rounded-full bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[11px] font-bold">
+                      {ch}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                📄 Modelos de Introdução, Cláusulas Seta Telecom &amp; Impressão A4
+              </h3>
+              <p className="text-xs text-slate-500">
+                Clique em qualquer template abaixo para abrir imediatamente um novo orçamento pré-configurado.
+              </p>
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded border border-emerald-200 bg-emerald-50/50 space-y-1.5">
+                  <div className="font-extrabold text-emerald-950">
+                    Template 1: Locação Pura de Bens Móveis (0% ISS — Súmula Vinculante 31 STF)
+                  </div>
+                  <p className="text-[11px] text-emerald-900">
+                    Faturamento mediante Fatura de Locação (dispensa legal de ISSQN conforme LC 116/03) + NF-e de Remessa CFOP 5.908.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openFullNewProposalModal('LOCACAO', {
+                        title: 'Proposta de Locação de Infraestrutura PABX IP & SD-WAN (SV 31 STF)',
+                      })
+                    }
+                    className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
+                  >
+                    + Usar Template de Locação Pura
+                  </button>
+                </div>
+
+                <div className="p-3 rounded border border-indigo-200 bg-indigo-50/50 space-y-1.5">
+                  <div className="font-extrabold text-indigo-950">
+                    Template 2: Serviços Técnicos TI / Telecom &amp; Suporte NOC 24x7 (LC 116 Item 01.07)
+                  </div>
+                  <p className="text-[11px] text-indigo-900">
+                    Prestação de serviços especializados de instalação, homologação e monitoramento com emissão de NFS-e.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openFullNewProposalModal('SERVICOS', {
+                        title: 'Proposta de Serviços Técnicos de Engenharia & Suporte NOC 24x7',
+                      })
+                    }
+                    className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
+                  >
+                    + Usar Template de Serviços LC 116
+                  </button>
+                </div>
+
+                <div className="p-3 rounded border border-amber-200 bg-amber-50/50 space-y-1.5">
+                  <div className="font-extrabold text-amber-950">
+                    Template 3: Orçamento Conjunto (Hardware + Instalação + Parcelamento)
+                  </div>
+                  <p className="text-[11px] text-amber-900">
+                    Combina equipamentos do catálogo (786 produtos) e serviços técnicos (39 serviços) com cronograma de parcelas no PDF A4.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openFullNewProposalModal('CONJUNTO', {
+                        title: 'Proposta Conjunta: Fornecimento de Equipamentos + Implantação Técnica',
+                      })
+                    }
+                    className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
+                  >
+                    + Usar Template Conjunto (Produtos + Serviços)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VISÃO TABELA GESTÃOCLICK */}
+        {effectiveOrcTab !== 'ORC_AUXILIARES' && proposalsViewMode === 'TABLE' && (
+          <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b border-slate-200">
+                <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
                   <tr>
-                    <th className="py-2 px-3">SKU</th>
-                    <th className="py-2 px-3">Item / Equipamento / Serviço</th>
-                    <th className="py-2 px-3">S/N Pré-Alocado</th>
-                    <th className="py-2 px-3">Natureza Fiscal</th>
-                    <th className="py-2 px-3 text-right">Qtd</th>
-                    <th className="py-2 px-3 text-right">Unitário</th>
-                    <th className="py-2 px-3 text-right">Total Mensal</th>
+                    <th className="py-2.5 px-3">Cód.</th>
+                    <th className="py-2.5 px-3">Cliente / Razão Social</th>
+                    <th className="py-2.5 px-3">Tipo</th>
+                    <th className="py-2.5 px-3">Data / Validade</th>
+                    <th className="py-2.5 px-3">Vendedor / Canal</th>
+                    <th className="py-2.5 px-3">Situação</th>
+                    <th className="py-2.5 px-3 text-right">Prod / Serv / Frete</th>
+                    <th className="py-2.5 px-3 text-right">MRR Mensal</th>
+                    <th className="py-2.5 px-3 text-right">Valor Total (TCV)</th>
+                    <th className="py-2.5 px-3 text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {prop.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="py-2 px-3 font-mono font-bold">{item.sku}</td>
-                      <td className="py-2 px-3 font-semibold">{item.description}</td>
-                      <td className="py-2 px-3 font-mono text-[11px] text-indigo-900">
-                        {item.serialNumber || "Gerar ao converter"}
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          {item.fiscalNature === "LOCACAO_BENS_MOVEIS"
-                            ? "Locação Pura (0% ISS - SV 31 STF)"
-                            : item.fiscalNature === "SERVICO_COMUNICACAO_SCM_SVA"
-                              ? "Telecom SCM / Assinatura (Mod. 62)"
-                              : "Serviço Técnico (LC 116 01.07)"}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-right">{item.quantity}</td>
-                      <td className="py-2 px-3 text-right">{formatBRL(item.unitPrice)}</td>
-                      <td className="py-2 px-3 text-right font-bold">{formatBRL(item.totalMonthly)}</td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-200">
+                  {filteredProposals.map((prop) => {
+                    const isConverted =
+                      prop.status === 'CONVERTIDA_CONTRATO' || Boolean(prop.convertedContractId);
+                    const publicUrl = buildPublicProposalUrl(prop);
+                    const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+                    const stBadge = getStatusBadge(prop);
+                    const prdSub =
+                      prop.productsSubtotal ??
+                      prop.items
+                        .filter((i) => i.fiscalNature !== 'SERVICO_TECNICO_TI_TELECOM')
+                        .reduce((s, i) => s + i.totalMonthly, 0);
+                    const srvSub =
+                      prop.servicesSubtotal ??
+                      prop.items
+                        .filter((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM')
+                        .reduce((s, i) => s + i.totalMonthly, 0);
+                    return (
+                      <tr key={prop.id} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e]">
+                          {prop.code}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{prop.companyName}</div>
+                          <div className="text-[10px] text-slate-500">
+                            CNPJ: {prop.companyCnpj} • A/C: {prop.careOf || prop.contactName}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-[10px] font-bold">
+                            {getBudgetTypeLabel(prop)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-[11px]">
+                          <div>
+                            Emissão:{' '}
+                            {prop.proposalDate ||
+                              (prop.createdAt ? prop.createdAt.slice(0, 10) : '26/10/2026')}
+                          </div>
+                          <div className="text-slate-500">
+                            Val: {prop.validUntil ? prop.validUntil.slice(0, 10) : '15 dias'}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-[11px]">
+                          <div className="font-semibold text-slate-800">{prop.sellerName}</div>
+                          <div className="text-slate-500">
+                            {prop.salesChannel || 'Comercial B2B'}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${stBadge.cls}`}>
+                            {stBadge.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-[11px]">
+                          <div>Prod: {formatBRL(prdSub)}</div>
+                          <div>Serv: {formatBRL(srvSub)}</div>
+                          {(prop.shippingCost || 0) > 0 && (
+                            <div className="text-slate-500">
+                              Frete: {formatBRL(prop.shippingCost || 0)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700">
+                          {formatBRL(prop.monthlyRecurringTotal)}/mês
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-slate-900">
+                          {formatBRL(prop.totalContractValue)}
+                          <span className="block text-[10px] font-normal text-slate-500">
+                            ({prop.contractMonths}m)
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCreatingProposalModal(false);
+                                setEditingProposal(prop);
+                              }}
+                              title="Editar Orçamento"
+                              className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              ✏️
+                            </button>
+                            <a
+                              href={printUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Imprimir PDF A4"
+                              className="px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-bold"
+                            >
+                              🖨️ PDF
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(publicUrl);
+                                onShowToast(`Link público de ${prop.code} copiado!`);
+                              }}
+                              title="Copiar Link Público"
+                              className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-[11px] font-bold cursor-pointer"
+                            >
+                              📋
+                            </button>
+                            {!isConverted && (
+                              <button
+                                type="button"
+                                disabled={busyId === prop.id}
+                                onClick={() => handleApproveProposal(prop.id)}
+                                title="Aprovar e Gerar Contrato"
+                                className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer"
+                              >
+                                ✓
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
-        );
-      })}
-    </div>
-  );
+        )}
+
+        {/* VISÃO CARDS EXECUTIVOS */}
+        {effectiveOrcTab !== 'ORC_AUXILIARES' &&
+          proposalsViewMode === 'CARDS' &&
+          filteredProposals.map((prop) => {
+            const isConverted =
+              prop.status === 'CONVERTIDA_CONTRATO' || Boolean(prop.convertedContractId);
+            const linkedContract = rentalContracts.find(
+              (c) =>
+                (prop.convertedContractId && c.id === prop.convertedContractId) ||
+                c.proposalId === prop.id ||
+                c.proposalId === prop.code
+            );
+            const isHighlighted =
+              highlightedProposalId === prop.id || highlightedProposalId === prop.code;
+            const publicUrl = buildPublicProposalUrl(prop);
+            const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+            const stBadge = getStatusBadge(prop);
+
+            return (
+              <div
+                key={prop.id}
+                className={`bg-white rounded-md border p-5 shadow-xs space-y-4 transition ${
+                  isHighlighted
+                    ? 'border-2 border-[#ff7a59] ring-2 ring-[#ff7a59]/20'
+                    : 'border-slate-200'
+                }`}
+              >
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded text-xs font-black bg-[#1e3a6e] text-white">
+                        {prop.code}
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${stBadge.cls}`}>
+                        {stBadge.label}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-50 text-[#1e3a6e] border border-blue-200">
+                        {getBudgetTypeLabel(prop)}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                        Reajuste: {prop.readjustmentIndex || 'IPCA'}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        Executivo: <strong>{prop.sellerName}</strong> • Canal:{' '}
+                        <strong>{prop.salesChannel || 'Comercial B2B'}</strong> • Prazo:{' '}
+                        <strong>{prop.contractMonths} meses</strong>
+                      </span>
+                    </div>
+                    <h3 className="text-base font-extrabold text-slate-900 mt-1.5">{prop.title}</h3>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Cliente: <strong>{prop.companyName}</strong> (CNPJ: {prop.companyCnpj}) • Aos cuidados de:{' '}
+                      <strong>{prop.careOf || prop.contactName}</strong>
+                      {prop.deliveryForecast && (
+                        <>
+                          {' '}
+                          • Entrega: <strong>{prop.deliveryForecast}</strong>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Mensalidade (MRR)
+                      </span>
+                      <span className="text-base font-black text-emerald-700">
+                        {formatBRL(prop.monthlyRecurringTotal)}/mês
+                      </span>
+                      <span className="text-[11px] text-slate-500 block">
+                        TCV ({prop.contractMonths}m): {formatBRL(prop.totalContractValue)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingProposalModal(false);
+                        setEditingProposal(prop);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Orçamento
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProposal(prop)}
+                      title="Excluir Proposta"
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(publicUrl);
+                        onShowToast(`Link da proposta ${prop.code} copiado para enviar ao cliente!`);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-[#1e3a6e]" /> Copiar Link p/ Cliente
+                    </button>
+
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Abrir Link / PDF
+                    </a>
+
+                    <a
+                      href={printUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Imprimir PDF
+                    </a>
+
+                    {isConverted && (linkedContract || prop.convertedContractId) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = linkedContract?.id || prop.convertedContractId || null;
+                          setHighlightedContractId(targetId);
+                          setContractsSubFilter('TODOS');
+                          setActiveSubId('CTR_LOCACOES');
+                          setActiveSection('CONTRATOS');
+                          onShowToast(
+                            `Visualizando contrato gerado: ${
+                              linkedContract?.contractNumber || prop.convertedContractId
+                            }`
+                          );
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-indigo-950 hover:bg-indigo-900 text-emerald-300 text-xs font-extrabold cursor-pointer shadow-xs"
+                      >
+                        <FileCheck2 className="w-4 h-4" />
+                        Ver Contrato Gerado (
+                        {linkedContract?.contractNumber || prop.convertedContractId})
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busyId === prop.id}
+                        onClick={() => handleApproveProposal(prop.id)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        {busyId === prop.id ? 'Convertendo...' : 'Aprovar & Gerar Contrato'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <span className="text-emerald-900 truncate max-w-2xl">
+                    <strong>Link Público do Cliente (PDF A4):</strong>{' '}
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-mono text-[#1e3a6e]"
+                    >
+                      {publicUrl.slice(0, 90)}...
+                    </a>
+                  </span>
+                  <span className="text-emerald-800 font-bold">
+                    {Array.isArray(prop.installments) && prop.installments.length > 0
+                      ? `${prop.installments.length} parcela(s) configurada(s)`
+                      : 'Pronto para enviar por WhatsApp / E-mail'}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-200 rounded">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b border-slate-200">
+                      <tr>
+                        <th className="py-2 px-3">SKU</th>
+                        <th className="py-2 px-3">Item / Equipamento / Serviço</th>
+                        <th className="py-2 px-3">Tipo</th>
+                        <th className="py-2 px-3">Natureza Fiscal</th>
+                        <th className="py-2 px-3 text-right">Qtd</th>
+                        <th className="py-2 px-3 text-right">Unitário</th>
+                        <th className="py-2 px-3 text-right">Desc.</th>
+                        <th className="py-2 px-3 text-right">Subtotal Líquido</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {prop.items.map((item) => {
+                        const isSrv =
+                          item.itemType === 'SERVICE' ||
+                          item.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+                          item.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA';
+                        return (
+                          <tr key={item.id}>
+                            <td className="py-2 px-3 font-mono font-bold">{item.sku}</td>
+                            <td className="py-2 px-3 font-semibold">{item.description}</td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  isSrv
+                                    ? 'bg-indigo-50 text-indigo-800'
+                                    : 'bg-slate-100 text-slate-800'
+                                }`}
+                              >
+                                {isSrv ? 'Serviço' : 'Produto'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                {item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
+                                  ? 'Locação Pura (0% ISS - SV 31 STF)'
+                                  : item.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+                                    ? 'Telecom SCM / Assinatura (Mod. 62)'
+                                    : item.fiscalNature === 'VENDA_EQUIPAMENTO'
+                                      ? 'Venda Equipamento (CFOP 5.102)'
+                                      : 'Serviço Técnico (LC 116 01.07)'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right">{item.quantity}</td>
+                            <td className="py-2 px-3 text-right">{formatBRL(item.unitPrice)}</td>
+                            <td className="py-2 px-3 text-right text-rose-600">
+                              {(item.discountPercent || 0) > 0
+                                ? `${item.discountPercent}%`
+                                : (item.discountAmount || 0) > 0
+                                  ? formatBRL(item.discountAmount || 0)
+                                  : '—'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold">
+                              {formatBRL(item.subtotal ?? item.totalMonthly)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    );
+  };
+
 
   const renderContractsList = () => {
     const effectiveTab: "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES" =
@@ -1998,6 +2719,43 @@ export default function ErpGestaoClickTab({
                     <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
                       <button
                         type="button"
+                        onClick={async () => {
+                          const targetCat = catalog[0];
+                          if (targetCat) {
+                            const updatedStock = Number(targetCat.stockAvailable || 0) + 5;
+                            const catRes = await fetch(`/api/erp/catalog/${encodeURIComponent(targetCat.id)}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ stockAvailable: updatedStock }),
+                            });
+                            if (catRes.ok) {
+                              const catData = (await catRes.json())?.data;
+                              if (catData) recordUpsertedCatalogItem(catData);
+                            }
+                          }
+                          const updatedPo: ErpPurchaseOrder = {
+                            ...po,
+                            status: "Entrada em Estoque Concluída",
+                          };
+                          const poRes = await fetch("/api/erp/records/purchaseOrders", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(updatedPo),
+                          });
+                          if (poRes.ok) {
+                            const savedPo = (await poRes.json())?.data || updatedPo;
+                            recordUpsertedPurchaseOrder(savedPo);
+                          }
+                          onShowToast(`NF-e ${po.nfeNumber} (#${po.code}) recebida no Almoxarifado! Saldo de estoque atualizado (+5 un).`);
+                          await onRefresh();
+                        }}
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                        title="Confirmar recebimento físico da NF-e e incrementar saldo no catálogo"
+                      >
+                        📦 Dar Entrada no Estoque
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setSelectedPurchaseForPrint(po)}
                         className="px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-bold cursor-pointer"
                         title="Visualizar Espelho da NF-e de Entrada"
@@ -2687,8 +3445,16 @@ export default function ErpGestaoClickTab({
           >
             <Plus className="w-3.5 h-3.5" /> + Nova Proposta
           </button>
-          <button type="button" onClick={() => setActiveSection('VENDAS')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="PDV / Vendas">
-            <ShoppingCart className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('VENDAS');
+              setActiveSubId('VENDAS_BALCAO');
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold cursor-pointer"
+            title="Abrir PDV / Frente de Caixa"
+          >
+            <ShoppingCart className="w-3.5 h-3.5 text-emerald-300" /> 🖥️ PDV
           </button>
           <button type="button" onClick={() => setActiveSection('CADASTROS')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Buscar">
             <Search className="w-4 h-4" />
@@ -2717,8 +3483,12 @@ export default function ErpGestaoClickTab({
               if (subId) {
                 setActiveSubId(subId);
                 if (subId === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
-                if (subId === 'CAD_FORNECEDORES' || subId === 'CAD_TRANSPORTADORAS') setCadastrosSubTab('FORNECEDORES');
+                if (subId === 'CAD_FORNECEDORES') setCadastrosSubTab('FORNECEDORES');
                 if (subId === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
+                if (subId === 'CAD_TRANSPORTADORAS') setCadastrosSubTab('TRANSPORTADORAS');
+                if (subId === 'CAD_AUXILIARES') setCadastrosSubTab('AUXILIARES');
+                if (subId === 'OS_PAINEL') setOsViewMode('PAINEL');
+                if (subId === 'OS_GERENCIAR') setOsViewMode('LISTA');
                 if (subId === 'CTR_LOCACOES' || subId === 'CTR_SERVICOS' || subId === 'CTR_ASSINATURAS' || subId === 'CTR_AUXILIARES') {
                   setContractsSubFilter(subId);
                 }
@@ -2727,7 +3497,7 @@ export default function ErpGestaoClickTab({
             onNewProposal={() => {
               setActiveSection('ORCAMENTOS');
               setActiveSubId('ORC_PRODUTOS');
-              setShowNewProposalModal(true);
+              openFullNewProposalModal('PRODUTOS');
             }}
             companyCnpj={gestaoClickConfig.companyCnpj}
             taxRegime={gestaoClickConfig.taxRegime}
@@ -2736,6 +3506,20 @@ export default function ErpGestaoClickTab({
 
         {/* CONTEÚDO PRINCIPAL */}
         <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-x-hidden">
+          <SetaErpTenPillarsMatrix
+            activeSection={activeSection}
+            activeSubId={activeSubId}
+            onSelectPillar={(sec, subId) => {
+              setActiveSection(sec);
+              setActiveSubId(subId);
+              if (subId === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
+              if (subId === 'CAD_FORNECEDORES') setCadastrosSubTab('FORNECEDORES');
+              if (subId === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
+              if (subId === 'OS_PAINEL') setOsViewMode('PAINEL');
+              if (subId === 'OS_GERENCIAR') setOsViewMode('LISTA');
+              if (subId === 'CTR_LOCACOES') setContractsSubFilter('CTR_LOCACOES');
+            }}
+          />
           {/* BANNER DE PROPOSTA RECÉM-CRIADA COM LINK PÚBLICO */}
           {createdProposalBanner && (
             <div className="bg-emerald-950 text-white rounded-md p-4 border border-emerald-500 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -2796,7 +3580,7 @@ export default function ErpGestaoClickTab({
               }}
               onNewProposal={() => {
                 setActiveSection('ORCAMENTOS');
-                setShowNewProposalModal(true);
+                openFullNewProposalModal('LOCACAO');
               }}
               onSync={handleSyncGestaoClick}
               syncing={syncingGc}
@@ -3039,7 +3823,88 @@ export default function ErpGestaoClickTab({
           )}
 
           {(activeSection === 'ITENS' || activeSection === 'ESTOQUE') && (
-            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+            <div className="space-y-4">
+              {activeSection === 'ESTOQUE' && (
+                <SetaErpStockAndPurchasesSubbar
+                  activeSubId={activeSubId}
+                  onSelectSubId={(sub) => setActiveSubId(sub)}
+                  catalogCount={catalog.length}
+                  purchasesCount={purchaseOrders.length}
+                  suppliers={suppliers}
+                  onCreateStockTransfer={() =>
+                    setGenericModal({
+                      title: 'Registrar Ajuste de Inventário / Transferência Matriz #118887',
+                      initialValues: {
+                        sku: catalog[0]?.gestaoClickCode || 'SL-44-SEC-K9',
+                        movementType: 'ENTRADA_COMPRA',
+                        quantity: 2,
+                        destination: 'Almoxarifado Matriz #118887 — Corredor Telecom',
+                        notes: 'Conferência de Número de Série (S/N)',
+                      },
+                      fields: [
+                        { key: 'sku', label: 'SKU do Produto' },
+                        {
+                          key: 'movementType',
+                          label: 'Tipo de Movimentação',
+                          type: 'select',
+                          options: ['ENTRADA_COMPRA', 'TRANSFERENCIA_CLIENTE', 'RETORNO_LOCACAO', 'AJUSTE_INVENTARIO'],
+                        },
+                        { key: 'quantity', label: 'Quantidade', type: 'number' },
+                        { key: 'destination', label: 'Origem / Destino' },
+                        { key: 'notes', label: 'Observação / S/N' },
+                      ],
+                      onSave: async (vals) => {
+                        const targetItem = catalog.find((c) => c.gestaoClickCode === vals.sku) || catalog[0];
+                        if (targetItem) {
+                          const delta =
+                            vals.movementType === 'TRANSFERENCIA_CLIENTE'
+                              ? -Math.abs(Number(vals.quantity) || 1)
+                              : Math.abs(Number(vals.quantity) || 1);
+                          await fetch(`/api/erp/catalog/${encodeURIComponent(targetItem.id)}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              stockAvailable: Math.max(0, targetItem.stockAvailable + delta),
+                            }),
+                          });
+                        }
+                        setGenericModal(null);
+                        onShowToast(`Movimentação de estoque (${vals.sku}) registrada com sucesso!`);
+                        await onRefresh();
+                      },
+                    })
+                  }
+                  onCreatePurchaseOrder={() =>
+                    openCollectionEditor(
+                      'purchaseOrders',
+                      'Nova Cotação / Ordem de Compra (OC)',
+                      {
+                        id: `oc-${Date.now()}`,
+                        code: String(37 + purchaseOrders.length),
+                        supplierName: suppliers[0]?.name || 'AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.',
+                        issueDate: new Date().toLocaleDateString('pt-BR'),
+                        status: 'Confirmada',
+                        nfeNumber: String(9800 + purchaseOrders.length),
+                        totalAmount: 12400,
+                      },
+                      [
+                        { key: 'code', label: 'Nº da Cotação / OC' },
+                        { key: 'supplierName', label: 'Fornecedor Homologado Seta' },
+                        { key: 'issueDate', label: 'Data de Emissão' },
+                        {
+                          key: 'status',
+                          label: 'Situação',
+                          type: 'select',
+                          options: ['Em cotação', 'Aprovada', 'Confirmada', 'NF-e Recebida no Estoque'],
+                        },
+                        { key: 'nfeNumber', label: 'Nº NF-e de Entrada' },
+                        { key: 'totalAmount', label: 'Valor Total da Compra (R$)', type: 'number' },
+                      ]
+                    )
+                  }
+                />
+              )}
+              <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
@@ -3156,18 +4021,54 @@ export default function ErpGestaoClickTab({
                   {renderPurchasesTable(`Estoque > ${activeSubId === "EST_COMPRAS" ? "Compras (NF-e Entrada)" : "Últimas Notas de Compras / Entradas CAPEX"}`)}
                 </div>
               )}
+              </div>
             </div>
           )}
 
           {activeSection === 'VENDAS' && (
-            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    Vendas &gt; {activeSubId}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">Pedidos de Venda Seta Telecom ({salesOrders.length})</h2>
+            <div className="space-y-4">
+              <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { id: 'VENDAS_PRODUTOS', label: `📦 Pedidos de Produtos (${salesOrders.length})` },
+                    { id: 'VENDAS_SERVICOS', label: '🔧 Vendas de Serviços' },
+                    { id: 'VENDAS_BALCAO', label: '🖥️ PDV / Frente de Caixa (Balcão)' },
+                    { id: 'VENDAS_DEVOLUCOES', label: '↩️ Devoluções & Trocas' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveSubId(tab.id)}
+                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                        activeSubId === tab.id
+                          ? 'bg-[#1e3a6e] text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              {activeSubId === 'VENDAS_BALCAO' ? (
+                <SetaErpPdvPosView
+                  catalog={catalog}
+                  companies={companies}
+                  salesOrders={salesOrders}
+                  onRefresh={onRefresh}
+                  onShowToast={onShowToast}
+                  onOpenEmailModal={(p) => setEmailModalPayload(p)}
+                />
+              ) : (
+                <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                        Vendas &gt; {activeSubId}
+                      </span>
+                      <h2 className="text-base font-extrabold text-slate-900">Pedidos de Venda Seta Telecom ({salesOrders.length})</h2>
+                    </div>
                 <button
                   type="button"
                   onClick={() =>
@@ -3240,6 +4141,8 @@ export default function ErpGestaoClickTab({
                   ))}
                 </tbody>
               </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -3575,8 +4478,16 @@ export default function ErpGestaoClickTab({
       {editingProposal && (
         <ProposalEditModal
           proposal={editingProposal}
-          onClose={() => setEditingProposal(null)}
+          onClose={() => {
+            setEditingProposal(null);
+            setIsCreatingProposalModal(false);
+          }}
           onSave={handleSaveEditedProposal}
+          catalog={catalog}
+          companies={companies}
+          contacts={contacts}
+          deals={deals}
+          isNew={isCreatingProposalModal}
         />
       )}
       {editingContract && (

@@ -16,20 +16,20 @@ import {
   Calendar,
   UserCheck,
   Edit3,
-  Plus,
-  Trash2,
-  Save,
-  X,
+  Truck,
+  CreditCard,
 } from 'lucide-react';
-import { ErpCommercialProposal, ErpFiscalNature, ErpProposalItem } from '../../../db/types';
+import { ErpCommercialProposal } from '../../../db/types';
 import { formatBRL } from '../../components/ui-helpers';
 import {
   buildPublicProposalUrl,
+  computeProposalTotals,
   decodeProposalFromQueryParam,
   encodeProposalToQueryParam,
+  inferProposalItemType,
 } from '../../lib/proposal-share';
-import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
-import ClientEmailComposerModal, { ClientEmailInitialPayload } from '../../components/ClientEmailComposerModal';
+import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
+import { ProposalEditModal } from '../../components/ErpEditModals';
 
 function PublicProposalPrintContent() {
   const params = useParams<{ id: string }>();
@@ -46,30 +46,25 @@ function PublicProposalPrintContent() {
 
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
-  const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
-  const [savingEdit, setSavingEdit] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
-  const [approvingContract, setApprovingContract] = useState(false);
-  const [convertedContractInfo, setConvertedContractInfo] = useState<{
-    contractNumber: string;
-    invoiceNumber: string;
-  } | null>(null);
-  const [draft, setDraft] = useState<ErpCommercialProposal | null>(null);
 
   useEffect(() => {
     const decoded = decodeProposalFromQueryParam(encodedData);
     if (decoded) {
-      setProposal(decoded);
+      setProposal(computeProposalTotals(decoded));
       setLoading(false);
       return;
     }
 
     const journal = loadDurableJournal();
     const localFound = (journal.upsertedProposals || []).find(
-      (p) => p.id === rawId || p.code.toLowerCase() === rawId.toLowerCase()
+      (p) =>
+        p.id === rawId ||
+        p.code.toLowerCase() === rawId.toLowerCase() ||
+        p.id.toLowerCase() === rawId.toLowerCase()
     );
     if (localFound) {
-      setProposal(localFound);
+      setProposal(computeProposalTotals(localFound));
       setLoading(false);
       return;
     }
@@ -86,8 +81,8 @@ function PublicProposalPrintContent() {
               p.id === rawId ||
               p.code.toLowerCase() === rawId.toLowerCase() ||
               p.id.toLowerCase() === rawId.toLowerCase()
-          ) || list[0] || null;
-        setProposal(match);
+          ) || null;
+        setProposal(match ? computeProposalTotals(match) : null);
         setLoading(false);
       })
       .catch(() => {
@@ -108,113 +103,34 @@ function PublicProposalPrintContent() {
     }
   }, [proposal, autoPrint, isEditing]);
 
-  const openEditor = () => {
-    if (!proposal) return;
-    setDraft(structuredClone(proposal));
-    setIsEditing(true);
-  };
-
-  const recomputeDraftTotals = (nextDraft: ErpCommercialProposal): ErpCommercialProposal => {
-    const items = nextDraft.items.map((it) => ({
-      ...it,
-      totalMonthly: Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0),
-    }));
-    const recurringSum = items
-      .filter((i) => i.isRecurring !== false)
-      .reduce((acc, i) => acc + i.totalMonthly, 0);
-    const setupSum = items
-      .filter((i) => i.isRecurring === false)
-      .reduce((acc, i) => acc + i.totalMonthly, 0);
-    const discount = Number(nextDraft.discountAmount || 0);
-    const monthlyRecurringTotal = Math.max(0, recurringSum - discount);
-    const contractMonths = Math.max(1, Number(nextDraft.contractMonths || 24));
-    const totalContractValue = monthlyRecurringTotal * contractMonths + setupSum;
-    return {
-      ...nextDraft,
-      items,
-      contractMonths,
-      monthlyRecurringTotal,
-      oneTimeSetupTotal: setupSum,
-      totalContractValue,
-    };
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!draft) return;
-    setSavingEdit(true);
-    const computed = recomputeDraftTotals({
-      ...draft,
+  const handleSaveEdit = async (updated: ErpCommercialProposal) => {
+    const computed = computeProposalTotals({
+      ...updated,
       updatedAt: new Date().toISOString(),
     });
 
-    try {
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(computed.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(computed),
-      });
-      const finalProposal: ErpCommercialProposal = res.ok
-        ? (await res.json())?.data || computed
-        : computed;
+    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(computed.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(computed),
+    });
+    const finalProposal: ErpCommercialProposal = res.ok
+      ? computeProposalTotals((await res.json())?.data || computed)
+      : computed;
 
-      recordUpsertedProposal(finalProposal);
-      setProposal(finalProposal);
-      setIsEditing(false);
+    recordUpsertedProposal(finalProposal);
+    setProposal(finalProposal);
+    setIsEditing(false);
 
-      // Update URL ?d= parameter in place so copying link or refreshing preserves edits
-      if (typeof window !== 'undefined') {
-        const newEncoded = encodeProposalToQueryParam(finalProposal);
-        const url = new URL(window.location.href);
-        if (newEncoded) url.searchParams.set('d', newEncoded);
-        window.history.replaceState({}, '', url.toString());
-      }
-
-      setSavedNotice(true);
-      setTimeout(() => setSavedNotice(false), 3500);
-    } finally {
-      setSavingEdit(false);
+    if (typeof window !== 'undefined') {
+      const newEncoded = encodeProposalToQueryParam(finalProposal);
+      const url = new URL(window.location.href);
+      if (newEncoded) url.searchParams.set('d', newEncoded);
+      window.history.replaceState({}, '', url.toString());
     }
-  };
 
-  const handleApproveAndConvertInPage = async () => {
-    if (!proposal) return;
-    setApprovingContract(true);
-    try {
-      await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(proposal),
-      }).catch(() => null);
-
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const nextProp: ErpCommercialProposal = json?.data?.proposal || {
-          ...proposal,
-          status: "CONVERTIDA_CONTRATO",
-          convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
-        };
-        if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
-        if (json?.data?.contract) recordUpsertedContract(json.data.contract);
-        if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
-        setProposal(nextProp);
-        setConvertedContractInfo({
-          contractNumber: json?.data?.contract?.contractNumber || nextProp.convertedContractId || "LOC-2026",
-          invoiceNumber: json?.data?.invoice?.documentNumber || "FAT-LOC-2026",
-        });
-        if (typeof window !== "undefined") {
-          const newEncoded = encodeProposalToQueryParam(nextProp);
-          const url = new URL(window.location.href);
-          if (newEncoded) url.searchParams.set("d", newEncoded);
-          window.history.replaceState({}, "", url.toString());
-        }
-      }
-    } finally {
-      setApprovingContract(false);
-    }
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 3500);
   };
 
   const handleCopyPublicLink = () => {
@@ -244,10 +160,10 @@ function PublicProposalPrintContent() {
         <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-lg w-full space-y-4">
           <FileText className="w-12 h-12 text-[#1e3a6e] mx-auto" />
           <h1 className="text-lg font-extrabold text-slate-900">
-            Proposta Comercial #{rawId}
+            Proposta Comercial #{rawId || 'Não identificada'} não localizada
           </h1>
-          <p className="text-xs text-slate-600">
-            Não foi possível localizar esta proposta sem o código de verificação completo. Volte ao painel da Seta Telecom para gerar o link público.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong> e nenhum payload compartilhado (<code>?d=</code>) foi informado na URL. Volte ao painel da Seta Telecom para abrir ou gerar o link público da proposta desejada.
           </p>
           <a
             href="/"
@@ -261,17 +177,53 @@ function PublicProposalPrintContent() {
     );
   }
 
-  const issueDateStr = proposal.createdAt
-    ? new Date(proposal.createdAt).toLocaleDateString('pt-BR')
-    : new Date().toLocaleDateString('pt-BR');
+  const issueDateStr = proposal.proposalDate
+    ? proposal.proposalDate.includes('-')
+      ? new Date(`${proposal.proposalDate.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
+      : proposal.proposalDate
+    : proposal.createdAt
+      ? new Date(proposal.createdAt).toLocaleDateString('pt-BR')
+      : new Date().toLocaleDateString('pt-BR');
+
   const validUntilStr = proposal.validUntil
     ? proposal.validUntil.includes('-') && proposal.validUntil.length >= 10
-      ? new Date(proposal.validUntil).toLocaleDateString('pt-BR')
+      ? new Date(`${proposal.validUntil.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
       : proposal.validUntil
     : '15 dias';
 
   const recurringItems = proposal.items.filter((i) => i.isRecurring !== false);
   const setupItems = proposal.items.filter((i) => i.isRecurring === false);
+
+  const productsSubtotal =
+    proposal.productsSubtotal ??
+    proposal.items
+      .filter((i) => inferProposalItemType(i) === 'PRODUCT')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
+
+  const servicesSubtotal =
+    proposal.servicesSubtotal ??
+    proposal.items
+      .filter((i) => inferProposalItemType(i) === 'SERVICE')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
+
+  const itemDiscountsSum = proposal.items.reduce((acc, it) => {
+    const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
+    const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
+    return acc + Math.max(0, gross - net);
+  }, 0);
+
+  const globalDiscountVal =
+    Number(proposal.discountAmount || 0) +
+    Math.round(
+      (productsSubtotal + servicesSubtotal) *
+        (Number(proposal.discountPercentGlobal || 0) / 100) *
+        100
+    ) /
+      100;
+
+  const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
+  const shippingCost = Number(proposal.shippingCost || 0);
+
   const locacaoTotal = proposal.items
     .filter((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
     .reduce((s, i) => s + i.totalMonthly, 0);
@@ -295,7 +247,7 @@ function PublicProposalPrintContent() {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
-                Portal do Cliente • Documento Oficial
+                Portal do Cliente • Documento Oficial A4
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
                 {proposal.code}
@@ -307,7 +259,8 @@ function PublicProposalPrintContent() {
               )}
             </div>
             <p className="text-[11px] text-slate-200">
-              Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em <strong>Imprimir / Salvar em PDF</strong>.
+              Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
+              <strong>Imprimir / Salvar em PDF</strong>.
             </p>
           </div>
         </div>
@@ -315,27 +268,7 @@ function PublicProposalPrintContent() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() =>
-              setEmailModalPayload({
-                docType: 'PROPOSAL',
-                companyName: proposal.companyName,
-                companyCnpj: proposal.companyCnpj,
-                recipientName: proposal.contactName,
-                documentCode: proposal.code,
-                amountBrl: proposal.monthlyRecurringTotal,
-                publicPdfUrl: buildPublicProposalUrl(proposal),
-                proposalId: proposal.id,
-              })
-            }
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
-          >
-            <Mail className="w-4 h-4" />
-            ✉️ Enviar por E-mail
-          </button>
-
-          <button
-            type="button"
-            onClick={openEditor}
+            onClick={() => setIsEditing(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
           >
             <Edit3 className="w-4 h-4" />
@@ -360,26 +293,6 @@ function PublicProposalPrintContent() {
             )}
           </button>
 
-          {proposal.status !== "CONVERTIDA_CONTRATO" && !proposal.convertedContractId ? (
-            <button
-              type="button"
-              disabled={approvingContract}
-              onClick={handleApproveAndConvertInPage}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {approvingContract ? "Gerando Contrato..." : "Aprovar Proposta & Converter em Contrato"}
-            </button>
-          ) : (
-            <a
-              href="/"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black shadow-sm"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Contrato Ativo ({convertedContractInfo?.contractNumber || proposal.convertedContractId || "LOC"})
-            </a>
-          )}
-
           <button
             type="button"
             onClick={() => window.print()}
@@ -391,387 +304,14 @@ function PublicProposalPrintContent() {
         </div>
       </div>
 
-      {(convertedContractInfo || proposal.status === "CONVERTIDA_CONTRATO") && (
-        <div className="max-w-4xl mx-auto mb-5 bg-emerald-950 text-white rounded-lg px-5 py-3.5 border border-emerald-500 shadow-md flex flex-wrap items-center justify-between gap-3 print:hidden">
-          <div className="flex items-center gap-2.5 text-xs">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            <div>
-              <strong className="text-emerald-300 block">
-                Proposta Aprovada &amp; Convertida em Contrato de Locação!
-              </strong>
-              <span>
-                Contrato gerado:{" "}
-                <strong className="font-mono">
-                  {convertedContractInfo?.contractNumber || proposal.convertedContractId || "LOC-2026"}
-                </strong>
-                {convertedContractInfo?.invoiceNumber
-                  ? ` • 1ª Fatura de Locação (0% ISS): ${convertedContractInfo.invoiceNumber}`
-                  : ""}{" "}
-                • Reajuste Anual: <strong>{proposal.readjustmentIndex || "IPCA"}</strong>
-              </span>
-            </div>
-          </div>
-          <a
-            href="/"
-            className="px-3.5 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold"
-          >
-            Abrir Gestão de Contratos no ERP →
-          </a>
-        </div>
-      )}
-
-      {emailModalPayload && (
-        <ClientEmailComposerModal
-          payload={emailModalPayload}
-          onClose={() => setEmailModalPayload(null)}
-        />
-      )}
-
-      {/* IN-PAGE FULL PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
-      {isEditing && draft && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:hidden">
-          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-4xl w-full overflow-hidden my-8">
-            <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
-                  Editor Completo de Proposta Comercial — Seta Telecom
-                </span>
-                <h3 className="text-sm sm:text-base font-extrabold">
-                  Editando {draft.code} — {draft.companyName}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="text-slate-300 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Código da Proposta</label>
-                  <input
-                    type="text"
-                    value={draft.code}
-                    onChange={(e) => setDraft({ ...draft, code: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Título / Objeto da Proposta *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.title}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status</label>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      setDraft({ ...draft, status: e.target.value as ErpCommercialProposal['status'] })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="RASCUNHO">RASCUNHO</option>
-                    <option value="ENVIADA">ENVIADA</option>
-                    <option value="EM_NEGOCIACAO">EM NEGOCIAÇÃO</option>
-                    <option value="APROVADA">APROVADA</option>
-                    <option value="CONVERTIDA_CONTRATO">CONVERTIDA EM CONTRATO</option>
-                    <option value="RECUSADA">RECUSADA</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Razão Social / Nome do Cliente *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.companyName}
-                    onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">CNPJ / CPF</label>
-                  <input
-                    type="text"
-                    value={draft.companyCnpj}
-                    onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Contato / Decisor</label>
-                  <input
-                    type="text"
-                    value={draft.contactName}
-                    onChange={(e) => setDraft({ ...draft, contactName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Responsável Seta Telecom</label>
-                  <input
-                    type="text"
-                    value={draft.sellerName}
-                    onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prazo Contratual (Meses)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.contractMonths}
-                    onChange={(e) =>
-                      setDraft(
-                        recomputeDraftTotals({
-                          ...draft,
-                          contractMonths: Math.max(1, Number(e.target.value) || 24),
-                        })
-                      )
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Desconto Mensal (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.discountAmount || 0}
-                    onChange={(e) =>
-                      setDraft(
-                        recomputeDraftTotals({
-                          ...draft,
-                          discountAmount: Math.max(0, Number(e.target.value) || 0),
-                        })
-                      )
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Validade da Proposta</label>
-                  <input
-                    type="text"
-                    value={draft.validUntil}
-                    onChange={(e) => setDraft({ ...draft, validUntil: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Condição de Pagamento</label>
-                <input
-                  type="text"
-                  value={draft.paymentCondition}
-                  onChange={(e) => setDraft({ ...draft, paymentCondition: e.target.value })}
-                  className="w-full px-3 py-2 rounded border border-slate-300"
-                />
-              </div>
-
-              {/* ITEMS EDITOR */}
-              <div className="border border-slate-200 rounded-lg p-3.5 bg-slate-50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-slate-800 uppercase text-[11px]">
-                    Itens da Proposta ({draft.items.length}) — Equipamentos, Licenças e Serviços
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newItem: ErpProposalItem = {
-                        id: `item-${Date.now()}`,
-                        sku: `GC-EQ-00${draft.items.length + 101}`,
-                        description: 'Novo Equipamento / Serviço Telecom Seta',
-                        fiscalNature: 'LOCACAO_BENS_MOVEIS',
-                        ncmOrServiceCode: 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
-                        quantity: 1,
-                        unitPrice: 1200,
-                        discountPercent: 0,
-                        isRecurring: true,
-                        totalMonthly: 1200,
-                      };
-                      setDraft(recomputeDraftTotals({ ...draft, items: [...draft.items, newItem] }));
-                    }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> + Adicionar Item
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {draft.items.map((item, idx) => (
-                    <div
-                      key={item.id || idx}
-                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-2.5 rounded border border-slate-200"
-                    >
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">SKU</label>
-                        <input
-                          type="text"
-                          value={item.sku}
-                          onChange={(e) => {
-                            const copy = [...draft.items];
-                            copy[idx] = { ...copy[idx], sku: e.target.value };
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="w-full px-2 py-1 rounded border font-mono text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-[10px] text-slate-400 block">Descrição do Item</label>
-                        <input
-                          type="text"
-                          value={item.description}
-                          onChange={(e) => {
-                            const copy = [...draft.items];
-                            copy[idx] = { ...copy[idx], description: e.target.value };
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="w-full px-2 py-1 rounded border font-semibold text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">Natureza Fiscal</label>
-                        <select
-                          value={item.fiscalNature}
-                          onChange={(e) => {
-                            const copy = [...draft.items];
-                            const fn = e.target.value as ErpFiscalNature;
-                            copy[idx] = {
-                              ...copy[idx],
-                              fiscalNature: fn,
-                              ncmOrServiceCode:
-                                fn === 'LOCACAO_BENS_MOVEIS'
-                                  ? 'NCM 8517.62.59 (0% ISS — SV 31 STF)'
-                                  : 'LC 116/03 Item 01.07',
-                            };
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="w-full px-2 py-1 rounded border bg-white text-[11px]"
-                        >
-                          <option value="LOCACAO_BENS_MOVEIS">Locação (0% ISS)</option>
-                          <option value="SERVICO_TECNICO_TI_TELECOM">Serviço (LC 116)</option>
-                          <option value="VENDA_EQUIPAMENTO">Venda Produto</option>
-                        </select>
-                      </div>
-                      <div className="sm:col-span-1">
-                        <label className="text-[10px] text-slate-400 block">Qtd</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => {
-                            const copy = [...draft.items];
-                            copy[idx] = {
-                              ...copy[idx],
-                              quantity: Math.max(1, Number(e.target.value) || 1),
-                            };
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="w-full px-2 py-1 rounded border text-center font-bold"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">Unitário (R$)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={item.unitPrice}
-                          onChange={(e) => {
-                            const copy = [...draft.items];
-                            copy[idx] = {
-                              ...copy[idx],
-                              unitPrice: Math.max(0, Number(e.target.value) || 0),
-                            };
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="w-full px-2 py-1 rounded border text-right font-bold"
-                        />
-                      </div>
-                      <div className="sm:col-span-1 flex items-end justify-end pt-3">
-                        <button
-                          type="button"
-                          disabled={draft.items.length <= 1}
-                          onClick={() => {
-                            const copy = draft.items.filter((_, i) => i !== idx);
-                            setDraft(recomputeDraftTotals({ ...draft, items: copy }));
-                          }}
-                          className="p-1.5 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-200 text-xs font-extrabold text-slate-900">
-                  <span>Mensalidade Recorrente (MRR): {formatBRL(draft.monthlyRecurringTotal)}/mês</span>
-                  <span>Valor Global ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Observações Comerciais &amp; Enquadramento Fiscal
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={draft.commercialNotes}
-                    onChange={(e) => setDraft({ ...draft, commercialNotes: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Cláusulas Técnicas, Remessa CFOP 5.908 &amp; SLA
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={draft.technicalClauses}
-                    onChange={(e) => setDraft({ ...draft, technicalClauses: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingEdit}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold shadow-sm cursor-pointer"
-                >
-                  <Save className="w-4 h-4" />
-                  {savingEdit ? 'Salvando...' : 'Salvar Alterações na Proposta'}
-                </button>
-              </div>
-            </form>
-          </div>
+      {/* FULL GESTÃOCLICK PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
+      {isEditing && (
+        <div className="print:hidden">
+          <ProposalEditModal
+            proposal={proposal}
+            onClose={() => setIsEditing(false)}
+            onSave={handleSaveEdit}
+          />
         </div>
       )}
 
@@ -793,7 +333,7 @@ function PublicProposalPrintContent() {
                   SETA TELECOM LTDA
                 </h1>
                 <p className="text-xs text-slate-200">
-                  CNPJ: 14.806.925/0001-32 • Loja Matriz #118887 • GestãoClick ERP-GROK
+                  CNPJ: 14.806.925/0001-32 • Loja {proposal.storeName || 'Matriz'} #118887 • GestãoClick ERP-GROK
                 </p>
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-200 mt-1">
                   <span className="inline-flex items-center gap-1">
@@ -819,7 +359,8 @@ function PublicProposalPrintContent() {
         </div>
 
         {/* DOCUMENT BODY */}
-        <div className="p-8 space-y-6 text-slate-800">
+        <div className="p-8 space-y-5 text-slate-800">
+          {/* CLIENTE & DADOS COMERCIAIS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[#f8fafc] border border-slate-200 rounded-lg p-4">
             <div className="space-y-1">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
@@ -831,21 +372,39 @@ function PublicProposalPrintContent() {
                 <strong>CNPJ / CPF:</strong> {proposal.companyCnpj || 'Sob consulta'}
               </div>
               <div className="text-xs text-slate-600">
-                <strong>Aos cuidados de (Decisor):</strong> {proposal.contactName}
+                <strong>Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
+                {proposal.contactEmail ? ` (${proposal.contactEmail})` : ''}
               </div>
+              {proposal.deliveryAddress && (
+                <div className="text-xs text-slate-600">
+                  <strong>Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1 md:border-l md:border-slate-200 md:pl-4">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
-                Responsável Comercial Seta Telecom
+                Condições Gerais &amp; Executivo Seta Telecom
               </div>
-              <div className="text-sm font-extrabold text-slate-900">{proposal.sellerName}</div>
-              <div className="text-xs text-slate-600 flex items-center gap-2">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span>
-                  Prazo Contratual: <strong>{proposal.contractMonths} meses</strong> • Reajuste Anual: <strong>{proposal.readjustmentIndex || 'IPCA'}</strong>
+              <div className="text-sm font-extrabold text-slate-900">
+                {proposal.sellerName}{' '}
+                <span className="text-xs font-normal text-slate-500">
+                  ({proposal.salesChannel || 'Comercial B2B / Consultivo'})
                 </span>
+              </div>
+              <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  Prazo Contratual: <strong>{proposal.contractMonths} meses</strong>
+                </span>
+                <span>
+                  Prazo de Entrega: <strong>{proposal.deliveryForecast || 'Imediato (até 48h)'}</strong>
+                </span>
+              </div>
+              <div className="text-xs text-slate-600">
+                <strong>Centro de Custo / Unidade:</strong>{' '}
+                {proposal.costCenter || 'Comercial Telecom & TI'} • Loja {proposal.storeName || 'Matriz'}
               </div>
               <div className="text-xs text-slate-600">
                 <strong>Condição de Pagamento:</strong> {proposal.paymentCondition}
@@ -853,68 +412,153 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          <div className="border-l-4 border-[#1e3a6e] pl-4 py-1">
+          {/* OBJETO E INTRODUÇÃO PERSONALIZADA */}
+          <div className="border-l-4 border-[#1e3a6e] pl-4 py-1 space-y-1.5">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
               Objeto da Proposta Comercial
             </span>
-            <h2 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
+            <h2 className="text-base sm:text-lg font-black text-slate-900">
               {proposal.title}
             </h2>
+            {proposal.introductionText && (
+              <p className="text-xs text-slate-600 leading-relaxed">
+                {proposal.introductionText}
+              </p>
+            )}
           </div>
 
+          {/* TABELA DE ITENS (PRODUTOS E SERVIÇOS) */}
           <div className="border border-slate-300 rounded-lg overflow-hidden">
             <div className="bg-[#1e3a6e] text-white px-4 py-2.5 flex items-center justify-between text-xs font-extrabold">
-              <span>ESPECIFICAÇÃO DOS EQUIPAMENTOS, LICENÇAS &amp; SERVIÇOS</span>
+              <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS TÉCNICOS</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] border-b border-slate-300">
                 <tr>
                   <th className="py-2.5 px-3">Código / SKU</th>
-                  <th className="py-2.5 px-3">Descrição do Item / Equipamento</th>
-                  <th className="py-2.5 px-3">Enquadramento Fiscal</th>
-                  <th className="py-2.5 px-3 text-center">Qtd</th>
+                  <th className="py-2.5 px-3">Descrição do Item / Escopo</th>
+                  <th className="py-2.5 px-3">Tipo &amp; Enquadramento Fiscal</th>
+                  <th className="py-2.5 px-2 text-center">Qtd</th>
                   <th className="py-2.5 px-3 text-right">Vlr. Unitário</th>
-                  <th className="py-2.5 px-3 text-right">Subtotal Mensal</th>
+                  <th className="py-2.5 px-2 text-right">Desconto</th>
+                  <th className="py-2.5 px-3 text-right">Subtotal Líquido</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {proposal.items.map((item, idx) => (
-                  <tr key={item.id || idx} className="hover:bg-slate-50/80">
-                    <td className="py-3 px-3 font-mono font-bold text-slate-800">{item.sku}</td>
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-slate-900">{item.description}</div>
-                      <div className="text-[10px] text-slate-500">
-                        Classificação: {item.ncmOrServiceCode} •{' '}
-                        {item.isRecurring !== false ? 'Mensal Recorrente' : 'Taxa Única (Setup/Venda)'}{item.serialNumber ? ` • S/N: ${item.serialNumber}` : ''}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                          item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                        }`}
-                      >
-                        {item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
-                          ? 'Locação Pura (0% ISS — SV 31 STF)'
-                          : item.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM'
-                            ? 'Serviço TI/Telecom (LC 116 01.07)'
-                            : 'Equipamento / Telecom'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-center font-bold">{item.quantity}</td>
-                    <td className="py-3 px-3 text-right font-medium">{formatBRL(item.unitPrice)}</td>
-                    <td className="py-3 px-3 text-right font-black text-slate-900">
-                      {formatBRL(item.totalMonthly)}
-                    </td>
-                  </tr>
-                ))}
+                {proposal.items.map((item, idx) => {
+                  const isSrv = inferProposalItemType(item) === 'SERVICE';
+                  const hasDisc =
+                    (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
+                  return (
+                    <tr key={item.id || idx} className="hover:bg-slate-50/80">
+                      <td className="py-3 px-3 font-mono font-bold text-slate-800">{item.sku}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-slate-900">{item.description}</div>
+                        <div className="text-[10px] text-slate-500">
+                          Classificação: {item.ncmOrServiceCode} •{' '}
+                          {item.isRecurring !== false
+                            ? 'Mensal Recorrente (MRR)'
+                            : 'Taxa Única (Setup / Venda)'}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : isSrv
+                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                                : 'bg-blue-50 text-blue-800 border border-blue-200'
+                          }`}
+                        >
+                          {item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
+                            ? 'Produto • Locação Pura (0% ISS — SV 31 STF)'
+                            : item.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM'
+                              ? 'Serviço • TI/Telecom (LC 116)'
+                              : item.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+                                ? 'Serviço • Telecom SCM/SVA'
+                                : 'Produto • Equipamento / Hardware'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-center font-bold">
+                        {item.quantity} {item.unit || ''}
+                      </td>
+                      <td className="py-3 px-3 text-right font-medium">
+                        {formatBRL(item.unitPrice)}
+                      </td>
+                      <td className="py-3 px-2 text-right text-rose-600 font-semibold">
+                        {hasDisc ? (
+                          <>
+                            {(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ''}
+                            {(item.discountAmount || 0) > 0
+                              ? `(-${formatBRL(item.discountAmount || 0)})`
+                              : ''}
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right font-black text-slate-900">
+                        {formatBRL(item.subtotal ?? item.totalMonthly)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
+          {/* RESUMO DE SUBTOTAIS (PRODUTOS, SERVIÇOS, DESCONTOS, FRETE) */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3.5 text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                Subtotal Produtos
+              </span>
+              <strong className="text-sm font-extrabold text-slate-900">
+                {formatBRL(productsSubtotal)}
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                Subtotal Serviços
+              </span>
+              <strong className="text-sm font-extrabold text-indigo-900">
+                {formatBRL(servicesSubtotal)}
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                Descontos Aplicados
+              </span>
+              <strong className="text-sm font-extrabold text-rose-600">
+                {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : 'R$ 0,00'}
+              </strong>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                Frete / Transporte
+              </span>
+              <strong className="text-sm font-extrabold text-slate-900">
+                {shippingCost > 0 ? formatBRL(shippingCost) : 'Cortesia / Incluso'}
+              </strong>
+              {proposal.shippingCarrier && (
+                <span className="block text-[10px] text-slate-500 truncate">
+                  {proposal.shippingCarrier}
+                </span>
+              )}
+            </div>
+            <div className="col-span-2 sm:col-span-1 text-right">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                Setup Único + Frete
+              </span>
+              <strong className="text-sm font-extrabold text-slate-900">
+                {formatBRL(proposal.oneTimeSetupTotal)}
+              </strong>
+            </div>
+          </div>
+
+          {/* QUADRO DE AMPARO LEGAL E TOTAIS (MRR / TCV) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2 p-4 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2 text-xs">
               <div className="flex items-center gap-2 font-extrabold text-emerald-950 uppercase text-[11px]">
@@ -951,25 +595,91 @@ function PublicProposalPrintContent() {
                 </div>
                 {proposal.oneTimeSetupTotal > 0 && (
                   <div className="text-[11px] text-slate-200 mt-1">
-                    + Taxa Única de Ativação/Frete: <strong>{formatBRL(proposal.oneTimeSetupTotal)}</strong>
+                    + Taxa Única de Ativação/Frete:{' '}
+                    <strong>{formatBRL(proposal.oneTimeSetupTotal)}</strong>
                   </div>
                 )}
               </div>
 
               <div className="pt-3 border-t border-white/15">
                 <span className="text-[10px] uppercase font-bold text-slate-300 block">
-                  Valor Global do Contrato ({proposal.contractMonths} meses)
+                  Valor Global do Orçamento / TCV ({proposal.contractMonths} meses)
                 </span>
                 <div className="text-lg font-extrabold text-white">
                   {formatBRL(proposal.totalContractValue)}
                 </div>
                 <span className="text-[10px] text-emerald-300">
-                  {recurringItems.length} item(ns) recorrente(s) • {setupItems.length} setup
+                  {recurringItems.length} item(ns) recorrente(s) • {setupItems.length} único/setup
                 </span>
               </div>
             </div>
           </div>
 
+          {/* CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
+          {Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
+            <div className="border border-slate-300 rounded-lg overflow-hidden">
+              <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex items-center justify-between text-xs font-extrabold text-slate-800">
+                <span className="inline-flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
+                  CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
+                </span>
+                <span className="text-[11px] text-slate-600">{proposal.paymentCondition}</span>
+              </div>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
+                  <tr>
+                    <th className="py-2 px-3 w-20">Parcela</th>
+                    <th className="py-2 px-3 w-36">Data de Vencimento</th>
+                    <th className="py-2 px-3 w-48">Forma de Pagamento</th>
+                    <th className="py-2 px-3 text-right w-36">Valor da Parcela</th>
+                    <th className="py-2 px-3">Observação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {proposal.installments.map((inst, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
+                        {inst.number}ª
+                      </td>
+                      <td className="py-2 px-3 font-semibold">
+                        {inst.dueDate.includes('-')
+                          ? new Date(`${inst.dueDate.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
+                          : inst.dueDate}
+                      </td>
+                      <td className="py-2 px-3">{inst.paymentMethod}</td>
+                      <td className="py-2 px-3 text-right font-extrabold text-slate-900">
+                        {formatBRL(inst.amount)}
+                      </td>
+                      <td className="py-2 px-3 text-slate-600">{inst.notes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* TRANSPORTE E ENTREGA (QUANDO INFORMADO) */}
+          {(proposal.shippingCarrier || proposal.deliveryAddress || shippingCost > 0) && (
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                <div>
+                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
+                    Logística, Remessa &amp; Instalação
+                  </span>
+                  <span className="text-slate-600">
+                    Modalidade: <strong>{proposal.shippingCarrier || 'Frota Própria Seta Telecom'}</strong>
+                    {proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ''}
+                  </span>
+                </div>
+              </div>
+              <div className="font-bold text-slate-800">
+                Frete: {shippingCost > 0 ? formatBRL(shippingCost) : 'Isento / Cortesia'}
+              </div>
+            </div>
+          )}
+
+          {/* CLÁUSULAS TÉCNICAS & SLA */}
           <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
             <div className="font-extrabold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
@@ -978,6 +688,7 @@ function PublicProposalPrintContent() {
             <p className="text-slate-600 leading-relaxed">{proposal.technicalClauses}</p>
           </div>
 
+          {/* TERMO DE ACEITE E ASSINATURAS */}
           <div className="pt-6 mt-4 border-t-2 border-slate-200">
             <div className="text-xs font-extrabold uppercase text-slate-700 mb-4">
               Termo de Aceite e Aprovação da Proposta Comercial ({proposal.code})
@@ -997,7 +708,7 @@ function PublicProposalPrintContent() {
               <div className="border-t border-slate-400 pt-2 text-center">
                 <div className="text-xs font-extrabold text-slate-900">{proposal.companyName}</div>
                 <div className="text-[11px] text-slate-500">
-                  CNPJ {proposal.companyCnpj} • {proposal.contactName} (Assinatura / Carimbo)
+                  CNPJ {proposal.companyCnpj} • {proposal.careOf || proposal.contactName} (Assinatura / Carimbo)
                 </div>
               </div>
             </div>

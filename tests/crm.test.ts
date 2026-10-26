@@ -1089,3 +1089,150 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     assert.equal(readjustedCtr.readjustmentHistory[0].newMonthlyValue, 12540);
   });
 });
+
+describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Templates & Snippets) e Tarefas HubSpot', () => {
+  it('persiste buyingRole, ownerName e isUnworked em Contatos e isTargetAccount e icpTier em Empresas', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Criar Empresa Conta Alvo ABM Tier 1
+    const compRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/companies',
+      body: {
+        name: 'B3 Brasil Bolsa Balcão S.A.',
+        domain: 'b3.com.br',
+        industry: 'Mercado Financeiro & Infraestrutura',
+        size: '1000+ funcionários',
+        annualRevenue: 10000000000,
+        isTargetAccount: true,
+        icpTier: 'TIER_1',
+        ownerName: 'Evelyn Ternero Seta Telecom',
+      },
+    });
+    assert.equal(compRes.status, 201);
+    const createdComp = (compRes.body as {
+      data: { id: string; isTargetAccount: boolean; icpTier: string; ownerName: string };
+    }).data;
+    assert.equal(createdComp.isTargetAccount, true);
+    assert.equal(createdComp.icpTier, 'TIER_1');
+    assert.equal(createdComp.ownerName, 'Evelyn Ternero Seta Telecom');
+
+    // 2. Criar Contato com buyingRole COMPRADOR_ECONOMICO e isUnworked true
+    const contRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/contacts',
+      body: {
+        firstName: 'Henrique',
+        lastName: 'Meirelles',
+        email: 'henrique@b3.com.br',
+        phone: '(11) 97777-8899',
+        jobTitle: 'VP Financeiro',
+        companyId: createdComp.id,
+        buyingRole: 'COMPRADOR_ECONOMICO',
+        ownerName: 'Evelyn Ternero Seta Telecom',
+        isUnworked: true,
+      },
+    });
+    assert.equal(contRes.status, 201);
+    const createdContact = (contRes.body as {
+      data: { id: string; buyingRole: string; ownerName: string; isUnworked: boolean };
+    }).data;
+    assert.equal(createdContact.buyingRole, 'COMPRADOR_ECONOMICO');
+    assert.equal(createdContact.ownerName, 'Evelyn Ternero Seta Telecom');
+    assert.equal(createdContact.isUnworked, true);
+
+    // 3. Atualizar Contato mudando buyingRole para DECISOR e isUnworked para false
+    const patchRes = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/contacts/${createdContact.id}`,
+      body: {
+        buyingRole: 'DECISOR',
+        isUnworked: false,
+      },
+    });
+    assert.equal(patchRes.status, 200);
+    const updatedContact = (patchRes.body as {
+      data: { buyingRole: string; isUnworked: boolean };
+    }).data;
+    assert.equal(updatedContact.buyingRole, 'DECISOR');
+    assert.equal(updatedContact.isUnworked, false);
+  });
+
+  it('envia e-mail de dentro do card usando Template e Snippet, registra na Timeline e cria Tarefa de Follow-up HubSpot automaticamente', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Listar Templates e Snippets
+    const tplListRes = await router.dispatch({ method: 'GET', path: '/api/email-templates' });
+    assert.equal(tplListRes.status, 200);
+    const templates = (tplListRes.body as { data: Array<{ id: string }> }).data;
+    assert.ok(templates.length >= 4);
+
+    const snipListRes = await router.dispatch({ method: 'GET', path: '/api/snippets' });
+    assert.equal(snipListRes.status, 200);
+    const snippets = (snipListRes.body as { data: Array<{ id: string; shortcut: string }> }).data;
+    assert.ok(snippets.length >= 5);
+
+    // 2. Disparar e-mail com createFollowUpTask = true para contato vinculado + outro destinatário
+    const sendRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/emails/send',
+      body: {
+        to: 'marina.costa@nubank.com.br, ricardo.almeida@totvs.com.br',
+        cc: 'comercial@setatelecom.com.br',
+        subject: '[Seta Telecom] Proposta Cluster PABX IP + SD-WAN (Nubank)',
+        body: 'Olá Marina, segue proposta comercial com SLA 99,95% e isenção de ISS (SV 31 STF).',
+        senderName: 'Marcelo Lopes Mira',
+        contactId: 'cont-marina',
+        companyId: 'comp-nubank',
+        templateId: templates[0].id,
+        snippetIds: [snippets[0].id],
+        createFollowUpTask: true,
+        followUpDays: 3,
+        followUpDueTime: '10:30',
+        followUpType: 'CALL',
+        followUpPriority: 'HIGH',
+        followUpQueueName: 'Prospecção ABM Tier 1',
+      },
+    });
+    assert.equal(sendRes.status, 201);
+    const sendData = (sendRes.body as {
+      data: {
+        protocol: string;
+        toList: string[];
+        timelineEvent: { id: string; type: string };
+        followUpTask: {
+          id: string;
+          type: string;
+          priority: string;
+          queueName: string;
+          status: string;
+          contactId: string;
+        };
+      };
+    }).data;
+
+    assert.ok(sendData.protocol.startsWith('HS-MAIL-'));
+    assert.equal(sendData.toList.length, 2);
+    assert.equal(sendData.timelineEvent.type, 'EMAIL');
+    assert.ok(sendData.followUpTask, 'Deve criar automaticamente a tarefa de follow-up');
+    assert.equal(sendData.followUpTask.type, 'CALL');
+    assert.equal(sendData.followUpTask.priority, 'HIGH');
+    assert.equal(sendData.followUpTask.queueName, 'Prospecção ABM Tier 1');
+    assert.equal(sendData.followUpTask.status, 'NOT_STARTED');
+    assert.equal(sendData.followUpTask.contactId, 'cont-marina');
+
+    // 3. Concluir a tarefa de follow-up via POST /api/tasks/:id/complete
+    const completeRes = await router.dispatch({
+      method: 'POST',
+      path: `/api/tasks/${sendData.followUpTask.id}/complete`,
+    });
+    assert.equal(completeRes.status, 200);
+    const completedTask = (completeRes.body as {
+      data: { status: string; completedAt: string | null };
+    }).data;
+    assert.equal(completedTask.status, 'COMPLETED');
+    assert.ok(completedTask.completedAt);
+  });
+});

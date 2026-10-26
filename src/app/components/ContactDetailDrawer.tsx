@@ -12,6 +12,8 @@ import {
   TimelineEvent,
 } from '../../db/types';
 import { CompletenessResult } from '../../modules/data-health/completeness';
+import { CrmTask } from '../../db/types';
+import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
 import {
   BUYING_ROLE_OPTIONS,
   SETA_OWNER_OPTIONS,
@@ -28,12 +30,15 @@ export interface DetailedContactResponse extends Contact {
   company: Company | null;
   deals: Deal[];
   timeline: TimelineEvent[];
+  tasks?: CrmTask[];
   completenessDetail: CompletenessResult;
 }
 
 interface ContactDetailDrawerProps {
   contactDetail: DetailedContactResponse | null;
   companies: Company[];
+  allContacts?: Contact[];
+  onRefreshContact?: () => Promise<void> | void;
   loadingDetail: boolean;
   enrichingId: string | null;
   enrichmentFeedback: string | null;
@@ -54,6 +59,8 @@ interface ContactDetailDrawerProps {
 export default function ContactDetailDrawer({
   contactDetail,
   companies,
+  allContacts = [],
+  onRefreshContact,
   loadingDetail,
   enrichingId,
   enrichmentFeedback,
@@ -760,6 +767,32 @@ export default function ContactDetailDrawer({
                   </div>
                 )}
               </div>
+
+              {/* HUBSPOT EMAIL COMPOSER (WITH TEMPLATES, SNIPPETS & FOLLOW-UP TASK) */}
+              <HubSpotCardEmailComposer
+                primaryContact={contactDetail}
+                company={contactDetail.company}
+                linkedContacts={
+                  contactDetail.companyId
+                    ? allContacts.filter((c) => c.companyId === contactDetail.companyId)
+                    : []
+                }
+                allContacts={allContacts}
+                onSent={() => {
+                  onRefreshContact?.();
+                }}
+              />
+
+              {/* HUBSPOT TASKS & FOLLOW-UP SECTION FOR THIS CONTACT */}
+              <HubSpotRecordTasksSection
+                contactId={contactDetail.id}
+                companyId={contactDetail.companyId}
+                defaultAssignee={contactDetail.ownerName || "Marcelo Lopes Mira"}
+                initialTasks={contactDetail.tasks}
+                onTasksChanged={() => {
+                  onRefreshContact?.();
+                }}
+              />
 
               <form
                 onSubmit={handleAddActivitySubmit}

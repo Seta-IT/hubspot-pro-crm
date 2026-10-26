@@ -15,13 +15,22 @@ import {
   Pencil,
   Save,
   Trash2,
+  CheckSquare,
+  Mail,
 } from 'lucide-react';
-import { Company, Contact, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
+import { BuyingRoleType, Company, Contact, CrmTask, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
 import { calculateContactCompleteness, CompletenessResult } from '../../modules/data-health/completeness';
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
+import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import HubSpotTasksQueueView from './HubSpotTasksQueueView';
 import {
+  BUYING_ROLE_OPTIONS,
+  ICP_TIER_OPTIONS,
+  SETA_OWNER_OPTIONS,
   formatBRL,
   formatDateTimeBR,
+  getBuyingRoleBadge,
+  getIcpTierBadge,
   getLeadStatusLabel,
   getLifecycleBadge,
   getScoreColorClasses,
@@ -41,6 +50,7 @@ export interface DetailedCompanyResponse extends Company {
   contacts: Contact[];
   deals: Deal[];
   timeline: TimelineEvent[];
+  tasks?: CrmTask[];
   completenessDetail: CompletenessResult;
 }
 
@@ -53,7 +63,7 @@ interface ContactsCompaniesTabProps {
   companies: EnrichedCompanyItem[];
   initialSelectedContactId?: string | null;
   onClearInitialContact?: () => void;
-  initialSubView?: 'CONTACTS' | 'COMPANIES';
+  initialSubView?: 'CONTACTS' | 'COMPANIES' | 'TASKS';
   onCreateContact: (payload: {
     email?: string;
     firstName: string;
@@ -61,6 +71,9 @@ interface ContactsCompaniesTabProps {
     phone?: string;
     jobTitle?: string;
     lifecycleStage?: LifecycleStage;
+    buyingRole?: BuyingRoleType;
+    ownerName?: string;
+    isUnworked?: boolean;
     companyId?: string;
     companyName?: string;
   }) => Promise<EnrichedContactItem | void>;
@@ -73,6 +86,9 @@ interface ContactsCompaniesTabProps {
     annualRevenue?: number;
     city?: string;
     state?: string;
+    isTargetAccount?: boolean;
+    icpTier?: "TIER_1" | "TIER_2" | "TIER_3" | null;
+    ownerName?: string;
   }) => Promise<void>;
   onEnrichContact: (contactId: string) => Promise<{
     fieldsUpdated: string[];
@@ -110,12 +126,13 @@ export default function ContactsCompaniesTab({
   onBatchEnrichAll,
   onAddContactActivity,
 }: ContactsCompaniesTabProps) {
-  const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES'>(initialSubView || 'CONTACTS');
+  const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>(initialSubView || 'CONTACTS');
   useEffect(() => {
     if (initialSubView) setSubView(initialSubView);
   }, [initialSubView]);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('ALL');
+  const [buyingRoleFilter, setBuyingRoleFilter] = useState<string>('ALL');
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
   const [activeSegment, setActiveSegment] = useState<"ALL" | "MARCELO" | "EVELYN" | "GESTAOCLICK" | "ABM">("ALL");
 
@@ -133,7 +150,9 @@ export default function ContactsCompaniesTab({
   const [editCompCity, setEditCompCity] = useState('');
   const [editCompState, setEditCompState] = useState('');
   const [editCompTier, setEditCompTier] = useState('ENTERPRISE');
-  const [editCompOwner, setEditCompOwner] = useState('Marcéllo Mira');
+  const [editCompIcpTier, setEditCompIcpTier] = useState<string>('TIER_1');
+  const [editCompTargetAccount, setEditCompTargetAccount] = useState<boolean>(true);
+  const [editCompOwner, setEditCompOwner] = useState('Marcelo Lopes Mira');
   const [savingCompanyEdit, setSavingCompanyEdit] = useState(false);
   const [confirmCompanyDelete, setConfirmCompanyDelete] = useState(false);
   const [deletingCompany, setDeletingCompany] = useState(false);
@@ -167,6 +186,9 @@ export default function ContactsCompaniesTab({
   const [cPhone, setCPhone] = useState('');
   const [cJobTitle, setCJobTitle] = useState('');
   const [cStage, setCStage] = useState<LifecycleStage>('LEAD');
+  const [cBuyingRole, setCBuyingRole] = useState<BuyingRoleType>('DECISOR');
+  const [cOwnerName, setCOwnerName] = useState('Marcelo Lopes Mira');
+  const [cIsUnworked, setCIsUnworked] = useState<boolean>(false);
   const [cCompanyId, setCCompanyId] = useState('');
   const [cCompanyName, setCCompanyName] = useState('');
   const [savingContact, setSavingContact] = useState(false);
@@ -181,6 +203,9 @@ export default function ContactsCompaniesTab({
   const [compRevenue, setCompRevenue] = useState('50000000');
   const [compCity, setCompCity] = useState('São Paulo');
   const [compState, setCompState] = useState('SP');
+  const [compTargetAccount, setCompTargetAccount] = useState<boolean>(true);
+  const [compIcpTier, setCompIcpTier] = useState<'TIER_1' | 'TIER_2' | 'TIER_3' | ''>('TIER_1');
+  const [compOwnerName, setCompOwnerName] = useState('Marcelo Lopes Mira');
   const [savingCompany, setSavingCompany] = useState(false);
 
   const fetchContactDetail = async (id: string) => {
@@ -234,7 +259,11 @@ export default function ContactsCompaniesTab({
         setEditCompState(data.state || '');
         const props = data.customProperties || {};
         setEditCompTier(String(props.tier || 'ENTERPRISE'));
-        setEditCompOwner(String(props.accountExecutive || props.accountOwner || 'Marcéllo Mira'));
+        setEditCompIcpTier(String(data.icpTier || props.icpTier || ''));
+        setEditCompTargetAccount(Boolean(data.isTargetAccount));
+        setEditCompOwner(
+          String(data.ownerName || props.accountExecutive || props.accountOwner || 'Marcelo Lopes Mira')
+        );
       }
     } finally {
       setLoadingCompanyDetail(false);
@@ -272,7 +301,10 @@ export default function ContactsCompaniesTab({
         city: editCompCity.trim() || null,
         state: editCompState.trim() || null,
         tier: editCompTier,
-        accountOwner: editCompOwner.trim() || 'Marcéllo Mira',
+        isTargetAccount: editCompTargetAccount,
+        icpTier: editCompIcpTier ? (editCompIcpTier as "TIER_1" | "TIER_2" | "TIER_3") : null,
+        ownerName: editCompOwner.trim() || 'Marcelo Lopes Mira',
+        accountOwner: editCompOwner.trim() || 'Marcelo Lopes Mira',
       });
       await fetchCompanyDetail(selectedCompanyId);
     } finally {
@@ -368,6 +400,9 @@ export default function ContactsCompaniesTab({
         phone: cPhone.trim() || undefined,
         jobTitle: cJobTitle.trim() || undefined,
         lifecycleStage: cStage,
+        buyingRole: cBuyingRole,
+        ownerName: cOwnerName.trim() || 'Marcelo Lopes Mira',
+        isUnworked: cIsUnworked,
         companyId: cCompanyId || undefined,
         companyName: cCompanyName.trim() || undefined,
       });
@@ -375,6 +410,7 @@ export default function ContactsCompaniesTab({
       // Reset any restrictive filters so the newly saved contact is immediately visible
       setSubView('CONTACTS');
       setStageFilter('ALL');
+      setBuyingRoleFilter('ALL');
       setMinScoreFilter(0);
       setActiveSegment('ALL');
       if (searchQuery.trim()) {
@@ -420,6 +456,9 @@ export default function ContactsCompaniesTab({
         annualRevenue: Number(compRevenue) || undefined,
         city: compCity.trim() || undefined,
         state: compState.trim() || undefined,
+        isTargetAccount: compTargetAccount,
+        icpTier: compIcpTier || null,
+        ownerName: compOwnerName.trim() || 'Marcelo Lopes Mira',
       });
       setSubView('COMPANIES');
       if (searchQuery.trim() && !normalizeSearch(compName).includes(normalizeSearch(searchQuery))) {
@@ -450,6 +489,7 @@ export default function ContactsCompaniesTab({
         if (!c.company?.isTargetAccount && c.buyingRole !== 'DECISOR') return false;
       }
       if (stageFilter !== 'ALL' && c.lifecycleStage !== stageFilter) return false;
+      if (buyingRoleFilter !== 'ALL' && c.buyingRole !== buyingRoleFilter) return false;
       if (minScoreFilter > 0 && c.leadScore < minScoreFilter) return false;
       if (searchQuery.trim()) {
         const q = normalizeSearch(searchQuery);
@@ -503,6 +543,23 @@ export default function ContactsCompaniesTab({
     });
 
   const filteredCompanies = companies.filter((comp) => {
+    if (activeSegment === 'MARCELO') {
+      const ow = normalizeSearch(comp.ownerName || (comp.customProperties?.accountExecutive as string));
+      if (!ow.includes('marcelo') && !ow.includes('marcello')) return false;
+    } else if (activeSegment === 'EVELYN') {
+      const ow = normalizeSearch(comp.ownerName || (comp.customProperties?.accountExecutive as string));
+      if (!ow.includes('evelyn')) return false;
+    } else if (activeSegment === 'GESTAOCLICK') {
+      if (
+        !comp.id.startsWith('comp-gc-') &&
+        !comp.customProperties?.gestaoClickClientId &&
+        !comp.enrichmentSource?.includes('GestãoClick')
+      ) {
+        return false;
+      }
+    } else if (activeSegment === 'ABM') {
+      if (!comp.isTargetAccount && comp.icpTier !== 'TIER_1') return false;
+    }
     if (searchQuery.trim()) {
       const q = normalizeSearch(searchQuery);
       const qDigits = searchQuery.replace(/\D+/g, '');
@@ -554,6 +611,18 @@ export default function ContactsCompaniesTab({
                 <Building2 className="w-3.5 h-3.5 text-[#0091ae]" />
                 Empresas B2B ({companies.length})
               </button>
+              <button
+                type="button"
+                onClick={() => setSubView("TASKS")}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
+                  subView === "TASKS"
+                    ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
+                    : "text-[#516f90] hover:text-[#33475b]"
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
+                Tarefas &amp; Follow-up HubSpot
+              </button>
             </div>
             <span className="text-xs text-[#516f90]">
               Exibindo{" "}
@@ -600,10 +669,10 @@ export default function ContactsCompaniesTab({
         </div>
 
         {/* HubSpot Index Saved Views Tabs (Active Lists) */}
-        {subView === "CONTACTS" && (
+        {(subView === "CONTACTS" || subView === "COMPANIES") && (
           <div className="px-5 bg-white border-b border-[#cbd6e2] flex flex-wrap items-center gap-1">
             {[
-              { id: "ALL", label: `Todos os Contatos (${contacts.length})` },
+              { id: "ALL", label: subView === "CONTACTS" ? `Todos os Contatos (${contacts.length})` : `Todas as Empresas (${companies.length})` },
               { id: "MARCELO", label: "Minha Carteira — Marcelo Mira" },
               { id: "EVELYN", label: "Carteira — Evelyn Ternero" },
               { id: "GESTAOCLICK", label: "Sincronizados GestãoClick (#118887)" },
@@ -688,6 +757,19 @@ export default function ContactsCompaniesTab({
                 <option value="SQL">SQL Qualificado</option>
                 <option value="OPPORTUNITY">Oportunidade</option>
                 <option value="CUSTOMER">Cliente Ativo</option>
+              </select>
+
+              <select
+                value={buyingRoleFilter}
+                onChange={(e) => setBuyingRoleFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
+              >
+                <option value="ALL">Papel ABM: Todos</option>
+                {BUYING_ROLE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
 
               <select
@@ -792,6 +874,12 @@ export default function ContactsCompaniesTab({
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       {getLifecycleBadge(contact.lifecycleStage)}
+                      {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
+                      {contact.isUnworked && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                          🔥 Intocado
+                        </span>
+                      )}
                       <span className={`text-xs font-extrabold ${scoreStyle.text}`}>
                         Score {contact.leadScore}
                       </span>
@@ -905,9 +993,18 @@ export default function ContactsCompaniesTab({
 
                       <td className="py-3.5 px-4">
                         <div className="flex flex-col items-start gap-1">
-                          {getLifecycleBadge(contact.lifecycleStage)}
+                          <div className="flex flex-wrap items-center gap-1">
+                            {getLifecycleBadge(contact.lifecycleStage)}
+                            {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
+                            {contact.isUnworked && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                                🔥 Intocado
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] text-slate-500">
                             {getLeadStatusLabel(contact.leadStatus)}
+                            {contact.ownerName ? ` • ${contact.ownerName}` : ""}
                           </span>
                         </div>
                       </td>
@@ -1031,15 +1128,25 @@ export default function ContactsCompaniesTab({
                       </p>
                     </div>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      company.completenessScore >= 85
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-amber-50 text-amber-800 border border-amber-200'
-                    }`}
-                  >
-                    {company.completenessScore}% completo
-                  </span>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                        company.completenessScore >= 85
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      {company.completenessScore}% completo
+                    </span>
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      {company.isTargetAccount && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-[#e05835] border border-orange-200">
+                          🎯 Conta Alvo ABM
+                        </span>
+                      )}
+                      {company.icpTier && getIcpTierBadge(company.icpTier)}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -1113,10 +1220,23 @@ export default function ContactsCompaniesTab({
         </div>
       )}
 
+      {subView === 'TASKS' && (
+        <HubSpotTasksQueueView
+          contacts={contacts}
+          companies={companies}
+          onOpenContactDrawer={(cId) => handleSelectContact(cId, false)}
+          onOpenCompanyDrawer={(compId) => handleSelectCompany(compId)}
+        />
+      )}
+
       {selectedContactId && (
         <ContactDetailDrawer
           contactDetail={contactDetail}
           companies={companies}
+          allContacts={contacts}
+          onRefreshContact={() => {
+            if (selectedContactId) fetchContactDetail(selectedContactId);
+          }}
           loadingDetail={loadingDetail}
           enrichingId={enrichingId}
           enrichmentFeedback={enrichmentFeedback}
@@ -1329,15 +1449,50 @@ export default function ContactsCompaniesTab({
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
-                          Executivo da Conta
+                          Proprietário (Owner Seta)
                         </label>
                         <input
                           type="text"
+                          list="seta-company-owners-list"
                           value={editCompOwner}
                           onChange={(e) => setEditCompOwner(e.target.value)}
                           className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                         />
+                        <datalist id="seta-company-owners-list">
+                          {SETA_OWNER_OPTIONS.map((ow) => (
+                            <option key={ow} value={ow} />
+                          ))}
+                        </datalist>
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">
+                          Classificação ICP (Ideal Customer Profile)
+                        </label>
+                        <select
+                          value={editCompIcpTier}
+                          onChange={(e) => setEditCompIcpTier(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        >
+                          <option value="">Sem Tier ICP definido</option>
+                          {ICP_TIER_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-white text-xs font-extrabold text-[#e05835] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editCompTargetAccount}
+                          onChange={(e) => setEditCompTargetAccount(e.target.checked)}
+                          className="rounded border-orange-300 text-[#ff7a59] focus:ring-[#ff7a59]"
+                        />
+                        <span>🎯 Conta Alvo ABM (Target Account)</span>
+                      </label>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3.5">
@@ -1418,6 +1573,27 @@ export default function ContactsCompaniesTab({
                       </div>
                     </div>
                   </form>
+
+                  {/* HUBSPOT EMAIL COMPOSER FOR THIS COMPANY & ITS LINKED CONTACTS */}
+                  <HubSpotCardEmailComposer
+                    primaryContact={companyDetail.contacts?.[0] || null}
+                    company={companyDetail}
+                    linkedContacts={companyDetail.contacts || []}
+                    allContacts={contacts}
+                    onSent={() => {
+                      if (selectedCompanyId) fetchCompanyDetail(selectedCompanyId);
+                    }}
+                  />
+
+                  {/* HUBSPOT TASKS & FOLLOW-UPS FOR THIS COMPANY */}
+                  <HubSpotRecordTasksSection
+                    companyId={companyDetail.id}
+                    defaultAssignee={editCompOwner || "Marcelo Lopes Mira"}
+                    initialTasks={companyDetail.tasks}
+                    onTasksChanged={() => {
+                      if (selectedCompanyId) fetchCompanyDetail(selectedCompanyId);
+                    }}
+                  />
 
                   <div className="space-y-2">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -1618,6 +1794,52 @@ export default function ContactsCompaniesTab({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    Papel de Compra ABM (Buying Role)
+                  </label>
+                  <select
+                    value={cBuyingRole}
+                    onChange={(e) => setCBuyingRole(e.target.value as BuyingRoleType)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                  >
+                    {BUYING_ROLE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    Proprietário da Carteira (Owner)
+                  </label>
+                  <select
+                    value={cOwnerName}
+                    onChange={(e) => setCOwnerName(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                  >
+                    {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
+                      <option key={ow} value={ow}>
+                        {ow}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-bold text-amber-950 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cIsUnworked}
+                  onChange={(e) => setCIsUnworked(e.target.checked)}
+                  className="rounded border-amber-400 text-[#ff7a59]"
+                />
+                <span>🔥 Marcar como Lead Intocado (Unworked — Prioridade de 1º Atendimento)</span>
+              </label>
+
               {!cCompanyId && (
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
@@ -1779,6 +2001,54 @@ export default function ContactsCompaniesTab({
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    Classificação ICP (Tier)
+                  </label>
+                  <select
+                    value={compIcpTier}
+                    onChange={(e) =>
+                      setCompIcpTier(e.target.value as 'TIER_1' | 'TIER_2' | 'TIER_3' | '')
+                    }
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                  >
+                    <option value="">Sem Tier ICP</option>
+                    {ICP_TIER_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    Proprietário da Conta (Owner)
+                  </label>
+                  <select
+                    value={compOwnerName}
+                    onChange={(e) => setCompOwnerName(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                  >
+                    {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
+                      <option key={ow} value={ow}>
+                        {ow}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-orange-50/70 text-xs font-extrabold text-[#e05835] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={compTargetAccount}
+                  onChange={(e) => setCompTargetAccount(e.target.checked)}
+                  className="rounded border-orange-300 text-[#ff7a59]"
+                />
+                <span>🎯 Marcar como Conta Alvo ABM (Target Account)</span>
+              </label>
 
               <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
