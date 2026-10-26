@@ -62,12 +62,24 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import {
+  recordDeletedContract,
+  recordDeletedInvoice,
+  recordDeletedProposal,
   recordUpsertedContract,
   recordUpsertedInvoice,
   recordUpsertedProposal,
 } from '../lib/durable-storage';
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
+import GestaoClickSidebar from './GestaoClickSidebar';
+import {
+  ContractEditModal,
+  GenericFieldSpec,
+  GenericRecordEditModal,
+  InvoiceEditModal,
+  ProposalEditModal,
+} from './ErpEditModals';
+import { Edit3 } from 'lucide-react';
 
 export interface ErpOverviewPayload {
   kpis: {
@@ -139,7 +151,17 @@ export default function ErpGestaoClickTab({
   const [activeSection, setActiveSection] = useState<GestaoClickMenuSection>(
     initialSection || "INICIO"
   );
+  const [activeSubId, setActiveSubId] = useState<string>("INICIO");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
+  const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);
+  const [genericModal, setGenericModal] = useState<{
+    title: string;
+    initialValues: Record<string, unknown>;
+    fields: GenericFieldSpec[];
+    onSave: (values: Record<string, unknown>) => Promise<void>;
+  } | null>(null);
   const [hideBalances, setHideBalances] = useState(false);
   const [cadastrosSubTab, setCadastrosSubTab] = useState<"CLIENTES" | "FORNECEDORES" | "FUNCIONARIOS">("CLIENTES");
   const [syncingGc, setSyncingGc] = useState(false);
@@ -473,6 +495,112 @@ export default function ErpGestaoClickTab({
     }
   };
 
+  const handleSaveEditedProposal = async (updated: ErpCommercialProposal) => {
+    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(updated.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    const saved: ErpCommercialProposal = res.ok ? (await res.json())?.data || updated : updated;
+    recordUpsertedProposal(saved);
+    const publicUrl = buildPublicProposalUrl(saved);
+    const printUrl = buildPublicProposalUrl(saved, { autoPrint: true });
+    setCreatedProposalBanner({
+      proposal: saved,
+      publicUrl,
+      printUrl,
+    });
+    setEditingProposal(null);
+    onShowToast(`Proposta ${saved.code} atualizada com sucesso e Link PDF regenerado!`);
+    await onRefresh();
+  };
+
+  const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
+    await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
+    recordDeletedProposal(prop.id);
+    onShowToast(`Proposta ${prop.code} excluída.`);
+    await onRefresh();
+  };
+
+  const handleSaveEditedContract = async (updated: ErpRentalContract) => {
+    const isNew = !rentalContracts.some((c) => c.id === updated.id);
+    const res = await fetch(
+      isNew ? '/api/erp/rental-contracts' : `/api/erp/rental-contracts/${encodeURIComponent(updated.id)}`,
+      {
+        method: isNew ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      }
+    );
+    const saved: ErpRentalContract = res.ok ? (await res.json())?.data || updated : updated;
+    recordUpsertedContract(saved);
+    setEditingContract(null);
+    onShowToast(`Contrato ${saved.contractNumber} salvo com sucesso!`);
+    await onRefresh();
+  };
+
+  const handleDeleteContract = async (ctr: ErpRentalContract) => {
+    await fetch(`/api/erp/rental-contracts/${encodeURIComponent(ctr.id)}`, { method: 'DELETE' });
+    recordDeletedContract(ctr.id);
+    onShowToast(`Contrato ${ctr.contractNumber} excluído.`);
+    await onRefresh();
+  };
+
+  const handleSaveEditedInvoice = async (updated: ErpFiscalInvoice) => {
+    const res = await fetch(`/api/erp/invoices/${encodeURIComponent(updated.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    const saved: ErpFiscalInvoice = res.ok ? (await res.json())?.data || updated : updated;
+    recordUpsertedInvoice(saved);
+    setEditingInvoice(null);
+    onShowToast(`Documento fiscal ${saved.documentNumber} atualizado!`);
+    await onRefresh();
+  };
+
+  const handleDeleteInvoice = async (inv: ErpFiscalInvoice) => {
+    await fetch(`/api/erp/invoices/${encodeURIComponent(inv.id)}`, { method: 'DELETE' });
+    recordDeletedInvoice(inv.id);
+    onShowToast(`Documento fiscal ${inv.documentNumber} excluído.`);
+    await onRefresh();
+  };
+
+  const openCollectionEditor = (
+    collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
+    title: string,
+    initialValues: Record<string, unknown>,
+    fields: GenericFieldSpec[]
+  ) => {
+    setGenericModal({
+      title,
+      initialValues,
+      fields,
+      onSave: async (values) => {
+        await fetch(`/api/erp/records/${collection}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...initialValues, ...values }),
+        });
+        setGenericModal(null);
+        onShowToast(`${title} salvo com sucesso!`);
+        await onRefresh();
+      },
+    });
+  };
+
+  const handleDeleteCollectionRecord = async (
+    collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
+    id: string,
+    label: string
+  ) => {
+    await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    onShowToast(`${label} removido.`);
+    await onRefresh();
+  };
+
   const menuItems: Array<{ id: GestaoClickMenuSection; label: string; icon: React.ComponentType<{ className?: string }>; count?: number; hot?: boolean }> = [
     { id: 'INICIO', label: 'Início', icon: Home },
     { id: 'CADASTROS', label: 'Cadastros', icon: Users, count: companies.length + suppliers.length + employees.length },
@@ -534,6 +662,23 @@ export default function ErpGestaoClickTab({
                   <span className="text-base font-black text-emerald-700">{formatBRL(prop.monthlyRecurringTotal)}/mês</span>
                   <span className="text-[11px] text-slate-500 block">TCV ({prop.contractMonths}m): {formatBRL(prop.totalContractValue)}</span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditingProposal(prop)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Proposta
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteProposal(prop)}
+                  title="Excluir Proposta"
+                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
 
                 <button
                   type="button"
@@ -631,9 +776,57 @@ export default function ErpGestaoClickTab({
           <h2 className="text-base font-extrabold text-slate-900">Contratos de Locação de Equipamentos &amp; S/N ({rentalContracts.length})</h2>
           <p className="text-xs text-slate-500">Emissão de Fatura de Locação (0% ISS — Súmula Vinculante 31 STF) e NF-e de Remessa CFOP 5.908.</p>
         </div>
-        <button type="button" onClick={() => setShowNewProposalModal(true)} className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer">
-          + Nova Proposta de Locação
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setEditingContract({
+                id: `ctr-${Date.now()}`,
+                contractNumber: `LOC-2026-${100 + rentalContracts.length + 1}`,
+                title: 'Novo Contrato de Locação de Infraestrutura Telecom',
+                companyId: companies[0]?.id || null,
+                companyName: companies[0]?.name || 'Empresa Locatária B2B',
+                companyCnpj: companies[0]?.cnpj || '18.236.120/0001-58',
+                contactId: null,
+                dealId: null,
+                proposalId: null,
+                monthlyValue: 4500,
+                dueDay: 10,
+                startDate: new Date().toISOString().slice(0, 10),
+                endDate: '2028-10-26',
+                contractMonths: 24,
+                readjustmentIndex: 'IPCA',
+                status: 'ATIVO',
+                remessaNfeNumber: `000.420.${rentalContracts.length + 1}`,
+                remessaCfop: '5.908',
+                legalBasisNote: 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).',
+                lastBilledCompetence: '10/2026',
+                equipments: [
+                  {
+                    id: `eq-${Date.now()}`,
+                    skuGestaoClick: 'GC-EQ-00101',
+                    description: 'Central PABX IP Seta Cloud Appliance High-Availability',
+                    serialNumber: 'SN-SETA-99810',
+                    ncm: '8517.62.14',
+                    quantity: 1,
+                    unitMonthlyRent: 4500,
+                    assetValueBrl: 27000,
+                    remessaCfop: '5.908',
+                    remessaNfeKey: '35261018456789000190550010004200011000420009',
+                  },
+                ],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              })
+            }
+            className="px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
+          >
+            + Novo Contrato
+          </button>
+          <button type="button" onClick={() => setShowNewProposalModal(true)} className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer">
+            + Nova Proposta de Locação
+          </button>
+        </div>
       </div>
       {rentalContracts.map((ctr) => (
         <div key={ctr.id} className="bg-white rounded-md border border-slate-200 p-5 shadow-xs space-y-4">
@@ -654,6 +847,21 @@ export default function ErpGestaoClickTab({
                 <span className="text-[10px] uppercase font-bold text-emerald-700 block">Aluguel Mensal (0% ISS)</span>
                 <span className="text-base font-black text-emerald-800">{formatBRL(ctr.monthlyValue)}/mês</span>
               </div>
+              <button
+                type="button"
+                onClick={() => setEditingContract(ctr)}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Contrato
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteContract(ctr)}
+                title="Excluir Contrato"
+                className="p-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
               <button type="button" onClick={() => handleGenerateRemessaNfe(ctr.id)} className="px-3 py-2 rounded border border-slate-300 text-xs font-bold hover:bg-slate-50 cursor-pointer">
                 Emitir NF-e Remessa ({ctr.remessaCfop})
               </button>
@@ -724,6 +932,21 @@ export default function ErpGestaoClickTab({
                   <span className="text-[10px] text-slate-500 block">Bruto: {formatBRL(inv.grossAmount)} | ISS: {tb.issRatePercent}%</span>
                   <strong className="text-sm text-slate-900">Líquido: {formatBRL(inv.netAmount)}</strong>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingInvoice(inv)}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteInvoice(inv)}
+                  title="Excluir Documento Fiscal"
+                  className="p-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
                 <button type="button" onClick={() => setSelectedInvoiceForPrint(inv)} className="px-3.5 py-2 rounded bg-slate-900 text-white text-xs font-bold cursor-pointer">
                   <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
                 </button>
@@ -792,76 +1015,26 @@ export default function ErpGestaoClickTab({
       {/* BODY: SIDEBAR ESQUERDA FIXA + ÁREA PRINCIPAL */}
       <div className="flex min-h-[780px]">
         {!sidebarCollapsed && (
-          <aside className="w-60 bg-white border-r border-slate-200 shrink-0 flex flex-col justify-between">
-            <div>
-              {/* LOGO SETA IT */}
-              <div className="p-4 border-b border-slate-100 flex items-center justify-center">
-                <div className="border border-slate-200 rounded-md px-4 py-2.5 flex items-center gap-1.5 shadow-2xs">
-                  <span className="text-lg font-black tracking-tight text-[#1e3a6e]">SETA</span>
-                  <div className="flex items-center gap-0.5">
-                    <span className="w-1 h-4 bg-emerald-500 rounded-xs inline-block" />
-                    <span className="w-1 h-4 bg-amber-500 rounded-xs inline-block" />
-                    <span className="w-1 h-4 bg-sky-500 rounded-xs inline-block" />
-                    <span className="w-1 h-4 bg-rose-500 rounded-xs inline-block" />
-                  </div>
-                  <span className="text-lg font-black tracking-tight text-slate-800">IT</span>
-                </div>
-              </div>
-
-              {/* BOTÃO DESTAQUE CRIAR PROPOSTA NO TOPO DA SIDEBAR */}
-              <div className="p-2.5 border-b border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveSection('ORCAMENTOS');
-                    setShowNewProposalModal(true);
-                  }}
-                  className="w-full py-2 px-3 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" /> + Nova Proposta (PDF)
-                </button>
-              </div>
-
-              {/* 13 ITENS DE MENU DO GESTÃOCLICK */}
-              <nav className="py-1 divide-y divide-slate-100">
-                {menuItems.map((m) => {
-                  const Icon = m.icon;
-                  const active = activeSection === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setActiveSection(m.id)}
-                      className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition cursor-pointer ${
-                        active
-                          ? 'bg-blue-50 text-[#1e3a6e] font-extrabold border-l-4 border-[#1e3a6e]'
-                          : 'text-slate-700 hover:bg-slate-50 font-medium'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5 truncate">
-                        <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#1e3a6e]' : 'text-slate-500'}`} />
-                        <span className="truncate">{m.label}</span>
-                      </span>
-                      <span className="flex items-center gap-1 shrink-0">
-                        {m.count !== undefined && (
-                          <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-600 font-bold">
-                            {m.count}
-                          </span>
-                        )}
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      </span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-
-            <div className="p-3 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-500 space-y-1">
-              <div className="font-bold text-slate-700">Seta Telecom LTDA</div>
-              <div>CNPJ {gestaoClickConfig.companyCnpj}</div>
-              <div>Regime: {gestaoClickConfig.taxRegime}</div>
-            </div>
-          </aside>
+          <GestaoClickSidebar
+            activeSection={activeSection}
+            activeSubId={activeSubId}
+            onSelect={(sec, subId) => {
+              setActiveSection(sec);
+              if (subId) {
+                setActiveSubId(subId);
+                if (subId === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
+                if (subId === 'CAD_FORNECEDORES' || subId === 'CAD_TRANSPORTADORAS') setCadastrosSubTab('FORNECEDORES');
+                if (subId === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
+              }
+            }}
+            onNewProposal={() => {
+              setActiveSection('ORCAMENTOS');
+              setActiveSubId('ORC_PRODUTOS');
+              setShowNewProposalModal(true);
+            }}
+            companyCnpj={gestaoClickConfig.companyCnpj}
+            taxRegime={gestaoClickConfig.taxRegime}
+          />
         )}
 
         {/* CONTEÚDO PRINCIPAL */}
@@ -934,8 +1107,13 @@ export default function ErpGestaoClickTab({
           {activeSection === 'CADASTROS' && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-base font-extrabold text-slate-900">Cadastros GestãoClick Seta Telecom</h2>
-                <div className="flex gap-1.5">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    Cadastros &gt; {cadastrosSubTab}
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900">Cadastros GestãoClick Seta Telecom</h2>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
                   {(['CLIENTES', 'FORNECEDORES', 'FUNCIONARIOS'] as const).map((t) => (
                     <button
                       key={t}
@@ -946,40 +1124,208 @@ export default function ErpGestaoClickTab({
                       {t === 'CLIENTES' ? `Clientes (${companies.length})` : t === 'FORNECEDORES' ? `Fornecedores (${suppliers.length})` : `Funcionários (${employees.length})`}
                     </button>
                   ))}
+                  {cadastrosSubTab === 'CLIENTES' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGenericModal({
+                          title: 'Novo Cliente (Cadastro Seta Telecom)',
+                          initialValues: { name: '', cnpj: '', city: 'São Paulo', state: 'SP', ownerName: 'Marcelo Lopes Mira' },
+                          fields: [
+                            { key: 'name', label: 'Razão Social / Nome *' },
+                            { key: 'cnpj', label: 'CNPJ / CPF' },
+                            { key: 'city', label: 'Cidade' },
+                            { key: 'state', label: 'UF' },
+                            { key: 'ownerName', label: 'Executivo Responsável' },
+                          ],
+                          onSave: async (vals) => {
+                            await fetch('/api/companies', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(vals),
+                            });
+                            setGenericModal(null);
+                            onShowToast('Cliente cadastrado com sucesso!');
+                            await onRefresh();
+                          },
+                        })
+                      }
+                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                    >
+                      + Novo Cliente
+                    </button>
+                  )}
+                  {cadastrosSubTab === 'FORNECEDORES' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openCollectionEditor(
+                          'suppliers',
+                          'Novo Fornecedor / Transportadora',
+                          { id: `sup-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', active: true },
+                          [
+                            { key: 'name', label: 'Nome / Razão Social *' },
+                            { key: 'cnpj', label: 'CNPJ' },
+                            { key: 'phone', label: 'Telefone' },
+                            { key: 'email', label: 'E-mail' },
+                          ]
+                        )
+                      }
+                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                    >
+                      + Novo Fornecedor
+                    </button>
+                  )}
+                  {cadastrosSubTab === 'FUNCIONARIOS' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openCollectionEditor(
+                          'employees',
+                          'Novo Funcionário / Colaborador',
+                          { id: `emp-${Date.now()}`, name: '', role: 'Engenharia Telecom', email: '', phone: '', active: true },
+                          [
+                            { key: 'name', label: 'Nome Completo *' },
+                            { key: 'role', label: 'Cargo / Função' },
+                            { key: 'email', label: 'E-mail' },
+                            { key: 'phone', label: 'Telefone' },
+                          ]
+                        )
+                      }
+                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                    >
+                      + Novo Funcionário
+                    </button>
+                  )}
                 </div>
               </div>
+
               {cadastrosSubTab === 'CLIENTES' && (
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                    <tr><th className="py-2 px-3">Cliente / Razão Social</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Cidade/UF</th><th className="py-2 px-3">Responsável</th></tr>
+                    <tr><th className="py-2 px-3">Cliente / Razão Social</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Cidade/UF</th><th className="py-2 px-3">Responsável</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
                   <tbody className="divide-y">
                     {companies.map((c) => (
-                      <tr key={c.id}><td className="py-2 px-3 font-bold">{c.name}</td><td className="py-2 px-3 font-mono">{c.cnpj || '—'}</td><td className="py-2 px-3">{c.city}/{c.state}</td><td className="py-2 px-3">{c.ownerName || 'Marcelo Mira'}</td></tr>
+                      <tr key={c.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 font-bold">{c.name}</td>
+                        <td className="py-2 px-3 font-mono">{c.cnpj || '—'}</td>
+                        <td className="py-2 px-3">{c.city}/{c.state}</td>
+                        <td className="py-2 px-3">{c.ownerName || 'Marcelo Mira'}</td>
+                        <td className="py-2 px-3 text-right space-x-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGenericModal({
+                                title: `Editar Cliente — ${c.name}`,
+                                initialValues: { name: c.name, cnpj: c.cnpj || '', city: c.city || 'São Paulo', state: c.state || 'SP', ownerName: c.ownerName || 'Marcelo Lopes Mira' },
+                                fields: [
+                                  { key: 'name', label: 'Razão Social / Nome' },
+                                  { key: 'cnpj', label: 'CNPJ' },
+                                  { key: 'city', label: 'Cidade' },
+                                  { key: 'state', label: 'UF' },
+                                  { key: 'ownerName', label: 'Executivo Responsável' },
+                                ],
+                                onSave: async (vals) => {
+                                  await fetch(`/api/companies/${encodeURIComponent(c.id)}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(vals),
+                                  });
+                                  setGenericModal(null);
+                                  onShowToast(`Cliente ${vals.name} atualizado!`);
+                                  await onRefresh();
+                                },
+                              })
+                            }
+                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            ✏️ Editar
+                          </button>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+
               {cadastrosSubTab === 'FORNECEDORES' && (
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                    <tr><th className="py-2 px-3">Fornecedor</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3">E-mail</th></tr>
+                    <tr><th className="py-2 px-3">Fornecedor</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
                   <tbody className="divide-y">
                     {suppliers.map((sup) => (
-                      <tr key={sup.id}><td className="py-2 px-3 font-bold">{sup.name}</td><td className="py-2 px-3 font-mono">{sup.cnpj}</td><td className="py-2 px-3">{sup.phone}</td><td className="py-2 px-3">{sup.email}</td></tr>
+                      <tr key={sup.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 font-bold">{sup.name}</td>
+                        <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
+                        <td className="py-2 px-3">{sup.phone}</td>
+                        <td className="py-2 px-3">{sup.email}</td>
+                        <td className="py-2 px-3 text-right space-x-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openCollectionEditor('suppliers', `Editar Fornecedor — ${sup.name}`, sup as unknown as Record<string, unknown>, [
+                                { key: 'name', label: 'Nome / Razão Social' },
+                                { key: 'cnpj', label: 'CNPJ' },
+                                { key: 'phone', label: 'Telefone' },
+                                { key: 'email', label: 'E-mail' },
+                              ])
+                            }
+                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCollectionRecord('suppliers', sup.id, sup.name)}
+                            className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+
               {cadastrosSubTab === 'FUNCIONARIOS' && (
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                    <tr><th className="py-2 px-3">Nome</th><th className="py-2 px-3">Cargo / Função</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3">Telefone</th></tr>
+                    <tr><th className="py-2 px-3">Nome</th><th className="py-2 px-3">Cargo / Função</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
                   <tbody className="divide-y">
                     {employees.map((emp) => (
-                      <tr key={emp.id}><td className="py-2 px-3 font-bold">{emp.name}</td><td className="py-2 px-3">{emp.role}</td><td className="py-2 px-3">{emp.email}</td><td className="py-2 px-3">{emp.phone}</td></tr>
+                      <tr key={emp.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 font-bold">{emp.name}</td>
+                        <td className="py-2 px-3">{emp.role}</td>
+                        <td className="py-2 px-3">{emp.email}</td>
+                        <td className="py-2 px-3">{emp.phone}</td>
+                        <td className="py-2 px-3 text-right space-x-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openCollectionEditor('employees', `Editar Funcionário — ${emp.name}`, emp as unknown as Record<string, unknown>, [
+                                { key: 'name', label: 'Nome Completo' },
+                                { key: 'role', label: 'Cargo / Função' },
+                                { key: 'email', label: 'E-mail' },
+                                { key: 'phone', label: 'Telefone' },
+                              ])
+                            }
+                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCollectionRecord('employees', emp.id, emp.name)}
+                            className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
@@ -989,20 +1335,112 @@ export default function ErpGestaoClickTab({
 
           {(activeSection === 'ITENS' || activeSection === 'ESTOQUE') && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <h2 className="text-base font-extrabold text-slate-900">Catálogo de Produtos, Serviços &amp; Estoque Locado ({catalog.length} itens)</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    {activeSection} &gt; {activeSubId}
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Catálogo de Produtos, Serviços &amp; Estoque Locado ({catalog.length} itens)
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGenericModal({
+                      title: 'Novo Produto / Serviço no Catálogo Seta Telecom',
+                      initialValues: {
+                        gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
+                        name: '',
+                        ncmOrLc116: 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
+                        cfopDefault: '5.908',
+                        stockAvailable: 10,
+                        stockRentedInClients: 0,
+                        monthlyRentalPrice: 1500,
+                      },
+                      fields: [
+                        { key: 'gestaoClickCode', label: 'Código / SKU GestãoClick' },
+                        { key: 'name', label: 'Descrição do Equipamento / Serviço *' },
+                        { key: 'ncmOrLc116', label: 'Classificação NCM / LC 116' },
+                        { key: 'cfopDefault', label: 'CFOP Padrão' },
+                        { key: 'stockAvailable', label: 'Estoque Disponível', type: 'number' },
+                        { key: 'stockRentedInClients', label: 'Qtd Locada em Clientes', type: 'number' },
+                        { key: 'monthlyRentalPrice', label: 'Valor Mensal Locação (R$)', type: 'number' },
+                      ],
+                      onSave: async (vals) => {
+                        await fetch('/api/erp/catalog', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(vals),
+                        });
+                        setGenericModal(null);
+                        onShowToast('Item adicionado ao catálogo!');
+                        await onRefresh();
+                      },
+                    })
+                  }
+                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  + Novo Produto / Serviço
+                </button>
+              </div>
+
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição</th><th className="py-2 px-3">Classificação Fiscal</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th></tr>
+                  <tr><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição</th><th className="py-2 px-3">Classificação Fiscal</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th><th className="py-2 px-3 text-right">Ações</th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {catalog.map((it) => (
-                    <tr key={it.id}>
+                    <tr key={it.id} className="hover:bg-slate-50">
                       <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">{it.gestaoClickCode}</td>
                       <td className="py-2 px-3 font-semibold">{it.name}</td>
                       <td className="py-2 px-3">{it.ncmOrLc116}</td>
                       <td className="py-2 px-3 text-right font-bold">{it.stockAvailable}</td>
                       <td className="py-2 px-3 text-right font-bold text-indigo-700">{it.stockRentedInClients}</td>
                       <td className="py-2 px-3 text-right font-extrabold text-emerald-700">{formatBRL(it.monthlyRentalPrice)}</td>
+                      <td className="py-2 px-3 text-right space-x-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGenericModal({
+                              title: `Editar Item — ${it.gestaoClickCode}`,
+                              initialValues: it as unknown as Record<string, unknown>,
+                              fields: [
+                                { key: 'gestaoClickCode', label: 'SKU GestãoClick' },
+                                { key: 'name', label: 'Descrição' },
+                                { key: 'ncmOrLc116', label: 'Classificação Fiscal' },
+                                { key: 'stockAvailable', label: 'Estoque Disponível', type: 'number' },
+                                { key: 'stockRentedInClients', label: 'Locados em Clientes', type: 'number' },
+                                { key: 'monthlyRentalPrice', label: 'Valor Mensal Locação (R$)', type: 'number' },
+                              ],
+                              onSave: async (vals) => {
+                                await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(vals),
+                                });
+                                setGenericModal(null);
+                                onShowToast(`Item ${it.gestaoClickCode} atualizado!`);
+                                await onRefresh();
+                              },
+                            })
+                          }
+                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                            onShowToast(`Item ${it.gestaoClickCode} excluído.`);
+                            await onRefresh();
+                          }}
+                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                        >
+                          🗑️
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1012,20 +1450,81 @@ export default function ErpGestaoClickTab({
 
           {activeSection === 'VENDAS' && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <h2 className="text-base font-extrabold text-slate-900">Pedidos de Venda Sincronizados do GestãoClick ({salesOrders.length})</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    Vendas &gt; {activeSubId}
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900">Pedidos de Venda Seta Telecom ({salesOrders.length})</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openCollectionEditor(
+                      'salesOrders',
+                      'Novo Pedido de Venda',
+                      {
+                        id: `vnd-${Date.now()}`,
+                        code: String(2937 + salesOrders.length),
+                        companyName: companies[0]?.name || 'Cliente Seta Telecom',
+                        sellerName: 'Marcelo Mira',
+                        date: new Date().toLocaleDateString('pt-BR'),
+                        status: 'Concretizada',
+                        totalAmount: 5800,
+                      },
+                      [
+                        { key: 'code', label: 'Código da Venda' },
+                        { key: 'companyName', label: 'Cliente' },
+                        { key: 'sellerName', label: 'Vendedor' },
+                        { key: 'date', label: 'Data' },
+                        { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Cancelada'] },
+                        { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
+                      ]
+                    )
+                  }
+                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  + Nova Venda
+                </button>
+              </div>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th></tr>
+                  <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {salesOrders.map((v) => (
-                    <tr key={v.id}>
+                    <tr key={v.id} className="hover:bg-slate-50">
                       <td className="py-2 px-3 font-mono font-bold">#{v.code}</td>
                       <td className="py-2 px-3 font-semibold">{v.companyName}</td>
                       <td className="py-2 px-3">{v.sellerName}</td>
                       <td className="py-2 px-3">{v.date}</td>
                       <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">{v.status}</span></td>
                       <td className="py-2 px-3 text-right font-extrabold">{formatBRL(v.totalAmount)}</td>
+                      <td className="py-2 px-3 text-right space-x-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openCollectionEditor('salesOrders', `Editar Venda #${v.code}`, v as unknown as Record<string, unknown>, [
+                              { key: 'code', label: 'Código' },
+                              { key: 'companyName', label: 'Cliente' },
+                              { key: 'sellerName', label: 'Vendedor' },
+                              { key: 'date', label: 'Data' },
+                              { key: 'status', label: 'Situação', type: 'select', options: ['Concretizada', 'Em aberto', 'Cancelada'] },
+                              { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
+                            ])
+                          }
+                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCollectionRecord('salesOrders', v.id, `Venda #${v.code}`)}
+                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                        >
+                          🗑️
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1035,20 +1534,86 @@ export default function ErpGestaoClickTab({
 
           {(activeSection === 'ORDENS_SERVICOS' || activeSection === 'ATENDIMENTOS') && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <h2 className="text-base font-extrabold text-slate-900">Ordens de Serviços Técnicas &amp; Atendimentos ({serviceOrders.length})</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    {activeSection} &gt; {activeSubId}
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900">Ordens de Serviços Técnicas &amp; Atendimentos ({serviceOrders.length})</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openCollectionEditor(
+                      'serviceOrders',
+                      'Nova Ordem de Serviço (O.S.)',
+                      {
+                        id: `os-${Date.now()}`,
+                        code: String(1519 + serviceOrders.length),
+                        companyName: companies[0]?.name || 'Cliente Seta Telecom',
+                        sellerName: 'Marcelo Mira',
+                        technicianName: 'Michelle da Rocha',
+                        entryDate: new Date().toLocaleDateString('pt-BR'),
+                        exitDate: '—',
+                        status: 'Em andamento',
+                        totalAmount: 2450,
+                        description: 'Manutenção e vistoria de equipamentos telecom',
+                      },
+                      [
+                        { key: 'code', label: 'Nº da O.S.' },
+                        { key: 'companyName', label: 'Cliente' },
+                        { key: 'technicianName', label: 'Técnico Responsável' },
+                        { key: 'entryDate', label: 'Data de Entrada' },
+                        { key: 'status', label: 'Situação', type: 'select', options: ['Em andamento', 'Concluída', 'Aguardando peça', 'Cancelada'] },
+                        { key: 'totalAmount', label: 'Valor (R$)', type: 'number' },
+                        { key: 'description', label: 'Laudo / Descrição' },
+                      ]
+                    )
+                  }
+                  className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  + Nova O.S. / Atendimento
+                </button>
+              </div>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                  <tr><th className="py-2 px-3">OS Nº</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Técnico</th><th className="py-2 px-3">Entrada</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor</th></tr>
+                  <tr><th className="py-2 px-3">OS Nº</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Técnico</th><th className="py-2 px-3">Entrada</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor</th><th className="py-2 px-3 text-right">Ações</th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {serviceOrders.map((os) => (
-                    <tr key={os.id}>
+                    <tr key={os.id} className="hover:bg-slate-50">
                       <td className="py-2 px-3 font-mono font-bold">#{os.code}</td>
                       <td className="py-2 px-3 font-semibold">{os.companyName}</td>
                       <td className="py-2 px-3">{os.technicianName}</td>
                       <td className="py-2 px-3">{os.entryDate}</td>
                       <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">{os.status}</span></td>
                       <td className="py-2 px-3 text-right font-extrabold">{formatBRL(os.totalAmount)}</td>
+                      <td className="py-2 px-3 text-right space-x-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openCollectionEditor('serviceOrders', `Editar O.S. #${os.code}`, os as unknown as Record<string, unknown>, [
+                              { key: 'code', label: 'Nº O.S.' },
+                              { key: 'companyName', label: 'Cliente' },
+                              { key: 'technicianName', label: 'Técnico' },
+                              { key: 'entryDate', label: 'Data de Entrada' },
+                              { key: 'status', label: 'Situação', type: 'select', options: ['Em andamento', 'Concluída', 'Aguardando peça', 'Cancelada'] },
+                              { key: 'totalAmount', label: 'Valor (R$)', type: 'number' },
+                              { key: 'description', label: 'Descrição' },
+                            ])
+                          }
+                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCollectionRecord('serviceOrders', os.id, `O.S. #${os.code}`)}
+                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                        >
+                          🗑️
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1059,33 +1624,140 @@ export default function ErpGestaoClickTab({
           {activeSection === 'FINANCEIRO' && (
             <div className="space-y-4">
               <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
+                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                  Financeiro &gt; {activeSubId}
+                </span>
                 <h2 className="text-base font-extrabold text-slate-900">Contas Bancárias Seta Telecom</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {bankAccounts.map((b) => (
-                    <div key={b.id} className="p-3.5 rounded border border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <div key={b.id} className="p-3.5 rounded border border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
                       <div>
                         <div className="text-xs font-extrabold text-slate-800">{b.name}</div>
                         <div className="text-[10px] text-slate-500">{b.lastMovedAt}</div>
                       </div>
-                      <div className={`text-sm font-black ${b.balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{formatBRL(b.balance)}</div>
+                      <div className="text-right">
+                        <div className={`text-sm font-black ${b.balance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{formatBRL(b.balance)}</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openCollectionEditor('bankAccounts', `Editar Conta — ${b.name}`, b as unknown as Record<string, unknown>, [
+                              { key: 'name', label: 'Nome do Banco / Conta' },
+                              { key: 'balance', label: 'Saldo Atual (R$)', type: 'number' },
+                              { key: 'lastMovedAt', label: 'Última Movimentação' },
+                            ])
+                          }
+                          className="text-[10px] font-bold text-[#1e3a6e] hover:underline cursor-pointer"
+                        >
+                          ✏️ Editar Saldo
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
+
               <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-                <h3 className="text-sm font-extrabold text-slate-900">Contas a Receber &amp; Contas a Pagar ({financialEntries.length})</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Contas a Receber &amp; Contas a Pagar ({financialEntries.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGenericModal({
+                        title: 'Novo Lançamento Financeiro (Receber / Pagar)',
+                        initialValues: {
+                          type: activeSubId === 'FIN_PAGAR' ? 'PAGAR' : 'RECEBER',
+                          description: '',
+                          companyName: companies[0]?.name || 'Cliente / Fornecedor',
+                          costCenter: 'CC-101 • Locação de Equipamentos',
+                          amount: 2500,
+                          dueDate: new Date().toISOString().slice(0, 10),
+                          status: 'ABERTO',
+                        },
+                        fields: [
+                          { key: 'type', label: 'Tipo', type: 'select', options: ['RECEBER', 'PAGAR'] },
+                          { key: 'description', label: 'Descrição do Lançamento *' },
+                          { key: 'companyName', label: 'Cliente / Fornecedor' },
+                          { key: 'costCenter', label: 'Centro de Custo' },
+                          { key: 'amount', label: 'Valor (R$)', type: 'number' },
+                          { key: 'dueDate', label: 'Data de Vencimento (AAAA-MM-DD)' },
+                          { key: 'status', label: 'Status', type: 'select', options: ['ABERTO', 'PAGO', 'ATRASADO'] },
+                        ],
+                        onSave: async (vals) => {
+                          await fetch('/api/erp/financial', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(vals),
+                          });
+                          setGenericModal(null);
+                          onShowToast('Lançamento financeiro registrado!');
+                          await onRefresh();
+                        },
+                      })
+                    }
+                    className="px-3.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                  >
+                    + Novo Lançamento
+                  </button>
+                </div>
+
                 <div className="space-y-2">
                   {financialEntries.map((fin) => (
-                    <div key={fin.id} className="p-3 rounded border border-slate-200 flex items-center justify-between text-xs">
+                    <div key={fin.id} className="p-3 rounded border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div>
                         <div className="font-bold text-slate-800">{fin.description}</div>
                         <div className="text-[11px] text-slate-500">{fin.companyName} • {fin.costCenter} • Venc: {fin.dueDate}</div>
                       </div>
-                      <div className="text-right">
-                        <div className={`font-extrabold ${fin.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {fin.type === 'RECEBER' ? '+' : '-'}{formatBRL(fin.amount)}
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <div className={`font-extrabold ${fin.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {fin.type === 'RECEBER' ? '+' : '-'}{formatBRL(fin.amount)}
+                          </div>
+                          <span className="text-[10px] font-bold">{fin.status}</span>
                         </div>
-                        <span className="text-[10px] font-bold">{fin.status}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setGenericModal({
+                              title: 'Editar Lançamento Financeiro',
+                              initialValues: fin as unknown as Record<string, unknown>,
+                              fields: [
+                                { key: 'type', label: 'Tipo', type: 'select', options: ['RECEBER', 'PAGAR'] },
+                                { key: 'description', label: 'Descrição' },
+                                { key: 'companyName', label: 'Empresa' },
+                                { key: 'costCenter', label: 'Centro de Custo' },
+                                { key: 'amount', label: 'Valor (R$)', type: 'number' },
+                                { key: 'dueDate', label: 'Vencimento' },
+                                { key: 'status', label: 'Status', type: 'select', options: ['ABERTO', 'PAGO', 'ATRASADO'] },
+                              ],
+                              onSave: async (vals) => {
+                                await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(vals),
+                                });
+                                setGenericModal(null);
+                                onShowToast('Lançamento atualizado!');
+                                await onRefresh();
+                              },
+                            })
+                          }
+                          className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, { method: 'DELETE' });
+                            onShowToast('Lançamento excluído.');
+                            await onRefresh();
+                          }}
+                          className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1098,10 +1770,50 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-extrabold text-slate-900">Configurações API &amp; MCP GestãoClick ({gestaoClickConfig.credentialName || 'ERP-GROK'})</h2>
+                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                    {activeSection} &gt; {activeSubId}
+                  </span>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Configurações &amp; Relatórios GestãoClick ({gestaoClickConfig.credentialName || 'ERP-GROK'})
+                  </h2>
                   <p className="text-xs text-slate-500">Loja {gestaoClickConfig.storeName} #{gestaoClickConfig.storeId} • CNPJ {gestaoClickConfig.companyCnpj}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGenericModal({
+                        title: 'Editar Dados da Empresa Seta Telecom',
+                        initialValues: {
+                          companyLegalName: gestaoClickConfig.companyLegalName,
+                          companyCnpj: gestaoClickConfig.companyCnpj,
+                          municipalRegistration: gestaoClickConfig.municipalRegistration,
+                          stateRegistration: gestaoClickConfig.stateRegistration,
+                          storeName: gestaoClickConfig.storeName || 'Matriz',
+                        },
+                        fields: [
+                          { key: 'companyLegalName', label: 'Razão Social' },
+                          { key: 'companyCnpj', label: 'CNPJ' },
+                          { key: 'municipalRegistration', label: 'Inscrição Municipal' },
+                          { key: 'stateRegistration', label: 'Inscrição Estadual' },
+                          { key: 'storeName', label: 'Nome da Loja / Unidade' },
+                        ],
+                        onSave: async (vals) => {
+                          await fetch('/api/erp/gestaoclick/config', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(vals),
+                          });
+                          setGenericModal(null);
+                          onShowToast('Configurações da empresa salvas!');
+                          await onRefresh();
+                        },
+                      })
+                    }
+                    className="px-3.5 py-2 rounded bg-amber-500 text-white text-xs font-extrabold cursor-pointer"
+                  >
+                    ✏️ Editar Dados da Empresa
+                  </button>
                   <select
                     value={gestaoClickConfig.taxRegime}
                     onChange={(e) => handleChangeTaxRegime(e.target.value as ErpTaxRegime)}
@@ -1126,6 +1838,37 @@ export default function ErpGestaoClickTab({
           )}
         </div>
       </div>
+
+      {editingProposal && (
+        <ProposalEditModal
+          proposal={editingProposal}
+          onClose={() => setEditingProposal(null)}
+          onSave={handleSaveEditedProposal}
+        />
+      )}
+      {editingContract && (
+        <ContractEditModal
+          contract={editingContract}
+          onClose={() => setEditingContract(null)}
+          onSave={handleSaveEditedContract}
+        />
+      )}
+      {editingInvoice && (
+        <InvoiceEditModal
+          invoice={editingInvoice}
+          onClose={() => setEditingInvoice(null)}
+          onSave={handleSaveEditedInvoice}
+        />
+      )}
+      {genericModal && (
+        <GenericRecordEditModal
+          title={genericModal.title}
+          initialValues={genericModal.initialValues}
+          fields={genericModal.fields}
+          onClose={() => setGenericModal(null)}
+          onSave={genericModal.onSave}
+        />
+      )}
 
       {/* MODAL: IMPRESSÃO / VISUALIZAÇÃO DE FATURA / RECIBO DE LOCAÇÃO OFICIAL */}
       {selectedInvoiceForPrint && (

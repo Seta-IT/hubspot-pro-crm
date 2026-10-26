@@ -644,6 +644,70 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     const reData = (reRes.body as { data: { contactsReassigned: number } }).data;
     assert.ok(reData.contactsReassigned >= 2);
   });
+
+  it('permite editar, atualizar itens e excluir Propostas Comerciais, Contratos de Locação e Documentos Fiscais via CRUD REST', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Editar Proposta Comercial existente (PATCH /api/erp/proposals/:id)
+    const editPropRes = await router.dispatch({
+      method: 'PATCH',
+      path: '/api/erp/proposals/prop-seta-002',
+      body: {
+        title: 'TOTVS S.A. — Proposta Revisada com 40 Terminais IP & SD-WAN',
+        contractMonths: 36,
+        discountAmount: 500,
+        items: [
+          {
+            id: 'pi-rev-1',
+            sku: 'GC-EQ-00101',
+            description: 'Central PABX IP Seta Cloud HA Revisada',
+            fiscalNature: 'LOCACAO_BENS_MOVEIS',
+            ncmOrServiceCode: 'NCM 8517.62.14',
+            quantity: 2,
+            unitPrice: 3000,
+            discountPercent: 0,
+            isRecurring: true,
+            totalMonthly: 6000,
+          },
+        ],
+      },
+    });
+    assert.equal(editPropRes.status, 200);
+    const updatedProp = (editPropRes.body as {
+      data: { title: string; monthlyRecurringTotal: number; totalContractValue: number };
+    }).data;
+    assert.equal(updatedProp.title, 'TOTVS S.A. — Proposta Revisada com 40 Terminais IP & SD-WAN');
+    assert.equal(updatedProp.monthlyRecurringTotal, 5500);
+    assert.equal(updatedProp.totalContractValue, 5500 * 36);
+
+    // 2. Editar Contrato de Locação (PATCH /api/erp/contracts/:id)
+    const editCtrRes = await router.dispatch({
+      method: 'PATCH',
+      path: '/api/erp/contracts/ctr-loc-101',
+      body: {
+        title: 'Contrato de Locação Nubank — Aditivo Expansão 2026',
+        monthlyValue: 14500,
+      },
+    });
+    assert.equal(editCtrRes.status, 200);
+    const updatedCtr = (editCtrRes.body as { data: { title: string; monthlyValue: number } }).data;
+    assert.equal(updatedCtr.monthlyValue, 14500);
+
+    // 3. Editar Documento Fiscal / Fatura (PATCH /api/erp/fiscal-documents/:id)
+    const editInvRes = await router.dispatch({
+      method: 'PATCH',
+      path: '/api/erp/fiscal-documents/inv-loc-0002',
+      body: {
+        grossAmount: 7800,
+        status: 'PAGA',
+      },
+    });
+    assert.equal(editInvRes.status, 200);
+    const updatedInv = (editInvRes.body as { data: { grossAmount: number; status: string } }).data;
+    assert.equal(updatedInv.grossAmount, 7800);
+    assert.equal(updatedInv.status, 'PAGA');
+  });
 });
 
 describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busca sem Acento & Auto-Reconciliação Serverless (/api/bootstrap)', () => {

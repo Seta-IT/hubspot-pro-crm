@@ -495,6 +495,7 @@ export interface ErpProposalItem {
   description: string;
   fiscalNature: ErpFiscalNature;
   ncmOrServiceCode: string;
+  serialNumber?: string;
   quantity: number;
   unitPrice: number;
   discountPercent: number;
@@ -511,9 +512,13 @@ export interface ErpCommercialProposal {
   companyCnpj: string;
   contactId: string | null;
   contactName: string;
+  contactEmail?: string;
   dealId: string | null;
   sellerName: string;
   status: ErpProposalStatus;
+  modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
+  readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO';
+  discountAmount?: number;
   contractMonths: number;
   paymentCondition: string;
   validUntil: string;

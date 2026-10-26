@@ -1,0 +1,324 @@
+'use client';
+
+import React, { useState } from 'react';
+import {
+  Home,
+  Users,
+  Barcode,
+  FileText,
+  ShoppingBasket,
+  Wrench,
+  Boxes,
+  Wallet,
+  Receipt,
+  FileSignature,
+  MessageSquare,
+  LineChart,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+} from 'lucide-react';
+import { GestaoClickMenuSection } from './ErpGestaoClickTab';
+
+export interface GestaoClickSubItem {
+  id: string;
+  label: string;
+  hasArrowRight?: boolean;
+}
+
+export interface GestaoClickNavGroup {
+  id: GestaoClickMenuSection;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  subItems?: GestaoClickSubItem[];
+}
+
+export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
+  {
+    id: 'INICIO',
+    label: 'Início (Visão Geral)',
+    icon: Home,
+  },
+  {
+    id: 'CADASTROS',
+    label: 'Cadastros',
+    icon: Users,
+    subItems: [
+      { id: 'CAD_CLIENTES', label: 'Clientes' },
+      { id: 'CAD_FORNECEDORES', label: 'Fornecedores' },
+      { id: 'CAD_FUNCIONARIOS', label: 'Funcionários' },
+      { id: 'CAD_TRANSPORTADORAS', label: 'Transportadoras' },
+      { id: 'CAD_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'ITENS',
+    label: 'Itens',
+    icon: Barcode,
+    subItems: [
+      { id: 'ITENS_PRODUTOS', label: 'Produtos' },
+      { id: 'ITENS_SERVICOS', label: 'Serviços' },
+      { id: 'ITENS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'ORCAMENTOS',
+    label: 'Orçamentos',
+    icon: FileText,
+    subItems: [
+      { id: 'ORC_PRODUTOS', label: 'Produtos' },
+      { id: 'ORC_SERVICOS', label: 'Serviços' },
+      { id: 'ORC_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'VENDAS',
+    label: 'Vendas',
+    icon: ShoppingBasket,
+    subItems: [
+      { id: 'VENDAS_PRODUTOS', label: 'Produtos' },
+      { id: 'VENDAS_SERVICOS', label: 'Serviços' },
+      { id: 'VENDAS_BALCAO', label: 'Balcão' },
+      { id: 'VENDAS_DEVOLUCOES', label: 'Devoluções' },
+      { id: 'VENDAS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'ORDENS_SERVICOS',
+    label: 'Ordens de serviços',
+    icon: Wrench,
+    subItems: [
+      { id: 'OS_GERENCIAR', label: 'Gerenciar O.S.' },
+      { id: 'OS_PAINEL', label: 'Painel' },
+      { id: 'OS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'ESTOQUE',
+    label: 'Estoque',
+    icon: Boxes,
+    subItems: [
+      { id: 'EST_MOVIMENTACOES', label: 'Movimentações' },
+      { id: 'EST_AJUSTES', label: 'Ajustes' },
+      { id: 'EST_TRANSFERENCIAS', label: 'Transferências' },
+      { id: 'EST_COTACOES', label: 'Cotações' },
+      { id: 'EST_COMPRAS', label: 'Compras', hasArrowRight: true },
+      { id: 'EST_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'FINANCEIRO',
+    label: 'Financeiro',
+    icon: Wallet,
+    subItems: [
+      { id: 'FIN_PAGAR', label: 'Contas a pagar' },
+      { id: 'FIN_RECEBER', label: 'Contas a receber' },
+      { id: 'FIN_DRE', label: 'DRE gerencial' },
+      { id: 'FIN_FLUXO', label: 'Fluxo de caixa' },
+      { id: 'FIN_BOLETOS', label: 'Boletos bancários', hasArrowRight: true },
+      { id: 'FIN_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'FISCAL',
+    label: 'Fiscal',
+    icon: Receipt,
+    subItems: [
+      { id: 'FIS_PRODUTOS', label: 'Notas de produtos' },
+      { id: 'FIS_SERVICOS', label: 'Notas de serviços' },
+      { id: 'FIS_CONSUMIDOR', label: 'Notas do consumidor' },
+      { id: 'FIS_COMPRAS', label: 'Notas de compras' },
+      { id: 'FIS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'CONTRATOS',
+    label: 'Contratos',
+    icon: FileSignature,
+    subItems: [
+      { id: 'CTR_SERVICOS', label: 'Serviços' },
+      { id: 'CTR_LOCACOES', label: 'Locações' },
+      { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },
+      { id: 'CTR_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
+    id: 'ATENDIMENTOS',
+    label: 'Atendimentos',
+    icon: MessageSquare,
+  },
+  {
+    id: 'RELATORIOS',
+    label: 'Relatórios',
+    icon: LineChart,
+    subItems: [
+      { id: 'REL_CADASTROS', label: 'Cadastros' },
+      { id: 'REL_VENDAS', label: 'Vendas' },
+      { id: 'REL_OS', label: 'Ordens de serviços' },
+      { id: 'REL_ESTOQUE', label: 'Estoque' },
+      { id: 'REL_FINANCEIRO', label: 'Financeiro' },
+      { id: 'REL_CONTRATOS', label: 'Contratos' },
+      { id: 'REL_FISCAL', label: 'Fiscal' },
+      { id: 'REL_PERSONALIZADOS', label: 'Personalizados' },
+      { id: 'REL_LOGS', label: 'Logs do sistema' },
+    ],
+  },
+  {
+    id: 'CONFIGURACOES',
+    label: 'Configurações',
+    icon: Settings,
+    subItems: [
+      { id: 'CFG_GERAIS', label: 'Gerais' },
+      { id: 'CFG_PLANO', label: 'Meu plano' },
+      { id: 'CFG_USUARIOS', label: 'Usuários' },
+      { id: 'CFG_EMPRESA', label: 'Dados da empresa' },
+      { id: 'CFG_MARCA', label: 'Marca da empresa' },
+      { id: 'CFG_LOJAS', label: 'Empresas / Lojas' },
+      { id: 'CFG_CERTIFICADO', label: 'Certificado digital' },
+      { id: 'CFG_EMAILS', label: 'Modelos de e-mails' },
+      { id: 'CFG_AVISOS', label: 'Avisos por e-mail' },
+    ],
+  },
+];
+
+interface GestaoClickSidebarProps {
+  activeSection: GestaoClickMenuSection;
+  activeSubId: string;
+  onSelect: (section: GestaoClickMenuSection, subId?: string) => void;
+  onNewProposal: () => void;
+  companyCnpj: string;
+  taxRegime: string;
+}
+
+export default function GestaoClickSidebar({
+  activeSection,
+  activeSubId,
+  onSelect,
+  onNewProposal,
+  companyCnpj,
+  taxRegime,
+}: GestaoClickSidebarProps) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    CADASTROS: true,
+    ITENS: true,
+    ORCAMENTOS: true,
+    VENDAS: false,
+    ORDENS_SERVICOS: false,
+    ESTOQUE: false,
+    FINANCEIRO: false,
+    FISCAL: false,
+    CONTRATOS: true,
+    RELATORIOS: false,
+    CONFIGURACOES: false,
+  });
+
+  const toggleGroup = (group: GestaoClickNavGroup) => {
+    if (!group.subItems || group.subItems.length === 0) {
+      onSelect(group.id, group.id);
+      return;
+    }
+    const nextOpen = !expanded[group.id];
+    setExpanded((prev) => ({ ...prev, [group.id]: nextOpen }));
+    onSelect(group.id, group.subItems[0].id);
+  };
+
+  return (
+    <aside className="w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex flex-col justify-between select-none">
+      <div>
+        {/* LOGO OFICIAL SETA | IT (IDÊNTICO AO PRINT DO GESTÃOCLICK) */}
+        <div className="p-3.5 bg-[#f8f9fb]">
+          <div
+            onClick={() => onSelect('INICIO', 'INICIO')}
+            className="bg-white border border-slate-200 rounded-lg py-5 px-4 flex items-center justify-center gap-2 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+          >
+            <span className="text-2xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
+            <span className="w-[2px] h-6 bg-[#f26522] inline-block" />
+            <span className="text-2xl font-black tracking-tight text-[#f26522]">IT</span>
+          </div>
+        </div>
+
+        {/* BOTÃO RÁPIDO + NOVA PROPOSTA / ORÇAMENTO */}
+        <div className="px-3.5 pb-2.5">
+          <button
+            type="button"
+            onClick={onNewProposal}
+            className="w-full py-2 px-3 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> + Nova Proposta (PDF)
+          </button>
+        </div>
+
+        {/* ÁRVORE EXATA DE MENUS E SUBMENUS DO GESTÃOCLICK */}
+        <nav className="px-2 pb-4 space-y-0.5">
+          {GESTAO_CLICK_MENU_TREE.map((group) => {
+            const Icon = group.icon;
+            const hasSubs = Boolean(group.subItems && group.subItems.length > 0);
+            const isOpen = Boolean(expanded[group.id] || activeSection === group.id);
+            const isGroupActive = activeSection === group.id;
+
+            return (
+              <div key={group.id} className="rounded-md">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
+                    isGroupActive
+                      ? 'bg-white text-[#1e3a6e] font-extrabold shadow-2xs'
+                      : 'text-[#1e3a6e] hover:bg-white/70 font-bold'
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5 truncate">
+                    <Icon className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                    <span className="truncate">{group.label}</span>
+                  </span>
+                  {hasSubs && (
+                    <span className="text-slate-400">
+                      {isOpen ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      )}
+                    </span>
+                  )}
+                </button>
+
+                {hasSubs && isOpen && (
+                  <div className="ml-5 pl-3 my-1 border-l border-slate-200 space-y-0.5">
+                    {group.subItems!.map((sub) => {
+                      const isSubActive =
+                        isGroupActive && (activeSubId === sub.id || (!activeSubId && sub === group.subItems![0]));
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => onSelect(group.id, sub.id)}
+                          className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                            isSubActive
+                              ? 'bg-blue-50 text-[#1e3a6e] font-extrabold'
+                              : 'text-slate-500 hover:text-[#1e3a6e] hover:bg-white/60 font-medium'
+                          }`}
+                        >
+                          <span className="truncate">{sub.label}</span>
+                          {sub.hasArrowRight && (
+                            <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="p-3 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
+        <div className="font-bold text-[#0d2b4e]">SETA TELECOM LTDA</div>
+        <div>CNPJ {companyCnpj}</div>
+        <div>Regime: {taxRegime}</div>
+      </div>
+    </aside>
+  );
+}

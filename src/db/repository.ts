@@ -66,8 +66,11 @@ export interface ClientDurableJournal {
   upsertedTickets?: ServiceTicket[];
   deletedTicketIds?: string[];
   upsertedProposals?: ErpCommercialProposal[];
+  deletedProposalIds?: string[];
   upsertedContracts?: ErpRentalContract[];
+  deletedContractIds?: string[];
   upsertedInvoices?: ErpFiscalInvoice[];
+  deletedInvoiceIds?: string[];
   upsertedForms?: WebForm[];
   upsertedWorkflows?: Workflow[];
   upsertedSequences?: EmailSequence[];
@@ -283,9 +286,33 @@ export class CrmRepository {
     upsertCollection(this.state.sequences, journal.upsertedSequences);
 
     const erp = this.ensureErp();
-    upsertCollection(erp.proposals, journal.upsertedProposals);
-    upsertCollection(erp.rentalContracts, journal.upsertedContracts);
-    upsertCollection(erp.invoices, journal.upsertedInvoices);
+    const deletedProposals = new Set(journal.deletedProposalIds || []);
+    if (deletedProposals.size > 0) {
+      const before = erp.proposals.length;
+      erp.proposals = erp.proposals.filter(
+        (p) => !deletedProposals.has(p.id) && !deletedProposals.has(p.code)
+      );
+      appliedCount += before - erp.proposals.length;
+    }
+    const deletedContracts = new Set(journal.deletedContractIds || []);
+    if (deletedContracts.size > 0) {
+      const before = erp.rentalContracts.length;
+      erp.rentalContracts = erp.rentalContracts.filter(
+        (c) => !deletedContracts.has(c.id) && !deletedContracts.has(c.contractNumber)
+      );
+      appliedCount += before - erp.rentalContracts.length;
+    }
+    const deletedInvoices = new Set(journal.deletedInvoiceIds || []);
+    if (deletedInvoices.size > 0) {
+      const before = erp.invoices.length;
+      erp.invoices = erp.invoices.filter(
+        (i) => !deletedInvoices.has(i.id) && !deletedInvoices.has(i.documentNumber)
+      );
+      appliedCount += before - erp.invoices.length;
+    }
+    upsertCollection(erp.proposals, journal.upsertedProposals, deletedProposals);
+    upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
+    upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
 
     if (Array.isArray(journal.timelineEvents) && journal.timelineEvents.length > 0) {
       const existingEvtIds = new Set(this.state.timelineEvents.map((e) => e.id));
@@ -1681,6 +1708,288 @@ export class CrmRepository {
     erp.proposals.unshift(proposal);
     this.save();
     return proposal;
+  }
+
+  updateProposal(
+    idOrCode: string,
+    patch: Partial<ErpCommercialProposal>
+  ): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const idx = erp.proposals.findIndex(
+      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+    );
+    const nowIso = new Date().toISOString();
+
+    if (idx === -1) {
+      // If editing a proposal/quote that was only on the client or GestãoClick, upsert it!
+      const created = this.createProposal({
+        ...patch,
+        id: idOrCode,
+        title: patch.title || `Proposta Comercial ${idOrCode}`,
+      });
+      return created;
+    }
+
+    const current = erp.proposals[idx];
+    const items = Array.isArray(patch.items) ? patch.items : current.items;
+    const contractMonths = Number(patch.contractMonths ?? current.contractMonths ?? 24);
+    const discountAmount = Number(patch.discountAmount ?? current.discountAmount ?? 0);
+
+    const computedMonthly = items
+      .filter((i) => i.isRecurring !== false)
+      .reduce((sum, i) => sum + Number(i.totalMonthly ?? Number(i.quantity || 1) * Number(i.unitPrice || 0)), 0);
+    const computedSetup = items
+      .filter((i) => i.isRecurring === false)
+      .reduce((sum, i) => sum + Number(i.totalMonthly ?? Number(i.quantity || 1) * Number(i.unitPrice || 0)), 0);
+
+    const monthlyRecurringTotal =
+      patch.monthlyRecurringTotal !== undefined
+        ? Number(patch.monthlyRecurringTotal)
+        : Math.max(0, computedMonthly - discountAmount);
+    const oneTimeSetupTotal =
+      patch.oneTimeSetupTotal !== undefined ? Number(patch.oneTimeSetupTotal) : computedSetup;
+    const totalContractValue =
+      patch.totalContractValue !== undefined
+        ? Number(patch.totalContractValue)
+        : monthlyRecurringTotal * contractMonths + oneTimeSetupTotal;
+
+    const updated: ErpCommercialProposal = {
+      ...current,
+      ...patch,
+      id: current.id,
+      code: patch.code || current.code,
+      title: patch.title !== undefined ? String(patch.title).trim() : current.title,
+      companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
+      companyCnpj: patch.companyCnpj !== undefined ? String(patch.companyCnpj).trim() : current.companyCnpj,
+      contactName: patch.contactName !== undefined ? String(patch.contactName).trim() : current.contactName,
+      sellerName: patch.sellerName !== undefined ? String(patch.sellerName).trim() : current.sellerName,
+      contractMonths,
+      discountAmount,
+      items,
+      monthlyRecurringTotal,
+      oneTimeSetupTotal,
+      totalContractValue,
+      updatedAt: nowIso,
+    };
+
+    erp.proposals[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  deleteProposal(idOrCode: string): boolean {
+    const erp = this.ensureErp();
+    const before = erp.proposals.length;
+    erp.proposals = erp.proposals.filter(
+      (p) => p.id !== idOrCode && p.code.toLowerCase() !== idOrCode.toLowerCase()
+    );
+    if (erp.proposals.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  updateRentalContract(
+    idOrNum: string,
+    patch: Partial<ErpRentalContract>
+  ): ErpRentalContract | null {
+    const erp = this.ensureErp();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.rentalContracts[idx];
+    const updated: ErpRentalContract = {
+      ...current,
+      ...patch,
+      id: current.id,
+      monthlyValue:
+        patch.monthlyValue !== undefined ? Number(patch.monthlyValue) : current.monthlyValue,
+      dueDay: patch.dueDay !== undefined ? Number(patch.dueDay) : current.dueDay,
+      contractMonths:
+        patch.contractMonths !== undefined ? Number(patch.contractMonths) : current.contractMonths,
+      updatedAt: new Date().toISOString(),
+    };
+    erp.rentalContracts[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  deleteRentalContract(idOrNum: string): boolean {
+    const erp = this.ensureErp();
+    const before = erp.rentalContracts.length;
+    erp.rentalContracts = erp.rentalContracts.filter(
+      (c) => c.id !== idOrNum && c.contractNumber.toLowerCase() !== idOrNum.toLowerCase()
+    );
+    if (erp.rentalContracts.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  updateInvoice(
+    idOrDoc: string,
+    patch: Partial<ErpFiscalInvoice>
+  ): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const idx = erp.invoices.findIndex(
+      (i) => i.id === idOrDoc || i.documentNumber.toLowerCase() === idOrDoc.toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.invoices[idx];
+    const grossAmount =
+      patch.grossAmount !== undefined ? Number(patch.grossAmount) : current.grossAmount;
+    const discountAmount =
+      patch.discountAmount !== undefined ? Number(patch.discountAmount) : current.discountAmount;
+    const docType = patch.documentType || current.documentType;
+    const taxBreakdown = calculateBrazilianTaxBreakdown({
+      grossAmount,
+      discountAmount,
+      documentType: docType,
+      taxRegime: erp.gestaoClickConfig.taxRegime,
+      issRatePercent: erp.gestaoClickConfig.defaultIssRatePercent,
+    });
+
+    const updated: ErpFiscalInvoice = {
+      ...current,
+      ...patch,
+      id: current.id,
+      documentType: docType,
+      grossAmount,
+      discountAmount,
+      netAmount:
+        patch.netAmount !== undefined
+          ? Number(patch.netAmount)
+          : taxBreakdown.netReceivableAmount,
+      taxBreakdown,
+      updatedAt: new Date().toISOString(),
+    };
+    erp.invoices[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  deleteInvoice(idOrDoc: string): boolean {
+    const erp = this.ensureErp();
+    const before = erp.invoices.length;
+    erp.invoices = erp.invoices.filter(
+      (i) => i.id !== idOrDoc && i.documentNumber.toLowerCase() !== idOrDoc.toLowerCase()
+    );
+    if (erp.invoices.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  updateCatalogItem(idOrSku: string, patch: Partial<ErpCatalogItem>): ErpCatalogItem | null {
+    const erp = this.ensureErp();
+    const idx = erp.catalog.findIndex(
+      (c) => c.id === idOrSku || c.gestaoClickCode.toLowerCase() === idOrSku.toLowerCase()
+    );
+    if (idx === -1) return null;
+    erp.catalog[idx] = {
+      ...erp.catalog[idx],
+      ...patch,
+      id: erp.catalog[idx].id,
+    };
+    this.save();
+    return erp.catalog[idx];
+  }
+
+  deleteCatalogItem(idOrSku: string): boolean {
+    const erp = this.ensureErp();
+    const before = erp.catalog.length;
+    erp.catalog = erp.catalog.filter(
+      (c) => c.id !== idOrSku && c.gestaoClickCode.toLowerCase() !== idOrSku.toLowerCase()
+    );
+    if (erp.catalog.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  createFinancialEntry(input: Partial<ErpFinancialEntry> & { description: string; amount: number }): ErpFinancialEntry {
+    const erp = this.ensureErp();
+    const entry: ErpFinancialEntry = {
+      id: input.id || `fin-${Date.now()}`,
+      type: input.type || 'RECEBER',
+      category: input.category || 'LOCACAO_EQUIPAMENTOS',
+      description: input.description.trim(),
+      companyName: input.companyName || 'Cliente / Fornecedor Seta Telecom',
+      costCenter: input.costCenter || 'CC-101 • Operacional Seta Telecom',
+      amount: Number(input.amount || 0),
+      dueDate: input.dueDate || new Date().toISOString().slice(0, 10),
+      paidAt: input.status === 'PAGO' ? new Date().toISOString().slice(0, 10) : null,
+      status: input.status || 'ABERTO',
+      invoiceId: input.invoiceId || null,
+      paymentMethod: input.paymentMethod || 'Boleto / PIX',
+    };
+    erp.financialEntries.unshift(entry);
+    this.save();
+    return entry;
+  }
+
+  updateFinancialEntry(id: string, patch: Partial<ErpFinancialEntry>): ErpFinancialEntry | null {
+    const erp = this.ensureErp();
+    const idx = erp.financialEntries.findIndex((f) => f.id === id);
+    if (idx === -1) return null;
+    erp.financialEntries[idx] = {
+      ...erp.financialEntries[idx],
+      ...patch,
+      id: erp.financialEntries[idx].id,
+      amount: patch.amount !== undefined ? Number(patch.amount) : erp.financialEntries[idx].amount,
+    };
+    this.save();
+    return erp.financialEntries[idx];
+  }
+
+  deleteFinancialEntry(id: string): boolean {
+    const erp = this.ensureErp();
+    const before = erp.financialEntries.length;
+    erp.financialEntries = erp.financialEntries.filter((f) => f.id !== id);
+    if (erp.financialEntries.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  upsertErpCollectionRecord(
+    collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
+    record: Record<string, unknown>
+  ): Record<string, unknown> {
+    const erp = this.ensureErp();
+    const list = (erp[collection] || []) as unknown as Array<Record<string, unknown>>;
+    const id = String(record.id || `${collection}-${Date.now()}`);
+    const idx = list.findIndex((r) => String(r.id) === id);
+    const item = { ...(idx >= 0 ? list[idx] : {}), ...record, id };
+    if (idx >= 0) {
+      list[idx] = item;
+    } else {
+      list.unshift(item);
+    }
+    (erp as unknown as Record<string, unknown>)[collection] = list;
+    this.save();
+    return item;
+  }
+
+  deleteErpCollectionRecord(
+    collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
+    id: string
+  ): boolean {
+    const erp = this.ensureErp();
+    const list = (erp[collection] || []) as unknown as Array<Record<string, unknown>>;
+    const filtered = list.filter((r) => String(r.id) !== id);
+    if (filtered.length !== list.length) {
+      (erp as unknown as Record<string, unknown>)[collection] = filtered;
+      this.save();
+      return true;
+    }
+    return false;
   }
 
   approveProposalAndConvertToContract(proposalId: string): {

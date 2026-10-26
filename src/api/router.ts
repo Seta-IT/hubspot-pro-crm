@@ -1811,7 +1811,29 @@ export class CrmApiRouter {
         return { status: 200, body: { data: res } };
       }
 
-      if (cleanPath === '/api/erp/rental-contracts') {
+      const proposalIdMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)$/);
+      if (proposalIdMatch) {
+        const propId = decodeURIComponent(proposalIdMatch[1]);
+        if (method === 'GET') {
+          const found = this.repo
+            .listProposals()
+            .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+          if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          return { status: 200, body: { data: found } };
+        }
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateProposal(propId, body);
+          if (!updated) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteProposal(propId);
+          if (!deleted) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          return { status: 200, body: { success: true, deletedId: propId } };
+        }
+      }
+
+      if (cleanPath === '/api/erp/rental-contracts' || cleanPath === '/api/erp/contracts') {
         if (method === 'GET') {
           const list = this.repo.listRentalContracts();
           return { status: 200, body: { data: list, total: list.length } };
@@ -1855,7 +1877,24 @@ export class CrmApiRouter {
         return { status: 201, body: { data: nfe } };
       }
 
-      if (cleanPath === '/api/erp/invoices') {
+      const contractIdMatch = cleanPath.match(
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)$/
+      );
+      if (contractIdMatch) {
+        const ctrId = decodeURIComponent(contractIdMatch[1]);
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateRentalContract(ctrId, body);
+          if (!updated) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteRentalContract(ctrId);
+          if (!deleted) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+          return { status: 200, body: { success: true, deletedId: ctrId } };
+        }
+      }
+
+      if (cleanPath === '/api/erp/invoices' || cleanPath === '/api/erp/fiscal-documents') {
         if (method === 'GET') {
           const list = this.repo.listInvoices();
           return { status: 200, body: { data: list, total: list.length } };
@@ -1886,6 +1925,23 @@ export class CrmApiRouter {
         return { status: 200, body: { data: paid } };
       }
 
+      const invoiceIdMatch = cleanPath.match(
+        /^\/api\/erp\/(?:invoices|fiscal-documents)\/([^/]+)$/
+      );
+      if (invoiceIdMatch) {
+        const invId = decodeURIComponent(invoiceIdMatch[1]);
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateInvoice(invId, body);
+          if (!updated) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteInvoice(invId);
+          if (!deleted) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
+          return { status: 200, body: { success: true, deletedId: invId } };
+        }
+      }
+
       if (cleanPath === '/api/erp/catalog') {
         if (method === 'GET') {
           const list = this.repo.listCatalog();
@@ -1903,6 +1959,71 @@ export class CrmApiRouter {
       if (cleanPath === '/api/erp/financial' && method === 'GET') {
         const list = this.repo.listFinancialEntries();
         return { status: 200, body: { data: list, total: list.length } };
+      }
+
+      const catalogIdMatch = cleanPath.match(/^\/api\/erp\/catalog\/([^/]+)$/);
+      if (catalogIdMatch) {
+        const catId = decodeURIComponent(catalogIdMatch[1]);
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateCatalogItem(catId, body);
+          if (!updated) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteCatalogItem(catId);
+          if (!deleted) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
+          return { status: 200, body: { success: true, deletedId: catId } };
+        }
+      }
+
+      if (cleanPath === '/api/erp/financial' && method === 'POST') {
+        const created = this.repo.createFinancialEntry({
+          ...(body as Record<string, unknown>),
+          description: String(body.description || 'Lançamento Financeiro Seta Telecom'),
+          amount: Number(body.amount || 0),
+        });
+        return { status: 201, body: { data: created } };
+      }
+
+      const finIdMatch = cleanPath.match(/^\/api\/erp\/financial\/([^/]+)$/);
+      if (finIdMatch) {
+        const finId = decodeURIComponent(finIdMatch[1]);
+        if (method === 'PATCH' || method === 'PUT') {
+          const updated = this.repo.updateFinancialEntry(finId, body);
+          if (!updated) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        if (method === 'DELETE') {
+          const deleted = this.repo.deleteFinancialEntry(finId);
+          if (!deleted) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
+          return { status: 200, body: { success: true, deletedId: finId } };
+        }
+      }
+
+      const erpRecordsMatch = cleanPath.match(
+        /^\/api\/erp\/records\/(bankAccounts|salesOrders|serviceOrders|suppliers|employees|purchaseOrders)(?:\/([^/]+))?$/
+      );
+      if (erpRecordsMatch) {
+        const col = erpRecordsMatch[1] as
+          | 'bankAccounts'
+          | 'salesOrders'
+          | 'serviceOrders'
+          | 'suppliers'
+          | 'employees'
+          | 'purchaseOrders';
+        const recId = erpRecordsMatch[2] ? decodeURIComponent(erpRecordsMatch[2]) : undefined;
+        if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
+          const saved = this.repo.upsertErpCollectionRecord(col, {
+            ...body,
+            ...(recId ? { id: recId } : {}),
+          });
+          return { status: 200, body: { data: saved } };
+        }
+        if (method === 'DELETE' && recId) {
+          const deleted = this.repo.deleteErpCollectionRecord(col, recId);
+          if (!deleted) return { status: 404, body: { error: 'Registro não encontrado.' } };
+          return { status: 200, body: { success: true, deletedId: recId } };
+        }
       }
 
       const payFinMatch = cleanPath.match(/^\/api\/erp\/financial\/([^/]+)\/pay$/);

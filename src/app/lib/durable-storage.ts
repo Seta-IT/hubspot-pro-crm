@@ -33,8 +33,11 @@ function createEmptyJournal(): Required<ClientDurableJournal> {
     upsertedTickets: [],
     deletedTicketIds: [],
     upsertedProposals: [],
+    deletedProposalIds: [],
     upsertedContracts: [],
+    deletedContractIds: [],
     upsertedInvoices: [],
+    deletedInvoiceIds: [],
     upsertedForms: [],
     upsertedWorkflows: [],
     upsertedSequences: [],
@@ -79,8 +82,11 @@ export function hasDurableJournalEntries(journal?: ClientDurableJournal | null):
       (journal.upsertedTickets && journal.upsertedTickets.length > 0) ||
       (journal.deletedTicketIds && journal.deletedTicketIds.length > 0) ||
       (journal.upsertedProposals && journal.upsertedProposals.length > 0) ||
+      (journal.deletedProposalIds && journal.deletedProposalIds.length > 0) ||
       (journal.upsertedContracts && journal.upsertedContracts.length > 0) ||
+      (journal.deletedContractIds && journal.deletedContractIds.length > 0) ||
       (journal.upsertedInvoices && journal.upsertedInvoices.length > 0) ||
+      (journal.deletedInvoiceIds && journal.deletedInvoiceIds.length > 0) ||
       (journal.upsertedForms && journal.upsertedForms.length > 0) ||
       (journal.upsertedWorkflows && journal.upsertedWorkflows.length > 0) ||
       (journal.upsertedSequences && journal.upsertedSequences.length > 0) ||
@@ -167,19 +173,61 @@ export function recordDeletedTicket(ticketIdOrKey: string): void {
 
 export function recordUpsertedProposal(proposal: ErpCommercialProposal): void {
   const j = loadDurableJournal();
+  j.deletedProposalIds = (j.deletedProposalIds || []).filter(
+    (id) => id !== proposal.id && id !== proposal.code
+  );
   j.upsertedProposals = upsertInArray(j.upsertedProposals, proposal);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedProposal(proposalIdOrCode: string): void {
+  const j = loadDurableJournal();
+  j.upsertedProposals = j.upsertedProposals.filter(
+    (p) => p.id !== proposalIdOrCode && p.code !== proposalIdOrCode
+  );
+  if (!j.deletedProposalIds.includes(proposalIdOrCode)) {
+    j.deletedProposalIds.push(proposalIdOrCode);
+  }
   saveDurableJournal(j);
 }
 
 export function recordUpsertedContract(contract: ErpRentalContract): void {
   const j = loadDurableJournal();
+  j.deletedContractIds = (j.deletedContractIds || []).filter(
+    (id) => id !== contract.id && id !== contract.contractNumber
+  );
   j.upsertedContracts = upsertInArray(j.upsertedContracts, contract);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedContract(contractIdOrNum: string): void {
+  const j = loadDurableJournal();
+  j.upsertedContracts = j.upsertedContracts.filter(
+    (c) => c.id !== contractIdOrNum && c.contractNumber !== contractIdOrNum
+  );
+  if (!j.deletedContractIds.includes(contractIdOrNum)) {
+    j.deletedContractIds.push(contractIdOrNum);
+  }
   saveDurableJournal(j);
 }
 
 export function recordUpsertedInvoice(invoice: ErpFiscalInvoice): void {
   const j = loadDurableJournal();
+  j.deletedInvoiceIds = (j.deletedInvoiceIds || []).filter(
+    (id) => id !== invoice.id && id !== invoice.documentNumber
+  );
   j.upsertedInvoices = upsertInArray(j.upsertedInvoices, invoice);
+  saveDurableJournal(j);
+}
+
+export function recordDeletedInvoice(invoiceIdOrDoc: string): void {
+  const j = loadDurableJournal();
+  j.upsertedInvoices = j.upsertedInvoices.filter(
+    (i) => i.id !== invoiceIdOrDoc && i.documentNumber !== invoiceIdOrDoc
+  );
+  if (!j.deletedInvoiceIds.includes(invoiceIdOrDoc)) {
+    j.deletedInvoiceIds.push(invoiceIdOrDoc);
+  }
   saveDurableJournal(j);
 }
 
