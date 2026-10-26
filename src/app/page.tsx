@@ -1003,20 +1003,22 @@ export default function HubSpotProCrmApp() {
               onClick={() => setActiveModule("OVERVIEW_AI")}
               className="flex items-center gap-2.5 group cursor-pointer shrink-0"
             >
-              <div className="w-8 h-8 rounded-[6px] bg-[#ff7a59] group-hover:bg-[#ff8f73] transition flex items-center justify-center text-white font-black text-base shadow-xs">
-                H
+              <div className="px-2 h-8 rounded-[6px] bg-white group-hover:bg-slate-100 transition flex items-center justify-center gap-1 shadow-xs">
+                <span className="font-black text-[#0d2b4e] text-xs tracking-tight">SETA</span>
+                <span className="w-[1.5px] h-3.5 bg-[#f26522] inline-block" />
+                <span className="font-black text-[#f26522] text-xs tracking-tight">IT</span>
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-white text-sm tracking-tight">
-                    HubSpot Pro
+                  <span className="font-extrabold text-white text-sm tracking-tight">
+                    STI-hub
                   </span>
                   <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-extrabold uppercase tracking-wider bg-[#ff7a59] text-white">
-                    CRM + ERP
+                    CRM &amp; ERP
                   </span>
                 </div>
                 <span className="hidden sm:block text-[10px] text-[#99acc2] leading-none">
-                  Seta Telecom LTDA • Hub ID 4369067
+                  Seta Telecom • CRM &amp; ERP Integrado
                 </span>
               </div>
             </button>
@@ -1173,18 +1175,35 @@ export default function HubSpotProCrmApp() {
           {/* Left Breadcrumb & Module Title */}
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium">
-              <span>HubSpot Pro</span>
+              <button
+                type="button"
+                onClick={() => setActiveModule("OVERVIEW_AI")}
+                className="font-extrabold text-[#0d2b4e] hover:underline cursor-pointer"
+              >
+                STI-hub
+              </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
               <span className="font-bold text-[#33475b] text-sm sm:text-base">
                 {navItems.find((n) => n.id === activeModule)?.label}
               </span>
             </div>
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] text-[#007a6c] border border-[#00bda5]/30 text-[11px] font-semibold">
-              ● {contacts.length} Contatos • {companies.length} Empresas
-            </span>
-            <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#eaf0f6] text-[#33475b] border border-[#cbd6e2] text-[11px] font-semibold">
-              ● ERP GestãoClick: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes / {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos
-            </span>
+            <button
+              type="button"
+              onClick={() => setActiveModule("CONTACTS_COMPANIES")}
+              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] hover:bg-[#d0f4ef] text-[#007a6c] border border-[#00bda5]/30 text-[11px] font-semibold cursor-pointer transition"
+            >
+              ● {contacts.length} Contatos • {companies.length} Empresas →
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setErpInitialSection("INICIO");
+                setActiveModule("ERP_GESTAOCLICK");
+              }}
+              className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#eaf0f6] hover:bg-[#dce6f0] text-[#33475b] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+            >
+              ● ERP GestãoClick: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes / {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos →
+            </button>
           </div>
 
           {/* Right Global Pipeline Selector + Quick HubSpot Action Buttons */}
@@ -1300,6 +1319,12 @@ export default function HubSpotProCrmApp() {
                 setActiveModule('CONTACTS_COMPANIES');
               }}
               onNavigateToDataHealth={() => setActiveModule('DATA_HEALTH')}
+              onNavigateToErpSection={(sec) => {
+                setErpInitialSection((sec as GestaoClickMenuSection) || 'INICIO');
+                setActiveModule('ERP_GESTAOCLICK');
+              }}
+              onNavigateToServiceDesk={() => setActiveModule('SERVICE_DESK')}
+              onNavigateToAutomations={() => setActiveModule('AUTOMATIONS')}
               onConvertOpportunityToDeal={handleConvertOpportunityToDeal}
               onRegisterQuickFollowUp={handleRegisterQuickFollowUp}
             />

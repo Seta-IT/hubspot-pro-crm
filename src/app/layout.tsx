@@ -2,9 +2,9 @@ import React from 'react';
 import './globals.css';
 
 export const metadata = {
-  title: 'HubSpot Pro CRM — Inteligência Comercial, Saúde da Base & Copiloto IA',
+  title: 'STI-hub | Seta Telecom CRM & ERP',
   description:
-    'Plataforma CRM estilo HubSpot Pro / Twenty CRM com IA Analista de Funil, Kanban Comercial, Smart Data Enrichment, Data Health e Cadências de E-mail.',
+    'STI-hub — Plataforma integrada de CRM e ERP da Seta Telecom (SETA IT) com GestãoClick ao vivo, Propostas PDF, Contratos de Locação e Copiloto IA.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

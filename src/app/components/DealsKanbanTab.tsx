@@ -423,7 +423,7 @@ export default function DealsKanbanTab({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#ff987f] block">
-              Seletor de Pipeline • Seta Telecom (HubSpot Portal 4369067)
+              STI-hub • Seletor de Pipeline Seta Telecom (Portal 4369067)
             </span>
             <h3 className="text-sm sm:text-base font-extrabold text-white">
               Selecione o Funil de Vendas ou Locação Recorrente:
@@ -510,40 +510,66 @@ export default function DealsKanbanTab({
           </div>
         </div>
 
-        {/* Forecast Strip */}
+        {/* Forecast Strip (Flashcards Clicáveis) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
-          <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/60">
-            <span className="text-[11px] font-semibold uppercase text-slate-400">
-              Pipeline em Aberto
+          <button
+            type="button"
+            onClick={() => {
+              setFilterRottingOnly(false);
+              setSearchQuery('');
+            }}
+            className="text-left bg-slate-50 hover:bg-blue-50/60 hover:border-[#0091ae] rounded-xl p-3 border border-slate-200/60 transition cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold uppercase text-slate-400 block">
+              Pipeline em Aberto (Ver Todos →)
             </span>
             <div className="text-base font-bold text-slate-900 mt-0.5">
               {formatBRL(forecast.totalOpenValue)}
             </div>
-          </div>
-          <div className="bg-orange-50/60 rounded-xl p-3 border border-orange-200/70">
-            <span className="text-[11px] font-semibold uppercase text-[#e05835]">
-              Receita Ponderada (Forecast)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterRottingOnly(false);
+              setSearchQuery('');
+            }}
+            className="text-left bg-orange-50/60 hover:bg-orange-100/60 hover:border-[#ff7a59] rounded-xl p-3 border border-orange-200/70 transition cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold uppercase text-[#e05835] block">
+              Receita Ponderada (Forecast →)
             </span>
             <div className="text-base font-bold text-[#e05835] mt-0.5">
               {formatBRL(forecast.weightedOpenValue)}
             </div>
-          </div>
-          <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-200/70">
-            <span className="text-[11px] font-semibold uppercase text-emerald-700">
-              Fechado Ganho (Won)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterRottingOnly(false);
+              const wonDeal = pipelineDeals.find((d) => d.status === 'WON') || pipelineDeals[0];
+              if (wonDeal) openDealDetail(wonDeal);
+            }}
+            className="text-left bg-emerald-50/60 hover:bg-emerald-100/60 hover:border-emerald-500 rounded-xl p-3 border border-emerald-200/70 transition cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold uppercase text-emerald-700 block">
+              Fechado Ganho (Inspecionar →)
             </span>
             <div className="text-base font-bold text-emerald-700 mt-0.5">
               {formatBRL(forecast.closedWonValue)}
             </div>
-          </div>
-          <div className="bg-rose-50/60 rounded-xl p-3 border border-rose-200/70">
-            <span className="text-[11px] font-semibold uppercase text-rose-700">
-              Deal Rotting (Acima do SLA)
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterRottingOnly((v) => !v)}
+            className="text-left bg-rose-50/60 hover:bg-rose-100/60 hover:border-rose-500 rounded-xl p-3 border border-rose-200/70 transition cursor-pointer"
+          >
+            <span className="text-[11px] font-semibold uppercase text-rose-700 block">
+              Deal Rotting ({filterRottingOnly ? 'Mostrando Estagnados' : 'Filtrar Estagnados →'})
             </span>
             <div className="text-base font-bold text-rose-700 mt-0.5">
               {forecast.rottingDealsCount} negócio(s)
             </div>
-          </div>
+          </button>
         </div>
       </div>
 

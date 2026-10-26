@@ -1088,7 +1088,15 @@ export default function ErpGestaoClickTab({
               bankAccounts={bankAccounts}
               hideBalances={hideBalances}
               onToggleHide={() => setHideBalances((v) => !v)}
-              onOpenSection={(sec) => setActiveSection(sec as GestaoClickMenuSection)}
+              onOpenSection={(sec, subId) => {
+                setActiveSection(sec as GestaoClickMenuSection);
+                if (subId) {
+                  setActiveSubId(subId);
+                  if (subId === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
+                  if (subId === 'CAD_FORNECEDORES') setCadastrosSubTab('FORNECEDORES');
+                  if (subId === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
+                }
+              }}
               onNewProposal={() => {
                 setActiveSection('ORCAMENTOS');
                 setShowNewProposalModal(true);
@@ -1829,10 +1837,10 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 rounded bg-slate-50 border">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong></div>
-                <div className="p-3 rounded bg-slate-50 border">TCV Carteira: <strong>{formatBRL(kpis.totalContractedTcv)}</strong></div>
-                <div className="p-3 rounded bg-slate-50 border">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong></div>
-                <div className="p-3 rounded bg-slate-50 border">Propostas: <strong>{proposals.length}</strong></div>
+                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong> →</button>
+                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">TCV Carteira: <strong>{formatBRL(kpis.totalContractedTcv)}</strong> →</button>
+                <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
+                <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
               </div>
             </div>
           )}

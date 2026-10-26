@@ -221,11 +221,15 @@ export default function DataHealthTab({
           </div>
         </div>
 
-        {/* 4 Breakdown Sub-Scores */}
+        {/* 4 Breakdown Sub-Scores (Clicáveis) */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-700/80">
-          <div className="bg-slate-800/70 rounded-xl p-3.5 border border-slate-700">
+          <button
+            type="button"
+            onClick={() => setActiveIssueTab('INCOMPLETE')}
+            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-indigo-400 rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
+          >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
-              <span>Completude Ponderada (30%)</span>
+              <span>Completude Ponderada (30%) →</span>
               <strong className="text-white">{summary.breakdown.completenessHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
@@ -234,11 +238,15 @@ export default function DataHealthTab({
                 style={{ width: `${summary.breakdown.completenessHealth}%` }}
               />
             </div>
-          </div>
+          </button>
 
-          <div className="bg-slate-800/70 rounded-xl p-3.5 border border-slate-700">
+          <button
+            type="button"
+            onClick={() => setActiveIssueTab('INVALID')}
+            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-emerald-400 rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
+          >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
-              <span>Validade E-mail/E.164 (25%)</span>
+              <span>Validade E-mail/E.164 (25%) →</span>
               <strong className="text-white">{summary.breakdown.validityHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
@@ -247,11 +255,15 @@ export default function DataHealthTab({
                 style={{ width: `${summary.breakdown.validityHealth}%` }}
               />
             </div>
-          </div>
+          </button>
 
-          <div className="bg-slate-800/70 rounded-xl p-3.5 border border-slate-700">
+          <button
+            type="button"
+            onClick={() => setActiveIssueTab('DUPLICATES')}
+            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-[#ff7a59] rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
+          >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
-              <span>Livre de Duplicidades (25%)</span>
+              <span>Livre de Duplicidades (25%) →</span>
               <strong className="text-white">{summary.breakdown.deduplicationHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
@@ -260,11 +272,15 @@ export default function DataHealthTab({
                 style={{ width: `${summary.breakdown.deduplicationHealth}%` }}
               />
             </div>
-          </div>
+          </button>
 
-          <div className="bg-slate-800/70 rounded-xl p-3.5 border border-slate-700">
+          <button
+            type="button"
+            onClick={() => setActiveIssueTab('STALE')}
+            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-amber-400 rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
+          >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
-              <span>Frescor & Atividade (20%)</span>
+              <span>Frescor &amp; Atividade (20%) →</span>
               <strong className="text-white">{summary.breakdown.freshnessHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
@@ -273,7 +289,7 @@ export default function DataHealthTab({
                 style={{ width: `${summary.breakdown.freshnessHealth}%` }}
               />
             </div>
-          </div>
+          </button>
         </div>
       </div>
 

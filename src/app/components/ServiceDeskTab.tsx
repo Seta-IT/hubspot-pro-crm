@@ -229,51 +229,74 @@ export default function ServiceDeskTab({
 
   return (
     <div className="space-y-6">
-      {/* JIRA SERVICE MANAGEMENT / SERVICE HUB KPI BAR */}
+      {/* STI-HUB SERVICE MANAGEMENT KPI FLASHCARDS (CLICÁVEIS) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">Chamados em Aberto</span>
+        <button
+          type="button"
+          onClick={() => {
+            setPriorityFilter('ALL');
+            setSlaFilter('ALL');
+          }}
+          className="text-left bg-white hover:border-[#0091ae] hover:shadow-md rounded-2xl border border-slate-200 p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-xs font-semibold text-slate-500">Chamados em Aberto →</span>
           <div className="text-2xl font-extrabold text-slate-900 mt-1">{kpis.openCount}</div>
-          <span className="text-[11px] text-slate-500">
-            Total histórico: {kpis.totalTickets} tickets
+          <span className="text-[11px] text-[#0091ae] font-bold">
+            Ver todos ({kpis.totalTickets} tickets)
           </span>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-2xl border border-rose-200 p-4 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setPriorityFilter(priorityFilter === 'CRITICAL' ? 'ALL' : 'CRITICAL')}
+          className="text-left bg-white hover:border-rose-500 hover:shadow-md rounded-2xl border border-rose-200 p-4 shadow-sm transition cursor-pointer"
+        >
           <span className="text-xs font-semibold text-rose-700 flex items-center gap-1">
-            <ShieldAlert className="w-3.5 h-3.5" /> Incidentes Críticos (P1)
+            <ShieldAlert className="w-3.5 h-3.5" /> Incidentes Críticos (P1) →
           </span>
           <div className="text-2xl font-extrabold text-rose-600 mt-1">{kpis.criticalCount}</div>
           <span className="text-[11px] text-rose-700 font-semibold">
-            {kpis.atRiskCount} em risco • {kpis.breachedCount} violado(s)
+            {kpis.atRiskCount} em risco • Filtrar P1
           </span>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">Cumprimento de SLA</span>
+        <button
+          type="button"
+          onClick={() => setSlaFilter(slaFilter === 'ON_TRACK' ? 'ALL' : 'ON_TRACK')}
+          className="text-left bg-white hover:border-emerald-500 hover:shadow-md rounded-2xl border border-slate-200 p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-xs font-semibold text-slate-500">Cumprimento de SLA →</span>
           <div className="text-2xl font-extrabold text-emerald-600 mt-1">
             {kpis.slaComplianceRate}%
           </div>
           <span className="text-[11px] text-emerald-700 font-semibold">
-            Meta Enterprise: &gt;= 95%
+            Filtrar No Prazo (&gt;= 95%)
           </span>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">1ª Resposta Média</span>
+        <button
+          type="button"
+          onClick={() => setViewMode(viewMode === 'KANBAN' ? 'QUEUE_LIST' : 'KANBAN')}
+          className="text-left bg-white hover:border-[#0091ae] hover:shadow-md rounded-2xl border border-slate-200 p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-xs font-semibold text-slate-500">1ª Resposta Média →</span>
           <div className="text-2xl font-extrabold text-slate-900 mt-1">
             {kpis.avgFirstResponseMinutes} min
           </div>
-          <span className="text-[11px] text-slate-500">Fila 24x7 N1/N2 SRE</span>
-        </div>
+          <span className="text-[11px] text-[#0091ae] font-bold">Alternar Kanban / Lista</span>
+        </button>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowNewModal(true)}
+          className="text-left bg-white hover:border-[#ff7a59] hover:shadow-md rounded-2xl border border-slate-200 p-4 shadow-sm transition cursor-pointer"
+        >
           <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" /> CSAT de Suporte
+            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" /> CSAT de Suporte →
           </span>
           <div className="text-2xl font-extrabold text-slate-900 mt-1">{kpis.avgCsat} / 5.0</div>
-          <span className="text-[11px] text-emerald-700 font-semibold">Clientes Enterprise</span>
-        </div>
+          <span className="text-[11px] text-[#e05835] font-bold">+ Abrir Novo Chamado</span>
+        </button>
       </div>
 
       {/* FILTER & VIEW MODE TOOLBAR */}

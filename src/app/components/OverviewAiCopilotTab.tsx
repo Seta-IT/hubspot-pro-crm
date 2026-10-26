@@ -36,6 +36,9 @@ interface OverviewAiCopilotTabProps {
   onNavigateToDeals: () => void;
   onNavigateToContacts: (contactId?: string) => void;
   onNavigateToDataHealth: () => void;
+  onNavigateToErpSection?: (section: string) => void;
+  onNavigateToServiceDesk?: () => void;
+  onNavigateToAutomations?: () => void;
   onConvertOpportunityToDeal: (opp: HiddenOpportunityItem) => Promise<void>;
   onRegisterQuickFollowUp: (item: {
     dealId: string | null;
@@ -62,6 +65,9 @@ export default function OverviewAiCopilotTab({
   onNavigateToDeals,
   onNavigateToContacts,
   onNavigateToDataHealth,
+  onNavigateToErpSection,
+  onNavigateToServiceDesk,
+  onNavigateToAutomations,
   onConvertOpportunityToDeal,
   onRegisterQuickFollowUp,
 }: OverviewAiCopilotTabProps) {
@@ -264,9 +270,12 @@ export default function OverviewAiCopilotTab({
         </div>
       </div>
 
-      {/* EXECUTIVE KPI CARDS */}
+      {/* EXECUTIVE KPI FLASHCARDS (100% CLICÁVEIS COM DRILL-DOWN) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div
+          onClick={onNavigateToDeals}
+          className="group bg-white rounded-xl border border-slate-200 hover:border-[#0091ae] hover:shadow-md p-5 shadow-sm transition cursor-pointer"
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Receita Ponderada (Forecast)
@@ -275,7 +284,7 @@ export default function OverviewAiCopilotTab({
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900">
+          <div className="text-2xl font-bold text-slate-900 group-hover:text-[#0091ae]">
             {formatBRL(revenueForecast.weightedPipelineValue)}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
@@ -284,13 +293,18 @@ export default function OverviewAiCopilotTab({
               {formatBRL(revenueForecast.totalOpenPipelineValue)}
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-xs text-emerald-700 font-medium">
-            <span>Já Fechado (Won):</span>
-            <span>{formatBRL(revenueForecast.closedWonValue)}</span>
+          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-[#0091ae]">
+            <span>Já Fechado: {formatBRL(revenueForecast.closedWonValue)}</span>
+            <span className="inline-flex items-center gap-1">
+              Ver Funil Completo <ArrowRight className="w-3 h-3" />
+            </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <div
+          onClick={onNavigateToDeals}
+          className="group bg-white rounded-xl border border-slate-200 hover:border-emerald-500 hover:shadow-md p-5 shadow-sm transition cursor-pointer"
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Cenários de Fechamento
@@ -303,17 +317,18 @@ export default function OverviewAiCopilotTab({
             {formatBRL(revenueForecast.committedForecast)}
           </div>
           <p className="text-[11px] text-slate-500 mt-0.5">Forecast Comprometido (Won + Prob ≥ 80%)</p>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-500">
-              Conservador: <strong className="text-slate-700">{formatBRL(revenueForecast.conservativeForecast)}</strong>
-            </span>
-            <span className="text-emerald-600">
-              Otimista: <strong>{formatBRL(revenueForecast.optimisticForecast)}</strong>
+          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-emerald-700">
+            <span>Otimista: {formatBRL(revenueForecast.optimisticForecast)}</span>
+            <span className="inline-flex items-center gap-1">
+              Abrir Deals <ArrowRight className="w-3 h-3" />
             </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-rose-200 p-5 shadow-sm">
+        <div
+          onClick={onNavigateToDeals}
+          className="group bg-white rounded-xl border border-rose-200 hover:border-rose-500 hover:shadow-md p-5 shadow-sm transition cursor-pointer"
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-rose-600">
               Receita em Risco Crítico
@@ -331,13 +346,18 @@ export default function OverviewAiCopilotTab({
               {criticalAndHighDeals.length} negócio(s) estagnado(s)
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-            <span>Ticket Médio Geral:</span>
-            <span className="font-semibold text-slate-700">{formatBRL(revenueForecast.averageDealSize)}</span>
+          <div className="mt-2 pt-2 border-t border-rose-100 flex items-center justify-between text-[11px] font-bold text-rose-700">
+            <span>Ticket Médio: {formatBRL(revenueForecast.averageDealSize)}</span>
+            <span className="inline-flex items-center gap-1">
+              Destravar no Kanban <ArrowRight className="w-3 h-3" />
+            </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-indigo-200 p-5 shadow-sm">
+        <div
+          onClick={() => onNavigateToContacts()}
+          className="group bg-white rounded-xl border border-indigo-200 hover:border-indigo-500 hover:shadow-md p-5 shadow-sm transition cursor-pointer"
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
               Oportunidades Ocultas
@@ -355,10 +375,154 @@ export default function OverviewAiCopilotTab({
               {hiddenOpportunities.length} oportunidade(s)
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-            <span>Win Rate Histórico:</span>
-            <span className="font-semibold text-emerald-600">{revenueForecast.winRate}%</span>
+          <div className="mt-2 pt-2 border-t border-indigo-100 flex items-center justify-between text-[11px] font-bold text-indigo-700">
+            <span>Win Rate: {revenueForecast.winRate}%</span>
+            <span className="inline-flex items-center gap-1">
+              Ver Contatos &amp; Empresas <ArrowRight className="w-3 h-3" />
+            </span>
           </div>
+        </div>
+      </div>
+
+      {/* STI-HUB ERP GESTÃOCLICK & SERVICE DESK FLASHCARDS CLICÁVEIS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button
+          type="button"
+          onClick={() => onNavigateToErpSection?.('FINANCEIRO')}
+          className="text-left group bg-white rounded-xl border border-slate-200 hover:border-[#1e3a6e] hover:shadow-md p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+            ERP Seta Telecom • Saldo Disponível Hoje
+          </span>
+          <div className="text-xl font-black text-slate-900 mt-1 group-hover:text-[#1e3a6e]">
+            R$ 2.201.765,40
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            Banco Inter (R$ 4,57M) • Itaú (-R$ 2,37M)
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] font-bold text-[#1e3a6e] flex items-center justify-between">
+            <span>Abrir Financeiro &amp; Contas</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateToErpSection?.('ORCAMENTOS')}
+          className="text-left group bg-white rounded-xl border border-slate-200 hover:border-[#ff7a59] hover:shadow-md p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-[10px] font-extrabold uppercase text-[#e05835] block">
+            ERP • Orçamentos &amp; Propostas (PDF Cliente)
+          </span>
+          <div className="text-xl font-black text-slate-900 mt-1 group-hover:text-[#e05835]">
+            2.077 Orçamentos
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            Criar, editar e gerar Link PDF A4 p/ Cliente
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] font-bold text-[#e05835] flex items-center justify-between">
+            <span>Abrir Orçamentos &amp; Propostas</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateToErpSection?.('CONTRATOS')}
+          className="text-left group bg-white rounded-xl border border-slate-200 hover:border-emerald-600 hover:shadow-md p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+            ERP • Contratos de Locação &amp; S/N (0% ISS)
+          </span>
+          <div className="text-xl font-black text-emerald-700 mt-1">
+            344 Contratos Ativos
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            LC 116/03 + Súmula Vinculante 31 STF + CFOP 5.908
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] font-bold text-emerald-700 flex items-center justify-between">
+            <span>Abrir Contratos &amp; Locação</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateToServiceDesk?.()}
+          className="text-left group bg-white rounded-xl border border-slate-200 hover:border-indigo-600 hover:shadow-md p-4 shadow-sm transition cursor-pointer"
+        >
+          <span className="text-[10px] font-extrabold uppercase text-indigo-700 block">
+            CRM &amp; ERP • Service Desk &amp; O.S. Técnicas
+          </span>
+          <div className="text-xl font-black text-slate-900 mt-1 group-hover:text-indigo-700">
+            1.378 O.S. &amp; Chamados
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            Atendimento 24x7 NOC, SLA Enterprise &amp; CSAT
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] font-bold text-indigo-700 flex items-center justify-between">
+            <span>Abrir Fila de Atendimento</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </div>
+        </button>
+      </div>
+
+      {/* WIDGET: 🗺️ ROADMAP & ESQUADRÃO DE AGENTES STI-HUB (SUPERVISOR + 9 ESPECIALISTAS) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#1e3a6e] text-white uppercase">
+                STI-hub • Arquitetura Multi-Agente
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                🗺️ Roadmap &amp; Esquadrão de Agentes Especialistas STI-hub
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Coordenado pelo <strong>Agente Supervisor &amp; Roadmap STI-hub</strong> • Clique em qualquer frente para abrir o módulo completo.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToErpSection?.('INICIO')}
+            className="px-3.5 py-1.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer self-start sm:self-center"
+          >
+            Abrir Painel GestãoClick →
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+          {[
+            { role: 'Supervisor & Roadmap', area: 'Governança & Evolução STI-hub', status: 'ATIVO • FASE 4', action: () => onNavigateToDataHealth() },
+            { role: 'ERP 1 • Orçamentos & Propostas', area: 'Editor + Link PDF Cliente A4', status: '2.077 Orçamentos', action: () => onNavigateToErpSection?.('ORCAMENTOS') },
+            { role: 'ERP 2 • Contratos & Locação', area: 'Gestão S/N & Reajuste IPCA/IGP-M', status: '344 Contratos', action: () => onNavigateToErpSection?.('CONTRATOS') },
+            { role: 'ERP 3 • Financeiro & Bancos', area: 'Inter, Itaú, Fluxo de Caixa & DRE', status: 'R$ 2,20M Disp.', action: () => onNavigateToErpSection?.('FINANCEIRO') },
+            { role: 'ERP 4 • Fiscal & Tributário', area: 'LC 116/03 + SV 31 STF (0% ISS)', status: 'Faturas & NF-e', action: () => onNavigateToErpSection?.('FISCAL') },
+            { role: 'ERP 5 • Vendas, OS & Estoque', area: '295 Vendas • 1.378 O.S. • 786 Itens', status: 'Sincronizado', action: () => onNavigateToErpSection?.('VENDAS') },
+            { role: 'CRM 1 • Funil & Deals Kanban', area: '3 Pipelines B2B + Forecast IA', status: 'Board Completo', action: () => onNavigateToDeals() },
+            { role: 'CRM 2 • Contatos & Empresas', area: '1.184 Clientes + Enriquecimento', status: 'Base Limpa', action: () => onNavigateToContacts() },
+            { role: 'CRM 3 • Atendimento & SLA', area: 'Service Desk JSM + Chamados P1', status: 'SLA >= 95%', action: () => onNavigateToServiceDesk?.() },
+            { role: 'CRM 4 • Automação & BI', area: 'Workflows, Cadências & Data Health', status: 'Ativo 24x7', action: () => onNavigateToAutomations?.() },
+          ].map((ag) => (
+            <button
+              key={ag.role}
+              type="button"
+              onClick={ag.action}
+              className="text-left p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-blue-50/60 hover:border-[#1e3a6e] transition cursor-pointer flex flex-col justify-between gap-1.5"
+            >
+              <div>
+                <div className="font-extrabold text-[#1e3a6e] flex items-center justify-between gap-1">
+                  <span className="truncate">{ag.role}</span>
+                  <ArrowRight className="w-3 h-3 shrink-0" />
+                </div>
+                <div className="text-[11px] text-slate-600 mt-0.5">{ag.area}</div>
+              </div>
+              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 w-fit">
+                ● {ag.status}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -403,7 +567,8 @@ export default function OverviewAiCopilotTab({
             return (
               <div
                 key={stage.stageId}
-                className={`rounded-xl border p-4 transition ${
+                onClick={onNavigateToDeals}
+                className={`rounded-xl border p-4 transition cursor-pointer hover:border-[#ff7a59] hover:shadow-sm ${
                   stage.isBottleneck
                     ? 'border-amber-200 bg-amber-50/30'
                     : 'border-slate-200 bg-white'
