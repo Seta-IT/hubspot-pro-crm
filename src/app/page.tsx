@@ -1249,8 +1249,24 @@ export default function HubSpotProCrmApp() {
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-[#0d2b4e] hover:bg-[#1e3a6e] border border-[#516f90] text-[10px] font-extrabold text-amber-300"
             >
               <Lock className="w-3 h-3 text-[#ff7a59]" />
-              <span className="hidden md:inline">MFA / Login</span>
+              <span className="hidden md:inline">MFA / Trocar Conta</span>
             </a>
+            <button
+              type="button"
+              onClick={async () => {
+                document.cookie = 'stihub_session=; path=/; max-age=0; SameSite=Lax';
+                document.cookie = 'stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax';
+                try {
+                  window.localStorage.removeItem('stihub_active_session_v1');
+                } catch {}
+                await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                window.location.href = '/login';
+              }}
+              title="Encerrar sessão MFA e bloquear rotas"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-[4px] bg-rose-900/70 hover:bg-rose-800 border border-rose-500/40 text-[10px] font-extrabold text-rose-200 cursor-pointer"
+            >
+              Sair
+            </button>
           </div>
         </div>
 

@@ -84,6 +84,7 @@ export function setClientSessionCookie(session: StiHubSessionPayload): void {
   if (typeof window === 'undefined') return;
   const encoded = encodeSessionCookie(session);
   document.cookie = `${STIHUB_SESSION_COOKIE}=${encodeURIComponent(encoded)}; path=/; max-age=86400; SameSite=Lax`;
+  document.cookie = `stihub_logged_out=; path=/; max-age=0; SameSite=Lax`;
   try {
     window.localStorage.setItem(STIHUB_SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
@@ -94,6 +95,7 @@ export function setClientSessionCookie(session: StiHubSessionPayload): void {
 export function clearClientSessionCookie(): void {
   if (typeof window === 'undefined') return;
   document.cookie = `${STIHUB_SESSION_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  document.cookie = `stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax`;
   try {
     window.localStorage.removeItem(STIHUB_SESSION_STORAGE_KEY);
   } catch {
