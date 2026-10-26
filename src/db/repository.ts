@@ -1519,6 +1519,19 @@ export class CrmRepository {
   private ensureErp(): ErpDatabaseState {
     if (!this.state.erp || !Array.isArray(this.state.erp.proposals)) {
       this.state.erp = createSeedErpState();
+    } else if (!this.state.erp.bankAccounts || !this.state.erp.dashboardSummary) {
+      const seedErp = createSeedErpState();
+      this.state.erp = {
+        ...seedErp,
+        ...this.state.erp,
+        bankAccounts: this.state.erp.bankAccounts || seedErp.bankAccounts,
+        dashboardSummary: this.state.erp.dashboardSummary || seedErp.dashboardSummary,
+        salesOrders: this.state.erp.salesOrders || seedErp.salesOrders,
+        serviceOrders: this.state.erp.serviceOrders || seedErp.serviceOrders,
+        suppliers: this.state.erp.suppliers || seedErp.suppliers,
+        employees: this.state.erp.employees || seedErp.employees,
+        purchaseOrders: this.state.erp.purchaseOrders || seedErp.purchaseOrders,
+      };
     }
     return this.state.erp;
   }
@@ -1576,6 +1589,13 @@ export class CrmRepository {
       catalog: erp.catalog,
       financialEntries: erp.financialEntries,
       gestaoClickConfig: erp.gestaoClickConfig,
+      bankAccounts: erp.bankAccounts || [],
+      dashboardSummary: erp.dashboardSummary,
+      salesOrders: erp.salesOrders || [],
+      serviceOrders: erp.serviceOrders || [],
+      suppliers: erp.suppliers || [],
+      employees: erp.employees || [],
+      purchaseOrders: erp.purchaseOrders || [],
     };
   }
 
@@ -2329,6 +2349,26 @@ export class CrmRepository {
         erp.financialEntries.push(fin);
         existingFinIds.add(fin.id);
       }
+    }
+
+    // 8. Merge Bank Accounts, Sales, Service Orders, Suppliers, Employees & Purchases
+    if (snapshot.mappedBankAccounts && snapshot.mappedBankAccounts.length > 0) {
+      erp.bankAccounts = snapshot.mappedBankAccounts;
+    }
+    if (snapshot.mappedSalesOrders && snapshot.mappedSalesOrders.length > 0) {
+      erp.salesOrders = snapshot.mappedSalesOrders;
+    }
+    if (snapshot.mappedServiceOrders && snapshot.mappedServiceOrders.length > 0) {
+      erp.serviceOrders = snapshot.mappedServiceOrders;
+    }
+    if (snapshot.mappedSuppliers && snapshot.mappedSuppliers.length > 0) {
+      erp.suppliers = snapshot.mappedSuppliers;
+    }
+    if (snapshot.mappedEmployees && snapshot.mappedEmployees.length > 0) {
+      erp.employees = snapshot.mappedEmployees;
+    }
+    if (snapshot.mappedPurchaseOrders && snapshot.mappedPurchaseOrders.length > 0) {
+      erp.purchaseOrders = snapshot.mappedPurchaseOrders;
     }
 
     const totalAccountRecords =

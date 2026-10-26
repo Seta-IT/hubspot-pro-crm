@@ -677,6 +677,99 @@ export interface ErpFinancialEntry {
   paymentMethod: string;
 }
 
+export interface ErpBankAccount {
+  id: string;
+  name: string;
+  lastMovedAt: string;
+  balance: number;
+  status: "POSITIVE" | "NEGATIVE" | "ZERO";
+}
+
+export interface ErpDashboardSummary {
+  availableBalanceToday: number;
+  bankAccountsSummaryText: string;
+  receivableToday: number;
+  receivableTodaySubtitle: string;
+  payableToday: number;
+  payableTodaySubtitle: string;
+  receivedMonth: number;
+  receivedMonthPlanned: number;
+  receivedMonthPercent: number;
+  paidMonth: number;
+  paidMonthPlanned: number;
+  paidMonthPercent: number;
+  cashFlowPeriodBalance: number;
+  cashFlowBestMonth: string;
+  cashFlowWorstMonth: string;
+  cashFlowMonthly: Array<{
+    month: string;
+    recebimentos: number;
+    pagamentos: number;
+    saldo: number;
+  }>;
+  salesPeriodTotal: number;
+  salesMonthlyAverage: number;
+  salesCurrentMonthToDate: number;
+  salesMonthly: Array<{
+    month: string;
+    vendas: number;
+    media: number;
+  }>;
+}
+
+export interface ErpSaleOrder {
+  id: string;
+  code: string;
+  companyName: string;
+  sellerName: string;
+  date: string;
+  status: string;
+  totalAmount: number;
+  itemsSummary: string;
+}
+
+export interface ErpServiceOrder {
+  id: string;
+  code: string;
+  companyName: string;
+  sellerName: string;
+  technicianName: string;
+  entryDate: string;
+  exitDate: string;
+  status: string;
+  totalAmount: number;
+  description: string;
+}
+
+export interface ErpSupplierRecord {
+  id: string;
+  name: string;
+  legalName: string;
+  cnpj: string;
+  phone: string;
+  email: string;
+  active: boolean;
+}
+
+export interface ErpEmployeeRecord {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  active: boolean;
+}
+
+export interface ErpPurchaseOrder {
+  id: string;
+  code: string;
+  supplierName: string;
+  issueDate: string;
+  status: string;
+  nfeNumber: string;
+  totalAmount: number;
+}
+
 export interface GestaoClickLiveTotals {
   lojas: number;
   usuarios: number;
@@ -688,6 +781,11 @@ export interface GestaoClickLiveTotals {
   contratos: number;
   recebimentos: number;
   pagamentos: number;
+  contasBancarias?: number;
+  ordensServicos?: number;
+  fornecedores?: number;
+  funcionarios?: number;
+  compras?: number;
 }
 
 export interface GestaoClickConfig {
@@ -726,6 +824,13 @@ export interface ErpDatabaseState {
   catalog: ErpCatalogItem[];
   financialEntries: ErpFinancialEntry[];
   gestaoClickConfig: GestaoClickConfig;
+  bankAccounts?: ErpBankAccount[];
+  dashboardSummary?: ErpDashboardSummary;
+  salesOrders?: ErpSaleOrder[];
+  serviceOrders?: ErpServiceOrder[];
+  suppliers?: ErpSupplierRecord[];
+  employees?: ErpEmployeeRecord[];
+  purchaseOrders?: ErpPurchaseOrder[];
 }
 
 export interface CrmDatabaseState {

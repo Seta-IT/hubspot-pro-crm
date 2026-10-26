@@ -28,7 +28,7 @@ import DataHealthTab, { DuplicatesPayload } from './components/DataHealthTab';
 import AutomationsSequencesTab from './components/AutomationsSequencesTab';
 import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './components/FormsBuilderTab';
 import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './components/ServiceDeskTab';
-import ErpGestaoClickTab, { ErpOverviewPayload } from './components/ErpGestaoClickTab';
+import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import { formatBRL } from './components/ui-helpers';
 import {
@@ -96,6 +96,9 @@ export default function HubSpotProCrmApp() {
   const [initialContactIdForDrawer, setInitialContactIdForDrawer] = useState<string | null>(null);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('pipe-enterprise-b2b');
   const [erpData, setErpData] = useState<ErpOverviewPayload | null>(null);
+  const [erpInitialSection, setErpInitialSection] = useState<GestaoClickMenuSection>('INICIO');
+  const [autoOpenNewProposalTrigger, setAutoOpenNewProposalTrigger] = useState<number>(0);
+  const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -1245,10 +1248,26 @@ export default function HubSpotProCrmApp() {
 
             <button
               type="button"
-              onClick={() => setActiveModule("ERP_GESTAOCLICK")}
+              onClick={() => {
+                setPrefillProposalDeal(null);
+                setErpInitialSection("ORCAMENTOS");
+                setAutoOpenNewProposalTrigger((n) => n + 1);
+                setActiveModule("ERP_GESTAOCLICK");
+              }}
+              className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+            >
+              📄 + Nova Proposta (PDF Cliente)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setErpInitialSection("INICIO");
+                setActiveModule("ERP_GESTAOCLICK");
+              }}
               className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
             >
-              🏢 ERP &amp; Locação (GestãoClick)
+              🏢 ERP Seta Telecom (GestãoClick)
             </button>
           </div>
         </div>
@@ -1300,7 +1319,14 @@ export default function HubSpotProCrmApp() {
               onSelectPipeline={(id) => setSelectedPipelineId(id)}
               onUpdateDeal={handleUpdateDeal}
               onDeleteDeal={handleDeleteDeal}
-              onNavigateToErp={() => setActiveModule('ERP_GESTAOCLICK')}
+              onNavigateToErp={() => {
+                setErpInitialSection('INICIO');
+                setActiveModule('ERP_GESTAOCLICK');
+              }}
+              onShowToast={showToast}
+              onRefreshAll={async () => {
+                await fetchAllCrmData();
+              }}
             />
           )}
 
@@ -1314,6 +1340,9 @@ export default function HubSpotProCrmApp() {
                 await fetchAllCrmData();
               }}
               onShowToast={showToast}
+              initialSection={erpInitialSection}
+              autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
+              prefillProposalFromDeal={prefillProposalDeal}
             />
           )}
 
