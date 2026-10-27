@@ -1916,7 +1916,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
   it('valida matematicamente CNPJ (14 dígitos Mod-11) e CPF (11 dígitos Mod-11), aplica máscara dinâmica PJ/PF e bloqueia CNPJ/CPF inválido na API (400)', async () => {
     // 1. Validação e autoformatação de CNPJ (PJ)
     assert.equal(formatDocumentByPersonType('14806925000132', 'Pessoa Jurídica'), '14.806.925/0001-32');
-    const validCnpjCheck = validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica');
+    const validCnpjCheck = validateDocumentByPersonType('01.936.069/0001-94', 'Pessoa Jurídica');
     assert.equal(validCnpjCheck.isValid, true);
     assert.equal(validCnpjCheck.docKind, 'CNPJ');
     assert.equal(validCnpjCheck.message, 'CNPJ válido');

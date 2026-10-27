@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { BuyingRoleType, Company, Contact, CrmTask, Deal, LifecycleStage, TimelineEvent } from '../../db/types';
 import { calculateContactCompleteness, CompletenessResult } from '../../modules/data-health/completeness';
+import { formatDocumentByPersonType, validateDocumentByPersonType } from '../../modules/data-health/validators';
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './GestaoClickCompanyModal';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
@@ -290,6 +291,7 @@ export default function ContactsCompaniesTab({
   const handleSaveCompanyEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCompanyId || !editCompName.trim()) return;
+    if (editCompCnpj.trim() && !validateDocumentByPersonType(editCompCnpj, 'PJ').isValid) return;
     setSavingCompanyEdit(true);
     try {
       await onUpdateCompany(selectedCompanyId, {
@@ -653,7 +655,10 @@ export default function ContactsCompaniesTab({
 
             <button
               type="button"
-              onClick={() => setShowNewCompanyModal(true)}
+              onClick={() => {
+                setGestaoClickModalCompany(null);
+                setShowNewCompanyModal(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[#33475b] text-xs font-semibold transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-[#0091ae]" />
@@ -1406,7 +1411,7 @@ export default function ContactsCompaniesTab({
                         <input
                           type="text"
                           value={editCompCnpj}
-                          onChange={(e) => setEditCompCnpj(e.target.value)}
+                          onChange={(e) => setEditCompCnpj(formatDocumentByPersonType(e.target.value, 'PJ'))}
                           placeholder="00.000.000/0001-00"
                           className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                         />
@@ -1902,6 +1907,7 @@ export default function ContactsCompaniesTab({
 
       {(showNewCompanyModal || gestaoClickModalCompany) && (
         <GestaoClickCompanyModal
+          key={gestaoClickModalCompany ? `crm-comp-${gestaoClickModalCompany.id}-${gestaoClickModalMode}` : 'new-crm-company'}
           mode={gestaoClickModalCompany ? gestaoClickModalMode : 'CREATE'}
           readOnly={Boolean(gestaoClickModalCompany && gestaoClickModalMode === 'VIEW')}
           initialCompany={gestaoClickModalCompany}

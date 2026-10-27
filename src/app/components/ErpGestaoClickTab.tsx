@@ -5349,6 +5349,7 @@ export default function ErpGestaoClickTab({
 
       {editingCustomerModal && (
         <GestaoClickCompanyModal
+          key={editingCustomerModal.isNew ? 'new-erp-customer' : (editingCustomerModal.company?.id || 'edit-erp-customer')}
           company={editingCustomerModal.company}
           isNew={editingCustomerModal.isNew}
           readOnly={editingCustomerModal.readOnly}

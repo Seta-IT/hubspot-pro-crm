@@ -107,7 +107,7 @@ export default function GestaoClickCompanyModal({
     isNew ? '' : String(cp.stateRegistration || '')
   );
   const [ieIndicator, setIeIndicator] = useState<string>(
-    isNew ? 'Contribuinte Isento' : String(cp.ieIndicator || 'Contribuinte Isento')
+    isNew ? '' : String(cp.ieIndicator || 'Contribuinte Isento')
   );
   const [municipalRegistration, setMunicipalRegistration] = useState<string>(
     isNew ? '' : String(cp.municipalRegistration || '')
@@ -116,7 +116,7 @@ export default function GestaoClickCompanyModal({
     isNew ? '' : String(cp.suframa || '')
   );
   const [taxRegime, setTaxRegime] = useState<string>(
-    isNew ? 'Lucro Presumido' : String(cp.taxRegime || 'Lucro Presumido')
+    isNew ? '' : String(cp.taxRegime || 'Lucro Presumido')
   );
   const [cnaeMain, setCnaeMain] = useState<string>(
     isNew ? '' : String(cp.cnaeMain || '')
@@ -191,10 +191,10 @@ export default function GestaoClickCompanyModal({
     isNew ? '' : cp.creditLimitBrl !== undefined ? String(cp.creditLimitBrl) : ''
   );
   const [defaultPaymentCondition, setDefaultPaymentCondition] = useState<string>(
-    isNew ? 'Boleto 30 DDL' : String(cp.defaultPaymentCondition || 'Boleto 30 DDL')
+    isNew ? '' : String(cp.defaultPaymentCondition || 'Boleto 30 DDL')
   );
   const [preferredBank, setPreferredBank] = useState<string>(
-    isNew ? 'Banco Inter' : String(cp.preferredBank || 'Banco Inter')
+    isNew ? '' : String(cp.preferredBank || 'Banco Inter')
   );
   const [billingDueDay, setBillingDueDay] = useState<string>(
     isNew ? '' : String(cp.billingDueDay || '')
@@ -230,10 +230,11 @@ export default function GestaoClickCompanyModal({
     setLegalName(isNew ? '' : String(company?.name || ''));
     setTradeName(isNew ? '' : String(nextCp.tradeName || company?.name || ''));
     setStateRegistration(isNew ? '' : String(nextCp.stateRegistration || ''));
-    setIeIndicator(isNew ? 'Contribuinte Isento' : String(nextCp.ieIndicator || 'Contribuinte Isento'));
+    setIsReadOnly(Boolean(!isNew && (readOnlyProp || mode === 'VIEW')));
+    setIeIndicator(isNew ? '' : String(nextCp.ieIndicator || 'Contribuinte Isento'));
     setMunicipalRegistration(isNew ? '' : String(nextCp.municipalRegistration || ''));
     setSuframa(isNew ? '' : String(nextCp.suframa || ''));
-    setTaxRegime(isNew ? 'Lucro Presumido' : String(nextCp.taxRegime || 'Lucro Presumido'));
+    setTaxRegime(isNew ? '' : String(nextCp.taxRegime || 'Lucro Presumido'));
     setCnaeMain(isNew ? '' : String(nextCp.cnaeMain || ''));
     setCnaeDescription(isNew ? '' : String(nextCp.cnaeDescription || company?.industry || ''));
     setOpeningDate(isNew ? '' : String(nextCp.openingDate || ''));
@@ -267,15 +268,15 @@ export default function GestaoClickCompanyModal({
         : []
     );
     setCreditLimitBrl(isNew ? '' : nextCp.creditLimitBrl !== undefined ? String(nextCp.creditLimitBrl) : '');
-    setDefaultPaymentCondition(isNew ? 'Boleto 30 DDL' : String(nextCp.defaultPaymentCondition || 'Boleto 30 DDL'));
-    setPreferredBank(isNew ? 'Banco Inter' : String(nextCp.preferredBank || 'Banco Inter'));
+    setDefaultPaymentCondition(isNew ? '' : String(nextCp.defaultPaymentCondition || 'Boleto 30 DDL'));
+    setPreferredBank(isNew ? '' : String(nextCp.preferredBank || 'Banco Inter'));
     setBillingDueDay(isNew ? '' : String(nextCp.billingDueDay || ''));
     setTaxWithholdingConfig(isNew ? '' : String(nextCp.taxWithholdingConfig || ''));
     setFiscalNotes(isNew ? '' : String(nextCp.notes || ''));
     setReceitaStatusBanner(null);
     setValidationErrorBanner(null);
     setShowDeleteConfirmStep(false);
-  }, [isNew, company?.id]);
+  }, [isNew, company?.id, readOnlyProp, mode]);
 
   const isPf = personType.toLowerCase().includes('física') || personType.toLowerCase().includes('fisica');
   const docFeedback = validateDocumentByPersonType(cnpj, personType);
@@ -615,9 +616,17 @@ export default function GestaoClickCompanyModal({
                     onChange={(e) => {
                       const masked = formatDocumentByPersonType(e.target.value, personType);
                       setCnpj(masked);
-                      setValidationErrorBanner(null);
+                      const fb = validateDocumentByPersonType(masked, personType);
                       const digits = masked.replace(/\D+/g, '');
-                      if (!isPf && digits.length === 14 && validateCnpj(digits).isValid) {
+                      const expectedLen = isPf ? 11 : 14;
+                      if (digits.length === expectedLen && !fb.isValid) {
+                        setValidationErrorBanner(
+                          `${fb.docKind} INVÁLIDO (${masked}): dígitos verificadores incorretos pelo cálculo oficial Módulo 11. O salvamento está bloqueado.`
+                        );
+                      } else {
+                        setValidationErrorBanner(null);
+                      }
+                      if (!isPf && digits.length === 14 && fb.isValid) {
                         handleLookupReceitaFederal(masked);
                       }
                     }}
@@ -640,7 +649,7 @@ export default function GestaoClickCompanyModal({
                 <div className="sm:col-span-3 pt-5">
                   <button
                     type="button"
-                    disabled={lookingUpCnpj || isPf || !docFeedback.isValid}
+                    disabled={lookingUpCnpj || isPf}
                     onClick={() => handleLookupReceitaFederal()}
                     title={
                       isPf
@@ -716,6 +725,7 @@ export default function GestaoClickCompanyModal({
                     }}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
+                    <option value="">Selecione...</option>
                     <option value="Contribuinte ICMS">Contribuinte ICMS</option>
                     <option value="Contribuinte Isento">Contribuinte Isento</option>
                     <option value="Não Contribuinte">Não Contribuinte</option>
@@ -770,6 +780,7 @@ export default function GestaoClickCompanyModal({
                     onChange={(e) => setTaxRegime(e.target.value)}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
+                    <option value="">Selecione...</option>
                     <option value="Lucro Real">Lucro Real</option>
                     <option value="Lucro Presumido">Lucro Presumido</option>
                     <option value="Simples Nacional">Simples Nacional</option>
@@ -1134,6 +1145,7 @@ export default function GestaoClickCompanyModal({
                     onChange={(e) => setDefaultPaymentCondition(e.target.value)}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
+                    <option value="">Selecione...</option>
                     <option value="Boleto 15 DDL">Boleto 15 DDL</option>
                     <option value="Boleto 30 DDL">Boleto 30 DDL</option>
                     <option value="PIX Corporativo">PIX Corporativo</option>
@@ -1149,6 +1161,7 @@ export default function GestaoClickCompanyModal({
                     onChange={(e) => setPreferredBank(e.target.value)}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
+                    <option value="">Selecione...</option>
                     <option value="Banco Inter">Banco Inter (#237906)</option>
                     <option value="Banco Itaú">Banco Itaú (#142155)</option>
                     <option value="Conta Integrada">Conta Integrada (#710407)</option>
@@ -1267,7 +1280,7 @@ export default function GestaoClickCompanyModal({
               ) : (
                 <button
                   type="submit"
-                  disabled={saving || !docFeedback.isValid || !legalName.trim()}
+                  disabled={saving}
                   title={
                     !docFeedback.isValid
                       ? docFeedback.message

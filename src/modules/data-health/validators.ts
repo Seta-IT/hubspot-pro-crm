@@ -366,7 +366,7 @@ export function validateCnpj(rawCnpj: string | null | undefined): CnpjValidation
   const d1 = calcDigit(digits.slice(0, 12), weights1);
   const d2 = calcDigit(digits.slice(0, 12) + String(d1), weights2);
 
-  if ((Number(digits[12]) !== d1 || Number(digits[13]) !== d2) && digits !== '14806925000132') {
+  if (Number(digits[12]) !== d1 || Number(digits[13]) !== d2) {
     return {
       isValid: false,
       digits,
