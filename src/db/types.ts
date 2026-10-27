@@ -546,6 +546,8 @@ export interface ErpProposalVersionSnapshot {
   careOf?: string;
   contactEmail?: string;
   sellerName: string;
+  sellerEmail?: string;
+  sellerPhone?: string;
   contractMonths: number;
   readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
   paymentCondition: string;
@@ -611,6 +613,8 @@ export interface ErpCommercialProposal {
   contactEmail?: string;
   dealId: string | null;
   sellerName: string;
+  sellerEmail?: string;
+  sellerPhone?: string;
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
   templateStyle?: 'SETA_PREMIUM_TELECOM' | 'EXECUTIVO_CORPORATIVO' | 'LOCACAO_DETALHADA_SLA';

@@ -1,5 +1,6 @@
 import {
   ErpCommercialProposal,
+  ErpProposalDigitalSignature,
   ErpProposalInstallment,
   ErpProposalItem,
 } from '../../db/types';
@@ -15,45 +16,63 @@ export interface ProposalSlaOptionSpec {
 
 export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
   {
-    id: 'NOC_24X7_ALTA_DISP_4H',
-    label: 'NOC 24x7 Alta Disponibilidade — 99,95% • Atendimento até 4h / Reposição Expressa',
-    shortLabel: 'NOC 24x7 • 99,95% (Atend. 4h)',
-    slaAvailabilityPercent: '99,95%',
-    slaResponseHours: 4,
+    id: 'SEM_SLA_ESPECIFICO',
+    label: 'Selecione a opção de SLA... (Sem SLA específico por padrão)',
+    shortLabel: '',
+    slaAvailabilityPercent: '',
+    slaResponseHours: 0,
     defaultClauseSnippet:
-      'SLA 99,95% NOC 24x7 Seta Telecom com atendimento em até 4h e substituição expressa de hardware.',
+      'Suporte técnico conforme condições comerciais contratadas.',
   },
   {
-    id: 'NOC_24X7_CRITICO_2H',
-    label: 'NOC 24x7 Missão Crítica — 99,98% • Atendimento até 2h / Reposição 4h',
-    shortLabel: 'NOC 24x7 Crítico • 99,98% (Atend. 2h)',
-    slaAvailabilityPercent: '99,98%',
-    slaResponseHours: 2,
+    id: 'PADRAO_COMERCIAL_8H',
+    label: 'SLA Padrão Comercial — Horário Comercial 8x5 (Atend. em até 8h úteis)',
+    shortLabel: 'SLA Padrão Comercial (Atend. até 8h úteis)',
+    slaAvailabilityPercent: '99,00%',
+    slaResponseHours: 8,
     defaultClauseSnippet:
-      'SLA Missão Crítica 99,98% NOC 24x7 Seta Telecom com primeiro atendimento em até 2h e Advance Replacement em até 4h.',
+      'SLA Padrão Comercial (8x5, Seg-Sex das 08h às 18h) com atendimento remoto e presencial em até 8 horas úteis.',
+  },
+  {
+    id: 'SLA_ESTENDIDO_6H',
+    label: 'SLA Estendido 8x5 — Atendimento em até 6h úteis',
+    shortLabel: 'SLA Estendido 8x5 (Atend. até 6h úteis)',
+    slaAvailabilityPercent: '99,20%',
+    slaResponseHours: 6,
+    defaultClauseSnippet:
+      'SLA Estendido 8x5 com atendimento técnico em até 6 horas úteis.',
   },
   {
     id: 'CORPORATIVO_8X5_NBD',
-    label: 'SLA Corporativo 8x5 — 99,50% • Atendimento até 4h / Reposição NBD (Dia Útil Seguinte)',
-    shortLabel: 'Corporativo 8x5 • 99,50% (Atend. 4h / NBD)',
+    label: 'SLA Corporativo 8x5 — Atendimento até 4h úteis / Reposição NBD (Dia Útil Seguinte)',
+    shortLabel: 'SLA Corporativo 8x5 (Atend. 4h úteis / NBD)',
     slaAvailabilityPercent: '99,50%',
     slaResponseHours: 4,
     defaultClauseSnippet:
       'SLA Corporativo 8x5 (Seg-Sex 08h às 18h) com atendimento em até 4h úteis e reposição NBD (Next Business Day).',
   },
   {
-    id: 'PADRAO_COMERCIAL_8H',
-    label: 'SLA Padrão Comercial — 99,00% • Atendimento em até 8h úteis',
-    shortLabel: 'Padrão Comercial • 99,00% (Atend. 8h úteis)',
-    slaAvailabilityPercent: '99,00%',
-    slaResponseHours: 8,
+    id: 'SLA_PRIORITARIO_4H',
+    label: 'SLA Prioritário — Atendimento até 4h (Sob contratação / Custo adicional)',
+    shortLabel: 'SLA Prioritário (Atend. até 4h)',
+    slaAvailabilityPercent: '99,50%',
+    slaResponseHours: 4,
     defaultClauseSnippet:
-      'SLA Padrão Comercial com atendimento remoto e presencial em até 8 horas úteis.',
+      'SLA Prioritário contratado com atendimento técnico em até 4h e substituição expressa de hardware.',
+  },
+  {
+    id: 'NOC_24X7_CRITICO_2H',
+    label: 'SLA Missão Crítica 24x7 — Atendimento até 2h (Sob contratação especial)',
+    shortLabel: 'SLA Missão Crítica 24x7 (Atend. até 2h)',
+    slaAvailabilityPercent: '99,98%',
+    slaResponseHours: 2,
+    defaultClauseSnippet:
+      'SLA Missão Crítica 24x7 com primeiro atendimento em até 2h e Advance Replacement.',
   },
   {
     id: 'SEM_SLA_AVULSO',
-    label: 'Sem SLA Mensal — Garantia Padrão / Atendimento Avulso sob Demanda',
-    shortLabel: 'Sob Demanda (Sem SLA Mensal)',
+    label: 'Garantia Padrão / Atendimento Avulso sob Demanda',
+    shortLabel: 'Garantia Padrão (Sob Demanda)',
     slaAvailabilityPercent: 'Sob Demanda',
     slaResponseHours: 24,
     defaultClauseSnippet:
@@ -61,30 +80,120 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
   },
 ];
 
+export interface ProposalSellerContactInfo {
+  name: string;
+  email: string;
+  phone: string;
+}
+
+export const PROPOSAL_SELLER_DIRECTORY: ProposalSellerContactInfo[] = [
+  {
+    name: 'Marcelo Lopes Mira',
+    email: 'marcelo.mira@setatelecom.com.br',
+    phone: '(11) 99999-4929',
+  },
+  {
+    name: 'Marcelo Mira',
+    email: 'marcelo.mira@setatelecom.com.br',
+    phone: '(11) 99999-4929',
+  },
+  {
+    name: 'Evelyn Olivia de Rosa Ternero',
+    email: 'evelyn@setatelecom.com.br',
+    phone: '(11) 98888-4929',
+  },
+  {
+    name: 'Evelyn Ternero Seta Telecom',
+    email: 'evelyn@setatelecom.com.br',
+    phone: '(11) 98888-4929',
+  },
+  {
+    name: 'Maria Luiza',
+    email: 'marialuiza@setatelecom.com.br',
+    phone: '(11) 98888-4930',
+  },
+  {
+    name: 'Michelle da Rocha',
+    email: 'michelle.rocha@setatelecom.com.br',
+    phone: '(11) 3957-0498',
+  },
+  {
+    name: 'Paula Campos',
+    email: 'paula.campos@setatelecom.com.br',
+    phone: '(11) 98888-4931',
+  },
+  {
+    name: 'Wesley Brito',
+    email: 'wesley@setatelecom.com.br',
+    phone: '(11) 98888-4932',
+  },
+  {
+    name: 'Dauana Magnavita de Alencar',
+    email: 'dauana@setatelecom.com.br',
+    phone: '(11) 98888-4933',
+  },
+];
+
+export function resolveProposalSellerContact(
+  prop: Partial<ErpCommercialProposal>
+): ProposalSellerContactInfo {
+  const rawName = String(prop.sellerName || '').trim() || 'Marcelo Lopes Mira';
+  const lower = rawName.toLowerCase();
+  const matched =
+    PROPOSAL_SELLER_DIRECTORY.find(
+      (s) =>
+        s.name.toLowerCase() === lower ||
+        lower.includes(s.name.toLowerCase()) ||
+        s.name.toLowerCase().includes(lower)
+    ) || PROPOSAL_SELLER_DIRECTORY[0];
+
+  const rawEmail = String(prop.sellerEmail || '').trim();
+  const email =
+    rawEmail && rawEmail.toLowerCase() !== 'comercial@setatelecom.com.br'
+      ? rawEmail
+      : matched.email;
+
+  const rawPhone = String(prop.sellerPhone || '').trim();
+  const phone =
+    rawPhone && rawPhone !== '(11) 3958-4929'
+      ? rawPhone
+      : matched.phone;
+
+  return {
+    name: rawName,
+    email,
+    phone,
+  };
+}
+
+export function cleanProposalPaymentCondition(raw: string | undefined): string {
+  if (!raw) return '';
+  return raw
+    .replace(/\s*•?\s*Canal:\s*[^•]+/gi, '')
+    .replace(/\s*•?\s*Centro de Custo:\s*[^•]+/gi, '')
+    .replace(/\s*•?\s*Cliente Recorrente/gi, '')
+    .replace(/^[\s•]+|[\s•]+$/g, '')
+    .trim();
+}
+
 export function resolveProposalSlaOption(
   prop: Partial<ErpCommercialProposal>
 ): ProposalSlaOptionSpec {
-  if (prop.slaTier) {
-    const byIdOrLabel = PROPOSAL_SLA_OPTIONS.find(
-      (o) =>
-        o.id === prop.slaTier ||
-        o.label.toLowerCase() === prop.slaTier?.toLowerCase() ||
-        o.shortLabel.toLowerCase() === prop.slaTier?.toLowerCase()
-    );
-    if (byIdOrLabel) return byIdOrLabel;
+  if (
+    !prop.slaTier ||
+    prop.slaTier === 'SEM_SLA_ESPECIFICO' ||
+    prop.slaTier === 'NOC_24X7_ALTA_DISP_4H' ||
+    prop.slaTier.includes('NOC 24x7 • 99,95%')
+  ) {
+    return PROPOSAL_SLA_OPTIONS[0];
   }
-  if (prop.slaResponseHours === 2 || prop.slaAvailabilityPercent === '99,98%') {
-    return PROPOSAL_SLA_OPTIONS[1];
-  }
-  if (prop.slaAvailabilityPercent === '99,50%') {
-    return PROPOSAL_SLA_OPTIONS[2];
-  }
-  if (prop.slaResponseHours === 8 || prop.slaAvailabilityPercent === '99,00%') {
-    return PROPOSAL_SLA_OPTIONS[3];
-  }
-  if (prop.slaAvailabilityPercent === 'Sob Demanda' || prop.slaResponseHours === 24) {
-    return PROPOSAL_SLA_OPTIONS[4];
-  }
+  const byIdOrLabel = PROPOSAL_SLA_OPTIONS.find(
+    (o) =>
+      o.id === prop.slaTier ||
+      o.label.toLowerCase() === prop.slaTier?.toLowerCase() ||
+      (o.shortLabel && o.shortLabel.toLowerCase() === prop.slaTier?.toLowerCase())
+  );
+  if (byIdOrLabel) return byIdOrLabel;
   return PROPOSAL_SLA_OPTIONS[0];
 }
 
@@ -134,17 +243,19 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     };
   });
 
-  const productsSubtotal = Math.round(
-    items
-      .filter((i) => inferProposalItemType(i) === 'PRODUCT')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0) * 100
-  ) / 100;
+  const productsSubtotal =
+    Math.round(
+      items
+        .filter((i) => inferProposalItemType(i) === 'PRODUCT')
+        .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0) * 100
+    ) / 100;
 
-  const servicesSubtotal = Math.round(
-    items
-      .filter((i) => inferProposalItemType(i) === 'SERVICE')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0) * 100
-  ) / 100;
+  const servicesSubtotal =
+    Math.round(
+      items
+        .filter((i) => inferProposalItemType(i) === 'SERVICE')
+        .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0) * 100
+    ) / 100;
 
   const recGross = items
     .filter((i) => i.isRecurring !== false)
@@ -203,13 +314,19 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           : 'PRODUTOS');
 
   const resolvedSla = resolveProposalSlaOption(next);
+  const sellerInfo = resolveProposalSellerContact(next);
+  const cleanedPaymentCondition = cleanProposalPaymentCondition(next.paymentCondition);
 
   return {
     ...next,
+    sellerName: sellerInfo.name,
+    sellerEmail: next.sellerEmail ? sellerInfo.email : sellerInfo.email,
+    sellerPhone: next.sellerPhone ? sellerInfo.phone : sellerInfo.phone,
+    paymentCondition: cleanedPaymentCondition || next.paymentCondition || '',
     templateStyle: next.templateStyle || 'SETA_PREMIUM_TELECOM',
-    slaTier: next.slaTier || resolvedSla.id,
-    slaAvailabilityPercent: next.slaAvailabilityPercent || resolvedSla.slaAvailabilityPercent,
-    slaResponseHours: next.slaResponseHours ?? resolvedSla.slaResponseHours,
+    slaTier: resolvedSla.id,
+    slaAvailabilityPercent: resolvedSla.slaAvailabilityPercent,
+    slaResponseHours: resolvedSla.slaResponseHours,
     setupFee: explicitSetupFee,
     budgetType: inferredBudgetType,
     items,
@@ -257,6 +374,8 @@ export interface CompactProposalPayload {
   cc: string; // companyCnpj
   ct: string; // contactName
   s: string; // sellerName
+  se?: string; // sellerEmail
+  sp?: string; // sellerPhone
   st: string; // status
   m: number; // contractMonths
   pc: string; // paymentCondition
@@ -267,6 +386,8 @@ export interface CompactProposalPayload {
   no: string; // commercialNotes
   tc: string; // technicalClauses
   ca: string; // createdAt
+  ci?: string; // convertedContractId
+  ds?: ErpProposalDigitalSignature | null; // digitalSignature
   it: Array<{
     k: string; // sku
     d: string; // description
@@ -326,9 +447,11 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       cc: computed.companyCnpj || '00.000.000/0001-00',
       ct: computed.contactName || 'Decisor Comercial',
       s: computed.sellerName || 'Marcelo Lopes Mira',
+      se: computed.sellerEmail,
+      sp: computed.sellerPhone,
       st: computed.status,
       m: computed.contractMonths || 24,
-      pc: computed.paymentCondition || 'Boleto / PIX — Vencimento dia 10',
+      pc: cleanProposalPaymentCondition(computed.paymentCondition) || 'Boleto / PIX — Vencimento dia 10',
       vu: computed.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
       mr: computed.monthlyRecurringTotal,
       ot: computed.oneTimeSetupTotal || 0,
@@ -336,6 +459,8 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       no: (computed.commercialNotes || '').slice(0, 500),
       tc: (computed.technicalClauses || '').slice(0, 500),
       ca: computed.createdAt || new Date().toISOString(),
+      ci: computed.convertedContractId || undefined,
+      ds: computed.digitalSignature || undefined,
       it: (computed.items || []).map((item) => ({
         k: item.sku,
         d: item.description,
@@ -442,9 +567,9 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       slaAvailabilityPercent: p.sa || undefined,
       slaResponseHours: p.sr !== undefined ? Number(p.sr) : undefined,
       setupFee: p.sf !== undefined ? Number(p.sf) : undefined,
-      storeName: p.sn || 'Matriz',
-      salesChannel: p.sc || 'Comercial B2B / Consultivo',
-      costCenter: p.co || 'Comercial Telecom & TI',
+      storeName: p.sn || undefined,
+      salesChannel: p.sc || undefined,
+      costCenter: p.co || undefined,
       proposalDate: p.pd || (p.ca ? p.ca.slice(0, 10) : new Date().toISOString().slice(0, 10)),
       deliveryForecast: p.df || 'Imediato (até 48h úteis após aceite)',
       careOf: p.cf || p.ct || 'Decisor Comercial',
@@ -467,9 +592,11 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       contactName: p.ct || 'Decisor Comercial',
       dealId: null,
       sellerName: p.s || 'Marcelo Lopes Mira',
+      sellerEmail: p.se || undefined,
+      sellerPhone: p.sp || undefined,
       status: (p.st as ErpCommercialProposal['status']) || 'ENVIADA',
       contractMonths: Number(p.m || 24),
-      paymentCondition: p.pc || 'Boleto / PIX — Vencimento dia 10',
+      paymentCondition: cleanProposalPaymentCondition(p.pc) || 'Boleto / PIX — Vencimento dia 10',
       validUntil: p.vu || new Date().toISOString().slice(0, 10),
       items,
       monthlyRecurringTotal: Number(p.mr || 0),
@@ -480,9 +607,10 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
         'Faturamento mensal mediante Fatura/Recibo de Locação de Bens Móveis (dispensa legal de ISS conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       technicalClauses:
         p.tc ||
-        'SLA 99,95% Seta Telecom com substituição expressa de hardware e suporte especializado.',
-      convertedContractId: null,
+        'Condições comerciais e técnicas conforme escopo contratado.',
+      convertedContractId: p.ci || null,
       convertedInvoiceId: null,
+      digitalSignature: p.ds || null,
       createdAt: p.ca || new Date().toISOString(),
       updatedAt: p.ca || new Date().toISOString(),
     });

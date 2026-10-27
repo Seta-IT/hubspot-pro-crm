@@ -1266,11 +1266,13 @@ export default function ErpGestaoClickTab({
       contactName: '',
       contactEmail: undefined,
       dealId: null,
-      sellerName: '',
+      sellerName: activeUser?.name || 'Marcelo Lopes Mira',
+      sellerEmail: activeUser?.email || 'marcelo.mira@setatelecom.com.br',
+      sellerPhone: activeUser?.phone || '(11) 99999-4929',
       status: 'RASCUNHO',
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
       templateStyle: defaultProposalTemplateStyle,
-      slaTier: 'NOC_24X7_ALTA_DISP_4H',
+      slaTier: 'SEM_SLA_ESPECIFICO',
       readjustmentIndex: 'IPCA',
       contractMonths: 24,
       paymentCondition: '',
@@ -1676,9 +1678,9 @@ export default function ErpGestaoClickTab({
                         openFullNewProposalModal("LOCACAO", {
                           title: "Proposta de Locação de Infraestrutura PABX IP & SD-WAN",
                           templateStyle: "LOCACAO_DETALHADA_SLA",
-                          slaTier: "NOC_24X7_ALTA_DISP_4H",
-                          slaAvailabilityPercent: "99,95%",
-                          slaResponseHours: 4,
+                          slaTier: "PADRAO_COMERCIAL_8H",
+                          slaAvailabilityPercent: "99,00%",
+                          slaResponseHours: 8,
                           contractMonths: 24,
                           introductionText:
                             "Apresentamos nossa proposta comercial de locação de equipamentos e conectividade com suporte NOC 24x7.",
@@ -1767,7 +1769,7 @@ export default function ErpGestaoClickTab({
                           introductionText:
                             "Proposta executiva estruturada para fornecimento integrado de equipamentos, ativação técnica (setup isolado) e suporte continuado.",
                           commercialNotes:
-                            "Investimento mensal (MRR), taxa única de setup e frete apresentados de forma 100% isolada e transparente.",
+                            "Valor Mensal, taxa única de setup (quando selecionada) e frete apresentados de forma 100% isolada.",
                           technicalClauses:
                             "SLA Corporativo com atendimento em até 4h e reposição expressa de ativos.",
                         });

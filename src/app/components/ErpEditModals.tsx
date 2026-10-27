@@ -47,7 +47,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { computeProposalTotals, inferProposalItemType, PROPOSAL_SLA_OPTIONS, resolveProposalSlaOption } from '../lib/proposal-share';
+import { computeProposalTotals, inferProposalItemType, PROPOSAL_SLA_OPTIONS, resolveProposalSellerContact, resolveProposalSlaOption } from '../lib/proposal-share';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -637,7 +637,7 @@ export function ProposalEditModal({
                 </span>
               </div>
               <span className="text-[11px] text-slate-200 block">
-                Loja {draft.storeName || 'Matriz'} #118887 • Segregação Tributária LC 116/03 &amp; STF SV 31
+                Vendedor: {draft.sellerName || 'Marcelo Lopes Mira'} • {draft.sellerEmail || 'marcelo.mira@setatelecom.com.br'}
               </span>
             </div>
           </div>
@@ -913,25 +913,61 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA 2 DO GESTÃOCLICK: Vendedor | Situação | Aos cuidados de | Canal de venda * */}
+              {/* LINHA 2 DO GESTÃOCLICK: Vendedor | E-mail do Vendedor | WhatsApp do Vendedor | Situação | Aos cuidados de */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Vendedor</label>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Vendedor (Usuário do Sistema)
+                  </label>
                   <select
                     value={draft.sellerName || ''}
-                    onChange={(e) => updateDraft({ sellerName: e.target.value })}
+                    onChange={(e) => {
+                      const info = resolveProposalSellerContact({ sellerName: e.target.value });
+                      updateDraft({
+                        sellerName: e.target.value,
+                        sellerEmail: info.email,
+                        sellerPhone: info.phone,
+                      });
+                    }}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
                     <option value="">Selecione</option>
                     <option value="Marcelo Mira">Marcelo Mira</option>
                     <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
                     <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
+                    <option value="Maria Luiza">Maria Luiza</option>
                     <option value="Michelle da Rocha">Michelle da Rocha</option>
                     <option value="Paula Campos">Paula Campos</option>
                   </select>
                 </div>
 
                 <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    E-mail do Vendedor
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="vendedor@setatelecom.com.br"
+                    value={draft.sellerEmail || resolveProposalSellerContact(draft).email}
+                    onChange={(e) => updateDraft({ sellerEmail: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    WhatsApp do Vendedor
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="(11) 99999-4929"
+                    value={draft.sellerPhone || resolveProposalSellerContact(draft).phone}
+                    onChange={(e) => updateDraft({ sellerPhone: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Situação</label>
                   <select
                     value={draft.status}
@@ -949,7 +985,7 @@ export function ProposalEditModal({
                   </select>
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Aos cuidados de
                   </label>
@@ -962,24 +998,6 @@ export function ProposalEditModal({
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
-                </div>
-
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Canal de venda <span className="text-rose-600">*</span>
-                  </label>
-                  <select
-                    value={draft.salesChannel || 'Cliente Recorrente'}
-                    onChange={(e) => updateDraft({ salesChannel: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
-                  >
-                    <option value="Cliente Recorrente">Cliente Recorrente</option>
-                    <option value="Comercial B2B / Consultivo">Comercial B2B / Consultivo</option>
-                    <option value="Presencial">Presencial</option>
-                    <option value="Telefone">Telefone / Inside Sales</option>
-                    <option value="WhatsApp">WhatsApp Corporativo</option>
-                    <option value="E-commerce">Portal B2B / E-commerce</option>
-                  </select>
                 </div>
               </div>
 
@@ -1093,20 +1111,36 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
-                    Taxa de Setup / Ativação (R$)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={draft.setupFee ?? 0}
-                    onChange={(e) =>
-                      updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
-                    }
-                    placeholder="0,00 (Isolado do Frete)"
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-extrabold text-slate-900"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[#1e3a6e] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Number(draft.setupFee || 0) > 0}
+                        onChange={(e) =>
+                          updateDraft({ setupFee: e.target.checked ? (Number(draft.setupFee) > 0 ? Number(draft.setupFee) : 500) : 0 })
+                        }
+                        className="accent-[#1e3a6e]"
+                      />
+                      <span>Incluir Setup / Ativação (R$)</span>
+                    </label>
+                  </div>
+                  {Number(draft.setupFee || 0) > 0 ? (
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={draft.setupFee ?? 0}
+                      onChange={(e) =>
+                        updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                      placeholder="Valor do Setup (Isolado)"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-extrabold text-slate-900"
+                    />
+                  ) : (
+                    <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
+                      Sem Setup (não exibido na proposta)
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1750,7 +1784,7 @@ export function ProposalEditModal({
                 </div>
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
                   <span className="text-[10px] uppercase font-extrabold text-emerald-700 block">
-                    MRR Mensal
+                    Valor Mensal
                   </span>
                   <strong className="text-sm font-black text-emerald-800">
                     {formatBRL(draft.monthlyRecurringTotal)}
