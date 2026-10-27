@@ -402,6 +402,29 @@ export default function ErpGestaoClickTab({
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] =
     useState<ErpPurchaseOrder | null>(null);
   const [servicosSubFilter, setServicosSubFilter] = useState<"TODOS" | "FATURA_LOCACAO" | "NFSE_SERVICO">("TODOS");
+  const [globalUploadedImportFile, setGlobalUploadedImportFile] = useState<{
+    content: string;
+    fileName: string;
+    trigger: number;
+  } | null>(null);
+
+  const handleGlobalImportFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || "");
+      setActiveSection("FISCAL");
+      setActiveSubId("FIS_IMPORTACAO");
+      setGlobalUploadedImportFile({
+        content,
+        fileName: file.name,
+        trigger: Date.now(),
+      });
+    };
+    reader.readAsText(file, "utf-8");
+    e.target.value = "";
+  };
   const [produtosSubFilter, setProdutosSubFilter] = useState<"TODOS" | "NFE_VENDA_PRODUTO" | "NFE_REMESSA_LOCACAO" | "NFCOM_TELECOM">("TODOS");
   const [selectedProposalForPrint, setSelectedProposalForPrint] =
     useState<ErpCommercialProposal | null>(null);
@@ -1217,7 +1240,6 @@ export default function ErpGestaoClickTab({
           : 'LOCACAO');
     const nextNum = proposals.length + 1;
 
-    // Nova Proposta / Novo Orçamento inicia 100% em branco (sem cliente, sem A/C, sem itens ou valores pré-preenchidos)
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
       code: `PROP-2026-00${nextNum}`,
@@ -1232,6 +1254,7 @@ export default function ErpGestaoClickTab({
       introductionText: '',
       internalNotes: '',
       shippingCost: 0,
+      setupFee: 0,
       shippingCarrier: '',
       deliveryAddress: '',
       discountAmount: 0,
@@ -1248,9 +1271,6 @@ export default function ErpGestaoClickTab({
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
       templateStyle: defaultProposalTemplateStyle,
       slaTier: 'NOC_24X7_ALTA_DISP_4H',
-      slaAvailabilityPercent: '99,95%',
-      slaResponseHours: 4,
-      setupFee: 0,
       readjustmentIndex: 'IPCA',
       contractMonths: 24,
       paymentCondition: '',
@@ -2898,11 +2918,21 @@ export default function ErpGestaoClickTab({
               Escrituração de NF-e de entrada de fornecedores: CAPEX Parque de Locação (CFOP 1.551 / 2.551) e Revenda de Hardware (CFOP 1.102).
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              openCollectionEditor(
-                "purchaseOrders",
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs">
+              📤 Enviar Arquivo .TXT / .XML (NF-e Importação)
+              <input
+                type="file"
+                accept=".txt,.xml,text/plain,text/xml,application/xml"
+                hidden
+                onChange={handleGlobalImportFileUpload}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                openCollectionEditor(
+                  "purchaseOrders",
                 "Nova Nota Fiscal de Compra / Entrada (NF-e)",
                 {
                   id: `po-${Date.now()}`,
@@ -2927,7 +2957,8 @@ export default function ErpGestaoClickTab({
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer shadow-xs"
           >
             <Plus className="w-4 h-4" /> + Nova Nota de Compra (NF-e Entrada)
-          </button>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -3243,12 +3274,21 @@ export default function ErpGestaoClickTab({
               >
                 + Emitir NFS-e Serviço
               </button>
+              <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer">
+                📤 Enviar Arquivo .TXT / .XML (NF-e Importação)
+                <input
+                  type="file"
+                  accept=".txt,.xml,text/plain,text/xml,application/xml"
+                  hidden
+                  onChange={handleGlobalImportFileUpload}
+                />
+              </label>
               <button
                 type="button"
                 onClick={() => setActiveSubId("FIS_IMPORTACAO")}
-                className="px-3.5 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-extrabold cursor-pointer"
+                className="px-3.5 py-2 rounded bg-indigo-950 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer"
               >
-                + NF-e Importação (Sebrae 4.0)
+                Abrir Emissor Importação (Sebrae 4.0)
               </button>
               <button
                 type="button"
@@ -3446,6 +3486,7 @@ export default function ErpGestaoClickTab({
           <SebraeImportNfeWorkspace
             config={gestaoClickConfig}
             importInvoices={invoices.filter((i) => i.documentType === "NFE_IMPORTACAO")}
+            initialUploadedFile={globalUploadedImportFile}
             onInvoiceCreated={async (created) => {
               recordUpsertedInvoice(created);
               await onRefresh();

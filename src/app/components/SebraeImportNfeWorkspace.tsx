@@ -35,6 +35,7 @@ import { formatBRL } from './ui-helpers';
 interface SebraeImportNfeWorkspaceProps {
   config: GestaoClickConfig;
   importInvoices: ErpFiscalInvoice[];
+  initialUploadedFile?: { content: string; fileName: string; trigger: number } | null;
   onInvoiceCreated: (invoice: ErpFiscalInvoice) => Promise<void>;
   onPrintInvoice: (invoice: ErpFiscalInvoice) => void;
   onEditInvoice: (invoice: ErpFiscalInvoice) => void;
@@ -53,6 +54,7 @@ type SebraeStepTab =
 export default function SebraeImportNfeWorkspace({
   config,
   importInvoices,
+  initialUploadedFile,
   onInvoiceCreated,
   onPrintInvoice,
   onEditInvoice,
@@ -61,6 +63,9 @@ export default function SebraeImportNfeWorkspace({
 }: SebraeImportNfeWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<SebraeStepTab>('ABA_4_ITENS_IMPOSTOS');
   const [emitting, setEmitting] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [pastedText, setPastedText] = useState('');
 
   const [serie, setSerie] = useState('1');
   const [nNF, setNNF] = useState(String(12 + importInvoices.length));
@@ -290,16 +295,36 @@ export default function SebraeImportNfeWorkspace({
     }
   };
 
-  const handleUploadTxtFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  React.useEffect(() => {
+    if (initialUploadedFile && initialUploadedFile.content) {
+      handleImportFileAndPopulateTabs(initialUploadedFile.content, initialUploadedFile.fileName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUploadedFile?.trigger]);
+
+  const readFileFromBrowser = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       const content = String(reader.result || "");
       handleImportFileAndPopulateTabs(content, file.name);
     };
     reader.readAsText(file, "utf-8");
+  };
+
+  const handleUploadTxtFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    readFileFromBrowser(file);
     e.target.value = "";
+  };
+
+  const handleDropFile = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      readFileFromBrowser(file);
+    }
   };
 
   return (
@@ -432,26 +457,38 @@ export default function SebraeImportNfeWorkspace({
         </div>
       </div>
 
-      {/* BARRA RÁPIDA: ENVIAR ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI SISCOMEX) PARA EMISSÃO */}
-      <div className="bg-white rounded-md border-2 border-dashed border-teal-500/70 p-4 space-y-3 shadow-2xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-teal-700 text-white text-[10px] font-black uppercase">
-                IMPORTAÇÃO AUTOMÁTICA POR ARQUIVO (.TXT OU .XML)
+      {/* DROPZONE PRINCIPAL DE ALTO DESTAQUE: ARRASTE OU SELECIONE ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI) */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDropFile}
+        className={`rounded-lg border-2 border-dashed p-6 transition shadow-sm space-y-4 ${
+          isDraggingOver
+            ? "border-[#ff7a59] bg-orange-50/80"
+            : "border-emerald-600 bg-emerald-50/40 hover:bg-emerald-50/70"
+        }`}
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-black uppercase tracking-wide">
+                📤 PASSO 1 — ENVIAR ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI)
               </span>
-              <span className="text-[11px] font-bold text-teal-900">
-                Envie o arquivo TXT (Emissor Sebrae 4.01) ou XML (NF-e 4.00 / DI Siscomex) para preencher todas as abas e emitir a NF-e!
+              <span className="text-xs font-extrabold text-emerald-950">
+                Arraste e solte seu arquivo aqui ou clique no botão ao lado para selecionar do computador!
               </span>
             </div>
-            <p className="text-xs text-slate-600">
-              O motor lê automaticamente Exportador Estrangeiro, DI/Adições, NCMs, CFOPs (3.102 / 3.551), aplica o Firewall Fiscal (corrige &ldquo;UN.&rdquo; &rarr; &ldquo;UN&rdquo; e realinha CFOP) e calcula a Base de Cálculo do ICMS &ldquo;Por Dentro&rdquo; (CSOSN 900).
+            <p className="text-xs text-slate-700">
+              Ao enviar seu <strong>.TXT</strong> ou <strong>.XML</strong>, o sistema preenche automaticamente todas as abas (Exportador Estrangeiro, DI/Adições, Produtos/NCM, CFOP 3.102/3.551, CSOSN 900 e ICMS &ldquo;Por Dentro&rdquo;) e libera a emissão imediata.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-xs cursor-pointer">
-              <Upload className="w-4 h-4" /> Enviar Arquivo .TXT ou .XML
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <label className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-black shadow-md cursor-pointer transition">
+              <Upload className="w-5 h-5" /> 📂 Selecionar Arquivo .TXT ou .XML do Computador
               <input
                 type="file"
                 accept=".txt,.xml,text/plain,text/xml,application/xml"
@@ -461,42 +498,91 @@ export default function SebraeImportNfeWorkspace({
             </label>
             <button
               type="button"
-              onClick={() =>
-                handleImportFileAndPopulateTabs(
-                  SEBRAE_REFERENCE_CASES.NE000007.txt,
-                  "NE000007_SEBRAE_401.txt"
-                )
-              }
-              className="px-3 py-2 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
+              onClick={() => setShowPasteBox((v) => !v)}
+              className="px-3.5 py-3 rounded-lg bg-white hover:bg-slate-100 text-slate-900 text-xs font-extrabold border border-slate-300 cursor-pointer"
             >
-              Carregar TXT NE000007
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                handleImportFileAndPopulateTabs(
-                  SEBRAE_REFERENCE_CASES.NE000012.txt,
-                  "NE000012_SEBRAE_401.txt"
-                )
-              }
-              className="px-3 py-2 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
-            >
-              Carregar TXT NE000012
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                handleImportFileAndPopulateTabs(
-                  computedMeta.sefazXmlContent || "",
-                  `NFE_IMP_${nNF}_SEFAZ_400.xml`
-                )
-              }
-              className="px-3 py-2 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-extrabold border border-indigo-200 cursor-pointer"
-            >
-              Testar Importação XML 4.00
+              📋 {showPasteBox ? "Ocultar Colagem" : "Colar Conteúdo TXT / XML"}
             </button>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-200/80 text-xs">
+          <span className="font-bold text-slate-600">Ou teste agora com 1 clique:</span>
+          <button
+            type="button"
+            onClick={() =>
+              handleImportFileAndPopulateTabs(
+                SEBRAE_REFERENCE_CASES.NE000007.txt,
+                "NE000007_SEBRAE_401.txt"
+              )
+            }
+            className="px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
+          >
+            📄 Carregar Exemplo TXT NE000007
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              handleImportFileAndPopulateTabs(
+                SEBRAE_REFERENCE_CASES.NE000012.txt,
+                "NE000012_SEBRAE_401.txt"
+              )
+            }
+            className="px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
+          >
+            📄 Carregar Exemplo TXT NE000012
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              handleImportFileAndPopulateTabs(
+                computedMeta.sefazXmlContent || "",
+                `NFE_IMP_${nNF}_SEFAZ_400.xml`
+              )
+            }
+            className="px-3 py-1.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-extrabold border border-indigo-200 cursor-pointer"
+          >
+            🧾 Carregar Exemplo XML 4.00
+          </button>
+        </div>
+
+        {showPasteBox && (
+          <div className="p-3.5 rounded-lg bg-white border border-slate-300 space-y-2 text-xs">
+            <label className="block font-extrabold text-slate-800">
+              Cole abaixo o conteúdo completo do seu arquivo .TXT (Sebrae 4.01) ou .XML (NF-e 4.00 / DI):
+            </label>
+            <textarea
+              rows={6}
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              placeholder="Cole aqui o conteúdo começando por NOTA FISCAL|1| ou <?xml version=..."
+              className="w-full p-2.5 rounded border border-slate-300 font-mono text-[11px] bg-slate-950 text-emerald-300"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPasteBox(false)}
+                className="px-3 py-1.5 rounded border border-slate-300 font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!pastedText.trim()) return;
+                  const fname = pastedText.trim().startsWith("<")
+                    ? "IMPORTACAO_COLADA.xml"
+                    : "IMPORTACAO_COLADA_SEBRAE_401.txt";
+                  handleImportFileAndPopulateTabs(pastedText, fname);
+                  setShowPasteBox(false);
+                }}
+                className="px-4 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-black cursor-pointer"
+              >
+                Processar Texto Colado &amp; Preencher Abas
+              </button>
+            </div>
+          </div>
+        )}
 
         {importedDraftBanner && (
           <div className="p-3.5 rounded bg-teal-950 text-white border border-teal-500 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
