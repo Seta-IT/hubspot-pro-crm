@@ -324,7 +324,7 @@ export const STI_HUB_MODULES_LIST: Array<{
   { key: 'ERP_CADASTROS', label: 'ERP • Pilar 1: Cadastros (Clientes, Fornecedores, RH)', group: 'ERP' },
   { key: 'ERP_ITENS', label: 'ERP • Pilar 2: Produtos (786) & Serviços (39)', group: 'ERP' },
   { key: 'ERP_ORCAMENTOS', label: 'ERP • Pilar 3: Propostas (#4695) & Link PDF A4', group: 'ERP' },
-  { key: 'ERP_VENDAS', label: 'ERP • Pilar 3/9: Pedidos de Venda & PDV Balcão', group: 'ERP' },
+  { key: 'ERP_VENDAS', label: 'ERP • Pilar 3: Pedidos de Venda & Faturamento', group: 'ERP' },
   { key: 'ERP_ESTOQUE', label: 'ERP • Pilar 4: Estoque, S/N & Compras', group: 'ERP' },
   { key: 'ERP_CONTRATOS', label: 'ERP • Pilar 5: Contratos de Locação (344) & RMA', group: 'ERP' },
   { key: 'ERP_FINANCEIRO', label: 'ERP • Pilar 6: Financeiro, Bancos Inter/Itaú & DRE', group: 'ERP' },
@@ -563,9 +563,9 @@ export function createSeedRbacState(): StiHubRbacState {
     },
     {
       id: 'OPERADOR_PDV_ESTOQUE',
-      name: 'Operador de PDV Balcão & Almoxarifado / Estoque',
+      name: 'Operador de Almoxarifado, Estoque & Expedição S/N',
       description:
-        'Operação da Frente de Caixa (PDV Balcão com Pix QR Code, Troco, NFC-e e Fechamento de Turno), expedição de equipamentos, controle de S/N e ordens de compra.',
+        'Gestão de estoque, expedição de equipamentos telecom, controle patrimonial por Número de Série (S/N) e ordens de compra.',
       hubCategory: 'ERP_NOC_OPERACOES',
       defaultScope: 'EQUIPE',
       modulePermissions: buildModuleMap('NONE', {
@@ -705,7 +705,7 @@ export function createSeedRbacState(): StiHubRbacState {
       email: 'pdv.matriz@setatelecom.com.br',
       phone: '(11) 3958-4931',
       department: 'Operações & Frente de Caixa',
-      jobTitle: 'Operador de PDV Balcão & Expedição S/N',
+      jobTitle: 'Operador de Almoxarifado & Expedição S/N',
       roleId: 'OPERADOR_PDV_ESTOQUE',
       scope: 'EQUIPE',
       active: true,

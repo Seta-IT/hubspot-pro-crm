@@ -1912,6 +1912,19 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(auditData.chainIntegrityVerified, true);
     assert.ok(auditData.total >= 5);
     assert.equal(auditData.logs[0].integrityHashSha256.length, 64);
+
+    // 4. Verifica QR Code ISO/IEC 18004 real (<path d="M...), Base32 puro em todos os usuários, janela +-60s e remoção de PDV dos menus
+    const rbacState = repo.getRbacState();
+    for (const u of rbacState.users) {
+      assert.ok(u.totpSecret && /^[A-Z2-7]{16,64}$/.test(u.totpSecret), `Segredo Base32 puro obrigatório para ${u.email}`);
+    }
+    const marceloSetup = repo.setupUserTotp("marcelo.mira@setatelecom.com.br");
+    const decodedSvg = decodeURIComponent(marceloSetup.qrCodeSvgDataUrl!.replace(/^data:image\/svg\+xml;utf8,/, ""));
+    assert.ok(decodedSvg.includes("<path d=\"M"), "SVG deve conter path ISO/IEC 18004 real gerado por QRCode.create");
+    assert.ok(marceloSetup.totpSecretFormatted?.includes(" "), "Deve retornar segredo Base32 formatado em blocos de 4 caracteres");
+
+    const sidebarSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/GestaoClickSidebar.tsx"), "utf8");
+    assert.equal(sidebarSrc.includes("VENDAS_BALCAO"), false, "Item Balcão (PDV) deve estar removido da sidebar do ERP");
   });
   it('valida matematicamente CNPJ (14 dígitos Mod-11) e CPF (11 dígitos Mod-11), aplica máscara dinâmica PJ/PF e bloqueia CNPJ/CPF inválido na API (400)', async () => {
     // 1. Validação e autoformatação de CNPJ (PJ)

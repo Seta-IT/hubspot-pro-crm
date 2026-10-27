@@ -247,10 +247,10 @@ export const RBAC_ROLES_CATALOG: Record<StiHubRole, RolePermissionsMatrix> = {
   },
   PDV_STOCK_OPERATOR: {
     role: 'PDV_STOCK_OPERATOR',
-    label: 'Operador de PDV & Almoxarifado',
+    label: 'Operador de Almoxarifado & Estoque',
     badgeColor: 'bg-amber-600 text-white',
     description:
-      'Acesso dedicado ao PDV (Venda Balcão / NFC-e), Catálogo de Itens, Movimentações de Estoque e Ordens de Compra; sem acesso a Bancos/DRE.',
+      'Acesso dedicado ao Catálogo de Itens, Movimentações de Estoque, Controle de S/N e Ordens de Compra; sem acesso a Bancos/DRE.',
     portfolioScope: 'OWN_ONLY',
     maxDiscountPercent: 5,
     modules: {
@@ -358,7 +358,7 @@ export const INITIAL_STIHUB_USERS: StiHubUserAccount[] = [
     name: 'Wesley Brito',
     email: 'pdv@setatelecom.com.br',
     role: 'PDV_STOCK_OPERATOR',
-    department: 'Almoxarifado, S/N & PDV Balcão',
+    department: 'Almoxarifado, Estoque & Expedição S/N',
     phone: '(11) 3958-4929',
     gestaoClickUserId: '1026185',
     mfaEnabled: true,

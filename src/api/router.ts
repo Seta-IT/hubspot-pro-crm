@@ -3539,7 +3539,8 @@ export class CrmApiRouter {
           body.email || body.userId || query.email || query.userId || 'marcelo.mira@setatelecom.com.br'
         ).trim();
         const regenerate = Boolean(body.regenerate || query.regenerate === '1');
-        const setup = this.repo.setupUserTotp(target, regenerate);
+        const explicitSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        const setup = this.repo.setupUserTotp(target, regenerate, explicitSecret);
         if (!setup.ok) {
           return {
             status: 404,
@@ -3562,11 +3563,13 @@ export class CrmApiRouter {
           body.mfaMethod === 'EMAIL_OTP' || body.mfaMethod === 'TOTP_AUTHENTICATOR'
             ? body.mfaMethod
             : undefined;
+        const totpSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
         const verified = this.repo.verifyMfaAndCreateSession({
           email,
           userId,
           code,
           mfaMethod,
+          totpSecret,
         });
         if (!verified.ok || !verified.sessionToken) {
           return {

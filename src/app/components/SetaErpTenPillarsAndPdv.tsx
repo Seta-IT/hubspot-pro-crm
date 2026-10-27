@@ -144,16 +144,6 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
   },
   {
     num: 9,
-    title: 'PDV (Frente de Caixa)',
-    subtitle: 'Venda Balcão Rápida, Pix QR Code, Troco, Cupom NFC-e e Caixa',
-    metrics: 'PDV Online • NFC-e',
-    section: 'VENDAS',
-    subId: 'VENDAS_BALCAO',
-    icon: ShoppingCart,
-    accent: 'border-l-rose-600',
-  },
-  {
-    num: 10,
     title: 'Integrações e IA',
     subtitle: 'Conector Ao Vivo GestãoClick ERP-GROK, Servidor MCP e Copiloto IA',
     metrics: 'API + MCP Online',
@@ -180,10 +170,10 @@ export function SetaErpTenPillarsMatrix({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-black uppercase">
-            MATRIZ OFICIAL SETA ERP • 10 PILARES
+            MATRIZ OFICIAL SETA ERP
           </span>
           <h2 className="text-xs sm:text-sm font-extrabold text-slate-800">
-            Arquitetura Unificada STI-hub (Sem Redundância • 10/10 Módulos Operacionais)
+            Arquitetura Unificada STI-hub (Módulos Operacionais Seta Telecom)
           </h2>
         </div>
         <button

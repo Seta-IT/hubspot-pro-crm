@@ -76,8 +76,10 @@ import {
   buildOtpAuthUri,
   buildTotpQrCodeSvgDataUrl,
   computeRfc6238Totp,
+  formatBase32SecretBlocks,
   generateTotpSecretBase32,
   hashCorporatePassword,
+  isValidPureBase32Secret,
   sha256Hex,
   signStiHubSessionToken,
   verifyCorporatePassword,
@@ -4703,7 +4705,7 @@ export class CrmRepository {
       if (!u.erpPermissions) {
         u.erpPermissions = buildDefaultErpPermissionsForRole(u.roleId);
       }
-      if (!u.totpSecret) {
+      if (!u.totpSecret || !isValidPureBase32Secret(u.totpSecret)) {
         u.totpSecret = generateTotpSecretBase32(u.email);
       }
     }
@@ -4821,7 +4823,10 @@ export class CrmRepository {
       if (input.password && String(input.password).trim().length >= 6) {
         existing.passwordHash = hashCorporatePassword(String(input.password));
       }
-      if (!existing.totpSecret) {
+      if (input.totpSecret && isValidPureBase32Secret(input.totpSecret)) {
+        existing.totpSecret = input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
+        existing.totpConfiguredAt = nowIso;
+      } else if (!existing.totpSecret || !isValidPureBase32Secret(existing.totpSecret)) {
         existing.totpSecret = generateTotpSecretBase32(existing.email);
       }
 
@@ -5100,7 +5105,8 @@ export class CrmRepository {
 
   setupUserTotp(
     userOrEmail: string,
-    regenerateSecret = false
+    regenerateSecret = false,
+    explicitSecret?: string
   ): {
     ok: boolean;
     error?: string;
@@ -5108,6 +5114,7 @@ export class CrmRepository {
     email?: string;
     name?: string;
     totpSecret?: string;
+    totpSecretFormatted?: string;
     otpauthUri?: string;
     qrCodeSvgDataUrl?: string;
     currentTotpCode?: string;
@@ -5121,7 +5128,11 @@ export class CrmRepository {
     if (!found) {
       return { ok: false, error: "Usuário não encontrado na matriz IAM." };
     }
-    if (!found.totpSecret || regenerateSecret) {
+    if (explicitSecret && isValidPureBase32Secret(explicitSecret)) {
+      found.totpSecret = explicitSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
+      found.totpConfiguredAt = new Date().toISOString();
+      this.save();
+    } else if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret) || regenerateSecret) {
       found.totpSecret = regenerateSecret
         ? generateTotpSecretBase32()
         : generateTotpSecretBase32(found.email);
@@ -5154,6 +5165,7 @@ export class CrmRepository {
       email: found.email,
       name: found.name,
       totpSecret: found.totpSecret,
+      totpSecretFormatted: formatBase32SecretBlocks(found.totpSecret),
       otpauthUri,
       qrCodeSvgDataUrl,
       currentTotpCode: totpNow.code,
@@ -5331,8 +5343,9 @@ export class CrmRepository {
     }
 
     const { user: hydratedUser, role } = this.getEffectiveUserAndRole(found.id);
-    if (!found.totpSecret) {
+    if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret)) {
       found.totpSecret = generateTotpSecretBase32(found.email);
+      this.save();
     }
     const totpNow = computeRfc6238Totp(found.totpSecret);
     const otpauthUri = buildOtpAuthUri({
@@ -5388,6 +5401,7 @@ export class CrmRepository {
     userId?: string;
     code: string;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+    totpSecret?: string;
     ipAddress?: string;
   }): {
     ok: boolean;
@@ -5437,8 +5451,32 @@ export class CrmRepository {
       };
     }
 
-    const userSecret = user.totpSecret || generateTotpSecretBase32(user.email);
-    const isValidTotp = verifyRfc6238Totp(userSecret, rawCode, nowMs, 1);
+    const userSecret =
+      user.totpSecret && isValidPureBase32Secret(user.totpSecret)
+        ? user.totpSecret
+        : generateTotpSecretBase32(user.email);
+    const deterministicEmailSecret = generateTotpSecretBase32(user.email);
+    const candidatePairingSecret =
+      input.totpSecret && isValidPureBase32Secret(input.totpSecret)
+        ? input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "")
+        : null;
+
+    // Validate against stored user secret, deterministic email secret, or newly paired QR secret (with +-2 windows = +-60s drift)
+    let matchedTotpSecret: string | null = null;
+    if (verifyRfc6238Totp(userSecret, rawCode, nowMs, 2)) {
+      matchedTotpSecret = userSecret;
+    } else if (
+      candidatePairingSecret &&
+      verifyRfc6238Totp(candidatePairingSecret, rawCode, nowMs, 2)
+    ) {
+      matchedTotpSecret = candidatePairingSecret;
+    } else if (
+      deterministicEmailSecret !== userSecret &&
+      verifyRfc6238Totp(deterministicEmailSecret, rawCode, nowMs, 2)
+    ) {
+      matchedTotpSecret = deterministicEmailSecret;
+    }
+    const isValidTotp = Boolean(matchedTotpSecret);
 
     let isValidEmailOtp = false;
     const emailChallenge = this.emailOtpChallenges.get(emailKey);
@@ -5489,6 +5527,11 @@ export class CrmRepository {
     const realUserRecord = rbac.users.find((u) => u.id === user.id);
     if (realUserRecord) {
       realUserRecord.lastLoginAt = new Date().toISOString();
+      if (matchedTotpSecret) {
+        realUserRecord.totpSecret = matchedTotpSecret;
+        realUserRecord.totpConfiguredAt =
+          realUserRecord.totpConfiguredAt || new Date().toISOString();
+      }
     }
     this.save();
 

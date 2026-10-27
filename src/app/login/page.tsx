@@ -120,7 +120,7 @@ export default function StiHubLoginPage() {
   const [activeMfaChannel, setActiveMfaChannel] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>(
     'TOTP_AUTHENTICATOR'
   );
-  const [showTotpQrSetup, setShowTotpQrSetup] = useState(false);
+  const [showTotpQrSetup, setShowTotpQrSetup] = useState(true);
   const [loading, setLoading] = useState(false);
   const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -301,6 +301,7 @@ export default function StiHubLoginPage() {
           userId: challengeData?.user?.id,
           code: mfaCode.trim(),
           mfaMethod: activeMfaChannel,
+          totpSecret: challengeData?.totpPairing?.totpSecret,
         }),
       });
       const json = await res.json();
@@ -576,9 +577,9 @@ export default function StiHubLoginPage() {
                             <div className="font-bold text-slate-700">
                               Chave Secreta Base32 (RFC 4648):
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <code className="px-2 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-black text-[#0d2b4e] select-all break-all">
-                                {challengeData.totpPairing.totpSecret}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                              <code className="px-2.5 py-1.5 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-black text-[#0d2b4e] select-all tracking-wider">
+                                {challengeData.totpPairing.totpSecret.replace(/(.{4})/g, '$1 ').trim()}
                               </code>
                               <button
                                 type="button"
@@ -586,12 +587,12 @@ export default function StiHubLoginPage() {
                                   navigator.clipboard?.writeText(
                                     challengeData.totpPairing?.totpSecret || ''
                                   );
-                                  setInfoMsg('Segredo Base32 copiado para a área de transferência!');
+                                  setInfoMsg('Chave Secreta Base32 copiada para a área de transferência!');
                                 }}
-                                className="p-1.5 rounded border border-slate-200 hover:bg-slate-100 cursor-pointer"
+                                className="px-2.5 py-1.5 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-extrabold inline-flex items-center gap-1 cursor-pointer"
                                 title="Copiar Chave Base32"
                               >
-                                <Copy className="w-3.5 h-3.5 text-slate-600" />
+                                <Copy className="w-3 h-3" /> Copiar Chave
                               </button>
                             </div>
                           </div>

@@ -3577,17 +3577,6 @@ export default function ErpGestaoClickTab({
           >
             <Plus className="w-3.5 h-3.5" /> Nova Proposta
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveSection('VENDAS');
-              setActiveSubId('VENDAS_BALCAO');
-            }}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-white/15 hover:bg-white/25 text-white text-[11px] sm:text-xs font-extrabold cursor-pointer"
-            title="Abrir PDV / Frente de Caixa"
-          >
-            <ShoppingCart className="w-3.5 h-3.5 text-emerald-300" /> PDV
-          </button>
           <button type="button" onClick={() => setActiveSection('CADASTROS')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Buscar">
             <Search className="w-4 h-4" />
           </button>
@@ -4649,7 +4638,7 @@ export default function ErpGestaoClickTab({
                 {activeSubId !== 'VENDAS_BALCAO' && (
                   <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-bold text-slate-600">
-                      💡 Alterne entre <strong>Produtos</strong>, <strong>Serviços</strong>, <strong>Balcão (PDV)</strong> e <strong>Devoluções</strong> na barra vertical esquerda.
+                      Alterne entre <strong>Produtos</strong>, <strong>Serviços</strong> e <strong>Devoluções</strong> na barra vertical esquerda.
                     </span>
                     <input
                       type="text"

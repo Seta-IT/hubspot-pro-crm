@@ -80,7 +80,7 @@ const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string;
   {
     key: 'canIssueFiscalDocuments',
     label: 'Emitir Fatura SV 31 / NFS-e / NF-e',
-    desc: 'Permite emitir documentos fiscais oficiais e NFC-e no PDV',
+    desc: 'Permite emitir documentos fiscais oficiais (Fatura SV 31, NFS-e e NF-e)',
   },
   {
     key: 'canApproveProposals',
@@ -1010,7 +1010,7 @@ export default function StiHubAdminRbacPanel({
                           { key: 'financeBanksAccess', label: 'Financeiro, Bancos Inter/Itaú & DRE' },
                           { key: 'fiscalIssuanceAccess', label: 'Emissão Fiscal (NF-e / NFS-e / SV 31)' },
                           { key: 'proposalsQuotesAccess', label: 'Propostas Comerciais (#4695) & Orçamentos' },
-                          { key: 'stockOsSalesAccess', label: 'Estoque, Compras XML, O.S. & Vendas/PDV' },
+                          { key: 'stockOsSalesAccess', label: 'Estoque, Compras XML, O.S. & Pedidos de Venda' },
                           { key: 'rentalContractsAccess', label: 'Contratos de Locação & Patrimônio S/N' },
                         ] as const
                       ).map((row) => (
@@ -2541,7 +2541,7 @@ export default function StiHubAdminRbacPanel({
                         {
                           id: 'ERP' as const,
                           title: 'Módulo 2: ERP (GestãoClick)',
-                          desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal & PDV',
+                          desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal & Estoque',
                         },
                         {
                           id: 'CHAMADOS' as const,

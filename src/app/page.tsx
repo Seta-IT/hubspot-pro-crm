@@ -31,6 +31,7 @@ import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './compon
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
+import UserAccountModal from './components/UserAccountModal';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Lock, Menu } from 'lucide-react';
@@ -114,6 +115,8 @@ export default function HubSpotProCrmApp() {
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
   const [activeRbacUser, setActiveRbacUser] = useState<StiHubUserRecord | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [showUserAccountModal, setShowUserAccountModal] = useState(false);
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -1058,9 +1061,7 @@ export default function HubSpotProCrmApp() {
       label: 'CRM',
       shortLabel: 'CRM',
       icon: Kanban,
-      badge: userModuleAccess.crm
-        ? `${deals.length} Deals | ${contacts.length} Contatos`
-        : 'Bloqueado IAM',
+      badge: userModuleAccess.crm ? undefined : 'Bloqueado IAM',
       isActive: isCrmActive,
       onClick: () => {
         if (!userModuleAccess.crm) {
@@ -1077,11 +1078,7 @@ export default function HubSpotProCrmApp() {
       label: 'ERP',
       shortLabel: 'ERP',
       icon: Receipt,
-      badge: userModuleAccess.erp
-        ? erpData
-          ? `${erpData.rentalContracts.length} Contratos`
-          : undefined
-        : 'Bloqueado IAM',
+      badge: userModuleAccess.erp ? undefined : 'Bloqueado IAM',
       isActive: activeModule === 'ERP_GESTAOCLICK',
       onClick: () => {
         if (!userModuleAccess.erp) {
@@ -1098,7 +1095,7 @@ export default function HubSpotProCrmApp() {
       label: 'Chamados',
       shortLabel: 'Chamados',
       icon: Ticket,
-      badge: userModuleAccess.chamados ? ticketKpis.openCount : 'Bloqueado IAM',
+      badge: userModuleAccess.chamados ? undefined : 'Bloqueado IAM',
       isActive: activeModule === 'SERVICE_DESK',
       onClick: () => {
         if (!userModuleAccess.chamados) {
@@ -1254,37 +1251,89 @@ export default function HubSpotProCrmApp() {
               <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#ff7a59]" : ""}`} />
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveModule("ADMIN_RBAC")}
-              title="Abrir Matriz de Permissões RBAC, Modelos de E-mail e Segurança MFA"
-              className="hidden sm:flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] hover:bg-[#33475b] border border-transparent hover:border-[#516f90]/60 transition cursor-pointer"
-            >
-              <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-bold text-[11px] flex items-center justify-center">
-                {(activeRbacUser?.name || "Marcéllo Mira")
-                  .split(" ")
-                  .slice(0, 2)
-                  .map((p) => p[0])
-                  .join("")
-                  .toUpperCase()}
-              </div>
-              <div className="hidden xl:block leading-tight text-left">
-                <div className="text-[11px] font-bold text-white">
-                  {activeRbacUser?.name || "Marcéllo Mira"}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((v) => !v)}
+                title="Abrir Menu da Conta, Configurar 2FA (Google Authenticator / E-mail OTP) e IAM"
+                className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] bg-[#33475b]/80 hover:bg-[#425b76] border border-[#516f90]/70 transition cursor-pointer"
+              >
+                <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-bold text-[11px] flex items-center justify-center">
+                  {(activeRbacUser?.name || "Marcéllo Mira")
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((p) => p[0])
+                    .join("")
+                    .toUpperCase()}
                 </div>
-                <div className="text-[9px] text-[#00bda5] font-extrabold">
-                  {activeRbacUser?.roleId || "SUPER_ADMIN"} • Escopo: {activeRbacUser?.scope || "TODOS"}
+                <div className="hidden xl:block leading-tight text-left">
+                  <div className="text-[11px] font-bold text-white">
+                    {activeRbacUser?.name || "Marcéllo Mira"}
+                  </div>
+                  <div className="text-[9px] text-[#00bda5] font-extrabold">
+                    {activeRbacUser?.roleId || "SUPER_ADMIN"} • Escopo: {activeRbacUser?.scope || "TODOS"}
+                  </div>
                 </div>
-              </div>
-            </button>
-            <a
-              href="/login"
-              title="Tela de Login Corporativo + Verificação MFA 2FA"
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[4px] bg-[#0d2b4e] hover:bg-[#1e3a6e] border border-[#516f90] text-[10px] font-extrabold text-amber-300"
-            >
-              <Lock className="w-3 h-3 text-[#ff7a59]" />
-              <span className="hidden md:inline">MFA / Trocar Conta</span>
-            </a>
+              </button>
+
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-1.5 w-72 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-2xl z-50 overflow-hidden text-xs">
+                  <div className="p-3 bg-[#0d2b4e] text-white space-y-1">
+                    <div className="font-extrabold truncate">
+                      {activeRbacUser?.name || "Marcelo Lopes Mira"}
+                    </div>
+                    <div className="text-[11px] text-slate-300 font-mono truncate">
+                      {activeRbacUser?.email || "marcelo.mira@setatelecom.com.br"}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {userEnabledModules.map((m) => (
+                        <span
+                          key={m}
+                          className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-black"
+                        >
+                          {m}
+                        </span>
+                      ))}
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-bold">
+                        2FA Ativo
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-1.5 divide-y divide-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        setShowUserAccountModal(true);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-[#0d2b4e] flex items-center justify-between cursor-pointer"
+                    >
+                      <span>Minha Conta &amp; Parear 2FA (QR Code)</span>
+                      <Lock className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        setActiveModule("ADMIN_RBAC");
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-between cursor-pointer"
+                    >
+                      <span>Políticas IAM (Painel CRM &amp; Painel ERP)</span>
+                      <Settings className="w-3.5 h-3.5 text-slate-500" />
+                    </button>
+                    <a
+                      href="/login"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-between"
+                    >
+                      <span>Trocar Conta / Login MFA (/login)</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={async () => {
@@ -1855,6 +1904,28 @@ export default function HubSpotProCrmApp() {
           )}
         </main>
       </div>
+
+      {showUserAccountModal && activeRbacUser && (
+        <UserAccountModal
+          user={activeRbacUser}
+          onClose={() => setShowUserAccountModal(false)}
+          onUserUpdated={async (updated) => {
+            setActiveRbacUser(updated);
+            await fetchAllCrmData();
+          }}
+          onOpenAdminIam={() => setActiveModule("ADMIN_RBAC")}
+          onLogout={async () => {
+            document.cookie = "stihub_session=; path=/; max-age=0; SameSite=Lax";
+            document.cookie = "stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax";
+            try {
+              window.localStorage.removeItem("stihub_active_session_v1");
+            } catch {}
+            await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+            window.location.href = "/login";
+          }}
+          onShowToast={showToast}
+        />
+      )}
     </div>
   );
 }

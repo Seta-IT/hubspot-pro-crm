@@ -201,7 +201,7 @@ export default function CrmSidebar({
                   }`}
                 >
                   <span>Contatos CRM</span>
-                  <span className="text-[10px] font-bold text-slate-400">{contactsCount}</span>
+                  
                 </button>
                 <button
                   type="button"
@@ -216,7 +216,7 @@ export default function CrmSidebar({
                   }`}
                 >
                   <span>Empresas CRM</span>
-                  <span className="text-[10px] font-bold text-slate-400">{companiesCount}</span>
+                  
                 </button>
               </div>
             )}
@@ -244,7 +244,7 @@ export default function CrmSidebar({
                     activeModule === 'DEALS_KANBAN' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                   }`}
                 />
-                <span className="truncate">Sales Hub ({dealsCount})</span>
+                <span className="truncate">Sales Hub</span>
               </span>
               {expanded.DEALS_KANBAN ? (
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" />
@@ -300,7 +300,7 @@ export default function CrmSidebar({
                     activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                   }`}
                 />
-                <span className="truncate">Marketing Hub ({formsCount})</span>
+                <span className="truncate">Marketing Hub</span>
               </span>
             </button>
           </div>
@@ -325,7 +325,7 @@ export default function CrmSidebar({
                     activeModule === 'AUTOMATIONS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                   }`}
                 />
-                <span className="truncate">Automações ({automationsCount})</span>
+                <span className="truncate">Automações</span>
               </span>
             </button>
           </div>
@@ -352,7 +352,7 @@ export default function CrmSidebar({
                     activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
                   }`}
                 />
-                <span className="truncate">Data Health ({healthScore}%)</span>
+                <span className="truncate">Data Health</span>
               </span>
               {expanded.DATA_HEALTH ? (
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" />
