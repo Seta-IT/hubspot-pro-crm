@@ -22,6 +22,12 @@ import { classifyRouteRequiredModule, isPublicStiHubPath } from '../middleware';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
+  analyzeAndFixSebraeTxt,
+  calculateSebraeImportNfe,
+  RawImportItemDraft,
+} from '../modules/erp/sebrae-nfe-import-engine';
+import { ErpImportDeclarationInfo } from '../db/types';
+import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
   GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
   GESTAOCLICK_STORE_118887_TOTALS,
@@ -2833,6 +2839,94 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: ctrId } };
         }
+      }
+
+      if (cleanPath === '/api/erp/nfe-importacao/calculate' && method === 'POST') {
+        const erp = this.repo.getErpOverview();
+        const cfg = erp.gestaoClickConfig;
+        const meta = calculateSebraeImportNfe({
+          serie: String(body.serie || '1'),
+          nNF: String(body.nNF || String(erp.invoices.length + 12)),
+          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
+          crt: (body.crt as '1' | '2' | '3') || '1',
+          finNFe: (body.finNFe as '1' | '2') || '1',
+          indFinal: (body.indFinal as '0' | '1') || '0',
+          indPres: (body.indPres as '0' | '9') || '0',
+          indIntermed: (body.indIntermed as '0' | '1') || '0',
+          di: body.di as ErpImportDeclarationInfo,
+          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
+          emitterName: cfg.companyLegalName,
+          emitterCnpj: cfg.companyCnpj,
+          emitterIe: cfg.stateRegistration,
+          emitterUf: 'SP',
+        });
+        return { status: 200, body: { data: meta } };
+      }
+
+      if (cleanPath === '/api/erp/nfe-importacao/analyze-txt' && method === 'POST') {
+        const rawTxt = String(body.txt || '');
+        const filename = String(body.filename || 'NFE_IMPORTACAO_SEBRAE_401.txt');
+        if (!rawTxt.trim()) {
+          return { status: 400, body: { error: 'Envie o conteúdo do arquivo TXT para análise.' } };
+        }
+        const analysis = analyzeAndFixSebraeTxt(rawTxt, filename);
+        return { status: 200, body: { data: analysis } };
+      }
+
+      if (cleanPath === '/api/erp/nfe-importacao/emit' && method === 'POST') {
+        const erp = this.repo.getErpOverview();
+        const cfg = erp.gestaoClickConfig;
+        const meta = calculateSebraeImportNfe({
+          serie: String(body.serie || '1'),
+          nNF: String(body.nNF || String(erp.invoices.length + 12)),
+          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
+          crt: (body.crt as '1' | '2' | '3') || '1',
+          finNFe: (body.finNFe as '1' | '2') || '1',
+          indFinal: (body.indFinal as '0' | '1') || '0',
+          indPres: (body.indPres as '0' | '9') || '0',
+          indIntermed: (body.indIntermed as '0' | '1') || '0',
+          di: body.di as ErpImportDeclarationInfo,
+          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
+          emitterName: cfg.companyLegalName,
+          emitterCnpj: cfg.companyCnpj,
+          emitterIe: cfg.stateRegistration,
+          emitterUf: 'SP',
+        });
+
+        const docNum = `NFE-IMP-${String(meta.nNF).padStart(6, '0')}`;
+        const mainCfop = meta.items[0]?.cfop || '3.102';
+        const created = this.repo.createInvoice({
+          documentNumber: docNum,
+          documentType: 'NFE_IMPORTACAO',
+          companyName: `${meta.di.exporterName} (EXTERIOR - ${meta.di.exporterCountryName})`,
+          companyCnpj: `EXTERIOR-ID-${meta.di.exporterIdEstrangeiro}`,
+          companyAddress: `${meta.di.exporterAddress} - UF: EX (BACEN ${meta.di.exporterCountryCodeBacen} - ${meta.di.exporterCountryName})`,
+          grossAmount: meta.totals.vNF,
+          discountAmount: 0,
+          netAmount: meta.totals.vNF,
+          status: 'PAGA',
+          issueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
+          dueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
+          paidAt: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
+          paymentMethod: 'TED_BANCARIA',
+          serviceCodeLc116: 'N/A — NF-e de Entrada de Importação (Emissor Sebrae 4.01 • Simples Nacional CRT=1)',
+          cfop: `${mainCfop} — Importação Direta (DI ${meta.di.nDI} • Desembaraço ${meta.di.xLocDesemb}/${meta.di.UFDesemb})`,
+          cstIcms: `CSOSN 900 (Simples Nacional) • Origem 1 • BC ICMS Por Dentro R$ ${meta.totals.vBC_ICMS.toFixed(2)} (ICMS: R$ ${meta.totals.vICMS.toFixed(2)})`,
+          cstPisCofins: `CST 70 — PIS-Imp R$ ${meta.totals.vPIS.toFixed(2)} + COFINS-Imp R$ ${meta.totals.vCOFINS.toFixed(2)}`,
+          verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 ${String(meta.nNF).padStart(6, '0')} 1010 2010 08`,
+          pixCopyPaste: `DESEMBARAÇO ADUANEIRO DI ${meta.di.nDI} • PTAX R$ ${meta.di.exchangeRatePtax.toFixed(4)} + GNRE/DARF`,
+          boletoDigitableLine: `IMPORTAÇÃO DIRETA — ${meta.di.xLocDesemb}/${meta.di.UFDesemb} (DI ${meta.di.nDI})`,
+          itemsDescription: meta.items.map((it: any) => ({
+            description: `[${it.cProd}] ${it.xProd} (NCM ${it.ncm} • CFOP ${it.cfop} • DI ${meta.di.nDI} Ad. ${it.nAdicao})`,
+            serialNumber: `DI-${meta.di.nDI.replace(/\D/g, "")}-AD${it.nAdicao}`,
+            quantity: it.qCom,
+            unitValue: it.vUnComBrl,
+            totalValue: it.totalItemNfeBrl,
+          })),
+          importMetadata: meta,
+        });
+
+        return { status: 201, body: { data: created, importMetadata: meta } };
       }
 
       if (cleanPath === '/api/erp/invoices' || cleanPath === '/api/erp/fiscal-documents') {

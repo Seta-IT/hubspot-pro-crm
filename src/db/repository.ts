@@ -4026,7 +4026,9 @@ export class CrmRepository {
               ? 'NFCE-65-00'
               : input.documentType === 'NFCOM_TELECOM'
                 ? 'NFCOM-2026-'
-                : 'NFE-REM-';
+                : input.documentType === 'NFE_IMPORTACAO'
+                  ? 'NFE-IMP-00'
+                  : 'NFE-REM-';
     const docNum =
       input.documentNumber || `${prefix}${String(erp.invoices.length + 1).padStart(4, '0')}`;
     const dueDate =
@@ -4044,7 +4046,9 @@ export class CrmRepository {
               ? '5.303 — Prestação de serviço de comunicação a estabelecimento comercial'
               : input.documentType === 'NFSE_SERVICO'
                 ? '5.933 — Prestação de serviço tributado pelo ISSQN'
-                : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
+                : input.documentType === 'NFE_IMPORTACAO'
+                  ? '3.102 — Compra para comercialização (Importação Direta — Simples Nacional CSOSN 900)'
+                  : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
 
     const defaultCstIcms =
       input.cstIcms ||
@@ -4114,14 +4118,60 @@ export class CrmRepository {
                 totalValue: grossAmount,
               },
             ],
-      taxBreakdown,
+      taxBreakdown: input.importMetadata
+        ? {
+            ...taxBreakdown,
+            pisAmount: input.importMetadata.totals.vPIS,
+            cofinsAmount: input.importMetadata.totals.vCOFINS,
+            icmsAmount: input.importMetadata.totals.vICMS,
+            totalTaxesEstimated: input.importMetadata.totals.vTotTrib,
+          }
+        : taxBreakdown,
+      ...(input.importMetadata ? { importMetadata: input.importMetadata } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
     };
 
     erp.invoices.unshift(invoice);
 
-    if (input.documentType !== 'NFE_REMESSA_LOCACAO') {
+    if (input.documentType === 'NFE_IMPORTACAO') {
+      if (!erp.purchaseOrders) erp.purchaseOrders = [];
+      const diNum = input.importMetadata?.di?.nDI || "DI-EXT";
+      const poRecord: ErpPurchaseOrder = {
+        id: `po-imp-${Date.now()}`,
+        code: String(40 + erp.purchaseOrders.length),
+        supplierName: input.companyName,
+        supplierCnpj: input.companyCnpj || "EXTERIOR",
+        issueDate: (input.issueDate || nowIso.slice(0, 10)).split("-").reverse().join("/"),
+        status: "Confirmada",
+        nfeNumber: docNum,
+        nfeAccessKey: invoice.verificationCodeOrKey,
+        cfopEntrada: input.cfop || "3.102 — Importação Direta (Simples Nacional CSOSN 900)",
+        fiscalNature: `Importação Direta • DI ${diNum} (Sebrae 4.01)`,
+        itemsSummary: invoice.itemsDescription.map((i) => i.description).join(" + "),
+        costCenter: "CC-203 • Importação Direta & Desembaraço Aduaneiro",
+        icmsCreditAmount: input.importMetadata?.totals?.vICMS ?? taxBreakdown.icmsAmount,
+        pisCofinsCreditAmount:
+          (input.importMetadata?.totals?.vPIS ?? taxBreakdown.pisAmount) +
+          (input.importMetadata?.totals?.vCOFINS ?? taxBreakdown.cofinsAmount),
+        totalAmount: grossAmount,
+      };
+      erp.purchaseOrders.unshift(poRecord);
+      erp.financialEntries.unshift({
+        id: `fin-${Date.now()}`,
+        type: 'PAGAR',
+        category: 'FORNECEDOR_LINK_HARDWARE',
+        description: `[${docNum}] Importação Direta (${diNum}) — ${invoice.companyName}`,
+        companyName: invoice.companyName,
+        costCenter: 'CC-203 • Importação Direta & Desembaraço Aduaneiro',
+        amount: invoice.netAmount,
+        dueDate,
+        paidAt: invoice.status === 'PAGA' ? dueDate : null,
+        status: invoice.status === 'PAGA' ? 'PAGO' : 'ABERTO',
+        invoiceId: invoice.id,
+        paymentMethod: 'Fechamento de Câmbio + DARF/GNRE Desembaraço',
+      });
+    } else if (input.documentType !== 'NFE_REMESSA_LOCACAO') {
       erp.financialEntries.unshift({
         id: `fin-${Date.now()}`,
         type: 'RECEBER',

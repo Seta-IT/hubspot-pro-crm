@@ -24,6 +24,41 @@ export function calculateBrazilianTaxBreakdown(params: {
   const taxRegime: ErpTaxRegime = params.taxRegime || 'LUCRO_PRESUMIDO';
   const base = Math.max(0, Number(params.grossAmount || 0) - Number(params.discountAmount || 0));
 
+  // 0. NFE_IMPORTACAO (NF-e Modelo 55 - Entrada de Importação Direta do Exterior CFOP 3.102 / 3.551 — Simples Nacional CSOSN 900 — Emissor Sebrae 4.01)
+  if (params.documentType === 'NFE_IMPORTACAO') {
+    const icmsRate = params.icmsRatePercent ?? 18.0;
+    const pisRate = 2.1; // PIS-Importação (Lei 10.865/2004)
+    const cofinsRate = 9.65; // COFINS-Importação (Lei 10.865/2004)
+    const pisAmount = round2((base * pisRate) / 100);
+    const cofinsAmount = round2((base * cofinsRate) / 100);
+    const icmsAmount = round2((base * icmsRate) / 100);
+    const totalTaxesEstimated = round2(icmsAmount + pisAmount + cofinsAmount);
+
+    return {
+      taxRegime: 'SIMPLES_NACIONAL',
+      issRatePercent: 0,
+      issAmount: 0,
+      issWithheld: false,
+      pisRatePercent: pisRate,
+      pisAmount,
+      cofinsRatePercent: cofinsRate,
+      cofinsAmount,
+      irpjEstimatedAmount: 0,
+      csllEstimatedAmount: 0,
+      irrfWithheldRatePercent: 0,
+      irrfWithheldAmount: 0,
+      csrfWithheldRatePercent: 0,
+      csrfWithheldAmount: 0,
+      icmsRatePercent: icmsRate,
+      icmsAmount,
+      totalTaxesEstimated,
+      totalWithheld: 0,
+      netReceivableAmount: round2(base),
+      legalExemptionNotice:
+        'DANFE NF-e Modelo 55 (Layout 4.00 SEFAZ / Emissor Sebrae 4.01) — Nota Fiscal de Entrada de Importação Direta do Exterior (CFOP 3.102 Comercialização / 3.551 Ativo Imobilizado). Emitente optante pelo Simples Nacional (CRT=1, CSOSN 900 - Outros, Origem 1 - Estrangeira Importação Direta). Base de Cálculo do ICMS calculada "por dentro" conforme Art. 13, V da LC 87/1996, incluindo Valor Aduaneiro CIF, II, IPI, PIS-Importação (2,10%), COFINS-Importação (9,65%), Taxa SISCOMEX e Despesas Aduaneiras.',
+    };
+  }
+
   // 1. NFE_REMESSA_LOCACAO (CFOP 5.908 / 6.908 - Sem incidência tributária)
   if (params.documentType === 'NFE_REMESSA_LOCACAO') {
     return {
