@@ -133,6 +133,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'FIS_PRODUTOS', label: 'Notas de produtos' },
       { id: 'FIS_SERVICOS', label: 'Notas de serviços' },
       { id: 'FIS_CONSUMIDOR', label: 'Notas do consumidor' },
+      { id: 'FIS_IMPORTACAO', label: 'NF-e Importação (Sebrae 4.0)' },
       { id: 'FIS_COMPRAS', label: 'Notas de compras' },
       { id: 'FIS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
@@ -180,9 +181,9 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Configurações',
     icon: Settings,
     subItems: [
+      { id: 'CFG_USUARIOS', label: 'Usuários' },
       { id: 'CFG_GERAIS', label: 'Gerais' },
       { id: 'CFG_PLANO', label: 'Meu plano' },
-      { id: 'CFG_USUARIOS', label: 'Usuários' },
       { id: 'CFG_EMPRESA', label: 'Dados da empresa' },
       { id: 'CFG_MARCA', label: 'Marca da empresa' },
       { id: 'CFG_LOJAS', label: 'Empresas / Lojas' },

@@ -1345,7 +1345,7 @@ export default function StiHubAdminRbacPanel({
                       ? `Todos (${users.length})`
                       : f === 'ACTIVE'
                         ? `Ativos (${users.filter((u) => u.active).length})`
-                        : `Inativos/Histórico (${users.filter((u) => !u.active).length})`}
+                        : `Desativados (${users.filter((u) => !u.active).length})`}
                   </button>
                 ))}
               </div>
@@ -1371,7 +1371,8 @@ export default function StiHubAdminRbacPanel({
                     return (
                       <tr
                         key={u.id}
-                        className={`hover:bg-slate-50 ${
+                        onClick={() => setEditingUser(u)}
+                        className={`cursor-pointer hover:bg-blue-50/40 ${
                           isCurrentActive ? 'bg-blue-50/60' : !u.active ? 'opacity-60 bg-slate-50/40' : ''
                         }`}
                       >
@@ -1392,7 +1393,7 @@ export default function StiHubAdminRbacPanel({
                             {u.department} • GC #{u.gestaoClickId || '—'}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <select
                             aria-label={`Perfil RBAC de ${u.name}`}
                             value={u.roleId}
@@ -1408,7 +1409,7 @@ export default function StiHubAdminRbacPanel({
                             ))}
                           </select>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-wrap items-center gap-1">
                             {(['CRM', 'ERP', 'CHAMADOS'] as StiHubMacroModule[]).map((mod) => {
                               const userMods =
@@ -1438,7 +1439,7 @@ export default function StiHubAdminRbacPanel({
                             })}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <select
                             aria-label={`Escopo de ${u.name}`}
                             value={u.scope}
@@ -1459,7 +1460,7 @@ export default function StiHubAdminRbacPanel({
                             {u.mfaEnabled ? `2FA (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'TOTP' : 'E-mail'})` : 'Desativado'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleUpdateUserInline(u, { active: !u.active })}
@@ -1469,10 +1470,10 @@ export default function StiHubAdminRbacPanel({
                                 : 'bg-slate-300 text-slate-700'
                             }`}
                           >
-                            {u.active ? 'ATIVO' : 'INATIVO'}
+                            {u.active ? 'ATIVO' : 'DESATIVADO'}
                           </button>
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <button
                               type="button"
@@ -2522,15 +2523,27 @@ export default function StiHubAdminRbacPanel({
 
         return (
           <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
-                    POLÍTICAS DE IAM DO COLABORADOR • 2FA + MÓDULOS + 2 PAINÉIS DE PERMISSÕES
-                  </span>
-                  <h3 className="text-base font-extrabold text-slate-900">
-                    Editar Usuário IAM — {editingUser.name} ({editingUser.email})
-                  </h3>
+            <div className="bg-white rounded-2xl border-2 border-[#0d2b4e] shadow-2xl max-w-6xl w-full p-6 space-y-5 text-xs my-6 max-h-[94vh] overflow-y-auto">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingUser(null);
+                      setModalTotpPreview(null);
+                    }}
+                    className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 font-extrabold text-slate-800 cursor-pointer"
+                  >
+                    ← Voltar para Lista de Usuários
+                  </button>
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                      CONFIGURAÇÕES &gt; USUÁRIOS &gt; TELA DE CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES (TODOS OS SISTEMAS)
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      Cadastro do Usuário &amp; Permissões — {editingUser.name} ({editingUser.email}) • {editingUser.active ? "ATIVO" : "DESATIVADO"}
+                    </h3>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -2538,9 +2551,9 @@ export default function StiHubAdminRbacPanel({
                     setEditingUser(null);
                     setModalTotpPreview(null);
                   }}
-                  className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
-                  Fechar
+                  Fechar ✕
                 </button>
               </div>
 
@@ -2555,6 +2568,12 @@ export default function StiHubAdminRbacPanel({
                       erp: userMods.includes('ERP'),
                       chamados: userMods.includes('CHAMADOS'),
                     },
+                    crmRole: (editingUser.crmRole as CrmAccountRole) || inferCrmAndErpRolesFromLegacyRole(editingUser.roleId).crmRole,
+                    erpRole: (editingUser.erpRole as ErpAccountRole) || inferCrmAndErpRolesFromLegacyRole(editingUser.roleId).erpRole,
+                    crmItemPermissions: editingUser.crmItemPermissions,
+                    erpItemPermissions: editingUser.erpItemPermissions,
+                    itemPermissions: editingUser.itemPermissions,
+                    totpSecret: editingUser.totpSecret,
                     crmPermissions: userCrm,
                     erpPermissions: userErp,
                   });
@@ -3002,6 +3021,201 @@ export default function StiHubAdminRbacPanel({
                     </div>
                   </div>
                 </div>
+
+                {/* Bloco 4: Tipos de Conta por Sistema (CRM ≠ ERP) e Matriz Visualizar | Editar | Deletar para Todos os Sistemas deste Usuário */}
+                {(() => {
+                  const inferred = inferCrmAndErpRolesFromLegacyRole(editingUser.roleId || "VENDEDOR_SALES");
+                  const effCrmRole: CrmAccountRole = (editingUser.crmRole as CrmAccountRole) || inferred.crmRole;
+                  const effErpRole: ErpAccountRole = (editingUser.erpRole as ErpAccountRole) || inferred.erpRole;
+                  const userCrmItems = editingUser.crmItemPermissions || buildDefaultCrmItemPermissions(effCrmRole);
+                  const userErpItems = editingUser.erpItemPermissions || buildDefaultErpItemPermissions(effErpRole);
+                  const userSecret = editingUser.totpSecret || generateTotpSecretBase32(editingUser.email);
+                  const userOtpUri = buildOtpAuthUri({ secretBase32: userSecret, email: editingUser.email, accountName: editingUser.name });
+                  const userQrUrl = buildTotpQrCodeSvgDataUrl(userOtpUri, userSecret);
+                  const userTotpNow = generateTotpCodeSync(userSecret);
+
+                  const setItemFlag = (sys: "CRM" | "ERP", itemId: string, field: keyof CrudPermissionFlags, checked: boolean) => {
+                    if (sys === "CRM") {
+                      const prev = userCrmItems[itemId] || { view: false, edit: false, delete: false };
+                      const nextCrm = { ...userCrmItems, [itemId]: { ...prev, [field]: checked } };
+                      setEditingUser({ ...editingUser, crmItemPermissions: nextCrm, itemPermissions: { ...nextCrm, ...userErpItems } });
+                    } else {
+                      const prev = userErpItems[itemId] || { view: false, edit: false, delete: false };
+                      const nextErp = { ...userErpItems, [itemId]: { ...prev, [field]: checked } };
+                      setEditingUser({ ...editingUser, erpItemPermissions: nextErp, itemPermissions: { ...userCrmItems, ...nextErp } });
+                    }
+                  };
+
+                  return (
+                    <div className="space-y-4 pt-2 border-t border-slate-200">
+                      {/* QR Code 2FA Google Authenticator Sempre Visível na Ficha do Usuário */}
+                      <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row items-center gap-4">
+                        <img src={userQrUrl} alt="QR Code Google Authenticator" className="w-24 h-24 rounded-xl border border-slate-300 bg-white p-1 shrink-0" />
+                        <div className="space-y-1 flex-1">
+                          <div className="font-extrabold text-[#0d2b4e]">
+                            Habilitação do 2FA Google Authenticator — {editingUser.name}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                              {formatBase32SecretBlocks(userSecret)}
+                            </code>
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
+                              Código 6 dígitos agora: {userTotpNow}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setEditingUser({ ...editingUser, totpSecret: generateTotpSecretBase32(editingUser.email + ":" + Date.now()) })}
+                              className="px-2.5 py-0.5 rounded bg-white border border-slate-300 font-bold cursor-pointer"
+                            >
+                              Regerar Chave 2FA
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Seletores Independentes de Tipo de Conta por Sistema */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-100 border border-slate-200">
+                        <div>
+                          <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                            Tipo de Conta no Sistema CRM &amp; Chamados:
+                          </label>
+                          <select
+                            value={effCrmRole}
+                            onChange={(e) => {
+                              const nextCrm = e.target.value as CrmAccountRole;
+                              const nextCrmMap = buildDefaultCrmItemPermissions(nextCrm);
+                              setEditingUser({
+                                ...editingUser,
+                                crmRole: nextCrm,
+                                crmItemPermissions: nextCrmMap,
+                                itemPermissions: { ...nextCrmMap, ...userErpItems },
+                              });
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                          >
+                            {(Object.keys(CRM_ROLES_CATALOG) as CrmAccountRole[]).map((k) => (
+                              <option key={k} value={k}>
+                                {k} — {CRM_ROLES_CATALOG[k].label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                            Tipo de Conta no Sistema ERP (Admin, Comercial, Financeiro, Gerência de Estoque):
+                          </label>
+                          <select
+                            value={effErpRole}
+                            onChange={(e) => {
+                              const nextErp = e.target.value as ErpAccountRole;
+                              const nextErpMap = buildDefaultErpItemPermissions(nextErp);
+                              setEditingUser({
+                                ...editingUser,
+                                erpRole: nextErp,
+                                erpItemPermissions: nextErpMap,
+                                itemPermissions: { ...userCrmItems, ...nextErpMap },
+                              });
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                          >
+                            {(Object.keys(ERP_ROLES_CATALOG) as ErpAccountRole[]).map((k) => (
+                              <option key={k} value={k}>
+                                {k} — {ERP_ROLES_CATALOG[k].label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Tabelas de Permissões Visualizar | Editar | Deletar para Todos os Sistemas deste Usuário */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Tabela Sistema CRM & Chamados */}
+                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="bg-[#0d2b4e] text-white px-3.5 py-2 font-extrabold flex items-center justify-between">
+                            <span>Permissões no CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</span>
+                            <span className="text-[10px] text-orange-300">{effCrmRole}</span>
+                          </div>
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-200">
+                            <table className="w-full text-left text-[11px]">
+                              <thead className="bg-slate-100 text-slate-600 uppercase text-[9px] sticky top-0">
+                                <tr>
+                                  <th className="py-1.5 px-2.5">Módulo / Item CRM</th>
+                                  <th className="py-1.5 px-2 text-center">Ver</th>
+                                  <th className="py-1.5 px-2 text-center">Editar</th>
+                                  <th className="py-1.5 px-2 text-center">Deletar</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {CRM_MODULE_ITEMS_CATALOG.map((it) => {
+                                  const fl = userCrmItems[it.itemId] || { view: false, edit: false, delete: false };
+                                  return (
+                                    <tr key={it.itemId} className="hover:bg-slate-50">
+                                      <td className="py-1.5 px-2.5">
+                                        <div className="font-bold text-slate-900">{it.itemLabel}</div>
+                                        <div className="text-[9px] text-slate-500">{it.moduleLabel}</div>
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.view} onChange={(e) => setItemFlag("CRM", it.itemId, "view", e.target.checked)} className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer" />
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.edit} onChange={(e) => setItemFlag("CRM", it.itemId, "edit", e.target.checked)} className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" />
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.delete} onChange={(e) => setItemFlag("CRM", it.itemId, "delete", e.target.checked)} className="w-3.5 h-3.5 accent-rose-600 cursor-pointer" />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Tabela Sistema ERP */}
+                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="bg-[#1e3a6e] text-white px-3.5 py-2 font-extrabold flex items-center justify-between">
+                            <span>Permissões no Sistema ERP ({ERP_MODULE_ITEMS_CATALOG.length} itens)</span>
+                            <span className="text-[10px] text-emerald-300">{effErpRole}</span>
+                          </div>
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-200">
+                            <table className="w-full text-left text-[11px]">
+                              <thead className="bg-slate-100 text-slate-600 uppercase text-[9px] sticky top-0">
+                                <tr>
+                                  <th className="py-1.5 px-2.5">Módulo / Item ERP</th>
+                                  <th className="py-1.5 px-2 text-center">Ver</th>
+                                  <th className="py-1.5 px-2 text-center">Editar</th>
+                                  <th className="py-1.5 px-2 text-center">Deletar</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {ERP_MODULE_ITEMS_CATALOG.map((it) => {
+                                  const fl = userErpItems[it.itemId] || { view: false, edit: false, delete: false };
+                                  return (
+                                    <tr key={it.itemId} className="hover:bg-slate-50">
+                                      <td className="py-1.5 px-2.5">
+                                        <div className="font-bold text-slate-900">{it.itemLabel}</div>
+                                        <div className="text-[9px] text-slate-500">{it.moduleLabel}</div>
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.view} onChange={(e) => setItemFlag("ERP", it.itemId, "view", e.target.checked)} className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer" />
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.edit} onChange={(e) => setItemFlag("ERP", it.itemId, "edit", e.target.checked)} className="w-3.5 h-3.5 accent-blue-600 cursor-pointer" />
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <input type="checkbox" checked={fl.delete} onChange={(e) => setItemFlag("ERP", it.itemId, "delete", e.target.checked)} className="w-3.5 h-3.5 accent-rose-600 cursor-pointer" />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                   <div className="flex items-center gap-4">

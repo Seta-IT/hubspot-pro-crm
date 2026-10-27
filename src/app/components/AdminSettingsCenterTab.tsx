@@ -163,6 +163,8 @@ export default function AdminSettingsCenterTab({
   const [selectedCrmRoleKey, setSelectedCrmRoleKey] = useState<CrmAccountRole>('CRM_SALES_MANAGER');
   const [selectedErpRoleKey, setSelectedErpRoleKey] = useState<ErpAccountRole>('ERP_STOCK_MANAGER');
   const [selectedUserIdForCrud, setSelectedUserIdForCrud] = useState<string>('ROLE_DEFAULT');
+  const [userStatusFilter, setUserStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [selectedUserProfile, setSelectedUserProfile] = useState<StiHubUserAccount | null>(null);
 
   // New User Modal & 2FA Google Authenticator Modal State
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -1068,8 +1070,18 @@ export default function AdminSettingsCenterTab({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-extrabold text-slate-900">
-                  Diretório de Usuários Seta Telecom — Tipos de Conta Independentes (CRM vs ERP) &amp; 2FA Google Authenticator
+                  Configurações &gt; Usuários — Todos os Usuários Ativos e Desativados ({users.length})
                 </h2>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {((["ALL", "ACTIVE", "INACTIVE"] as const)).map((k) => {
+                    const lbl = k === "ALL" ? `Todos (${users.length})` : k === "ACTIVE" ? `Ativos (${users.filter((x) => x.active).length})` : `Desativados (${users.filter((x) => !x.active).length})`;
+                    return (
+                    <button key={k} type="button" onClick={() => setUserStatusFilter(k)} className={"px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer " + (userStatusFilter === k ? "bg-[#0d2b4e] text-white" : "bg-slate-100 text-slate-700")}>
+                      {lbl}
+                    </button>
+                    );
+                  })}
+                </div>
                 <p className="text-xs text-slate-500">
                   Altere separadamente o <strong>Tipo de Conta CRM</strong> e o <strong>Tipo de Conta ERP</strong>, abra o <strong>QR Code 2FA Google Authenticator</strong> ou clique em <strong>Customizar CRUD</strong>.
                 </p>
@@ -1093,13 +1105,13 @@ export default function AdminSettingsCenterTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.map((u) => {
+                  {users.filter((u) => userStatusFilter === 'ALL' ? true : userStatusFilter === 'ACTIVE' ? u.active : !u.active).map((u) => {
                     const inferred = inferCrmAndErpRolesFromLegacyRole(u.role);
                     const effCrmRole: CrmAccountRole = u.crmRole || inferred.crmRole;
                     const effErpRole: ErpAccountRole = u.erpRole || inferred.erpRole;
                     const isCurrent = currentSession?.email === u.email;
                     return (
-                      <tr key={u.id} className={isCurrent ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
+                      <tr key={u.id} onClick={() => setSelectedUserProfile(u)} className={`cursor-pointer ${isCurrent ? 'bg-blue-50/50' : !u.active ? 'opacity-70 bg-slate-50' : 'hover:bg-blue-50/30'}`}>
                         <td className="py-2.5 px-3">
                           <div className="font-bold text-slate-900">{u.name}</div>
                           <div className="font-mono text-[11px] text-slate-500">
@@ -1495,6 +1507,179 @@ export default function AdminSettingsCenterTab({
               </table>
             </div>
           </div>
+
+          {/* TELA DE CADASTRO DO USUÁRIO + TIPOS DE CONTA + PERMISSÕES (TODOS OS SISTEMAS) AO CLICAR EM UM USUÁRIO */}
+          {selectedUserProfile && (() => {
+            const inferred = inferCrmAndErpRolesFromLegacyRole(selectedUserProfile.role);
+            const effCrm = selectedUserProfile.crmRole || inferred.crmRole;
+            const effErp = selectedUserProfile.erpRole || inferred.erpRole;
+            const crmMap = selectedUserProfile.crmItemPermissions || buildDefaultCrmItemPermissions(effCrm);
+            const erpMap = selectedUserProfile.erpItemPermissions || buildDefaultErpItemPermissions(effErp);
+            const secret = selectedUserProfile.totpSecret || generateTotpSecretBase32(selectedUserProfile.email);
+            const otpUri = buildOtpAuthUri({ secretBase32: secret, email: selectedUserProfile.email, accountName: selectedUserProfile.name });
+            const qrUrl = buildTotpQrCodeSvgDataUrl(otpUri, secret);
+            const codeNow = generateTotpCodeSync(secret);
+
+            return (
+              <div className="bg-white rounded-2xl border-2 border-[#0d2b4e] p-5 shadow-md space-y-4 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => setSelectedUserProfile(null)} className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 font-extrabold cursor-pointer">
+                      ← Voltar para Lista de Usuários
+                    </button>
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                        CONFIGURAÇÕES &gt; USUÁRIOS &gt; CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES
+                      </span>
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        {selectedUserProfile.name} ({selectedUserProfile.email}) — {selectedUserProfile.active ? "ATIVO" : "DESATIVADO"}
+                      </h3>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUserProfile({ ...selectedUserProfile, active: !selectedUserProfile.active })}
+                      className={"px-3 py-1.5 rounded-lg font-extrabold cursor-pointer " + (selectedUserProfile.active ? "bg-rose-50 text-rose-800 border border-rose-300" : "bg-emerald-50 text-emerald-800 border border-emerald-300")}
+                    >
+                      {selectedUserProfile.active ? "Desativar Usuário" : "Reativar Usuário"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = users.map((u) => (u.id === selectedUserProfile.id ? selectedUserProfile : u));
+                        persistUsersList(next);
+                        setSelectedUserProfile(null);
+                        onShowToast("Cadastro, Tipos de Conta e Permissões de " + selectedUserProfile.name + " salvos!");
+                      }}
+                      className="px-4 py-1.5 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                    >
+                      Salvar Usuário &amp; Permissões
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1. Dados de Cadastro & 2FA */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nome Completo</label>
+                    <input type="text" value={selectedUserProfile.name} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, name: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo</label>
+                    <input type="email" value={selectedUserProfile.email} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, email: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-mono" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Departamento</label>
+                    <input type="text" value={selectedUserProfile.department} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, department: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300" />
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-wrap items-center gap-4">
+                  <img src={qrUrl} alt="QR 2FA" className="w-20 h-20 rounded-lg border border-slate-300 bg-white p-1" />
+                  <div className="space-y-1 flex-1">
+                    <div className="font-extrabold text-[#0d2b4e]">2FA Google Authenticator ({selectedUserProfile.email})</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">{formatBase32SecretBlocks(secret)}</code>
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">Código 6 dígitos: {codeNow}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Tipos de Conta por Sistema */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div>
+                    <label className="block font-extrabold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; Chamados:</label>
+                    <select
+                      value={effCrm}
+                      onChange={(e) => {
+                        const nextCrm = e.target.value as CrmAccountRole;
+                        setSelectedUserProfile({
+                          ...selectedUserProfile,
+                          crmRole: nextCrm,
+                          crmItemPermissions: buildDefaultCrmItemPermissions(nextCrm),
+                        });
+                      }}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                    >
+                      {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((k) => (
+                        <option key={k} value={k}>{k} — {crmRolesCatalogState[k].label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-extrabold text-[#1e3a6e] mb-1">Tipo de Conta no ERP:</label>
+                    <select
+                      value={effErp}
+                      onChange={(e) => {
+                        const nextErp = e.target.value as ErpAccountRole;
+                        setSelectedUserProfile({
+                          ...selectedUserProfile,
+                          erpRole: nextErp,
+                          erpItemPermissions: buildDefaultErpItemPermissions(nextErp),
+                        });
+                      }}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                    >
+                      {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((k) => (
+                        <option key={k} value={k}>{k} — {erpRolesCatalogState[k].label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 3. Permissões Visualizar | Editar | Deletar para Todos os Sistemas */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-extrabold">Permissões no Sistema CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
+                          <tr><th className="py-1.5 px-2">Item CRM</th><th className="py-1.5 px-2 text-center">Visualizar</th><th className="py-1.5 px-2 text-center">Editar</th><th className="py-1.5 px-2 text-center">Deletar</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {CRM_MODULE_ITEMS_CATALOG.map((it) => {
+                            const fl = crmMap[it.itemId] || { view: false, edit: false, delete: false };
+                            return (
+                              <tr key={it.itemId}>
+                                <td className="py-1.5 px-2 font-semibold">{it.itemLabel}</td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.view} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, view: e.target.checked } } })} /></td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.edit} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, edit: e.target.checked } } })} /></td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.delete} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, delete: e.target.checked } } })} /></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-[#1e3a6e] text-white px-3 py-2 font-extrabold">Permissões no Sistema ERP ({ERP_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
+                          <tr><th className="py-1.5 px-2">Item ERP</th><th className="py-1.5 px-2 text-center">Visualizar</th><th className="py-1.5 px-2 text-center">Editar</th><th className="py-1.5 px-2 text-center">Deletar</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {ERP_MODULE_ITEMS_CATALOG.map((it) => {
+                            const fl = erpMap[it.itemId] || { view: false, edit: false, delete: false };
+                            return (
+                              <tr key={it.itemId}>
+                                <td className="py-1.5 px-2 font-semibold">{it.itemLabel}</td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.view} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, view: e.target.checked } } })} /></td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.edit} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, edit: e.target.checked } } })} /></td>
+                                <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.delete} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, delete: e.target.checked } } })} /></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* MODAL 1: + ADICIONAR NOVO USUÁRIO COM TIPO CRM, TIPO ERP E 2FA GOOGLE AUTHENTICATOR */}
           {showAddUserModal && (() => {

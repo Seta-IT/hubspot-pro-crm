@@ -44,7 +44,8 @@ interface CrmSidebarProps {
   onSelectForms: () => void;
   onSelectAutomations: () => void;
   onSelectDataHealth: (scope: 'CRM' | 'ERP') => void;
-  onSelectAdminRbac?: () => void;
+  onSelectAdminRbac?: (subView?: string) => void;
+  activeAdminSubView?: string;
 }
 
 export default function CrmSidebar({
@@ -68,6 +69,7 @@ export default function CrmSidebar({
   onSelectAutomations,
   onSelectDataHealth,
   onSelectAdminRbac,
+  activeAdminSubView = 'USERS_RBAC',
 }: CrmSidebarProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     DEALS_KANBAN: true,
@@ -381,15 +383,16 @@ export default function CrmSidebar({
             )}
           </div>
 
-          {/* 6. ADMINISTRAÇÃO & CONFIGURAÇÕES (RBAC) */}
+          {/* 6. CONFIGURAÇÕES & USUÁRIOS (CRM) */}
           {onSelectAdminRbac && (
             <div className="rounded-md pt-2 border-t border-slate-200">
               <button
                 type="button"
-                onClick={() => {
-                  onSelectAdminRbac();
-                  closeMobileIfOpen();
-                }}
+                onClick={() =>
+                  toggleGroup('ADMIN_RBAC', () => {
+                    onSelectAdminRbac('USERS_RBAC');
+                  })
+                }
                 className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                   activeModule === 'ADMIN_RBAC'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -402,9 +405,46 @@ export default function CrmSidebar({
                       activeModule === 'ADMIN_RBAC' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                     }`}
                   />
-                  <span className="truncate">Administração &amp; Config.</span>
+                  <span className="truncate">Configurações</span>
                 </span>
+                {expanded.ADMIN_RBAC ? (
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                )}
               </button>
+
+              {expanded.ADMIN_RBAC && (
+                <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                  {[
+                    { id: 'USERS_RBAC', label: 'Usuários' },
+                    { id: 'CUSTOM_PROPERTIES', label: 'Campos Customizáveis' },
+                    { id: 'EMAIL_TEMPLATES', label: 'E-mail & Modelos' },
+                    { id: 'COMPANY_EMITTER', label: 'Dados da Empresa' },
+                    { id: 'SUBDOMAIN_SECURITY', label: 'Segurança 2FA & Domínio' },
+                  ].map((sub) => {
+                    const isSubActive =
+                      activeModule === 'ADMIN_RBAC' && activeAdminSubView === sub.id;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectAdminRbac(sub.id);
+                          closeMobileIfOpen();
+                        }}
+                        className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                          isSubActive
+                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        }`}
+                      >
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </nav>

@@ -118,6 +118,7 @@ export default function HubSpotProCrmApp() {
   const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
   const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
   const [crmMobileDrawerOpen, setCrmMobileDrawerOpen] = useState(false);
+  const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
@@ -1908,7 +1909,10 @@ export default function HubSpotProCrmApp() {
                   setLastCrmSubModule('DATA_HEALTH');
                   setActiveModule('DATA_HEALTH');
                 }}
-                onSelectAdminRbac={() => {
+                activeAdminSubView={adminInitialSubView}
+                onSelectAdminRbac={(sub) => {
+                  if (sub) setAdminInitialSubView(sub as typeof adminInitialSubView);
+                  else setAdminInitialSubView('USERS_RBAC');
                   setLastCrmSubModule('ADMIN_RBAC');
                   setActiveModule('ADMIN_RBAC');
                 }}
@@ -1963,6 +1967,7 @@ export default function HubSpotProCrmApp() {
                   <StiHubAdminRbacPanel
                     rbacState={rbacState}
                     emailTemplates={emailTemplatesState}
+                    initialSubView={adminInitialSubView}
                     activeUser={activeRbacUser}
                     onSelectActiveUser={(u) => setActiveRbacUser(u)}
                     onRefresh={async () => {
