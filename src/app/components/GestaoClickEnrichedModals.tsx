@@ -217,12 +217,12 @@ export function GestaoClickCustomerEditModal({
             {
               id: `addr-rfb-${Date.now()}`,
               type: 'Comercial / Matriz (RFB)',
-              cep: d.cep || '01311-926',
-              street: `${d.street || 'Avenida Paulista'} ${d.number || ''}`.trim(),
-              number: d.number || '1439',
+              cep: d.cep || '',
+              street: d.street || '',
+              number: d.number || '',
               complement: d.complement || '',
-              neighborhood: d.neighborhood || 'Bela Vista',
-              cityState: `${d.city || 'São Paulo'} (${d.state || 'SP'})`,
+              neighborhood: d.neighborhood || '',
+              cityState: d.city ? `${d.city} (${d.state || 'SP'})` : '',
             },
           ]);
           if (d.serasa) {

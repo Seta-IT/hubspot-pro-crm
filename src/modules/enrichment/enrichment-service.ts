@@ -22,6 +22,7 @@ export interface CatalogCompanyProfile {
 export interface EnrichmentAdapter {
   name: string;
   lookupByDomain(domain: string): CatalogCompanyProfile | null;
+  lookupByCnpj?(cnpj: string): CatalogCompanyProfile | null;
 }
 
 const BUILTIN_CORPORATE_CATALOG: Record<string, CatalogCompanyProfile> = {
@@ -132,6 +133,17 @@ export class BuiltinCatalogEnrichmentAdapter implements EnrichmentAdapter {
   lookupByDomain(domain: string): CatalogCompanyProfile | null {
     const clean = domain.trim().toLowerCase();
     return BUILTIN_CORPORATE_CATALOG[clean] || null;
+  }
+
+  lookupByCnpj(cnpj: string): CatalogCompanyProfile | null {
+    const digits = String(cnpj || "").replace(/\D+/g, "");
+    if (digits.length !== 14) return null;
+    for (const profile of Object.values(BUILTIN_CORPORATE_CATALOG)) {
+      if (profile.cnpj.replace(/\D+/g, "") === digits) {
+        return profile;
+      }
+    }
+    return null;
   }
 }
 
@@ -466,7 +478,21 @@ export class EnrichmentService {
     const fieldsUpdated: string[] = [];
 
     const lookup = this.lookupDomain(company.domain || '');
-    if (!lookup.profile) {
+    let profile = lookup.profile;
+    let adapterName = lookup.adapterName;
+    if (!profile && company.cnpj) {
+      for (const adapter of this.adapters) {
+        if (adapter.lookupByCnpj) {
+          const byCnpj = adapter.lookupByCnpj(company.cnpj);
+          if (byCnpj) {
+            profile = byCnpj;
+            adapterName = adapter.name;
+            break;
+          }
+        }
+      }
+    }
+    if (!profile) {
       const completeness = calculateCompanyCompleteness(company).score;
       return {
         company: { ...company, completenessScore: completeness },
@@ -474,8 +500,6 @@ export class EnrichmentService {
         source: null,
       };
     }
-
-    const profile = lookup.profile;
     const updated: Company = { ...company };
 
     const applyIfEmpty = <K extends keyof Company>(field: K, value: Company[K]) => {
@@ -502,14 +526,14 @@ export class EnrichmentService {
 
     const now = new Date().toISOString();
     updated.enrichedAt = now;
-    updated.enrichmentSource = lookup.adapterName;
+    updated.enrichmentSource = adapterName;
     updated.completenessScore = calculateCompanyCompleteness(updated).score;
     updated.updatedAt = now;
 
     return {
       company: updated,
       fieldsUpdated,
-      source: lookup.adapterName,
+      source: adapterName,
     };
   }
 

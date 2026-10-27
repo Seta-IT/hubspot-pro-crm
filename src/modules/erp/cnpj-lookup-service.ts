@@ -1,6 +1,13 @@
 // ============================================================================
-// STI-hub — Consulta Oficial de CNPJ na Receita Federal (BrasilAPI + ReceitaWS + Base Seta)
+// STI-hub — Consulta Oficial de CNPJ (GestãoClick ERP + Receita Federal BrasilAPI/ReceitaWS)
 // ============================================================================
+
+import { validateCnpj } from '../data-health/validators';
+import {
+  isCnpjLikeTradeName,
+  lookupEntityByCnpjInGestaoClick,
+  sanitizeGestaoClickTradeName,
+} from './gestaoclick-client';
 
 export interface ReceitaFederalCnpjData {
   cnpj: string;
@@ -33,6 +40,8 @@ export interface ReceitaFederalCnpjData {
   emailComercial: string;
   emailFinanceiroNfe: string;
   website: string;
+  gestaoClickId?: string;
+  gestaoClickActive?: boolean;
   source: string;
   fetchedAt: string;
 }
@@ -41,6 +50,21 @@ export function formatCnpjDigits(raw: string): string {
   const d = String(raw || '').replace(/\D+/g, '').slice(0, 14);
   if (d.length !== 14) return raw;
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12, 14)}`;
+}
+
+function mapSituacaoCadastral(raw: unknown): 'ATIVA' | 'BAIXADA' | 'SUSPENSA' | 'INAPTA' {
+  const s = String(raw || '').trim().toUpperCase();
+  if (s.includes('BAIXAD')) return 'BAIXADA';
+  if (s.includes('SUSPENS')) return 'SUSPENSA';
+  if (s.includes('INAPT') || s.includes('NULA')) return 'INAPTA';
+  if (s.includes('ATIV') || s === '2' || s === '02') return 'ATIVA';
+  return 'ATIVA';
+}
+
+function formatCepOrEmpty(raw: unknown): string {
+  const d = String(raw || '').replace(/\D+/g, '');
+  if (d.length === 8) return `${d.slice(0, 5)}-${d.slice(5)}`;
+  return String(raw || '').trim();
 }
 
 const VERIFIED_SETA_CNPJ_DIRECTORY: Record<string, Partial<ReceitaFederalCnpjData>> = {
@@ -73,8 +97,8 @@ const VERIFIED_SETA_CNPJ_DIRECTORY: Record<string, Partial<ReceitaFederalCnpjDat
     website: 'mundivox.com.br',
   },
   '01936069000194': {
-    razaoSocial: 'DIGISYSTEM SERVICOS ESPECIALIZADOS LTDA',
-    nomeFantasia: 'DIGISYSTEM TECNOLOGIA',
+    razaoSocial: 'Digisystem Servicos Especializados LTDA',
+    nomeFantasia: 'Digisystem Servicos Especializados LTDA',
     situacaoCadastral: 'ATIVA',
     dataAbertura: '1997-06-18',
     cnaePrincipal: '62.04-0-00',
@@ -87,7 +111,7 @@ const VERIFIED_SETA_CNPJ_DIRECTORY: Record<string, Partial<ReceitaFederalCnpjDat
     inscricaoMunicipal: '2.619.401-8',
     regimeTributario: 'Lucro Real',
     cep: '01311-926',
-    logradouro: 'Avenida Paulista',
+    logradouro: 'Avenida Paulista 1439',
     numero: '1439',
     complemento: 'Andar 4 Conj 43 A 44',
     bairro: 'Bela Vista',
@@ -214,6 +238,239 @@ const VERIFIED_SETA_CNPJ_DIRECTORY: Record<string, Partial<ReceitaFederalCnpjDat
   },
 };
 
+async function fetchLiveReceitaFederalCnpj(
+  digits: string
+): Promise<ReceitaFederalCnpjData | null> {
+  const formatted = formatCnpjDigits(digits);
+  const nowIso = new Date().toISOString();
+
+  // 2a. Try BrasilAPI (https://brasilapi.com.br/api/cnpj/v1/${digits}, timeout 5000ms)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const j = (await res.json()) as Record<string, unknown>;
+      const razao = String(j.razao_social || '').trim();
+      if (razao) {
+        const rawFantasia = String(j.nome_fantasia || '').trim();
+        const fantasia = sanitizeGestaoClickTradeName(rawFantasia, razao);
+        const cepFmt = formatCepOrEmpty(j.cep);
+        const tel = String(j.ddd_telefone_1 || '').trim();
+        const tel2 = String(j.ddd_telefone_2 || '').trim();
+        const email = String(j.email || '').trim().toLowerCase();
+        const domain =
+          email.includes('@') && !email.match(/(gmail|hotmail|outlook|yahoo|uol|terra|bol)\./i)
+            ? email.split('@')[1]
+            : '';
+        const tipoLog = String(j.descricao_tipo_de_logradouro || '').trim();
+        const logNome = String(j.logradouro || '').trim();
+        const fullLogradouro = logNome
+          ? `${tipoLog} ${logNome}`.trim()
+          : '';
+
+        return {
+          cnpj: formatted,
+          cnpjDigits: digits,
+          tipoPessoa: 'Pessoa jurídica',
+          razaoSocial: razao,
+          nomeFantasia: fantasia,
+          situacaoCadastral: mapSituacaoCadastral(j.descricao_situacao_cadastral ?? j.situacao_cadastral),
+          dataAbertura: String(j.data_inicio_atividade || '').trim(),
+          cnaePrincipal: j.cnae_fiscal ? String(j.cnae_fiscal) : '',
+          cnaeDescricao: String(j.cnae_fiscal_descricao || '').trim(),
+          naturezaJuridica: String(j.natureza_juridica || '').trim(),
+          porte: String(j.porte || '').trim(),
+          capitalSocial: Number(j.capital_social || 0),
+          inscricaoEstadual: '',
+          indicadorIe: 'Contribuinte Isento',
+          inscricaoMunicipal: '',
+          suframa: '',
+          regimeTributario: Boolean(j.opcao_pelo_mei)
+            ? 'MEI'
+            : Boolean(j.opcao_pelo_simples)
+              ? 'Simples Nacional'
+              : 'Lucro Presumido',
+          cep: cepFmt,
+          logradouro: fullLogradouro,
+          numero: String(j.numero || '').trim(),
+          complemento: String(j.complemento || '').trim(),
+          bairro: String(j.bairro || '').trim(),
+          cidade: String(j.municipio || '').trim(),
+          uf: String(j.uf || '').trim(),
+          codigoIbge: j.codigo_municipio_ibge ? String(j.codigo_municipio_ibge) : '',
+          telefone: tel,
+          celularWhatsapp: tel2 || tel,
+          emailComercial: email,
+          emailFinanceiroNfe: email,
+          website: domain,
+          source: 'Receita Federal do Brasil (BrasilAPI Oficial)',
+          fetchedAt: nowIso,
+        };
+      }
+    }
+  } catch {
+    // Continue to ReceitaWS fallback
+  }
+
+  // 2b. Fallback to ReceitaWS (https://receitaws.com.br/v1/cnpj/${digits}, timeout 5000ms)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`https://receitaws.com.br/v1/cnpj/${digits}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const j = (await res.json()) as Record<string, unknown>;
+      if (String(j.status || '').toUpperCase() !== 'ERROR') {
+        const razao = String(j.nome || '').trim();
+        if (razao) {
+          const rawFantasia = String(j.fantasia || '').trim();
+          const fantasia = sanitizeGestaoClickTradeName(rawFantasia, razao);
+          const cepFmt = formatCepOrEmpty(j.cep);
+          const tel = String(j.telefone || '').trim();
+          const email = String(j.email || '').trim().toLowerCase();
+          const domain =
+            email.includes('@') && !email.match(/(gmail|hotmail|outlook|yahoo|uol|terra|bol)\./i)
+              ? email.split('@')[1]
+              : '';
+          const atividadePrincipal = Array.isArray(j.atividade_principal)
+            ? (j.atividade_principal[0] as { code?: string; text?: string })
+            : undefined;
+          const simples = (j.simples || {}) as { optante?: boolean };
+          const simei = (j.simei || {}) as { optante?: boolean };
+
+          return {
+            cnpj: formatted,
+            cnpjDigits: digits,
+            tipoPessoa: 'Pessoa jurídica',
+            razaoSocial: razao,
+            nomeFantasia: fantasia,
+            situacaoCadastral: mapSituacaoCadastral(j.situacao),
+            dataAbertura: String(j.abertura || '').trim(),
+            cnaePrincipal: String(atividadePrincipal?.code || '').trim(),
+            cnaeDescricao: String(atividadePrincipal?.text || '').trim(),
+            naturezaJuridica: String(j.natureza_juridica || '').trim(),
+            porte: String(j.porte || '').trim(),
+            capitalSocial: Number(String(j.capital_social || '0').replace(/[^\d.-]/g, '') || 0),
+            inscricaoEstadual: '',
+            indicadorIe: 'Contribuinte Isento',
+            inscricaoMunicipal: '',
+            suframa: '',
+            regimeTributario: simei.optante
+              ? 'MEI'
+              : simples.optante
+                ? 'Simples Nacional'
+                : 'Lucro Presumido',
+            cep: cepFmt,
+            logradouro: String(j.logradouro || '').trim(),
+            numero: String(j.numero || '').trim(),
+            complemento: String(j.complemento || '').trim(),
+            bairro: String(j.bairro || '').trim(),
+            cidade: String(j.municipio || '').trim(),
+            uf: String(j.uf || '').trim(),
+            codigoIbge: '',
+            telefone: tel,
+            celularWhatsapp: tel,
+            emailComercial: email,
+            emailFinanceiroNfe: email,
+            website: domain,
+            source: 'Receita Federal do Brasil (ReceitaWS)',
+            fetchedAt: nowIso,
+          };
+        }
+      }
+    }
+  } catch {
+    // Continue to publica.cnpj.ws fallback
+  }
+
+  // 2c. Fallback to Publica CNPJ.ws (https://publica.cnpj.ws/cnpj/${digits}, timeout 5000ms)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`https://publica.cnpj.ws/cnpj/${digits}`, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const j = (await res.json()) as Record<string, unknown>;
+      const razao = String(j.razao_social || '').trim();
+      const estab = (j.estabelecimento || {}) as Record<string, unknown>;
+      if (razao) {
+        const rawFantasia = String(estab.nome_fantasia || '').trim();
+        const fantasia = sanitizeGestaoClickTradeName(rawFantasia, razao);
+        const cepFmt = formatCepOrEmpty(estab.cep);
+        const ddd1 = String(estab.ddd1 || '').trim();
+        const tel1 = String(estab.telefone1 || '').trim();
+        const tel = ddd1 && tel1 ? `(${ddd1}) ${tel1}` : tel1;
+        const email = String(estab.email || '').trim().toLowerCase();
+        const domain =
+          email.includes('@') && !email.match(/(gmail|hotmail|outlook|yahoo|uol|terra|bol)\./i)
+            ? email.split('@')[1]
+            : '';
+        const ativ = (estab.atividade_principal || {}) as { id?: string; descricao?: string };
+        const nat = (j.natureza_juridica || {}) as { id?: string; descricao?: string };
+        const porteObj = (j.porte || {}) as { descricao?: string };
+        const cidadeObj = (estab.cidade || {}) as { nome?: string; ibge_id?: number };
+        const estadoObj = (estab.estado || {}) as { sigla?: string };
+        const inscEst = Array.isArray(estab.inscricoes_estaduais) && estab.inscricoes_estaduais.length > 0
+          ? String((estab.inscricoes_estaduais[0] as { inscricao_estadual?: string })?.inscricao_estadual || '').trim()
+          : '';
+
+        return {
+          cnpj: formatted,
+          cnpjDigits: digits,
+          tipoPessoa: 'Pessoa jurídica',
+          razaoSocial: razao,
+          nomeFantasia: fantasia,
+          situacaoCadastral: mapSituacaoCadastral(estab.situacao_cadastral),
+          dataAbertura: String(estab.data_inicio_atividade || '').trim(),
+          cnaePrincipal: String(ativ.id || '').trim(),
+          cnaeDescricao: String(ativ.descricao || '').trim(),
+          naturezaJuridica: nat.id && nat.descricao ? `${nat.id} - ${nat.descricao}` : String(nat.descricao || ''),
+          porte: String(porteObj.descricao || '').trim(),
+          capitalSocial: Number(j.capital_social || 0),
+          inscricaoEstadual: inscEst,
+          indicadorIe: inscEst ? 'Contribuinte ICMS' : 'Contribuinte Isento',
+          inscricaoMunicipal: '',
+          suframa: '',
+          regimeTributario: 'Lucro Presumido',
+          cep: cepFmt,
+          logradouro: `${String(estab.tipo_logradouro || '').trim()} ${String(estab.logradouro || '').trim()}`.trim(),
+          numero: String(estab.numero || '').trim(),
+          complemento: String(estab.complemento || '').trim(),
+          bairro: String(estab.bairro || '').trim(),
+          cidade: String(cidadeObj.nome || '').trim(),
+          uf: String(estadoObj.sigla || '').trim(),
+          codigoIbge: cidadeObj.ibge_id ? String(cidadeObj.ibge_id) : '',
+          telefone: tel,
+          celularWhatsapp: tel,
+          emailComercial: email,
+          emailFinanceiroNfe: email,
+          website: domain,
+          source: 'Receita Federal do Brasil (CNPJ.ws)',
+          fetchedAt: nowIso,
+        };
+      }
+    }
+  } catch {
+    // Ignore network error
+  }
+
+  return null;
+}
+
 export async function lookupCnpjInReceitaFederal(
   rawCnpj: string
 ): Promise<{ ok: boolean; data?: ReceitaFederalCnpjData; error?: string }> {
@@ -225,44 +482,186 @@ export async function lookupCnpjInReceitaFederal(
     };
   }
 
-  const formatted = formatCnpjDigits(digits);
-  const nowIso = new Date().toISOString();
+  const validation = validateCnpj(digits);
+  if (!validation.isValid) {
+    return {
+      ok: false,
+      error:
+        validation.reason === 'INVALID_CHECK_DIGITS'
+          ? 'CNPJ inválido: dígitos verificadores (Mod-11) incorretos.'
+          : 'Informe um CNPJ válido com 14 dígitos numéricos para consulta na Receita Federal.',
+    };
+  }
 
-  // 1. Check verified Seta Telecom corporate directory first for instant deterministic response
+  const formatted = validation.formatted || formatCnpjDigits(digits);
+  const nowIso = new Date().toISOString();
   const known = VERIFIED_SETA_CNPJ_DIRECTORY[digits];
-  if (known) {
+
+  // 1º: Consultar ao vivo no GestãoClick ERP (#118887)
+  const gcEntity = await lookupEntityByCnpjInGestaoClick(digits);
+  if (gcEntity) {
+    // Enrich with Receita Federal or known directory for CNAE/capital/abertura
+    const rfbComplement = await fetchLiveReceitaFederalCnpj(digits);
+
+    const razaoSocial =
+      gcEntity.razaoSocial ||
+      rfbComplement?.razaoSocial ||
+      known?.razaoSocial ||
+      '';
+    const rawFantasia =
+      !isCnpjLikeTradeName(gcEntity.nomeFantasia) && gcEntity.nomeFantasia !== gcEntity.razaoSocial
+        ? gcEntity.nomeFantasia
+        : !isCnpjLikeTradeName(rfbComplement?.nomeFantasia) && rfbComplement?.nomeFantasia
+          ? rfbComplement.nomeFantasia
+          : known?.nomeFantasia || razaoSocial;
+    const nomeFantasia = sanitizeGestaoClickTradeName(rawFantasia, razaoSocial);
+
+    const rfbSituacao = rfbComplement?.situacaoCadastral || known?.situacaoCadastral || 'ATIVA';
+    const situacaoCadastral: ReceitaFederalCnpjData['situacaoCadastral'] =
+      gcEntity.ativo === '0' ? 'INAPTA' : rfbSituacao;
+
+    const ie = gcEntity.inscricaoEstadual || rfbComplement?.inscricaoEstadual || known?.inscricaoEstadual || '';
+    const im = gcEntity.inscricaoMunicipal || rfbComplement?.inscricaoMunicipal || known?.inscricaoMunicipal || '';
+    const email =
+      gcEntity.email ||
+      gcEntity.emailAcesso ||
+      gcEntity.contatos[0]?.email ||
+      rfbComplement?.emailComercial ||
+      known?.emailComercial ||
+      '';
+    const tel =
+      gcEntity.telefone ||
+      gcEntity.celular ||
+      gcEntity.contatos[0]?.telefone ||
+      rfbComplement?.telefone ||
+      known?.telefone ||
+      '';
+    const cel =
+      gcEntity.celular ||
+      gcEntity.telefone ||
+      rfbComplement?.celularWhatsapp ||
+      known?.celularWhatsapp ||
+      '';
+    const domain =
+      email.includes('@') && !email.match(/(gmail|hotmail|outlook|yahoo|uol|terra|bol)\./i)
+        ? email.split('@')[1]
+        : rfbComplement?.website || known?.website || '';
+
     return {
       ok: true,
       data: {
         cnpj: formatted,
         cnpjDigits: digits,
         tipoPessoa: 'Pessoa jurídica',
-        razaoSocial: known.razaoSocial || `EMPRESA CORPORATIVA ${formatted}`,
-        nomeFantasia: known.nomeFantasia || known.razaoSocial || formatted,
+        razaoSocial,
+        nomeFantasia,
+        situacaoCadastral,
+        dataAbertura: rfbComplement?.dataAbertura || known?.dataAbertura || '',
+        cnaePrincipal: rfbComplement?.cnaePrincipal || known?.cnaePrincipal || '',
+        cnaeDescricao: rfbComplement?.cnaeDescricao || known?.cnaeDescricao || '',
+        naturezaJuridica: rfbComplement?.naturezaJuridica || known?.naturezaJuridica || '',
+        porte: rfbComplement?.porte || known?.porte || '',
+        capitalSocial: rfbComplement?.capitalSocial ?? known?.capitalSocial ?? 0,
+        inscricaoEstadual: ie,
+        indicadorIe:
+          gcEntity.tipoContribuinte.toLowerCase().includes('icms') || (ie && ie.toUpperCase() !== 'ISENTO')
+            ? 'Contribuinte ICMS'
+            : gcEntity.tipoContribuinte.toLowerCase().includes('não')
+              ? 'Não Contribuinte'
+              : 'Contribuinte Isento',
+        inscricaoMunicipal: im,
+        suframa: known?.suframa || '',
+        regimeTributario: rfbComplement?.regimeTributario || known?.regimeTributario || 'Lucro Presumido',
+        cep: gcEntity.endereco.cep || rfbComplement?.cep || known?.cep || '',
+        logradouro: gcEntity.endereco.logradouro || rfbComplement?.logradouro || known?.logradouro || '',
+        numero: gcEntity.endereco.numero || rfbComplement?.numero || known?.numero || '',
+        complemento: gcEntity.endereco.complemento || rfbComplement?.complemento || known?.complemento || '',
+        bairro: gcEntity.endereco.bairro || rfbComplement?.bairro || known?.bairro || '',
+        cidade: gcEntity.endereco.nomeCidade || rfbComplement?.cidade || known?.cidade || '',
+        uf: gcEntity.endereco.estado || rfbComplement?.uf || known?.uf || '',
+        codigoIbge: rfbComplement?.codigoIbge || known?.codigoIbge || '',
+        telefone: tel,
+        celularWhatsapp: cel,
+        emailComercial: email,
+        emailFinanceiroNfe: email || known?.emailFinanceiroNfe || '',
+        website: domain,
+        gestaoClickId: gcEntity.id,
+        gestaoClickActive: gcEntity.ativo === '1',
+        source: 'GestãoClick ERP (#118887) + Receita Federal',
+        fetchedAt: nowIso,
+      },
+    };
+  }
+
+  // 2º: Consultar ao vivo na Receita Federal (BrasilAPI -> ReceitaWS -> CNPJ.ws)
+  const liveRfb = await fetchLiveReceitaFederalCnpj(digits);
+  if (liveRfb) {
+    if (known) {
+      // Preserve verified Seta Telecom corporate directory fields where Receita leaves blank
+      return {
+        ok: true,
+        data: {
+          ...liveRfb,
+          razaoSocial: known.razaoSocial || liveRfb.razaoSocial,
+          nomeFantasia: sanitizeGestaoClickTradeName(
+            liveRfb.nomeFantasia || known.nomeFantasia,
+            known.razaoSocial || liveRfb.razaoSocial
+          ),
+          cep: liveRfb.cep || known.cep || '',
+          logradouro: liveRfb.logradouro || known.logradouro || '',
+          numero: liveRfb.numero || known.numero || '',
+          complemento: liveRfb.complemento || known.complemento || '',
+          bairro: liveRfb.bairro || known.bairro || '',
+          cidade: liveRfb.cidade || known.cidade || '',
+          uf: liveRfb.uf || known.uf || '',
+          inscricaoEstadual: liveRfb.inscricaoEstadual || known.inscricaoEstadual || '',
+          inscricaoMunicipal: liveRfb.inscricaoMunicipal || known.inscricaoMunicipal || '',
+          telefone: liveRfb.telefone || known.telefone || '',
+          celularWhatsapp: liveRfb.celularWhatsapp || known.celularWhatsapp || '',
+          emailComercial: liveRfb.emailComercial || known.emailComercial || '',
+          emailFinanceiroNfe: liveRfb.emailFinanceiroNfe || known.emailFinanceiroNfe || '',
+          website: liveRfb.website || known.website || '',
+        },
+      };
+    }
+    return { ok: true, data: liveRfb };
+  }
+
+  // 3º: Catálogo verificado Seta Telecom (para os 6 CNPJs conhecidos da base de seed/testes)
+  if (known) {
+    const razao = known.razaoSocial || '';
+    return {
+      ok: true,
+      data: {
+        cnpj: formatted,
+        cnpjDigits: digits,
+        tipoPessoa: 'Pessoa jurídica',
+        razaoSocial: razao,
+        nomeFantasia: sanitizeGestaoClickTradeName(known.nomeFantasia, razao),
         situacaoCadastral: known.situacaoCadastral || 'ATIVA',
-        dataAbertura: known.dataAbertura || '2015-04-10',
-        cnaePrincipal: known.cnaePrincipal || '61.10-8-03',
-        cnaeDescricao: known.cnaeDescricao || 'Serviços de telecomunicações e tecnologia da informação',
-        naturezaJuridica: known.naturezaJuridica || '206-2 - Sociedade Empresária Limitada',
-        porte: known.porte || 'DEMAIS / MÉDIO E GRANDE PORTE',
-        capitalSocial: known.capitalSocial ?? 1500000,
-        inscricaoEstadual: known.inscricaoEstadual || 'ISENTO',
+        dataAbertura: known.dataAbertura || '',
+        cnaePrincipal: known.cnaePrincipal || '',
+        cnaeDescricao: known.cnaeDescricao || '',
+        naturezaJuridica: known.naturezaJuridica || '',
+        porte: known.porte || '',
+        capitalSocial: known.capitalSocial ?? 0,
+        inscricaoEstadual: known.inscricaoEstadual || '',
         indicadorIe: known.indicadorIe || 'Contribuinte Isento',
-        inscricaoMunicipal: known.inscricaoMunicipal || '4.102.889-1',
+        inscricaoMunicipal: known.inscricaoMunicipal || '',
         suframa: known.suframa || '',
         regimeTributario: known.regimeTributario || 'Lucro Presumido',
-        cep: known.cep || '01310-100',
-        logradouro: known.logradouro || 'Avenida Paulista',
-        numero: known.numero || '1000',
-        complemento: known.complemento || 'Conjunto 101',
-        bairro: known.bairro || 'Bela Vista',
-        cidade: known.cidade || 'São Paulo',
-        uf: known.uf || 'SP',
-        codigoIbge: known.codigoIbge || '3550308',
-        telefone: known.telefone || '(11) 3958-4929',
-        celularWhatsapp: known.celularWhatsapp || '(11) 93958-4929',
-        emailComercial: known.emailComercial || 'contato@empresa.com.br',
-        emailFinanceiroNfe: known.emailFinanceiroNfe || 'nfe@empresa.com.br',
+        cep: known.cep || '',
+        logradouro: known.logradouro || '',
+        numero: known.numero || '',
+        complemento: known.complemento || '',
+        bairro: known.bairro || '',
+        cidade: known.cidade || '',
+        uf: known.uf || '',
+        codigoIbge: known.codigoIbge || '',
+        telefone: known.telefone || '',
+        celularWhatsapp: known.celularWhatsapp || '',
+        emailComercial: known.emailComercial || '',
+        emailFinanceiroNfe: known.emailFinanceiroNfe || '',
         website: known.website || '',
         source: 'Receita Federal do Brasil (Base Oficial Sincronizada Seta Telecom)',
         fetchedAt: nowIso,
@@ -270,108 +669,9 @@ export async function lookupCnpjInReceitaFederal(
     };
   }
 
-  // 2. Try live BrasilAPI (https://brasilapi.com.br/api/cnpj/v1/{digits})
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-      cache: 'no-store',
-    });
-    clearTimeout(timer);
-    if (res.ok) {
-      const j = (await res.json()) as Record<string, unknown>;
-      const razao = String(j.razao_social || '').trim();
-      if (razao) {
-        const fantasia = String(j.nome_fantasia || razao).trim();
-        const cepRaw = String(j.cep || '01310100').replace(/\D+/g, '');
-        const cepFmt = cepRaw.length === 8 ? `${cepRaw.slice(0, 5)}-${cepRaw.slice(5)}` : cepRaw;
-        const tel = String(j.ddd_telefone_1 || '').trim();
-        const email = String(j.email || '').trim().toLowerCase();
-        const domain = email.includes('@') ? email.split('@')[1] : '';
-        return {
-          ok: true,
-          data: {
-            cnpj: formatted,
-            cnpjDigits: digits,
-            tipoPessoa: 'Pessoa jurídica',
-            razaoSocial: razao,
-            nomeFantasia: fantasia,
-            situacaoCadastral: String(j.descricao_situacao_cadastral || 'ATIVA').toUpperCase().includes('ATIV')
-              ? 'ATIVA'
-              : 'INAPTA',
-            dataAbertura: String(j.data_inicio_atividade || '2018-01-15'),
-            cnaePrincipal: String(j.cnae_fiscal || '62.04-0-00'),
-            cnaeDescricao: String(j.cnae_fiscal_descricao || 'Atividades de tecnologia da informação'),
-            naturezaJuridica: String(j.natureza_juridica || '206-2 - Sociedade Empresária Limitada'),
-            porte: String(j.porte || 'DEMAIS'),
-            capitalSocial: Number(j.capital_social || 500000),
-            inscricaoEstadual: 'ISENTO',
-            indicadorIe: 'Contribuinte Isento',
-            inscricaoMunicipal: 'ISENTO',
-            suframa: '',
-            regimeTributario: Boolean(j.opcao_pelo_simples) ? 'Simples Nacional' : 'Lucro Presumido',
-            cep: cepFmt,
-            logradouro: `${String(j.descricao_tipo_de_logradouro || '').trim()} ${String(j.logradouro || '').trim()}`.trim(),
-            numero: String(j.numero || 'S/N'),
-            complemento: String(j.complemento || ''),
-            bairro: String(j.bairro || 'Centro'),
-            cidade: String(j.municipio || 'São Paulo'),
-            uf: String(j.uf || 'SP'),
-            codigoIbge: String(j.codigo_municipio_ibge || '3550308'),
-            telefone: tel || '(11) 3958-4929',
-            celularWhatsapp: tel || '(11) 93958-4929',
-            emailComercial: email || `comercial@${digits.slice(0, 8)}.com.br`,
-            emailFinanceiroNfe: email || `nfe@${digits.slice(0, 8)}.com.br`,
-            website: domain,
-            source: 'Receita Federal do Brasil (BrasilAPI Oficial)',
-            fetchedAt: nowIso,
-          },
-        };
-      }
-    }
-  } catch {
-    // Fallback to deterministic Receita Federal response below
-  }
-
-  // 3. Deterministic fallback so offline/rate-limited environments never break
-  const branchSuffix = digits.slice(8, 12) === '0001' ? 'MATRIZ' : `FILIAL ${digits.slice(8, 12)}`;
+  // 4º: Sem fallback fictício na Av. Paulista para CNPJs inexistentes
   return {
-    ok: true,
-    data: {
-      cnpj: formatted,
-      cnpjDigits: digits,
-      tipoPessoa: 'Pessoa jurídica',
-      razaoSocial: `CORPORACAO EMPRESARIAL BRASILEIRA ${digits.slice(0, 6)} LTDA (${branchSuffix})`,
-      nomeFantasia: `GRUPO EMPRESARIAL ${digits.slice(0, 6)}`,
-      situacaoCadastral: 'ATIVA',
-      dataAbertura: '2016-08-12',
-      cnaePrincipal: '61.10-8-03',
-      cnaeDescricao: 'Serviços de comunicação multimídia - SCM e Tecnologia da Informação',
-      naturezaJuridica: '206-2 - Sociedade Empresária Limitada',
-      porte: 'DEMAIS / MÉDIO PORTE',
-      capitalSocial: 850000,
-      inscricaoEstadual: `114.${digits.slice(0, 3)}.${digits.slice(3, 6)}.110`,
-      indicadorIe: 'Contribuinte ICMS',
-      inscricaoMunicipal: `3.${digits.slice(0, 3)}.${digits.slice(3, 6)}-0`,
-      suframa: '',
-      regimeTributario: 'Lucro Presumido',
-      cep: '01310-100',
-      logradouro: 'Avenida Paulista',
-      numero: '1374',
-      complemento: '11º Andar',
-      bairro: 'Bela Vista',
-      cidade: 'São Paulo',
-      uf: 'SP',
-      codigoIbge: '3550308',
-      telefone: '(11) 3280-4000',
-      celularWhatsapp: '(11) 98280-4000',
-      emailComercial: `contato@empresa${digits.slice(0, 6)}.com.br`,
-      emailFinanceiroNfe: `nfe@empresa${digits.slice(0, 6)}.com.br`,
-      website: `empresa${digits.slice(0, 6)}.com.br`,
-      source: 'Receita Federal do Brasil (Contingência Sincronizada RFB)',
-      fetchedAt: nowIso,
-    },
+    ok: false,
+    error: 'CNPJ não encontrado no GestãoClick nem na base da Receita Federal.',
   };
 }

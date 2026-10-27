@@ -33,7 +33,7 @@ import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
-import { Settings, Lock } from 'lucide-react';
+import { Settings, Lock, Menu } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
@@ -109,6 +109,7 @@ export default function HubSpotProCrmApp() {
   const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
   const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
   const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
+  const [crmMobileDrawerOpen, setCrmMobileDrawerOpen] = useState(false);
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
@@ -1062,7 +1063,7 @@ export default function HubSpotProCrmApp() {
     : "Matriz #118887";
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b]">
+    <div className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b] overflow-x-hidden">
       {/* ====================================================================
           OFFICIAL STI-HUB (SETA TELECOM CRM & ERP) TOP GLOBAL NAVIGATION BAR (#213343)
       ==================================================================== */}
@@ -1249,7 +1250,7 @@ export default function HubSpotProCrmApp() {
                   key={item.id}
                   type="button"
                   onClick={item.onClick}
-                  className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-[4px] text-xs font-extrabold transition cursor-pointer ${
+                  className={`relative flex-1 sm:flex-initial min-h-[40px] inline-flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2 rounded-[4px] text-xs font-extrabold transition cursor-pointer ${
                     isActive
                       ? "bg-[#213343] text-white shadow-xs"
                       : "text-[#cbd6e2] hover:bg-[#33475b] hover:text-white"
@@ -1456,9 +1457,133 @@ export default function HubSpotProCrmApp() {
           )}
 
           {isCrmActive && (
-            <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex min-h-[780px]">
+            <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex flex-col md:flex-row min-h-[780px]">
+              {/* MOBILE CRM NAVIGATION BAR (DRAWER TRIGGER + 1-TAP HORIZONTAL PILLS) */}
+              <div className="md:hidden bg-[#213343] text-white px-3 py-2.5 border-b border-[#33475b] space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCrmMobileDrawerOpen(true)}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                  >
+                    <Menu className="w-4 h-4" />
+                    <span>Menu CRM</span>
+                  </button>
+                  <span className="text-[11px] font-bold text-[#cbd6e2] truncate">
+                    {activeModule === 'OVERVIEW_AI'
+                      ? 'Visão Geral & IA'
+                      : activeModule === 'CONTACTS_COMPANIES'
+                        ? contactsInitialSubView === 'COMPANIES'
+                          ? 'Empresas CRM'
+                          : 'Contatos CRM'
+                        : activeModule === 'DEALS_KANBAN'
+                          ? 'Sales Hub (Pipelines)'
+                          : activeModule === 'MARKETING_FORMS'
+                            ? 'Marketing Hub'
+                            : activeModule === 'AUTOMATIONS'
+                              ? 'Automações'
+                              : activeModule === 'DATA_HEALTH'
+                                ? 'Data Health'
+                                : 'Administração & Config.'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                  {[
+                    {
+                      id: 'OVERVIEW_AI',
+                      label: 'Visão Geral & IA',
+                      active: activeModule === 'OVERVIEW_AI',
+                      onClick: () => {
+                        setLastCrmSubModule('OVERVIEW_AI');
+                        setActiveModule('OVERVIEW_AI');
+                      },
+                    },
+                    {
+                      id: 'CONTACTS',
+                      label: `Contatos (${contacts.length})`,
+                      active: activeModule === 'CONTACTS_COMPANIES' && contactsInitialSubView === 'CONTACTS',
+                      onClick: () => {
+                        setContactsInitialSubView('CONTACTS');
+                        setLastCrmSubModule('CONTACTS_COMPANIES');
+                        setActiveModule('CONTACTS_COMPANIES');
+                      },
+                    },
+                    {
+                      id: 'COMPANIES',
+                      label: `Empresas (${companies.length})`,
+                      active: activeModule === 'CONTACTS_COMPANIES' && contactsInitialSubView === 'COMPANIES',
+                      onClick: () => {
+                        setContactsInitialSubView('COMPANIES');
+                        setLastCrmSubModule('CONTACTS_COMPANIES');
+                        setActiveModule('CONTACTS_COMPANIES');
+                      },
+                    },
+                    {
+                      id: 'DEALS_KANBAN',
+                      label: `Sales Hub (${deals.length})`,
+                      active: activeModule === 'DEALS_KANBAN',
+                      onClick: () => {
+                        setLastCrmSubModule('DEALS_KANBAN');
+                        setActiveModule('DEALS_KANBAN');
+                      },
+                    },
+                    {
+                      id: 'MARKETING_FORMS',
+                      label: 'Marketing Hub',
+                      active: activeModule === 'MARKETING_FORMS',
+                      onClick: () => {
+                        setLastCrmSubModule('MARKETING_FORMS');
+                        setActiveModule('MARKETING_FORMS');
+                      },
+                    },
+                    {
+                      id: 'AUTOMATIONS',
+                      label: 'Automações',
+                      active: activeModule === 'AUTOMATIONS',
+                      onClick: () => {
+                        setLastCrmSubModule('AUTOMATIONS');
+                        setActiveModule('AUTOMATIONS');
+                      },
+                    },
+                    {
+                      id: 'DATA_HEALTH',
+                      label: 'Data Health',
+                      active: activeModule === 'DATA_HEALTH',
+                      onClick: () => {
+                        setLastCrmSubModule('DATA_HEALTH');
+                        setActiveModule('DATA_HEALTH');
+                      },
+                    },
+                    {
+                      id: 'ADMIN_RBAC',
+                      label: 'Admin & Config.',
+                      active: activeModule === 'ADMIN_RBAC',
+                      onClick: () => {
+                        setLastCrmSubModule('ADMIN_RBAC');
+                        setActiveModule('ADMIN_RBAC');
+                      },
+                    },
+                  ].map((pill) => (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={pill.onClick}
+                      className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                        pill.active
+                          ? 'bg-white text-[#0d2b4e] shadow-2xs'
+                          : 'bg-[#33475b] text-[#cbd6e2] hover:text-white'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <CrmSidebar
                 activeModule={activeModule as CrmModuleId}
+                mobileDrawerOpen={crmMobileDrawerOpen}
+                onCloseMobileDrawer={() => setCrmMobileDrawerOpen(false)}
                 pipelines={pipelines}
                 selectedPipelineId={selectedPipelineId}
                 contactsSubView={contactsInitialSubView}

@@ -29,6 +29,10 @@ import {
   WebFormTargetType,
 } from '../../db/types';
 import { formatDateTimeBR, getLifecycleBadge } from './ui-helpers';
+import {
+  GESTAOCLICK_ALL_76_ENDPOINTS,
+  GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
+} from '../../modules/erp/gestaoclick-schema-catalog';
 import { MarketingHubSuiteTop, MarketingHubSubView } from './MarketingAndSalesHubSuites';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
@@ -190,6 +194,8 @@ export default function FormsBuilderTab({
   const [hsAutoClean, setHsAutoClean] = useState(true);
   const [migratingHs, setMigratingHs] = useState(false);
   const [migrationReport, setMigrationReport] = useState<HubSpotMigrationReport | null>(null);
+  const [selectedSchemaModulo, setSelectedSchemaModulo] = useState<string>('ALL');
+  const [selectedResourceKey, setSelectedResourceKey] = useState<string>('clientes');
 
   const selectedForm = forms.find((f) => f.id === selectedFormId) || forms[0];
 
@@ -597,6 +603,161 @@ export default function FormsBuilderTab({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* DICIONÁRIO COMPLETO DE MENUS, TABELAS (76 RECURSOS) E CAMPOS DO GESTÃOCLICK (#118887) */}
+          <div className="pt-5 border-t border-slate-200 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — GestãoClick #118887 ↔ HubSpot v3
+                </h3>
+                <p className="text-xs text-slate-600">
+                  Mapeamento 1:1 de todas as tabelas, campos raiz, sub-objetos aninhados e contagens reais da Seta Telecom (GET /api/erp/gestaoclick/schema).
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'ALL', label: 'Todos os Módulos' },
+                  { id: 'core', label: 'Cadastros & Itens (core)' },
+                  { id: 'pedidos', label: 'Orçamentos, Vendas & O.S.' },
+                  { id: 'contratos', label: 'Contratos & Locações' },
+                  { id: 'financeiro', label: 'Financeiro & Bancos' },
+                  { id: 'fiscal', label: 'Fiscal (NF-e / NFS-e)' },
+                  { id: 'estoque', label: 'Estoque & Compras' },
+                  { id: 'crm', label: 'CRM & Tarefas' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedSchemaModulo(m.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      selectedSchemaModulo === m.id
+                        ? 'bg-[#1e3a6e] text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div className="lg:col-span-5 max-h-96 overflow-y-auto space-y-2 pr-1">
+                {GESTAOCLICK_FULL_RESOURCE_SCHEMAS.filter(
+                  (s) => selectedSchemaModulo === 'ALL' || s.modulo === selectedSchemaModulo
+                ).map((s) => {
+                  const isSel = selectedResourceKey === s.recurso;
+                  return (
+                    <button
+                      key={s.recurso}
+                      type="button"
+                      onClick={() => setSelectedResourceKey(s.recurso)}
+                      className={`w-full text-left p-3 rounded-xl border transition cursor-pointer ${
+                        isSel
+                          ? 'bg-blue-50/80 border-[#1e3a6e] shadow-2xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-extrabold text-[#1e3a6e]">
+                          {s.caminho}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                          {s.totalRegistrosLoja118887.toLocaleString('pt-BR')} reg.
+                        </span>
+                      </div>
+                      <div className="text-xs font-bold text-slate-800 mt-1">
+                        {s.menuGroup} → {s.menuSubItem}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
+                        <span>{s.fields.length} campos mapeados</span>
+                        <span>Módulo: {s.modulo}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="lg:col-span-7">
+                {(() => {
+                  const activeSchema =
+                    GESTAOCLICK_FULL_RESOURCE_SCHEMAS.find((s) => s.recurso === selectedResourceKey) ||
+                    GESTAOCLICK_FULL_RESOURCE_SCHEMAS[0];
+                  if (!activeSchema) return null;
+                  return (
+                    <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff987f]">
+                            Menu: {activeSchema.menuGroup} • {activeSchema.menuSubItem}
+                          </span>
+                          <h4 className="text-sm font-extrabold text-white font-mono mt-0.5">
+                            {activeSchema.caminho} ({activeSchema.totalRegistrosLoja118887.toLocaleString('pt-BR')} registros na Loja #118887)
+                          </h4>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-300 font-mono text-[11px] font-bold">
+                          Ações: {activeSchema.acoes.join(', ')}
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] font-bold text-slate-400 uppercase mb-1.5">
+                          Todos os Campos Raiz ({activeSchema.fields.length} campos):
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeSchema.fields.map((f) => (
+                            <code
+                              key={f}
+                              className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-mono text-[11px]"
+                            >
+                              {f}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+
+                      {activeSchema.nestedStructures && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="text-[11px] font-bold text-slate-400 uppercase">
+                            Sub-tabelas / Objetos Aninhados:
+                          </div>
+                          {Object.entries(activeSchema.nestedStructures).map(([nestedKey, nestedFields]) => (
+                            <div
+                              key={nestedKey}
+                              className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1"
+                            >
+                              <div className="font-mono font-bold text-amber-300 text-[11px]">
+                                {nestedKey}
+                              </div>
+                              <div className="text-[11px] text-slate-300 font-mono">
+                                {nestedFields.join(', ')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                        <div className="p-2.5 rounded-xl bg-slate-800/70">
+                          <span className="text-slate-400 block">Destino no STI-hub:</span>
+                          <strong className="text-white font-mono">
+                            {activeSchema.stiHubTarget.collection} ({activeSchema.stiHubTarget.primaryKey})
+                          </strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-800/70">
+                          <span className="text-slate-400 block">Espelhamento HubSpot CRM v3:</span>
+                          <strong className="text-indigo-300 font-mono">
+                            {activeSchema.hubspotMapping?.object || 'ERP Nativo STI-hub'}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           </div>
         </div>

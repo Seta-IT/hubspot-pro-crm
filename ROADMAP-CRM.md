@@ -122,3 +122,11 @@
   - Rotas públicas estritamente controladas: `/login`, `/api/auth/*`, `/proposta/[id]` + `GET /api/erp/proposals/:id` (visualização/impressão de proposta pelo cliente) e `/api/health`.
 - **Subdomínio Oficial em Produção (Vercel)**:
   - Produção ativa e publicada em **`https://sti-hub.vercel.app`**, com suporte a CNAME customizado corporativo (`https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br`).
+
+---
+
+## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
+
+- [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
+  - **Diretriz do Marcéllo (`[t58u]`):** *"Ao criar uma proposta no ERP, ter a opção de criar no CRM, deixe isso no roadmap e me pergunte antes de criar para mais regras."*
+  - **Status:** Registrado no Roadmap e **bloqueado para implementação até alinhamento prévio das regras de negócio com o Marcéllo** (ex.: em qual pipeline e etapa o Deal deve nascer, quando criar ou vincular a um Deal já existente, mapeamento de valores/MRR e gatilhos de atualização).

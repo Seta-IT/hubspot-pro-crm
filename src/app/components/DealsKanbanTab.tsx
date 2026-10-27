@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Building2,
@@ -29,6 +29,9 @@ import {
   Printer,
   Edit3,
   Trash2,
+  LayoutGrid,
+  List,
+  Users,
 } from 'lucide-react';
 import { Company, Contact, Deal, DealBusinessType, DealPriority, ErpCommercialProposal, ErpRentalContract, PipelineStage, TimelineEvent } from '../../db/types';
 import { formatBRL, formatDateTimeBR } from './ui-helpers';
@@ -36,6 +39,21 @@ import { buildPublicProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
+
+export type DealsViewMode =
+  | 'KANBAN'
+  | 'LIST'
+  | 'COMPACT_GRID'
+  | 'TIMELINE_FORECAST'
+  | 'BY_OWNER_PRIORITY';
+
+export const DEALS_VIEW_MODES: Array<{ id: DealsViewMode; label: string; shortLabel: string }> = [
+  { id: 'KANBAN', label: 'Kanban', shortLabel: 'Kanban' },
+  { id: 'LIST', label: 'Lista', shortLabel: 'Lista' },
+  { id: 'COMPACT_GRID', label: 'Grade Compacta', shortLabel: 'Grade' },
+  { id: 'TIMELINE_FORECAST', label: 'Cronograma / Previsão', shortLabel: 'Cronograma' },
+  { id: 'BY_OWNER_PRIORITY', label: 'Por Executivo / Prioridade', shortLabel: 'Por Executivo' },
+];
 
 export interface EnrichedDeal extends Deal {
   stageName: string;
@@ -154,6 +172,34 @@ export default function DealsKanbanTab({
     setLocalPipelineId(pipeId);
     if (onSelectPipeline) onSelectPipeline(pipeId);
   };
+
+  const [viewMode, setViewMode] = useState<DealsViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = window.localStorage.getItem('stihub_deals_view_mode') as DealsViewMode | null;
+      if (
+        saved &&
+        ['KANBAN', 'LIST', 'COMPACT_GRID', 'TIMELINE_FORECAST', 'BY_OWNER_PRIORITY'].includes(saved)
+      ) {
+        return saved;
+      }
+    }
+    return 'KANBAN';
+  });
+  const [ownerPrioritySubMode, setOwnerPrioritySubMode] = useState<'OWNER' | 'PRIORITY'>('OWNER');
+  const [mobileStageFilter, setMobileStageFilter] = useState<string>('ALL');
+
+  const handleSelectViewMode = (mode: DealsViewMode) => {
+    setViewMode(mode);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('stihub_deals_view_mode', mode);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    setMobileStageFilter('ALL');
+  }, [currentPipelineId]);
 
   const [filterRottingOnly, setFilterRottingOnly] = useState(false);
   const [filterOwner, setFilterOwner] = useState<string>('ALL');
@@ -753,10 +799,80 @@ export default function DealsKanbanTab({
         </div>
       </div>
 
-      {/* KANBAN BOARD HORIZONTAL SCROLL */}
-      <div className="overflow-x-auto pb-4">
-        <div className="inline-flex gap-4 min-w-full">
-          {stages.map((stage, stageIdx) => {
+      {/* BARRA CORPORATIVA DE MÚLTIPLAS VISUALIZAÇÕES DO PIPELINE (5 MODOS + FILTRO MOBILE DE ETAPA) */}
+      <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
+            Visualização:
+          </span>
+          {DEALS_VIEW_MODES.map((vm) => {
+            const active = viewMode === vm.id;
+            return (
+              <button
+                key={vm.id}
+                type="button"
+                onClick={() => handleSelectViewMode(vm.id)}
+                className={`shrink-0 px-3 py-1.5 rounded-[4px] text-xs font-extrabold transition cursor-pointer border ${
+                  active
+                    ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="hidden sm:inline">{vm.label}</span>
+                <span className="sm:hidden">{vm.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between md:justify-end gap-2 text-xs text-slate-600">
+          <span>
+            Exibindo <strong>{filteredDeals.length}</strong> negócios • MRR:{' '}
+            <strong className="text-emerald-700">{formatBRL(pipeTotalMrr)}/mês</strong>
+          </span>
+        </div>
+      </div>
+
+      {/* MODO 1: KANBAN BOARD (COM SELETOR DE ETAPA MOBILE + SCROLL HORIZONTAL) */}
+      {viewMode === 'KANBAN' && (
+        <div className="space-y-3">
+          {/* Seletor rápido de etapa no celular (< md) */}
+          <div className="md:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            <button
+              type="button"
+              onClick={() => setMobileStageFilter('ALL')}
+              className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold cursor-pointer ${
+                mobileStageFilter === 'ALL'
+                  ? 'bg-[#ff7a59] text-white'
+                  : 'bg-white border border-slate-200 text-slate-700'
+              }`}
+            >
+              Todas Etapas ({filteredDeals.length})
+            </button>
+            {stages.map((st) => {
+              const cnt = filteredDeals.filter((d) => d.stageId === st.id).length;
+              return (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setMobileStageFilter(st.id)}
+                  className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer ${
+                    mobileStageFilter === st.id
+                      ? 'bg-[#0d2b4e] text-white'
+                      : 'bg-white border border-slate-200 text-slate-700'
+                  }`}
+                >
+                  {st.order}. {st.name.slice(0, 18)} ({cnt})
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="overflow-x-auto pb-4 -mx-2 px-2 sm:mx-0 sm:px-0">
+            <div className="inline-flex gap-4 min-w-full">
+              {stages
+                .filter((st) => mobileStageFilter === 'ALL' || st.id === mobileStageFilter)
+                .map((stage, stageIdx) => {
             const stageDeals = filteredDeals.filter((d) => d.stageId === stage.id);
             const colTotal = stageDeals.reduce((sum, d) => sum + d.value, 0);
             const colWeighted = Math.round(
@@ -1121,8 +1237,425 @@ export default function DealsKanbanTab({
               </div>
             );
           })}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* MODO 2: LISTA CORPORATIVA COMPLETA (TABELA ORDENADA COM MUDANÇA DE ETAPA INLINE) */}
+      {viewMode === 'LIST' && (
+        <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
+          <div className="px-4 py-3 bg-[#f8f9fb] border-b border-[#cbd6e2] flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-extrabold text-[#0d2b4e]">
+              Visão em Lista Corporativa — {activePipeline?.name} ({filteredDeals.length} negócios)
+            </span>
+            <span className="text-slate-500">
+              Total Aberto: <strong>{formatBRL(pipeOpenValue)}</strong> • Forecast Ponderado:{' '}
+              <strong className="text-[#e05835]">{formatBRL(pipeWeightedValue)}</strong>
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-left text-xs">
+              <thead className="bg-slate-900 text-white uppercase text-[10px]">
+                <tr>
+                  <th className="py-2.5 px-3">Negócio / Oportunidade</th>
+                  <th className="py-2.5 px-3">Empresa / CNPJ</th>
+                  <th className="py-2.5 px-3">Etapa do Funil (Inline)</th>
+                  <th className="py-2.5 px-3 text-right">Valor Total (TCV)</th>
+                  <th className="py-2.5 px-3 text-right">MRR Mensal</th>
+                  <th className="py-2.5 px-3 text-center">Prob. %</th>
+                  <th className="py-2.5 px-3">Fechamento Previsto</th>
+                  <th className="py-2.5 px-3">Executivo Responsável</th>
+                  <th className="py-2.5 px-3 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredDeals.map((deal) => {
+                  const contractMonths = deal.contractMonths || 24;
+                  const mrr = deal.mrr || Math.round(deal.value / contractMonths);
+                  const priorityMeta = getPriorityMeta(deal.priority, deal.value);
+                  const closeDateStr = deal.expectedCloseDate
+                    ? new Date(deal.expectedCloseDate).toLocaleDateString('pt-BR')
+                    : '30/11/2026';
+                  return (
+                    <tr key={deal.id} className="hover:bg-slate-50 transition">
+                      <td className="py-2.5 px-3">
+                        <button
+                          type="button"
+                          onClick={() => openDealDetail(deal)}
+                          className="text-left font-extrabold text-[#0091ae] hover:underline cursor-pointer block"
+                        >
+                          {deal.title}
+                        </button>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${priorityMeta.cls}`}>
+                            {priorityMeta.short}
+                          </span>
+                          {deal.isRotting && (
+                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 text-[9px] font-bold">
+                              Inativo {deal.daysInactive}d
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-800">
+                          {deal.company?.name || 'Empresa B2B'}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500">
+                          {deal.company?.cnpj || 'CNPJ em validação'}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <select
+                          aria-label={`Etapa de ${deal.title}`}
+                          value={deal.stageId}
+                          onChange={(e) => handleStageChange(deal.id, e.target.value)}
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e] text-xs"
+                        >
+                          {stages.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.order}. {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900">
+                        {formatBRL(deal.value)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-emerald-700">
+                        {formatBRL(mrr)}/mês
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-800">
+                          {deal.probability}%
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-slate-700">{closeDateStr}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800">
+                        {deal.ownerName || 'Marcelo Lopes Mira'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openDealDetail(deal)}
+                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            Abrir / Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickGenerateProposalForDeal(deal)}
+                            className="px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-[11px] cursor-pointer"
+                          >
+                            PDF
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODO 3: GRADE COMPACTA (CARDS EXECUTIVOS RESPONSIVOS PARA MOBILE E TABLET) */}
+      {viewMode === 'COMPACT_GRID' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {filteredDeals.map((deal) => {
+            const contractMonths = deal.contractMonths || 24;
+            const mrr = deal.mrr || Math.round(deal.value / contractMonths);
+            const priorityMeta = getPriorityMeta(deal.priority, deal.value);
+            const stObj = stages.find((s) => s.id === deal.stageId);
+            return (
+              <div
+                key={deal.id}
+                className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs hover:border-[#0091ae] transition flex flex-col justify-between gap-3"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-extrabold">
+                      {stObj ? `${stObj.order}. ${stObj.name}` : deal.stageName}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${priorityMeta.cls}`}>
+                      {priorityMeta.short}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openDealDetail(deal)}
+                    className="text-left font-extrabold text-sm text-[#0091ae] hover:underline cursor-pointer block"
+                  >
+                    {deal.title}
+                  </button>
+                  <div className="text-xs text-slate-600">
+                    <strong>{deal.company?.name || 'Empresa B2B'}</strong>
+                    {deal.company?.cnpj ? ` • CNPJ ${deal.company.cnpj}` : ''}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Valor TCV</span>
+                      <strong className="text-slate-900">{formatBRL(deal.value)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">MRR</span>
+                      <strong className="text-emerald-700">{formatBRL(mrr)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Prob.</span>
+                      <strong className="text-[#e05835]">{deal.probability}%</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-[11px] text-slate-500 truncate">
+                    Executivo: <strong>{deal.ownerName || 'Marcelo Mira'}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openDealDetail(deal)}
+                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-xs cursor-pointer shrink-0"
+                  >
+                    Abrir / Editar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* MODO 4: CRONOGRAMA / PREVISÃO DE FECHAMENTO (FORECAST TIMELINE) */}
+      {viewMode === 'TIMELINE_FORECAST' && (
+        <div className="space-y-4">
+          {[
+            {
+              key: 'IMMEDIATE',
+              title: '1. Fechamento Prioritário & Curto Prazo (Alta Probabilidade >= 60%)',
+              accent: 'border-l-4 border-l-[#ff7a59]',
+              items: filteredDeals.filter((d) => d.status === 'OPEN' && d.probability >= 60),
+            },
+            {
+              key: 'MID_TERM',
+              title: '2. Qualificação & Proposta em Maturação (Probabilidade < 60%)',
+              accent: 'border-l-4 border-l-[#0091ae]',
+              items: filteredDeals.filter((d) => d.status === 'OPEN' && d.probability < 60),
+            },
+            {
+              key: 'CLOSED_WON',
+              title: '3. Negócios Ganhos & Contratos Ativados (Receita Garantida)',
+              accent: 'border-l-4 border-l-emerald-600',
+              items: filteredDeals.filter((d) => d.status === 'WON'),
+            },
+          ].map((bucket) => {
+            const bucketTotal = bucket.items.reduce((s, d) => s + d.value, 0);
+            const bucketWeighted = bucket.items.reduce((s, d) => s + d.weightedValue, 0);
+            return (
+              <div
+                key={bucket.key}
+                className={`bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3 ${bucket.accent}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">{bucket.title}</h3>
+                    <span className="text-xs text-slate-500">
+                      {bucket.items.length} negócio(s) nesta janela de previsão
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="px-2.5 py-1 rounded bg-slate-100 font-bold text-slate-800">
+                      TCV: {formatBRL(bucketTotal)}
+                    </span>
+                    <span className="px-2.5 py-1 rounded bg-orange-50 font-extrabold text-[#e05835] border border-orange-200">
+                      Forecast Ponderado: {formatBRL(bucketWeighted)}
+                    </span>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100 text-xs">
+                  {bucket.items.map((deal) => (
+                    <div
+                      key={deal.id}
+                      className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    >
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => openDealDetail(deal)}
+                          className="font-extrabold text-[#0091ae] hover:underline text-left cursor-pointer"
+                        >
+                          {deal.title}
+                        </button>
+                        <div className="text-[11px] text-slate-500">
+                          {deal.company?.name || 'Empresa B2B'} • Etapa: <strong>{deal.stageName}</strong> • Executivo:{' '}
+                          {deal.ownerName || 'Marcelo Lopes Mira'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-black text-slate-900">{formatBRL(deal.value)}</span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
+                          {deal.probability}% ({formatBRL(deal.weightedValue)})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openDealDetail(deal)}
+                          className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold text-[11px] cursor-pointer"
+                        >
+                          Abrir
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {bucket.items.length === 0 && (
+                    <div className="py-4 text-center text-slate-400">
+                      Nenhum negócio nesta janela de previsão.
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* MODO 5: POR EXECUTIVO RESPONSÁVEL OU NÍVEL DE PRIORIDADE */}
+      {viewMode === 'BY_OWNER_PRIORITY' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 text-xs">
+            <span className="font-extrabold text-slate-800">
+              Agrupamento de Carteira Comercial e Metas:
+            </span>
+            <div className="inline-flex rounded-lg bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setOwnerPrioritySubMode('OWNER')}
+                className={`px-3 py-1 rounded-md font-bold cursor-pointer ${
+                  ownerPrioritySubMode === 'OWNER' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
+                }`}
+              >
+                Agrupar por Executivo Responsável
+              </button>
+              <button
+                type="button"
+                onClick={() => setOwnerPrioritySubMode('PRIORITY')}
+                className={`px-3 py-1 rounded-md font-bold cursor-pointer ${
+                  ownerPrioritySubMode === 'PRIORITY' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
+                }`}
+              >
+                Agrupar por Prioridade (Alta / Média / Baixa)
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(ownerPrioritySubMode === 'OWNER'
+              ? availableOwners.map((owner) => ({
+                  groupKey: owner,
+                  groupTitle: `Executivo: ${owner}`,
+                  quotaTarget: 500000,
+                  items: filteredDeals.filter(
+                    (d) => (d.ownerName || 'Marcelo Lopes Mira') === owner
+                  ),
+                }))
+              : [
+                  {
+                    groupKey: 'ALTA',
+                    groupTitle: 'Prioridade Alta (Contas Enterprise & Urgentes)',
+                    quotaTarget: 600000,
+                    items: filteredDeals.filter(
+                      (d) =>
+                        (d.priority ||
+                          (d.value >= 150000 ? 'ALTA' : d.value >= 60000 ? 'MEDIA' : 'BAIXA')) ===
+                        'ALTA'
+                    ),
+                  },
+                  {
+                    groupKey: 'MEDIA',
+                    groupTitle: 'Prioridade Média (Mid-Market & Expansão)',
+                    quotaTarget: 350000,
+                    items: filteredDeals.filter(
+                      (d) =>
+                        (d.priority ||
+                          (d.value >= 150000 ? 'ALTA' : d.value >= 60000 ? 'MEDIA' : 'BAIXA')) ===
+                        'MEDIA'
+                    ),
+                  },
+                  {
+                    groupKey: 'BAIXA',
+                    groupTitle: 'Prioridade Padrão / Baixa',
+                    quotaTarget: 150000,
+                    items: filteredDeals.filter(
+                      (d) =>
+                        (d.priority ||
+                          (d.value >= 150000 ? 'ALTA' : d.value >= 60000 ? 'MEDIA' : 'BAIXA')) ===
+                        'BAIXA'
+                    ),
+                  },
+                ]
+            ).map((grp) => {
+              const totalVal = grp.items.reduce((s, d) => s + d.value, 0);
+              const pct = Math.min(100, Math.round((totalVal / grp.quotaTarget) * 100));
+              return (
+                <div
+                  key={grp.groupKey}
+                  className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-extrabold text-[#0d2b4e]">{grp.groupTitle}</h4>
+                      <span className="text-[11px] text-slate-500">
+                        {grp.items.length} negócio(s) • Carteira: <strong>{formatBRL(totalVal)}</strong>
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 font-extrabold">
+                      {pct}% da Meta
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#0091ae] rounded-full"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                    {grp.items.map((d) => (
+                      <div
+                        key={d.id}
+                        className="py-2 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => openDealDetail(d)}
+                            className="font-bold text-[#0091ae] hover:underline truncate block cursor-pointer"
+                          >
+                            {d.title}
+                          </button>
+                          <span className="text-[10px] text-slate-500">
+                            {d.company?.name || 'Empresa B2B'} • {d.stageName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <strong className="text-slate-900">{formatBRL(d.value)}</strong>
+                          <button
+                            type="button"
+                            onClick={() => openDealDetail(d)}
+                            className="px-2 py-1 rounded bg-slate-900 text-white font-bold text-[10px] cursor-pointer"
+                          >
+                            Abrir
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* CREATE NEW DEAL MODAL */}
       {showCreateModal && (

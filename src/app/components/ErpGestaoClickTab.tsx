@@ -92,7 +92,7 @@ import {
 } from '../lib/durable-storage';
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
-import GestaoClickSidebar from './GestaoClickSidebar';
+import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
@@ -299,6 +299,7 @@ export default function ErpGestaoClickTab({
   );
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [erpMobileDrawerOpen, setErpMobileDrawerOpen] = useState(false);
   const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
@@ -1904,7 +1905,7 @@ export default function ErpGestaoClickTab({
                 </div>
 
                 <div className="overflow-x-auto border border-slate-200 rounded">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full min-w-[680px] text-left text-xs">
                     <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b border-slate-200">
                       <tr>
                         <th className="py-2 px-3">SKU</th>
@@ -3602,32 +3603,41 @@ export default function ErpGestaoClickTab({
   return (
     <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8]">
       {/* TOP BAR AZUL MARINHO GESTÃOCLICK (#1e3a6e) */}
-      <div className="bg-[#1e3a6e] text-white px-4 h-12 flex items-center justify-between select-none">
-        <div className="flex items-center gap-3">
-          <span className="text-base font-extrabold tracking-tight">ERP</span>
+      <div className="bg-[#1e3a6e] text-white px-3 sm:px-4 min-h-12 py-2 flex flex-wrap items-center justify-between gap-2 select-none">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => setErpMobileDrawerOpen(true)}
+            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            title="Abrir Menu ERP Mobile"
+          >
+            <Menu className="w-4 h-4" />
+            <span>Menu ERP</span>
+          </button>
+          <span className="text-sm sm:text-base font-extrabold tracking-tight">SETA ERP</span>
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
-            className="p-1.5 rounded hover:bg-white/10 cursor-pointer"
+            className="hidden md:inline-flex p-1.5 rounded hover:bg-white/10 cursor-pointer"
             title="Recolher/Expandir menu lateral"
           >
             <Menu className="w-4 h-4" />
           </button>
-          <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-            ● API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
+          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+            API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5">
           <button
             type="button"
             onClick={() => {
               setActiveSection('ORCAMENTOS');
               openFullNewProposalModal('LOCACAO');
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] sm:text-xs font-extrabold shadow-xs cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" /> + Nova Proposta
+            <Plus className="w-3.5 h-3.5" /> Nova Proposta
           </button>
           <button
             type="button"
@@ -3635,10 +3645,10 @@ export default function ErpGestaoClickTab({
               setActiveSection('VENDAS');
               setActiveSubId('VENDAS_BALCAO');
             }}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold cursor-pointer"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-white/15 hover:bg-white/25 text-white text-[11px] sm:text-xs font-extrabold cursor-pointer"
             title="Abrir PDV / Frente de Caixa"
           >
-            <ShoppingCart className="w-3.5 h-3.5 text-emerald-300" /> 🖥️ PDV
+            <ShoppingCart className="w-3.5 h-3.5 text-emerald-300" /> PDV
           </button>
           <button type="button" onClick={() => setActiveSection('CADASTROS')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Buscar">
             <Search className="w-4 h-4" />
@@ -3656,12 +3666,84 @@ export default function ErpGestaoClickTab({
         </div>
       </div>
 
+      {/* BARRA RÁPIDA MOBILE DO ERP (PERMITE ABRIR QUALQUER MÓDULO E SUBMÓDULO COM 1 TOQUE NO CELULAR) */}
+      <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 space-y-1.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {GESTAO_CLICK_MENU_TREE.map((grp) => {
+            const isAct = activeSection === grp.id;
+            return (
+              <button
+                key={grp.id}
+                type="button"
+                onClick={() => {
+                  setActiveSection(grp.id);
+                  const firstSub = grp.subItems?.[0]?.id || grp.id;
+                  setActiveSubId(firstSub);
+                  if (firstSub === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
+                }}
+                className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold transition cursor-pointer ${
+                  isAct
+                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {grp.label}
+              </button>
+            );
+          })}
+        </div>
+        {(() => {
+          const activeGrp = GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection);
+          if (!activeGrp?.subItems || activeGrp.subItems.length === 0) return null;
+          return (
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-slate-100">
+              {activeGrp.subItems.map((sub) => {
+                const isSubAct = activeSubId === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveSubId(sub.id);
+                      if (sub.id === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
+                      if (sub.id === 'CAD_FORNECEDORES') setCadastrosSubTab('FORNECEDORES');
+                      if (sub.id === 'CAD_FUNCIONARIOS') setCadastrosSubTab('FUNCIONARIOS');
+                      if (sub.id === 'CAD_TRANSPORTADORAS') setCadastrosSubTab('TRANSPORTADORAS');
+                      if (sub.id === 'CAD_AUXILIARES') setCadastrosSubTab('AUXILIARES');
+                      if (sub.id === 'OS_PAINEL') setOsViewMode('PAINEL');
+                      if (sub.id === 'OS_GERENCIAR') setOsViewMode('LISTA');
+                      if (
+                        sub.id === 'CTR_LOCACOES' ||
+                        sub.id === 'CTR_SERVICOS' ||
+                        sub.id === 'CTR_ASSINATURAS' ||
+                        sub.id === 'CTR_AUXILIARES'
+                      ) {
+                        setContractsSubFilter(sub.id);
+                      }
+                    }}
+                    className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                      isSubAct
+                        ? 'bg-[#ff7a59] text-white'
+                        : 'bg-orange-50/70 text-[#0d2b4e] border border-orange-200/70'
+                    }`}
+                  >
+                    {sub.label}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* BODY: SIDEBAR ESQUERDA FIXA + ÁREA PRINCIPAL */}
-      <div className="flex min-h-[780px]">
+      <div className="flex flex-col md:flex-row min-h-[780px]">
         {!sidebarCollapsed && (
           <GestaoClickSidebar
             activeSection={activeSection}
             activeSubId={activeSubId}
+            mobileDrawerOpen={erpMobileDrawerOpen}
+            onCloseMobileDrawer={() => setErpMobileDrawerOpen(false)}
             onSelect={(sec, subId) => {
               setActiveSection(sec);
               if (subId) {
@@ -3911,7 +3993,7 @@ export default function ErpGestaoClickTab({
                     </div>
                   </div>
 
-                  <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0"><table className="w-full min-w-[640px] text-left text-xs">
                     <thead className="bg-slate-50 text-slate-700 font-bold border-b">
                       <tr>
                         <th className="py-2.5 px-3 w-8">Sel.</th>
@@ -3990,12 +4072,12 @@ export default function ErpGestaoClickTab({
                           );
                         })}
                     </tbody>
-                  </table>
+                  </table></div>
                 </div>
               )}
 
               {cadastrosSubTab === 'FORNECEDORES' && (
-                <table className="w-full text-left text-xs">
+                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0"><table className="w-full min-w-[640px] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                     <tr><th className="py-2 px-3">Fornecedor</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
@@ -4043,11 +4125,11 @@ export default function ErpGestaoClickTab({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
 
               {cadastrosSubTab === 'FUNCIONARIOS' && (
-                <table className="w-full text-left text-xs">
+                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0"><table className="w-full min-w-[640px] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                     <tr><th className="py-2 px-3">Nome</th><th className="py-2 px-3">Cargo / Função</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
@@ -4095,7 +4177,7 @@ export default function ErpGestaoClickTab({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
               {cadastrosSubTab === 'TRANSPORTADORAS' && (
                 <div className="space-y-3">

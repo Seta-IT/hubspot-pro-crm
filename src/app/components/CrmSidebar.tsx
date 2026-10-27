@@ -11,6 +11,7 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
 
@@ -35,6 +36,8 @@ interface CrmSidebarProps {
   formsCount: number;
   automationsCount: number;
   healthScore: number;
+  mobileDrawerOpen?: boolean;
+  onCloseMobileDrawer?: () => void;
   onSelectOverview?: () => void;
   onSelectPipeline: (pipelineId: string) => void;
   onSelectContactsSubView: (sub: 'CONTACTS' | 'COMPANIES') => void;
@@ -56,6 +59,8 @@ export default function CrmSidebar({
   formsCount,
   automationsCount,
   healthScore,
+  mobileDrawerOpen = false,
+  onCloseMobileDrawer,
   onSelectOverview,
   onSelectPipeline,
   onSelectContactsSubView,
@@ -74,6 +79,10 @@ export default function CrmSidebar({
     setExpanded((prev) => ({ ...prev, [activeModule]: true }));
   }, [activeModule]);
 
+  const closeMobileIfOpen = () => {
+    if (onCloseMobileDrawer) onCloseMobileDrawer();
+  };
+
   const toggleGroup = (key: string, defaultAction: () => void) => {
     if (activeModule === key) {
       setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -83,17 +92,18 @@ export default function CrmSidebar({
     }
   };
 
-  return (
-    <aside className="w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex flex-col justify-between select-none rounded-l-lg">
+  const renderSidebarContent = (isMobileDrawer = false) => (
+    <>
       <div>
         {/* HEADER DO MÓDULO CRM */}
-        <div className="p-3.5 bg-[#f8f9fb]">
+        <div className="p-3.5 bg-[#f8f9fb] flex items-center justify-between gap-2">
           <div
             onClick={() => {
               if (onSelectOverview) onSelectOverview();
               else onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+              closeMobileIfOpen();
             }}
-            className="bg-white border border-slate-200 rounded-lg py-3.5 px-4 flex flex-col items-center justify-center gap-0.5 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+            className="flex-1 bg-white border border-slate-200 rounded-lg py-3 px-4 flex flex-col items-center justify-center gap-0.5 shadow-2xs cursor-pointer hover:border-slate-300 transition"
           >
             <div className="flex items-center gap-2">
               <span className="text-xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
@@ -104,6 +114,16 @@ export default function CrmSidebar({
               Sales Hub &amp; Marketing Hub
             </span>
           </div>
+          {isMobileDrawer && (
+            <button
+              type="button"
+              onClick={closeMobileIfOpen}
+              aria-label="Fechar Menu CRM"
+              className="p-2 rounded-lg bg-slate-200/80 text-slate-700 hover:bg-slate-300 cursor-pointer shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* NAVEGAÇÃO VERTICAL DO CRM */}
@@ -113,7 +133,10 @@ export default function CrmSidebar({
             <div className="rounded-md">
               <button
                 type="button"
-                onClick={onSelectOverview}
+                onClick={() => {
+                  onSelectOverview();
+                  closeMobileIfOpen();
+                }}
                 className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                   activeModule === 'OVERVIEW_AI'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -137,7 +160,10 @@ export default function CrmSidebar({
             <button
               type="button"
               onClick={() =>
-                toggleGroup('CONTACTS_COMPANIES', () => onSelectContactsSubView('CONTACTS'))
+                toggleGroup('CONTACTS_COMPANIES', () => {
+                  onSelectContactsSubView('CONTACTS');
+                  closeMobileIfOpen();
+                })
               }
               className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                 activeModule === 'CONTACTS_COMPANIES'
@@ -164,8 +190,11 @@ export default function CrmSidebar({
               <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
                 <button
                   type="button"
-                  onClick={() => onSelectContactsSubView('CONTACTS')}
-                  className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                  onClick={() => {
+                    onSelectContactsSubView('CONTACTS');
+                    closeMobileIfOpen();
+                  }}
+                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                     activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
                       ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
                       : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
@@ -176,8 +205,11 @@ export default function CrmSidebar({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onSelectContactsSubView('COMPANIES')}
-                  className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                  onClick={() => {
+                    onSelectContactsSubView('COMPANIES');
+                    closeMobileIfOpen();
+                  }}
+                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                     activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
                       ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
                       : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
@@ -195,9 +227,10 @@ export default function CrmSidebar({
             <button
               type="button"
               onClick={() =>
-                toggleGroup('DEALS_KANBAN', () =>
-                  onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b')
-                )
+                toggleGroup('DEALS_KANBAN', () => {
+                  onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+                  closeMobileIfOpen();
+                })
               }
               className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                 activeModule === 'DEALS_KANBAN'
@@ -229,8 +262,11 @@ export default function CrmSidebar({
                     <button
                       key={pipe.id}
                       type="button"
-                      onClick={() => onSelectPipeline(pipe.id)}
-                      className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
+                      onClick={() => {
+                        onSelectPipeline(pipe.id);
+                        closeMobileIfOpen();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
                         isPipeActive
                           ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
                           : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
@@ -248,7 +284,10 @@ export default function CrmSidebar({
           <div className="rounded-md">
             <button
               type="button"
-              onClick={onSelectForms}
+              onClick={() => {
+                onSelectForms();
+                closeMobileIfOpen();
+              }}
               className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                 activeModule === 'MARKETING_FORMS'
                   ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -266,11 +305,14 @@ export default function CrmSidebar({
             </button>
           </div>
 
-          {/* 4. AUTOMAÇÕES & SEQUÊNCIAS */}
+          {/* 4. AUTOMAÇÕES */}
           <div className="rounded-md">
             <button
               type="button"
-              onClick={onSelectAutomations}
+              onClick={() => {
+                onSelectAutomations();
+                closeMobileIfOpen();
+              }}
               className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                 activeModule === 'AUTOMATIONS'
                   ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -292,7 +334,12 @@ export default function CrmSidebar({
           <div className="rounded-md pt-2 border-t border-slate-200">
             <button
               type="button"
-              onClick={() => toggleGroup('DATA_HEALTH', () => onSelectDataHealth('CRM'))}
+              onClick={() =>
+                toggleGroup('DATA_HEALTH', () => {
+                  onSelectDataHealth('CRM');
+                  closeMobileIfOpen();
+                })
+              }
               className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                 activeModule === 'DATA_HEALTH'
                   ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -302,7 +349,7 @@ export default function CrmSidebar({
               <span className="flex items-center gap-2.5 truncate">
                 <ShieldCheck
                   className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-[#1e3a6e]'
+                    activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
                   }`}
                 />
                 <span className="truncate">Data Health ({healthScore}%)</span>
@@ -318,25 +365,31 @@ export default function CrmSidebar({
               <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
                 <button
                   type="button"
-                  onClick={() => onSelectDataHealth('CRM')}
-                  className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                  onClick={() => {
+                    onSelectDataHealth('CRM');
+                    closeMobileIfOpen();
+                  }}
+                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                     activeModule === 'DATA_HEALTH' && dataHealthScope === 'CRM'
-                      ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                      ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
                       : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                   }`}
                 >
-                  <span>Saúde da Base CRM</span>
+                  <span>Auditoria Base CRM</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => onSelectDataHealth('ERP')}
-                  className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                  onClick={() => {
+                    onSelectDataHealth('ERP');
+                    closeMobileIfOpen();
+                  }}
+                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                     activeModule === 'DATA_HEALTH' && dataHealthScope === 'ERP'
-                      ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                      ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
                       : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                   }`}
                 >
-                  <span>Saúde da Base ERP</span>
+                  <span>Auditoria Base ERP</span>
                 </button>
               </div>
             )}
@@ -347,7 +400,10 @@ export default function CrmSidebar({
             <div className="rounded-md pt-2 border-t border-slate-200">
               <button
                 type="button"
-                onClick={onSelectAdminRbac}
+                onClick={() => {
+                  onSelectAdminRbac();
+                  closeMobileIfOpen();
+                }}
                 className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
                   activeModule === 'ADMIN_RBAC'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -370,8 +426,31 @@ export default function CrmSidebar({
 
       <div className="p-3 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
         <div className="font-bold text-[#0d2b4e]">CRM • SETA TELECOM</div>
-        <div>4 Pipelines Ativos • Bases CRM/ERP Separadas</div>
+        <div>Portal HubSpot #4369067</div>
+        <div>4 Pipelines Ativos • Base Independente</div>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* DESKTOP SIDEBAR (>= md) */}
+      <aside className="hidden md:flex w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none rounded-l-lg">
+        {renderSidebarContent(false)}
+      </aside>
+
+      {/* MOBILE SLIDE-OVER DRAWER (< md) */}
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={closeMobileIfOpen}
+          />
+          <aside className="relative z-10 w-72 max-w-[86vw] bg-[#f8f9fb] h-full overflow-y-auto flex flex-col justify-between shadow-2xl select-none">
+            {renderSidebarContent(true)}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

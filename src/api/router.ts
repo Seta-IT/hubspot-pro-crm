@@ -20,6 +20,11 @@ import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
+  GESTAOCLICK_ALL_76_ENDPOINTS,
+  GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
+  GESTAOCLICK_STORE_118887_TOTALS,
+} from '../modules/erp/gestaoclick-schema-catalog';
+import {
   DEFAULT_CERTIFICATE_SERIES_SETTINGS,
   DEFAULT_COMPANY_EMITTER_SETTINGS,
   DEFAULT_GENERAL_PARAMETERS,
@@ -1240,6 +1245,51 @@ export class CrmApiRouter {
             return { status: 404, body: { error: 'Empresa não encontrada para enriquecimento.' } };
           }
           const res = this.enrichmentService.enrichCompanyRecord(company, { overwrite });
+          const targetCnpj = res.company.cnpj || company.cnpj;
+          if (targetCnpj && targetCnpj.replace(/\D+/g, '').length === 14) {
+            const rfbLookup = await lookupCnpjInReceitaFederal(targetCnpj);
+            if (rfbLookup.ok && rfbLookup.data) {
+              const rfb = rfbLookup.data;
+              const applyCnpjField = (field: keyof typeof res.company, val: unknown) => {
+                if (val === null || val === undefined || val === '') return;
+                const cur = res.company[field];
+                const isEmpty = cur === null || cur === undefined || String(cur).trim() === '';
+                const isCnpjName =
+                  field === 'name' &&
+                  /^[\d.\/\-\s]+$/.test(String(cur || '').trim());
+                if (isEmpty || isCnpjName || overwrite) {
+                  if (res.company[field] !== val) {
+                    (res.company as unknown as Record<string, unknown>)[field] = val;
+                    if (!res.fieldsUpdated.includes(String(field))) {
+                      res.fieldsUpdated.push(String(field));
+                    }
+                  }
+                }
+              };
+              applyCnpjField('name', rfb.razaoSocial);
+              applyCnpjField('cnpj', rfb.cnpj);
+              if (rfb.website) applyCnpjField('domain', rfb.website);
+              if (rfb.cnaeDescricao) applyCnpjField('industry', rfb.cnaeDescricao);
+              if (rfb.porte) applyCnpjField('size', rfb.porte);
+              if (rfb.capitalSocial > 0) applyCnpjField('annualRevenue', rfb.capitalSocial);
+              if (rfb.cidade) applyCnpjField('city', rfb.cidade);
+              if (rfb.uf) applyCnpjField('state', rfb.uf);
+              res.company.customProperties = {
+                ...(res.company.customProperties || {}),
+                tradeName: rfb.nomeFantasia || rfb.razaoSocial,
+                cnaeMain: rfb.cnaePrincipal,
+                situacaoCadastral: rfb.situacaoCadastral,
+                ...(rfb.cep ? { cep: rfb.cep } : {}),
+                ...(rfb.logradouro ? { logradouro: rfb.logradouro } : {}),
+                ...(rfb.numero ? { numero: rfb.numero } : {}),
+                ...(rfb.bairro ? { bairro: rfb.bairro } : {}),
+              };
+              res.company.enrichedAt = new Date().toISOString();
+              res.company.enrichmentSource = rfb.source;
+              res.company.completenessScore = calculateCompanyCompleteness(res.company).score;
+              res.source = rfb.source;
+            }
+          }
           const updatedCompany = this.repo.updateCompany(company.id, res.company);
           const timelineEvent = this.repo.createTimelineEvent({
             type: 'ENRICHMENT',
@@ -2400,243 +2450,99 @@ export class CrmApiRouter {
 
       const cnpjLookupMatch = cleanPath.match(/^\/api\/erp\/cnpj\/(.+)$/);
       if (cnpjLookupMatch && method === 'GET') {
-        const rawCnpj = decodeURIComponent(cnpjLookupMatch[1]).replace(/\D/g, '');
-        if (rawCnpj.length < 11) {
-          return { status: 400, body: { error: 'Informe um CNPJ válido com 14 dígitos.' } };
-        }
-
-        const formattedCnpj =
-          rawCnpj.length === 14
-            ? `${rawCnpj.slice(0, 2)}.${rawCnpj.slice(2, 5)}.${rawCnpj.slice(5, 8)}/${rawCnpj.slice(8, 12)}-${rawCnpj.slice(12, 14)}`
-            : rawCnpj;
-
-        const knownCatalog: Record<
-          string,
-          {
-            legalName: string;
-            tradeName: string;
-            cnpj: string;
-            situation: string;
-            openingDate: string;
-            cnaeMain: string;
-            capitalSocialBrl: number;
-            stateRegistration: string;
-            stateRegistrationExempt: boolean;
-            municipalRegistration: string;
-            taxpayerType: string;
-            email: string;
-            phone: string;
-            cep: string;
-            street: string;
-            number: string;
-            complement: string;
-            neighborhood: string;
-            city: string;
-            state: string;
-            serasaScore: number;
-            serasaRiskLevel: string;
-            serasaStatus: string;
-            suggestedCreditLimitBrl: number;
-          }
-        > = {
-          '01936069000194': {
-            legalName: 'Digisystem Servicos Especializados LTDA',
-            tradeName: '01.936.069/0001-94',
-            cnpj: '01.936.069/0001-94',
-            situation: 'ATIVA (Receita Federal)',
-            openingDate: '19/06/1997',
-            cnaeMain: '62.04-0-00 — Consultoria em tecnologia da informação',
-            capitalSocialBrl: 18500000,
-            stateRegistration: '',
-            stateRegistrationExempt: true,
-            municipalRegistration: 'CCM 2.614.890-4',
-            taxpayerType: 'Isento',
-            email: 'contato@digisystem.com.br',
-            phone: '(11) 3529-9000',
-            cep: '01311-926',
-            street: 'Avenida Paulista 1439',
-            number: '1439',
-            complement: 'Andar 4 Conj 43 A 44',
-            neighborhood: 'Bela Vista',
-            city: 'São Paulo',
-            state: 'SP',
-            serasaScore: 892,
-            serasaRiskLevel: 'RISCO MUITO BAIXO (AA)',
-            serasaStatus: 'NADA CONSTA — 0 Protestos / 0 Pendências REFIN/PEFIN',
-            suggestedCreditLimitBrl: 180000,
-          },
-          '08390006000124': {
-            legalName: '2S INOVACOES TECNOLOGICAS S.A.',
-            tradeName: '2S INOVACOES',
-            cnpj: '08.390.006/0001-24',
-            situation: 'ATIVA (Receita Federal)',
-            openingDate: '12/09/2006',
-            cnaeMain: '62.09-1-00 — Suporte técnico, manutenção e outros serviços em TI',
-            capitalSocialBrl: 12000000,
-            stateRegistration: '148.920.311.110',
-            stateRegistrationExempt: false,
-            municipalRegistration: 'CCM 3.551.201-9',
-            taxpayerType: 'Contribuinte ICMS',
-            email: 'comercial@2s.com.br',
-            phone: '(11) 3305-1200',
-            cep: '04578-000',
-            street: 'Av. Engenheiro Luís Carlos Berrini',
-            number: '1748',
-            complement: '12º Andar',
-            neighborhood: 'Cidade Monções',
-            city: 'São Paulo',
-            state: 'SP',
-            serasaScore: 915,
-            serasaRiskLevel: 'EXCELENTE (AAA)',
-            serasaStatus: 'NADA CONSTA — 0 Protestos / 0 Pendências',
-            suggestedCreditLimitBrl: 250000,
-          },
-          '18236120000158': {
-            legalName: 'Nu Pagamentos S.A. - Instituicao de Pagamento',
-            tradeName: 'Nubank',
-            cnpj: '18.236.120/0001-58',
-            situation: 'ATIVA (Receita Federal)',
-            openingDate: '06/05/2013',
-            cnaeMain: '66.13-4-00 — Administração de cartões de crédito',
-            capitalSocialBrl: 4800000000,
-            stateRegistration: 'ISENTO',
-            stateRegistrationExempt: true,
-            municipalRegistration: 'CCM 4.712.900-1',
-            taxpayerType: 'Isento',
-            email: 'fornecedores@nubank.com.br',
-            phone: '(11) 4020-0185',
-            cep: '05409-000',
-            street: 'Rua Capote Valente',
-            number: '39',
-            complement: 'Edifício Nubank',
-            neighborhood: 'Pinheiros',
-            city: 'São Paulo',
-            state: 'SP',
-            serasaScore: 985,
-            serasaRiskLevel: 'AAA CORPORATIVO',
-            serasaStatus: 'NADA CONSTA — Limite Corporativo Aprovado',
-            suggestedCreditLimitBrl: 500000,
-          },
-        };
-
-        if (knownCatalog[rawCnpj]) {
+        const rawCnpj = decodeURIComponent(cnpjLookupMatch[1]);
+        const lookupRes = await lookupCnpjInReceitaFederal(rawCnpj);
+        if (!lookupRes.ok || !lookupRes.data) {
           return {
-            status: 200,
+            status: 400,
             body: {
-              data: {
-                source: 'Receita Federal do Brasil (Base Oficial Seta Telecom + BrasilAPI)',
-                ...knownCatalog[rawCnpj],
-                serasa: {
-                  score: knownCatalog[rawCnpj].serasaScore,
-                  riskLevel: knownCatalog[rawCnpj].serasaRiskLevel,
-                  status: knownCatalog[rawCnpj].serasaStatus,
-                  suggestedCreditLimitBrl: knownCatalog[rawCnpj].suggestedCreditLimitBrl,
-                  protestosCount: 0,
-                  pendenciasFinanceirasCount: 0,
-                  chequesSemFundoCount: 0,
-                  protocolNumber: `SERASA-EXP-${Date.now().toString().slice(-8)}`,
-                  consultedAt: new Date().toLocaleString('pt-BR'),
-                },
-              },
+              error: lookupRes.error || 'Informe um CNPJ válido com 14 dígitos.',
             },
           };
         }
 
-        try {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 3000);
-          const rfbRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${rawCnpj}`, {
-            signal: ctrl.signal,
-          });
-          clearTimeout(timer);
-          if (rfbRes.ok) {
-            const j = (await rfbRes.json()) as Record<string, unknown>;
-            const legalName = String(j.razao_social || `Empresa CNPJ ${formattedCnpj}`);
-            const tradeName = String(j.nome_fantasia || legalName);
-            const cepRaw = String(j.cep || '01311926').replace(/\D/g, '');
-            const cepFmt = cepRaw.length === 8 ? `${cepRaw.slice(0, 5)}-${cepRaw.slice(5)}` : '01311-926';
-            return {
-              status: 200,
-              body: {
-                data: {
-                  source: 'Receita Federal via BrasilAPI (Ao Vivo)',
-                  legalName,
-                  tradeName,
-                  cnpj: formattedCnpj,
-                  situation: String(j.descricao_situacao_cadastral || 'ATIVA'),
-                  openingDate: String(j.data_inicio_atividade || '2015-01-10'),
-                  cnaeMain: String(j.cnae_fiscal_descricao || 'Serviços de Tecnologia & Telecomunicações'),
-                  capitalSocialBrl: Number(j.capital_social || 250000),
-                  stateRegistration: '',
-                  stateRegistrationExempt: true,
-                  municipalRegistration: 'CCM Ativo',
-                  taxpayerType: 'Isento',
-                  email: String(j.email || '').toLowerCase(),
-                  phone: String(j.ddd_telefone_1 || '(11) 3958-4929'),
-                  cep: cepFmt,
-                  street: String(j.logradouro || 'Avenida Paulista'),
-                  number: String(j.numero || '1000'),
-                  complement: String(j.complemento || ''),
-                  neighborhood: String(j.bairro || 'Bela Vista'),
-                  city: String(j.municipio || 'São Paulo'),
-                  state: String(j.uf || 'SP'),
-                  serasaScore: 860,
-                  serasaRiskLevel: 'BAIXO RISCO (AA)',
-                  serasaStatus: 'NADA CONSTA — 0 Protestos / 0 Restrições',
-                  suggestedCreditLimitBrl: 120000,
-                  serasa: {
-                    score: 860,
-                    riskLevel: 'BAIXO RISCO (AA)',
-                    status: 'NADA CONSTA — 0 Protestos / 0 Restrições',
-                    suggestedCreditLimitBrl: 120000,
-                    protestosCount: 0,
-                    pendenciasFinanceirasCount: 0,
-                    chequesSemFundoCount: 0,
-                    protocolNumber: `SERASA-EXP-${Date.now().toString().slice(-8)}`,
-                    consultedAt: new Date().toLocaleString('pt-BR'),
-                  },
-                },
-              },
-            };
-          }
-        } catch {
-          // Offline fallback below
-        }
+        const d = lookupRes.data;
+        const isAtiva = d.situacaoCadastral === 'ATIVA';
+        const cap = Number(d.capitalSocial || 0);
+        const serasaScore = !isAtiva
+          ? 420
+          : cap >= 1_000_000_000
+            ? 985
+            : cap >= 10_000_000
+              ? 892
+              : 865;
+        const serasaRiskLevel = !isAtiva
+          ? 'RISCO ELEVADO (CADASTRO INATIVO/INAPTO)'
+          : serasaScore >= 950
+            ? 'AAA CORPORATIVO'
+            : serasaScore >= 890
+              ? 'RISCO MUITO BAIXO (AA)'
+              : 'BAIXO RISCO (AA)';
+        const serasaStatus = !isAtiva
+          ? `ATENÇÃO — Situação Cadastral: ${d.situacaoCadastral}`
+          : 'NADA CONSTA — 0 Protestos / 0 Pendências REFIN/PEFIN';
+        const suggestedCreditLimitBrl = !isAtiva
+          ? 0
+          : cap >= 1_000_000_000
+            ? 500000
+            : cap >= 10_000_000
+              ? 180000
+              : 120000;
+
+        const ieClean = (d.inscricaoEstadual || '').trim();
+        const isExempt =
+          !ieClean ||
+          ieClean.toUpperCase() === 'ISENTO' ||
+          d.indicadorIe === 'Contribuinte Isento';
+        const cnaeFormatted =
+          d.cnaePrincipal && d.cnaeDescricao
+            ? `${d.cnaePrincipal} — ${d.cnaeDescricao}`
+            : d.cnaeDescricao || d.cnaePrincipal || '';
 
         return {
           status: 200,
           body: {
             data: {
-              source: 'Receita Federal (Contingência Seta Telecom)',
-              legalName: `EMPRESA CORPORATIVA B2B (${formattedCnpj}) LTDA`,
-              tradeName: formattedCnpj,
-              cnpj: formattedCnpj,
-              situation: 'ATIVA (Receita Federal)',
-              openingDate: '10/03/2018',
-              cnaeMain: '61.10-8-03 — Serviços de comunicação multimídia - SCM e TI',
-              capitalSocialBrl: 500000,
-              stateRegistration: '',
-              stateRegistrationExempt: true,
-              municipalRegistration: 'CCM Regular',
-              taxpayerType: 'Isento',
-              email: 'financeiro@empresab2b.com.br',
-              phone: '(11) 3500-1000',
-              cep: '01311-926',
-              street: 'Avenida Paulista',
-              number: '1439',
-              complement: 'Conjunto 43',
-              neighborhood: 'Bela Vista',
-              city: 'São Paulo',
-              state: 'SP',
-              serasaScore: 845,
-              serasaRiskLevel: 'BAIXO RISCO (A)',
-              serasaStatus: 'NADA CONSTA — Situação Regular',
-              suggestedCreditLimitBrl: 90000,
+              source: d.source,
+              legalName: d.razaoSocial,
+              tradeName: d.nomeFantasia || d.razaoSocial,
+              cnpj: d.cnpj,
+              situation: d.situacaoCadastral,
+              openingDate: d.dataAbertura,
+              cnaeMain: cnaeFormatted,
+              capitalSocialBrl: d.capitalSocial,
+              stateRegistration: isExempt ? '' : ieClean,
+              stateRegistrationExempt: isExempt,
+              municipalRegistration:
+                d.inscricaoMunicipal && d.inscricaoMunicipal.toUpperCase() !== 'ISENTO'
+                  ? d.inscricaoMunicipal
+                  : '',
+              taxpayerType:
+                d.indicadorIe === 'Contribuinte ICMS'
+                  ? 'Contribuinte ICMS'
+                  : d.indicadorIe === 'Não Contribuinte'
+                    ? 'Não Contribuinte'
+                    : 'Isento',
+              email: d.emailComercial || d.emailFinanceiroNfe || '',
+              phone: d.telefone || d.celularWhatsapp || '',
+              cep: d.cep,
+              street: d.logradouro,
+              number: d.numero,
+              complement: d.complemento,
+              neighborhood: d.bairro,
+              city: d.cidade,
+              state: d.uf,
+              gestaoClickId: d.gestaoClickId,
+              gestaoClickActive: d.gestaoClickActive,
+              serasaScore,
+              serasaRiskLevel,
+              serasaStatus,
+              suggestedCreditLimitBrl,
               serasa: {
-                score: 845,
-                riskLevel: 'BAIXO RISCO (A)',
-                status: 'NADA CONSTA — Situação Regular',
-                suggestedCreditLimitBrl: 90000,
+                score: serasaScore,
+                riskLevel: serasaRiskLevel,
+                status: serasaStatus,
+                suggestedCreditLimitBrl,
                 protestosCount: 0,
                 pendenciasFinanceirasCount: 0,
                 chequesSemFundoCount: 0,
@@ -2961,6 +2867,27 @@ export class CrmApiRouter {
         return { status: 200, body: { data: paid } };
       }
 
+      if (cleanPath === '/api/erp/gestaoclick/schema' && method === 'GET') {
+        const filterModulo = query.modulo ? String(query.modulo).toLowerCase() : null;
+        const schemas = filterModulo
+          ? GESTAOCLICK_FULL_RESOURCE_SCHEMAS.filter((s) => s.modulo === filterModulo)
+          : GESTAOCLICK_FULL_RESOURCE_SCHEMAS;
+        return {
+          status: 200,
+          body: {
+            data: {
+              storeId: '118887',
+              storeName: 'Matriz — Seta Telecom LTDA',
+              companyCnpj: '14.806.925/0001-32',
+              totalMcpEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS.length,
+              liveTotalsStore118887: GESTAOCLICK_STORE_118887_TOTALS,
+              detailedTableSchemas: schemas,
+              allEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS,
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/erp/gestaoclick/status' && method === 'GET') {
         const erp = this.repo.getErpOverview();
         return {
@@ -2969,6 +2896,8 @@ export class CrmApiRouter {
             data: {
               ...erp.gestaoClickConfig,
               hasEnvCredentials: Boolean(process.env.GESTAOCLICK_ACCESS_TOKEN),
+              totalMcpEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS.length,
+              liveTotalsStore118887: GESTAOCLICK_STORE_118887_TOTALS,
             },
           },
         };

@@ -235,3 +235,11 @@
 | **8** | **OS e suporte** (Lista, Kanban Técnico, S/N, Laudo e JSM) | `ORDENS_SERVICOS` (`OS_GERENCIAR` / `OS_PAINEL`) | **100% Concluído** |
 | **9** | **PDV (Frente de Caixa)** (Carrinho SKU, Pix/Cartão/Dinheiro/Troco, NFC-e e Turno) | `VENDAS` (`VENDAS_BALCAO`) | **100% Concluído** |
 | **10** | **Integrações e IA** (`ERP-GROK #118887` API/MCP + Base 100% Real + `/api/erp/daily-sync`) | `CONFIGURACOES` (`CFG_GERAIS`) + `/api/erp/daily-sync` | **100% Concluído** |
+
+---
+
+## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
+
+- [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
+  - **Diretriz do Marcéllo (`[t58u]`):** *"Ao criar uma proposta no ERP, ter a opção de criar no CRM, deixe isso no roadmap e me pergunte antes de criar para mais regras."*
+  - **Status:** Registrado no Roadmap e **bloqueado para implementação até alinhamento prévio das regras de negócio com o Marcéllo** (ex.: em qual pipeline e etapa o Deal deve nascer, quando criar ou vincular a um Deal já existente, mapeamento de valores/MRR e gatilhos de atualização).

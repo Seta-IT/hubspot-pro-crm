@@ -332,7 +332,7 @@ export default function GestaoClickCompanyModal({
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-5xl w-full overflow-hidden my-4">
         {/* TOP HEADER GESTÃOCLICK / STI-HUB */}
-        <div className="px-6 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
+        <div className="sticky top-0 z-20 px-4 sm:px-6 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Building2 className="w-5 h-5 text-emerald-300" />
             <div>
@@ -355,7 +355,7 @@ export default function GestaoClickCompanyModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[84vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-3 sm:p-5 space-y-4 text-xs max-h-[86vh] overflow-y-auto">
           {/* RECEITA FEDERAL CONFIRMATION BANNER */}
           {receitaStatusBanner && (
             <div className="p-3 rounded-md bg-emerald-950 text-white border border-emerald-500 flex items-center justify-between gap-2">
@@ -978,7 +978,7 @@ export default function GestaoClickCompanyModal({
           </div>
 
           {/* RODAPÉ COM ZONA DE SEGURANÇA (EXCLUSÃO SOMENTE DENTRO DO CADASTRO COM CONFIRMAÇÃO EM 2 ETAPAS) */}
-          <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="sticky bottom-0 z-20 bg-white rounded-md border border-slate-200 p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
             <div>
               {!isNew && company?.id && onDelete && canDelete && (
                 <>

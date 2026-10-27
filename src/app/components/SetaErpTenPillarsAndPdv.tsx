@@ -196,7 +196,7 @@ export function SetaErpTenPillarsMatrix({
       </div>
 
       {expanded && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           {SETA_ERP_TEN_PILLARS.map((p) => {
             const Icon = p.icon;
             const isCurrent =

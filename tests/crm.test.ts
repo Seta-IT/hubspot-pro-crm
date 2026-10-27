@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 // ============================================================================
 // HubSpot Pro CRM - Comprehensive Automated Test Suite (Node Test Runner)
 // ============================================================================
@@ -1683,3 +1685,52 @@ DATA:OFXSGML
     assert.equal(syncData.fictitiousDataPurged, true);
   });
 });
+
+describe('14. Responsividade Mobile (Drawers & Quick Bars) e 5 Modos de Visualização em Negócios e Chamados', () => {
+  it('garante drawers mobile deslizantes nas sidebars CRM e ERP, barra rápida horizontal e 3 itens de topo sem emojis', () => {
+    const rootDir = process.cwd();
+    const pageSrc = fs.readFileSync(path.join(rootDir, 'src/app/page.tsx'), 'utf8');
+    const crmSidebarSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/CrmSidebar.tsx'), 'utf8');
+    const gcSidebarSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/GestaoClickSidebar.tsx'), 'utf8');
+    const erpTabSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+
+    // 1. Drawers mobile em CrmSidebar e GestaoClickSidebar
+    assert.ok(crmSidebarSrc.includes('mobileDrawerOpen'));
+    assert.ok(crmSidebarSrc.includes('onCloseMobileDrawer'));
+    assert.ok(crmSidebarSrc.includes('hidden md:flex'));
+    assert.ok(gcSidebarSrc.includes('mobileDrawerOpen'));
+    assert.ok(gcSidebarSrc.includes('onCloseMobileDrawer'));
+    assert.ok(gcSidebarSrc.includes('hidden md:flex'));
+
+    // 2. Botões Menu CRM e Menu ERP + barras rápidas mobile
+    assert.ok(pageSrc.includes('Menu CRM'));
+    assert.ok(pageSrc.includes('crmMobileDrawerOpen'));
+    assert.ok(erpTabSrc.includes('Menu ERP'));
+    assert.ok(erpTabSrc.includes('erpMobileDrawerOpen'));
+
+    // 3. Zero emojis na barra principal
+    assert.equal(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(pageSrc), false);
+    assert.equal(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(crmSidebarSrc), false);
+    assert.equal(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(gcSidebarSrc), false);
+  });
+
+  it('disponibiliza os 5 modos de visualização corporativos tanto nos Pipelines de Negócios quanto em Chamados NOC com persistência localStorage', () => {
+    const rootDir = process.cwd();
+    const dealsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/DealsKanbanTab.tsx'), 'utf8');
+    const ticketsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ServiceDeskTab.tsx'), 'utf8');
+
+    // 5 modos em Pipelines de Negócios + persistência stihub_deals_view_mode
+    for (const mode of ['KANBAN', 'LIST', 'COMPACT_GRID', 'TIMELINE_FORECAST', 'BY_OWNER_PRIORITY']) {
+      assert.ok(dealsSrc.includes(`'${mode}'`), `DealsKanbanTab deve conter o modo ${mode}`);
+    }
+    assert.ok(dealsSrc.includes('stihub_deals_view_mode'));
+
+    // 5 modos em Chamados NOC + persistência stihub_tickets_view_mode
+    for (const mode of ['KANBAN', 'LIST', 'COMPACT_GRID', 'SLA_TIMELINE', 'BY_QUEUE_TECH']) {
+      assert.ok(ticketsSrc.includes(`'${mode}'`), `ServiceDeskTab deve conter o modo ${mode}`);
+    }
+    assert.ok(ticketsSrc.includes('stihub_tickets_view_mode'));
+    assert.equal(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(ticketsSrc), false);
+  });
+});
+

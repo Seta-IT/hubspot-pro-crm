@@ -1184,6 +1184,57 @@ export type StiHubVisibilityScope = "TODOS" | "EQUIPE" | "PROPRIOS";
 
 export type StiHubModuleAccessLevel = "FULL" | "EDIT" | "VIEW" | "NONE";
 
+export type StiHubMacroModule = "CRM" | "ERP" | "CHAMADOS";
+
+export interface StiHubUserModuleAccess {
+  crm: boolean;
+  erp: boolean;
+  chamados: boolean;
+}
+
+export interface StiHubCrmPermissions {
+  crmRole: string;
+  portfolioScope: StiHubVisibilityScope;
+  contactsAccess: StiHubModuleAccessLevel;
+  companiesAccess: StiHubModuleAccessLevel;
+  dealsFunnelAccess: StiHubModuleAccessLevel;
+  ticketsServiceDeskAccess: StiHubModuleAccessLevel;
+  marketingAutomationAccess: StiHubModuleAccessLevel;
+  canExportCrmData: boolean;
+  canMergeCrmRecords: boolean;
+  canDeleteCrmRecords: boolean;
+}
+
+export interface StiHubErpPermissions {
+  erpRole: string;
+  financeBanksAccess: StiHubModuleAccessLevel;
+  fiscalIssuanceAccess: StiHubModuleAccessLevel;
+  proposalsQuotesAccess: StiHubModuleAccessLevel;
+  stockOsSalesAccess: StiHubModuleAccessLevel;
+  rentalContractsAccess: StiHubModuleAccessLevel;
+  maxDiscountPercent: number;
+  canViewBankBalances: boolean;
+  canIssueFiscalDocuments: boolean;
+  canApproveProposals: boolean;
+  canDeleteErpRecords: boolean;
+}
+
+export interface StiHubSecurityAuditLogEntry {
+  id: string;
+  timestamp: string;
+  actorEmail: string;
+  actorName: string;
+  actorRole: string;
+  action: string;
+  module: "AUTH_MFA" | "IAM_RBAC" | "CRM" | "ERP" | "CHAMADOS" | "FISCAL_A1" | "LGPD";
+  resource: string;
+  status: "SUCCESS" | "BLOCKED" | "WARNING";
+  ipAddress: string;
+  details: string;
+  integrityHashSha256: string;
+  prevHashSha256: string;
+}
+
 export interface StiHubActionGuards {
   canViewFinancialBalances: boolean;
   canIssueFiscalDocuments: boolean;
@@ -1205,6 +1256,10 @@ export interface StiHubRoleDefinition {
     | "ERP_FINANCEIRO_FISCAL"
     | "ERP_NOC_OPERACOES";
   defaultScope: StiHubVisibilityScope;
+  enabledModules?: StiHubMacroModule[];
+  moduleAccess?: StiHubUserModuleAccess;
+  crmPermissions?: StiHubCrmPermissions;
+  erpPermissions?: StiHubErpPermissions;
   modulePermissions: Record<string, StiHubModuleAccessLevel>;
   actionGuards: StiHubActionGuards;
   updatedAt: string;
@@ -1221,9 +1276,16 @@ export interface StiHubUserRecord {
   jobTitle: string;
   roleId: StiHubRoleId;
   scope: StiHubVisibilityScope;
+  enabledModules?: StiHubMacroModule[];
+  moduleAccess?: StiHubUserModuleAccess;
+  crmPermissions?: StiHubCrmPermissions;
+  erpPermissions?: StiHubErpPermissions;
   active: boolean;
   mfaEnabled: boolean;
   mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+  totpSecret?: string;
+  totpConfiguredAt?: string | null;
+  passwordHash?: string;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   lastLoginAt: string | null;
   createdAt: string;
@@ -1271,6 +1333,7 @@ export interface StiHubRbacState {
   roles: StiHubRoleDefinition[];
   users: StiHubUserRecord[];
   securityConfig: StiHubSecurityAndMailerConfig;
+  auditLogs?: StiHubSecurityAuditLogEntry[];
 }
 
 export interface CrmDatabaseState {

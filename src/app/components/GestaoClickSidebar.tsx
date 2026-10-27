@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
+  X,
 } from 'lucide-react';
 import { GestaoClickMenuSection } from './ErpGestaoClickTab';
 
@@ -193,6 +194,8 @@ interface GestaoClickSidebarProps {
   onNewProposal: () => void;
   companyCnpj: string;
   taxRegime: string;
+  mobileDrawerOpen?: boolean;
+  onCloseMobileDrawer?: () => void;
 }
 
 export default function GestaoClickSidebar({
@@ -202,7 +205,12 @@ export default function GestaoClickSidebar({
   onNewProposal,
   companyCnpj,
   taxRegime,
+  mobileDrawerOpen = false,
+  onCloseMobileDrawer,
 }: GestaoClickSidebarProps) {
+  const closeMobileIfOpen = () => {
+    if (onCloseMobileDrawer) onCloseMobileDrawer();
+  };
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     CADASTROS: true,
     ITENS: true,
@@ -226,6 +234,7 @@ export default function GestaoClickSidebar({
   const handleGroupClick = (group: GestaoClickNavGroup) => {
     if (!group.subItems || group.subItems.length === 0) {
       onSelect(group.id, group.id);
+      closeMobileIfOpen();
       return;
     }
     const isCurrentlyOpen = Boolean(expanded[group.id]);
@@ -237,14 +246,17 @@ export default function GestaoClickSidebar({
     }
   };
 
-  return (
-    <aside className="w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex flex-col justify-between select-none">
+  const renderSidebarInner = (isMobileDrawer = false) => (
+    <>
       <div>
         {/* LOGO OFICIAL SETA | IT */}
-        <div className="p-3.5 bg-[#f8f9fb]">
+        <div className="p-3.5 bg-[#f8f9fb] flex items-center justify-between gap-2">
           <div
-            onClick={() => onSelect('INICIO', 'INICIO')}
-            className="bg-white border border-slate-200 rounded-lg py-4 px-4 flex flex-col items-center justify-center gap-1 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+            onClick={() => {
+              onSelect('INICIO', 'INICIO');
+              closeMobileIfOpen();
+            }}
+            className="flex-1 bg-white border border-slate-200 rounded-lg py-3.5 px-4 flex flex-col items-center justify-center gap-1 shadow-2xs cursor-pointer hover:border-slate-300 transition"
           >
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
@@ -255,13 +267,26 @@ export default function GestaoClickSidebar({
               Módulo ERP
             </span>
           </div>
+          {isMobileDrawer && (
+            <button
+              type="button"
+              onClick={closeMobileIfOpen}
+              aria-label="Fechar Menu ERP"
+              className="p-2 rounded-lg bg-slate-200/80 text-slate-700 hover:bg-slate-300 cursor-pointer shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* BOTÃO RÁPIDO + NOVA PROPOSTA / ORÇAMENTO */}
         <div className="px-3.5 pb-2.5">
           <button
             type="button"
-            onClick={onNewProposal}
+            onClick={() => {
+              onNewProposal();
+              closeMobileIfOpen();
+            }}
             className="w-full py-2 px-3 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" /> + Nova Proposta / Orçamento
@@ -317,7 +342,10 @@ export default function GestaoClickSidebar({
                         <button
                           key={sub.id}
                           type="button"
-                          onClick={() => onSelect(group.id, sub.id)}
+                          onClick={() => {
+                            onSelect(group.id, sub.id);
+                            closeMobileIfOpen();
+                          }}
                           className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                             isSubActive
                               ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
@@ -344,6 +372,28 @@ export default function GestaoClickSidebar({
         <div>CNPJ {companyCnpj}</div>
         <div>Regime: {taxRegime}</div>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* DESKTOP SIDEBAR (>= md) */}
+      <aside className="hidden md:flex w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none">
+        {renderSidebarInner(false)}
+      </aside>
+
+      {/* MOBILE SLIDE-OVER DRAWER (< md) */}
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={closeMobileIfOpen}
+          />
+          <aside className="relative z-10 w-72 max-w-[86vw] bg-[#f8f9fb] h-full overflow-y-auto flex flex-col justify-between shadow-2xl select-none">
+            {renderSidebarInner(true)}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

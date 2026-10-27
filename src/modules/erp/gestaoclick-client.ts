@@ -23,7 +23,43 @@ import {
   ErpSupplierRecord,
   GestaoClickLiveTotals,
 } from '../../db/types';
+import fs from 'fs';
+import path from 'path';
 import { calculateBrazilianTaxBreakdown } from './erp-tax-engine';
+
+export interface GestaoClickCnpjEntity {
+  id: string;
+  entityType: 'CLIENTE' | 'FORNECEDOR';
+  razaoSocial: string;
+  nomeFantasia: string;
+  cnpj: string;
+  cnpjDigits: string;
+  ativo: '1' | '0';
+  inscricaoEstadual: string;
+  inscricaoMunicipal: string;
+  tipoContribuinte: string;
+  telefone: string;
+  celular: string;
+  email: string;
+  emailAcesso: string;
+  nomeVendedor: string;
+  endereco: {
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    nomeCidade: string;
+    estado: string;
+    cidadeId: string;
+  };
+  contatos: Array<{
+    nome: string;
+    cargo: string;
+    email: string;
+    telefone: string;
+  }>;
+}
 
 export interface GestaoClickCredentials {
   accessToken: string;
@@ -95,6 +131,51 @@ export function setRuntimeGestaoClickCredentials(creds: GestaoClickCredentials):
   cachedSnapshotAtMs = 0;
 }
 
+let envLocalLoaded = false;
+function loadEnvLocalFallbackIfNeeded(): void {
+  if (envLocalLoaded) return;
+  envLocalLoaded = true;
+  if (process.env.GESTAOCLICK_ACCESS_TOKEN && process.env.GESTAOCLICK_SECRET_ACCESS_TOKEN) {
+    return;
+  }
+  try {
+    const envPath = path.join(process.cwd(), '.env.local');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      for (const line of content.split(/\r?\n/)) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+        if (m && !process.env[m[1]]) {
+          process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+        }
+      }
+    }
+  } catch {
+    // Ignore file read errors in restricted environments
+  }
+}
+
+export function isCnpjLikeTradeName(value: string | undefined | null): boolean {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return true;
+  const digits = trimmed.replace(/\D+/g, '');
+  if (digits.length >= 11 && /^[\d.\/\-\s]+$/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+export function sanitizeGestaoClickTradeName(
+  rawNome: string | undefined | null,
+  rawRazaoSocial: string | undefined | null
+): string {
+  const razao = String(rawRazaoSocial || '').trim();
+  const nome = String(rawNome || '').trim();
+  if (!nome || isCnpjLikeTradeName(nome)) {
+    return razao || nome;
+  }
+  return nome;
+}
+
 export function getEffectiveGestaoClickCredentials(): GestaoClickCredentials | null {
   if (
     runtimeCredentialsOverride?.accessToken &&
@@ -102,6 +183,7 @@ export function getEffectiveGestaoClickCredentials(): GestaoClickCredentials | n
   ) {
     return runtimeCredentialsOverride;
   }
+  loadEnvLocalFallbackIfNeeded();
   const accessToken = (process.env.GESTAOCLICK_ACCESS_TOKEN || '').trim();
   const secretAccessToken = (process.env.GESTAOCLICK_SECRET_ACCESS_TOKEN || '').trim();
   if (!accessToken || !secretAccessToken) {
@@ -292,7 +374,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
   // Batch 2 (clientes + produtos)
   const [clientesRes, produtosRes] = await Promise.all([
-    fetchGcEndpoint<Record<string, unknown>>('/clientes', creds),
+    fetchGcEndpoint<Record<string, unknown>>('/clientes?limite=100&limite_por_pagina=100', creds),
     fetchGcEndpoint<Record<string, unknown>>('/produtos', creds),
   ]);
 
@@ -375,6 +457,46 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       funcionariosRes.meta.total_registros ?? funcionariosRes.data.length ?? 14
     ),
     compras: Number(comprasRes.meta.total_registros ?? comprasRes.data.length ?? 54),
+  };
+
+  // Build lookup maps of cliente_id -> real CNPJ and companyName -> real CNPJ across all fetched clients
+  const clientCnpjById = new Map<string, string>();
+  const clientCnpjByName = new Map<string, string>();
+  for (const rawClient of clientesRes.data) {
+    const cid = String(rawClient.id || '').trim();
+    const rawCnpjVal = String(rawClient.cnpj || rawClient.cpf_cnpj || '').trim();
+    const cnpjDigits = rawCnpjVal.replace(/\D+/g, '');
+    const formattedCnpj =
+      cnpjDigits.length === 14
+        ? `${cnpjDigits.slice(0, 2)}.${cnpjDigits.slice(2, 5)}.${cnpjDigits.slice(5, 8)}/${cnpjDigits.slice(8, 12)}-${cnpjDigits.slice(12, 14)}`
+        : rawCnpjVal;
+    if (formattedCnpj) {
+      if (cid) clientCnpjById.set(cid, formattedCnpj);
+      const rSocial = String(rawClient.razao_social || '').trim().toLowerCase();
+      const nFant = String(rawClient.nome || '').trim().toLowerCase();
+      if (rSocial) clientCnpjByName.set(rSocial, formattedCnpj);
+      if (nFant && !isCnpjLikeTradeName(nFant)) clientCnpjByName.set(nFant, formattedCnpj);
+    }
+  }
+
+  const resolveClientCnpj = (
+    record: Record<string, unknown>,
+    companyName: string
+  ): string => {
+    const direct = String(record.cnpj_cpf || record.cnpj || record.cliente_cnpj || '').trim();
+    if (direct) {
+      const d = direct.replace(/\D+/g, '');
+      if (d.length === 14) {
+        return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12, 14)}`;
+      }
+      return direct;
+    }
+    const cid = String(record.cliente_id || '').trim();
+    if (cid && clientCnpjById.has(cid)) {
+      return clientCnpjById.get(cid)!;
+    }
+    const byName = clientCnpjByName.get(companyName.trim().toLowerCase());
+    return byName || '';
   };
 
   // 1. Map Clients -> Companies & Contacts
@@ -563,7 +685,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       title: `Orçamento #${codigo} — ${companyName}`,
       companyId: o.cliente_id ? `comp-gc-${String(o.cliente_id)}` : null,
       companyName,
-      companyCnpj: '00.000.000/0001-00',
+      companyCnpj: resolveClientCnpj(o, companyName),
       contactId: null,
       contactName: String(o.aos_cuidados_de || 'Decisor de TI / Compras').trim() || 'Decisor TI',
       dealId: null,
@@ -659,7 +781,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       title: `Locação #${codigo} — ${companyName}${propostaAttr ? ` (Prop. #${propostaAttr})` : ''}`,
       companyId: ctr.cliente_id ? `comp-gc-${String(ctr.cliente_id)}` : null,
       companyName,
-      companyCnpj: '00.000.000/0001-00',
+      companyCnpj: resolveClientCnpj(ctr, companyName),
       contactId: null,
       dealId: null,
       proposalId: propostaAttr ? `prop-gc-${propostaAttr}` : null,
@@ -717,7 +839,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       competenceMonth: competence || '10/2026',
       companyId: r.cliente_id ? `comp-gc-${String(r.cliente_id)}` : null,
       companyName,
-      companyCnpj: '00.000.000/0001-00',
+      companyCnpj: resolveClientCnpj(r, companyName),
       companyAddress: 'São Paulo/SP — Sincronizado via GestãoClick',
       rentalContractId: null,
       proposalId: null,
@@ -946,4 +1068,143 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   cachedSnapshot = snapshot;
   cachedSnapshotAtMs = Date.now();
   return snapshot;
+}
+
+export async function lookupEntityByCnpjInGestaoClick(
+  rawCnpj: string,
+  credentials?: GestaoClickCredentials
+): Promise<GestaoClickCnpjEntity | null> {
+  const digits = String(rawCnpj || '').replace(/\D+/g, '');
+  if (digits.length !== 14) return null;
+
+  const creds = credentials || getEffectiveGestaoClickCredentials();
+  if (!creds) return null;
+
+  const formatted = `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+
+  const matchByDigits = (list: Array<Record<string, unknown>>): Record<string, unknown> | null => {
+    for (const item of list) {
+      const itemDigits = String(item.cnpj || item.cpf_cnpj || item.cpf || '').replace(/\D+/g, '');
+      if (itemDigits === digits) return item;
+    }
+    return null;
+  };
+
+  let matchedRecord: Record<string, unknown> | null = null;
+  let entityType: 'CLIENTE' | 'FORNECEDOR' = 'CLIENTE';
+
+  // 1st attempt: GET /clientes?cpf_cnpj=formatted
+  const resFormatted = await fetchGcEndpoint<Record<string, unknown>>(
+    `/clientes?cpf_cnpj=${encodeURIComponent(formatted)}`,
+    creds
+  );
+  matchedRecord = matchByDigits(resFormatted.data);
+
+  // 2nd attempt: GET /clientes?cpf_cnpj=digits
+  if (!matchedRecord) {
+    await sleep(350);
+    const resDigits = await fetchGcEndpoint<Record<string, unknown>>(
+      `/clientes?cpf_cnpj=${digits}`,
+      creds
+    );
+    matchedRecord = matchByDigits(resDigits.data);
+  }
+
+  // 3rd attempt: GET /fornecedores?cpf_cnpj=formatted
+  if (!matchedRecord) {
+    await sleep(350);
+    const resForn = await fetchGcEndpoint<Record<string, unknown>>(
+      `/fornecedores?cpf_cnpj=${encodeURIComponent(formatted)}`,
+      creds
+    );
+    matchedRecord = matchByDigits(resForn.data);
+    if (matchedRecord) {
+      entityType = 'FORNECEDOR';
+    }
+  }
+
+  if (!matchedRecord) return null;
+
+  const rawRazao = String(matchedRecord.razao_social || '').trim();
+  const rawNome = String(matchedRecord.nome || '').trim();
+  const razaoSocial = rawRazao || (!isCnpjLikeTradeName(rawNome) ? rawNome : formatted);
+  const nomeFantasia = sanitizeGestaoClickTradeName(rawNome, razaoSocial);
+
+  let cep = '';
+  let logradouro = '';
+  let numero = '';
+  let complemento = '';
+  let bairro = '';
+  let nomeCidade = '';
+  let estado = '';
+  let cidadeId = '';
+
+  if (Array.isArray(matchedRecord.enderecos) && matchedRecord.enderecos.length > 0) {
+    const endWrapper = matchedRecord.enderecos[0] as {
+      endereco?: Record<string, unknown>;
+    };
+    const end = endWrapper?.endereco || (matchedRecord.enderecos[0] as Record<string, unknown>);
+    if (end) {
+      const cepDigits = String(end.cep || '').replace(/\D+/g, '');
+      cep =
+        cepDigits.length === 8
+          ? `${cepDigits.slice(0, 5)}-${cepDigits.slice(5)}`
+          : String(end.cep || '').trim();
+      logradouro = String(end.logradouro || '').trim();
+      numero = String(end.numero || '').trim();
+      complemento = String(end.complemento || '').trim();
+      bairro = String(end.bairro || '').trim();
+      nomeCidade = String(end.nome_cidade || '').trim();
+      estado = String(end.estado || '').trim();
+      cidadeId = String(end.cidade_id || '').trim();
+    }
+  }
+
+  const contatos: GestaoClickCnpjEntity['contatos'] = [];
+  if (Array.isArray(matchedRecord.contatos)) {
+    for (const entry of matchedRecord.contatos) {
+      const cObj =
+        (entry as { contato?: Record<string, unknown> })?.contato ||
+        (entry as Record<string, unknown>);
+      if (cObj && (cObj.nome || cObj.email || cObj.telefone || cObj.celular)) {
+        contatos.push({
+          nome: String(cObj.nome || '').trim(),
+          cargo: String(cObj.cargo || cObj.observacao || '').trim(),
+          email: String(cObj.email || '').trim().toLowerCase(),
+          telefone: String(cObj.telefone || cObj.celular || '').trim(),
+        });
+      }
+    }
+  }
+
+  const ativoRaw = String(matchedRecord.ativo ?? '1').trim();
+
+  return {
+    id: String(matchedRecord.id || '').trim(),
+    entityType,
+    razaoSocial,
+    nomeFantasia,
+    cnpj: formatted,
+    cnpjDigits: digits,
+    ativo: ativoRaw === '0' ? '0' : '1',
+    inscricaoEstadual: String(matchedRecord.inscricao_estadual || '').trim(),
+    inscricaoMunicipal: String(matchedRecord.inscricao_municipal || '').trim(),
+    tipoContribuinte: String(matchedRecord.tipo_contribuinte || '').trim(),
+    telefone: String(matchedRecord.telefone || '').trim(),
+    celular: String(matchedRecord.celular || '').trim(),
+    email: String(matchedRecord.email || '').trim().toLowerCase(),
+    emailAcesso: String(matchedRecord.email_acesso || '').trim().toLowerCase(),
+    nomeVendedor: String(matchedRecord.nome_vendedor || '').trim(),
+    endereco: {
+      cep,
+      logradouro,
+      numero,
+      complemento,
+      bairro,
+      nomeCidade,
+      estado,
+      cidadeId,
+    },
+    contatos,
+  };
 }

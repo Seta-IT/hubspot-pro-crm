@@ -42,6 +42,21 @@ import {
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
+export type TicketsViewMode =
+  | 'KANBAN'
+  | 'LIST'
+  | 'COMPACT_GRID'
+  | 'SLA_TIMELINE'
+  | 'BY_QUEUE_TECH';
+
+export const TICKETS_VIEW_MODES: Array<{ id: TicketsViewMode; label: string; shortLabel: string }> = [
+  { id: 'KANBAN', label: 'Kanban', shortLabel: 'Kanban' },
+  { id: 'LIST', label: 'Lista', shortLabel: 'Lista' },
+  { id: 'COMPACT_GRID', label: 'Grade Compacta', shortLabel: 'Grade' },
+  { id: 'SLA_TIMELINE', label: 'Linha do Tempo SLA (Urgência)', shortLabel: 'Linha SLA' },
+  { id: 'BY_QUEUE_TECH', label: 'Por Fila / Técnico', shortLabel: 'Por Fila' },
+];
+
 export interface EnrichedServiceTicket extends ServiceTicket {
   contact?: Contact | null;
   company?: Company | null;
@@ -214,7 +229,28 @@ export default function ServiceDeskTab({
   onCreateOsFromTicket,
   onAddTicketComment,
 }: ServiceDeskTabProps) {
-  const [viewMode, setViewMode] = useState<'KANBAN' | 'QUEUE_LIST'>('KANBAN');
+  const [viewMode, setViewMode] = useState<TicketsViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = window.localStorage.getItem('stihub_tickets_view_mode') as TicketsViewMode | null;
+      if (
+        saved &&
+        ['KANBAN', 'LIST', 'COMPACT_GRID', 'SLA_TIMELINE', 'BY_QUEUE_TECH'].includes(saved)
+      ) {
+        return saved;
+      }
+    }
+    return 'KANBAN';
+  });
+  const [mobileStatusFilter, setMobileStatusFilter] = useState<string>('ALL');
+
+  const handleSelectTicketViewMode = (mode: TicketsViewMode) => {
+    setViewMode(mode);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('stihub_tickets_view_mode', mode);
+      } catch {}
+    }
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [slaFilter, setSlaFilter] = useState<string>('ALL');
@@ -577,174 +613,443 @@ export default function ServiceDeskTab({
           </select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => setViewMode('KANBAN')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === 'KANBAN'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              Quadro NOC Kanban
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('QUEUE_LIST')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                viewMode === 'QUEUE_LIST'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              Fila SLA (Lista)
-            </button>
-          </div>
+        {/* BARRA CORPORATIVA DE 5 MODOS DE VISUALIZAÇÃO PARA CHAMADOS NOC */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto pb-0.5">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
+            Visualização:
+          </span>
+          {TICKETS_VIEW_MODES.map((vm) => {
+            const active = viewMode === vm.id;
+            return (
+              <button
+                key={vm.id}
+                type="button"
+                onClick={() => handleSelectTicketViewMode(vm.id)}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer border ${
+                  active
+                    ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="hidden sm:inline">{vm.label}</span>
+                <span className="sm:hidden">{vm.shortLabel}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* MAIN WORKSPACE: KANBAN OR QUEUE LIST + RIGHT TICKET AGENT DRAWER */}
+      {/* MAIN WORKSPACE: 5 VIEW MODES + RIGHT TICKET AGENT DRAWER */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className={activeTicket ? 'xl:col-span-7' : 'xl:col-span-12'}>
-          {viewMode === 'KANBAN' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {STATUS_COLUMNS.map((col) => {
-                const colTickets = filteredTickets.filter((t) =>
-                  col.id === 'RESOLVED'
-                    ? t.status === 'RESOLVED' || t.status === 'CLOSED'
-                    : t.status === col.id
-                );
+          {/* MODO 1: KANBAN POR STATUS DO CHAMADO */}
+          {viewMode === 'KANBAN' && (
+            <div className="space-y-3">
+              {/* Filtro rápido de etapa para celular (< md) */}
+              <div className="md:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                <button
+                  type="button"
+                  onClick={() => setMobileStatusFilter('ALL')}
+                  className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold cursor-pointer ${
+                    mobileStatusFilter === 'ALL'
+                      ? 'bg-[#ff7a59] text-white'
+                      : 'bg-white border border-slate-200 text-slate-700'
+                  }`}
+                >
+                  Todos ({filteredTickets.length})
+                </button>
+                {STATUS_COLUMNS.map((col) => {
+                  const cnt = filteredTickets.filter((t) =>
+                    col.id === 'RESOLVED'
+                      ? t.status === 'RESOLVED' || t.status === 'CLOSED'
+                      : t.status === col.id
+                  ).length;
+                  return (
+                    <button
+                      key={col.id}
+                      type="button"
+                      onClick={() => setMobileStatusFilter(col.id)}
+                      className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer ${
+                        mobileStatusFilter === col.id
+                          ? 'bg-[#0d2b4e] text-white'
+                          : 'bg-white border border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {col.label.split('(')[0].trim()} ({cnt})
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {STATUS_COLUMNS.filter(
+                  (col) => mobileStatusFilter === 'ALL' || col.id === mobileStatusFilter
+                ).map((col) => {
+                  const colTickets = filteredTickets.filter((t) =>
+                    col.id === 'RESOLVED'
+                      ? t.status === 'RESOLVED' || t.status === 'CLOSED'
+                      : t.status === col.id
+                  );
+                  return (
+                    <div
+                      key={col.id}
+                      className={`rounded-2xl border-t-4 border border-slate-200 p-3 space-y-3 bg-white shadow-sm ${col.color}`}
+                    >
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-xs font-extrabold text-slate-800">{col.label}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-extrabold">
+                          {colTickets.length}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {colTickets.map((t) => {
+                          const isSelected = activeTicket?.id === t.id;
+                          return (
+                            <div
+                              key={t.id}
+                              onClick={() => setSelectedTicketId(t.id)}
+                              className={`p-3.5 rounded-xl border bg-white cursor-pointer transition space-y-2 ${
+                                isSelected
+                                  ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/20 shadow-md'
+                                  : 'border-slate-200 hover:border-slate-300 shadow-sm'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-mono text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                                  {t.key}
+                                </span>
+                                {getPriorityBadge(t.priority)}
+                              </div>
+
+                              <h4 className="text-xs font-extrabold text-slate-900 leading-snug">
+                                {t.subject}
+                              </h4>
+
+                              {t.company && (
+                                <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-semibold">
+                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span className="truncate">{t.company.name}</span>
+                                </div>
+                              )}
+
+                              <div className="text-[10px] font-bold text-slate-500 truncate">
+                                Fila: {t.assignee}
+                              </div>
+
+                              {t.equipmentSerial && (
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                                  <Cpu className="w-3 h-3 text-slate-500" />
+                                  <span className="truncate max-w-[160px]">{t.equipmentSerial}</span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-1">
+                                {renderRealtimeSlaBadge(t, true)}
+                                <select
+                                  aria-label={`Mudar status de ${t.key}`}
+                                  value={t.status}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    onUpdateTicket(t.id, { status: e.target.value as TicketStatus });
+                                  }}
+                                  className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-[10px] font-bold text-slate-700"
+                                >
+                                  <option value="OPEN">Aberto</option>
+                                  <option value="IN_PROGRESS">Atendimento</option>
+                                  <option value="WAITING_CUSTOMER">Aguardando</option>
+                                  <option value="RESOLVED">Resolvido</option>
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {colTickets.length === 0 && (
+                          <div className="py-8 text-center text-xs text-slate-400">
+                            Nenhum chamado nesta etapa
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* MODO 2: LISTA CORPORATIVA DENSA (TABELA COM FILA, SLA EM TEMPO REAL E AÇÕES RÁPIDAS) */}
+          {viewMode === 'LIST' && (
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[780px] text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-900 text-[10px] font-extrabold uppercase text-white">
+                      <th className="py-3 px-3">Protocolo</th>
+                      <th className="py-3 px-3">Cliente / CNPJ</th>
+                      <th className="py-3 px-3">Assunto &amp; Circuito S/N</th>
+                      <th className="py-3 px-3">Prioridade</th>
+                      <th className="py-3 px-3">Cronômetro SLA</th>
+                      <th className="py-3 px-3">Fila / Técnico</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {filteredTickets.map((t) => (
+                      <tr
+                        key={t.id}
+                        onClick={() => setSelectedTicketId(t.id)}
+                        className={`cursor-pointer transition ${
+                          activeTicket?.id === t.id ? 'bg-orange-50/70' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="py-3 px-3 font-mono font-extrabold text-indigo-700">
+                          {t.key}
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900">
+                            {t.company?.name || 'Cliente Seta Telecom'}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-500">
+                            {t.company?.cnpj || 'CNPJ vinculado'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-slate-900">{t.subject}</div>
+                          {t.equipmentSerial && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                              S/N: {t.equipmentSerial}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">{getPriorityBadge(t.priority)}</td>
+                        <td className="py-3 px-3">{renderRealtimeSlaBadge(t)}</td>
+                        <td className="py-3 px-3 font-semibold text-slate-700">{t.assignee}</td>
+                        <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            value={t.status}
+                            onChange={(e) =>
+                              onUpdateTicket(t.id, { status: e.target.value as TicketStatus })
+                            }
+                            className="px-2 py-1 rounded border border-slate-300 bg-white text-[11px] font-bold text-slate-800"
+                          >
+                            <option value="OPEN">OPEN</option>
+                            <option value="IN_PROGRESS">IN_PROGRESS</option>
+                            <option value="WAITING_CUSTOMER">WAITING_CUSTOMER</option>
+                            <option value="RESOLVED">RESOLVED</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTicketId(t.id)}
+                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            Atender
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* MODO 3: GRADE COMPACTA (CARDS OTIMIZADOS PARA CELULAR & FIELD SERVICE) */}
+          {viewMode === 'COMPACT_GRID' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {filteredTickets.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => setSelectedTicketId(t.id)}
+                  className={`bg-white rounded-xl border p-4 shadow-2xs cursor-pointer transition flex flex-col justify-between gap-3 ${
+                    activeTicket?.id === t.id
+                      ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/20'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                        {t.key}
+                      </span>
+                      {getPriorityBadge(t.priority)}
+                    </div>
+                    <h4 className="text-xs font-extrabold text-slate-900">{t.subject}</h4>
+                    <div className="text-[11px] text-slate-600 font-semibold">
+                      {t.company?.name || 'Cliente Seta Telecom'}
+                      {t.equipmentSerial ? ` • S/N ${t.equipmentSerial}` : ''}
+                    </div>
+                    <div>{renderRealtimeSlaBadge(t)}</div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-slate-500 truncate">{t.assignee}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTicketId(t.id);
+                      }}
+                      className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold cursor-pointer shrink-0"
+                    >
+                      Abrir / O.S.
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* MODO 4: LINHA DO TEMPO SLA (AGRUPADO POR URGÊNCIA E VENCIMENTO DO SLA) */}
+          {viewMode === 'SLA_TIMELINE' && (
+            <div className="space-y-4">
+              {[
+                {
+                  key: 'CRITICAL_SLA',
+                  title: '1. SLA Crítico — Violado ou Prestes a Vencer (Ação Imediata NOC)',
+                  accent: 'border-l-4 border-l-rose-600',
+                  items: filteredTickets.filter((t) => {
+                    const sla = computeLiveSlaCountdown(t, nowMs);
+                    return (
+                      t.status !== 'RESOLVED' &&
+                      t.status !== 'CLOSED' &&
+                      (sla.slaStatus === 'BREACHED' || sla.slaStatus === 'AT_RISK' || t.priority === 'CRITICAL')
+                    );
+                  }),
+                },
+                {
+                  key: 'NORMAL_SLA',
+                  title: '2. Dentro do Prazo SLA — Operação Normal (N1 / N2 / Campo)',
+                  accent: 'border-l-4 border-l-amber-500',
+                  items: filteredTickets.filter((t) => {
+                    const sla = computeLiveSlaCountdown(t, nowMs);
+                    return (
+                      t.status !== 'RESOLVED' &&
+                      t.status !== 'CLOSED' &&
+                      sla.slaStatus === 'ON_TRACK' &&
+                      t.priority !== 'CRITICAL'
+                    );
+                  }),
+                },
+                {
+                  key: 'COMPLETED_SLA',
+                  title: '3. Chamados Resolvidos / Concluídos no SLA',
+                  accent: 'border-l-4 border-l-emerald-600',
+                  items: filteredTickets.filter(
+                    (t) => t.status === 'RESOLVED' || t.status === 'CLOSED'
+                  ),
+                },
+              ].map((bucket) => (
+                <div
+                  key={bucket.key}
+                  className={`bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3 ${bucket.accent}`}
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <h3 className="text-sm font-extrabold text-slate-900">{bucket.title}</h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-xs font-extrabold">
+                      {bucket.items.length} chamado(s)
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {bucket.items.map((t) => (
+                      <div
+                        key={t.id}
+                        onClick={() => setSelectedTicketId(t.id)}
+                        className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 px-2 rounded"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-extrabold text-indigo-700">{t.key}</span>
+                            {getPriorityBadge(t.priority)}
+                            <strong className="text-slate-900">{t.subject}</strong>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {t.company?.name || 'Cliente Seta'} • Fila: {t.assignee}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {renderRealtimeSlaBadge(t)}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTicketId(t.id)}
+                            className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold text-[11px]"
+                          >
+                            Atender
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {bucket.items.length === 0 && (
+                      <div className="py-4 text-center text-slate-400">
+                        Nenhum chamado nesta faixa de SLA.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* MODO 5: POR FILA DE ATENDIMENTO (N1 / N2 / N3 / CAMPO) E TÉCNICO */}
+          {viewMode === 'BY_QUEUE_TECH' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {allQueues.map((queueName) => {
+                const qTickets = filteredTickets.filter((t) => t.assignee === queueName);
+                const openCnt = qTickets.filter(
+                  (t) => t.status !== 'RESOLVED' && t.status !== 'CLOSED'
+                ).length;
+                const critCnt = qTickets.filter((t) => t.priority === 'CRITICAL').length;
                 return (
                   <div
-                    key={col.id}
-                    className={`rounded-2xl border-t-4 border border-slate-200 p-3 space-y-3 bg-white shadow-sm ${col.color}`}
+                    key={queueName}
+                    className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3 text-xs"
                   >
-                    <div className="flex items-center justify-between px-1">
-                      <span className="text-xs font-extrabold text-slate-800">{col.label}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-extrabold">
-                        {colTickets.length}
-                      </span>
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-[#0d2b4e]">{queueName}</h4>
+                        <span className="text-[11px] text-slate-500">
+                          {qTickets.length} protocolo(s) • <strong>{openCnt} em aberto</strong>
+                        </span>
+                      </div>
+                      {critCnt > 0 && (
+                        <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-extrabold text-[10px]">
+                          {critCnt} P1 Crítico
+                        </span>
+                      )}
                     </div>
-
-                    <div className="space-y-2.5">
-                      {colTickets.map((t) => {
-                        const isSelected = activeTicket?.id === t.id;
-                        return (
-                          <div
-                            key={t.id}
-                            onClick={() => setSelectedTicketId(t.id)}
-                            className={`p-3.5 rounded-xl border bg-white cursor-pointer transition space-y-2 ${
-                              isSelected
-                                ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/20 shadow-md'
-                                : 'border-slate-200 hover:border-slate-300 shadow-sm'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-mono text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                                {t.key}
-                              </span>
-                              {getPriorityBadge(t.priority)}
-                            </div>
-
-                            <h4 className="text-xs font-extrabold text-slate-900 leading-snug">
+                    <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                      {qTickets.map((t) => (
+                        <div
+                          key={t.id}
+                          onClick={() => setSelectedTicketId(t.id)}
+                          className="py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 px-1 rounded"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate">
+                              <span className="font-mono text-indigo-700 mr-1.5">{t.key}</span>
                               {t.subject}
-                            </h4>
-
-                            {t.company && (
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-semibold">
-                                <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span className="truncate">{t.company.name}</span>
-                              </div>
-                            )}
-
-                            <div className="text-[10px] font-bold text-slate-500 truncate">
-                              🎧 {t.assignee}
                             </div>
-
-                            {t.equipmentSerial && (
-                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-                                <Cpu className="w-3 h-3 text-slate-500" />
-                                <span className="truncate max-w-[160px]">{t.equipmentSerial}</span>
-                              </div>
-                            )}
-
-                            <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-1">
-                              {renderRealtimeSlaBadge(t, true)}
-                              <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                                {t.comments.length} msg
-                              </span>
-                            </div>
+                            <span className="text-[10px] text-slate-500">
+                              {t.company?.name || 'Cliente Seta Telecom'} • Status: {t.status}
+                            </span>
                           </div>
-                        );
-                      })}
-
-                      {colTickets.length === 0 && (
-                        <div className="py-8 text-center text-xs text-slate-400">
-                          Nenhum chamado nesta etapa
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {renderRealtimeSlaBadge(t, true)}
+                          </div>
+                        </div>
+                      ))}
+                      {qTickets.length === 0 && (
+                        <div className="py-4 text-center text-slate-400">
+                          Sem chamados ativos nesta fila.
                         </div>
                       )}
                     </div>
                   </div>
                 );
               })}
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-extrabold uppercase text-slate-500">
-                    <th className="py-3 px-4">Protocolo</th>
-                    <th className="py-3 px-4">Assunto, Cliente &amp; Serial</th>
-                    <th className="py-3 px-4">Prioridade</th>
-                    <th className="py-3 px-4">Cronômetro SLA</th>
-                    <th className="py-3 px-4">Fila NOC Responsável</th>
-                    <th className="py-3 px-4">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
-                  {filteredTickets.map((t) => (
-                    <tr
-                      key={t.id}
-                      onClick={() => setSelectedTicketId(t.id)}
-                      className={`cursor-pointer transition ${
-                        activeTicket?.id === t.id ? 'bg-orange-50/70' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <td className="py-3 px-4 font-mono font-extrabold text-indigo-700">
-                        {t.key}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900">{t.subject}</div>
-                        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
-                          <span>
-                            {t.company?.name || 'Sem empresa'} •{' '}
-                            {t.contact
-                              ? `${t.contact.firstName} ${t.contact.lastName}`
-                              : 'Portal'}
-                          </span>
-                          {t.equipmentSerial && (
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-                              S/N: {t.equipmentSerial}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">{getPriorityBadge(t.priority)}</td>
-                      <td className="py-3 px-4">{renderRealtimeSlaBadge(t)}</td>
-                      <td className="py-3 px-4 font-semibold text-slate-700">{t.assignee}</td>
-                      <td className="py-3 px-4">
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800">
-                          {t.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
         </div>
@@ -779,7 +1084,7 @@ export default function ServiceDeskTab({
                     }
                     className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-[10px] font-extrabold text-white inline-flex items-center gap-1 cursor-pointer"
                   >
-                    ✉️ Enviar E-mail Cliente
+                    Enviar E-mail ao Cliente
                   </button>
                   <a
                     href={`/portal?ticket=${activeTicket.key}`}
@@ -975,7 +1280,7 @@ export default function ServiceDeskTab({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-extrabold shadow-xs transition cursor-pointer disabled:opacity-50"
                   >
                     <Wrench className="w-3.5 h-3.5 text-[#ff7a59]" />
-                    {creatingOs ? 'Gerando O.S. no ERP...' : '🔧 Gerar O.S. Técnica (ERP GestãoClick)'}
+                    {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (ERP GestãoClick)'}
                   </button>
                 )}
 
@@ -1013,7 +1318,7 @@ export default function ServiceDeskTab({
                             : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-700'
                         }`}
                       >
-                        {star}★
+                        {star}/5
                       </button>
                     ))}
                   </div>
