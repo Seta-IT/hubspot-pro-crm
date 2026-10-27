@@ -18,11 +18,8 @@ import type {
 export const STIHUB_SESSION_COOKIE = 'stihub_session';
 export const STIHUB_SESSION_STORAGE_KEY = 'stihub_active_session_v1';
 
-const DEFAULT_SIGNING_SECRET =
-  (typeof process !== 'undefined' &&
-    process.env &&
-    (process.env.STI_HUB_SESSION_SECRET || process.env.NEXTAUTH_SECRET)) ||
-  'stihub-seta-telecom-14806925000132-hmac-sha256-secret-key-2026';
+const GLOBAL_EPHEMERAL_SECRET_KEY = '__STIHUB_EPHEMERAL_SIGNING_SECRET_V1__';
+let productionSecretWarningLogged = false;
 
 export interface StiHubSessionPayload {
   userId: string;
@@ -603,9 +600,51 @@ export function verifyCorporatePassword(
 // HMAC-SHA256 SIGNED SESSION TOKEN (JWT-STYLE COMPACT TOKEN)
 // ============================================================================
 
+export function resolveStiHubSigningSecret(): string {
+  if (typeof process !== 'undefined' && process.env) {
+    const configuredSecret =
+      process.env.STI_HUB_SESSION_SECRET?.trim() ||
+      process.env.NEXTAUTH_SECRET?.trim() ||
+      process.env.AUTH_SECRET?.trim();
+    if (configuredSecret && configuredSecret.length >= 16) {
+      return configuredSecret;
+    }
+
+    if (process.env.NODE_ENV === 'production' && !productionSecretWarningLogged) {
+      productionSecretWarningLogged = true;
+      console.warn(
+        '[STI-hub Security] Variável STI_HUB_SESSION_SECRET / NEXTAUTH_SECRET ausente em produção. Utilizando chave HMAC-SHA256 efêmera derivada por processo/ambiente. Configure STI_HUB_SESSION_SECRET com pelo menos 32 bytes de entropia.'
+      );
+    }
+  }
+
+  const globalScope = globalThis as unknown as Record<string, string | undefined>;
+  if (!globalScope[GLOBAL_EPHEMERAL_SECRET_KEY]) {
+    const randomBytes = new Uint8Array(32);
+    if (
+      typeof globalThis.crypto !== 'undefined' &&
+      typeof globalThis.crypto.getRandomValues === 'function'
+    ) {
+      globalThis.crypto.getRandomValues(randomBytes);
+    } else {
+      for (let i = 0; i < 32; i++) {
+        randomBytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    const envEntropy =
+      typeof process !== 'undefined' && process.env
+        ? `${process.env.VERCEL_DEPLOYMENT_ID || ''}:${process.env.VERCEL_GIT_COMMIT_SHA || ''}:${process.pid || ''}`
+        : 'browser-runtime';
+    globalScope[GLOBAL_EPHEMERAL_SECRET_KEY] = bytesToHex(
+      sha256Bytes(utf8ToBytes(`${bytesToHex(randomBytes)}:${envEntropy}:${Date.now()}`))
+    );
+  }
+  return globalScope[GLOBAL_EPHEMERAL_SECRET_KEY]!;
+}
+
 export function signStiHubSessionToken(
   claims: StiHubSignedSessionClaims,
-  secret: string = DEFAULT_SIGNING_SECRET
+  secret: string = resolveStiHubSigningSecret()
 ): string {
   const payloadB64 = base64UrlEncodeString(JSON.stringify(claims));
   const sigB64 = hmacSha256Base64Url(secret, payloadB64);
@@ -614,7 +653,7 @@ export function signStiHubSessionToken(
 
 export function verifyStiHubSessionToken(
   rawToken: string | null | undefined,
-  secret: string = DEFAULT_SIGNING_SECRET
+  secret: string = resolveStiHubSigningSecret()
 ): {
   valid: boolean;
   claims: StiHubSignedSessionClaims | null;

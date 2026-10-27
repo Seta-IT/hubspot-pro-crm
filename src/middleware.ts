@@ -12,13 +12,12 @@ const PUBLIC_PATH_PREFIXES = [
   '/portal',
   '/api/portal',
   '/api/health',
-  '/api/erp/daily-sync',
   '/_next',
   '/favicon.ico',
 ];
 
 export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
-  const clean = pathname || '/';
+  const clean = (pathname || '/').replace(/\/+$/, '') || '/';
   if (
     PUBLIC_PATH_PREFIXES.some(
       (prefix) => clean === prefix || clean.startsWith(`${prefix}/`)
@@ -26,10 +25,19 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   ) {
     return true;
   }
-  // Public proposal view & external ICP-Brasil client approval link
-  if (clean === '/api/erp/proposals' || clean.startsWith('/api/erp/proposals/')) {
+  // Public proposal view & external ICP-Brasil client approval link (/proposta/[id]).
+  // Restricts public access exclusively to individual proposal routes with a specific :id
+  // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).
+  // Root listing (GET /api/erp/proposals) is NEVER public.
+  if (clean.startsWith('/api/erp/proposals/')) {
+    const rest = clean.slice('/api/erp/proposals/'.length).trim();
+    if (!rest) return false;
+    const segments = rest.split('/').filter(Boolean);
     const upper = String(method || 'GET').toUpperCase();
-    if (upper === 'GET' || clean.endsWith('/approve')) {
+    if (segments.length === 1 && upper === 'GET') {
+      return true;
+    }
+    if (segments.length === 2 && segments[1] === 'approve' && upper === 'POST') {
       return true;
     }
   }
@@ -43,9 +51,7 @@ export function classifyRouteRequiredModule(
   if (
     clean === '/erp' ||
     clean.startsWith('/erp/') ||
-    (clean.startsWith('/api/erp/') &&
-      !clean.startsWith('/api/erp/proposals') &&
-      !clean.startsWith('/api/erp/daily-sync'))
+    clean.startsWith('/api/erp/')
   ) {
     return 'ERP';
   }

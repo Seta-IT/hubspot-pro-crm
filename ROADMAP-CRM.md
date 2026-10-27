@@ -116,10 +116,12 @@
 - **Autenticação em 2 Etapas Obrigatórias com MFA / 2FA (`/login`)**:
   - **Etapa 1**: Validação de credenciais corporativas (`@setatelecom.com.br` + senha) em `POST /api/auth/login` contra os 22 usuários ativos do RBAC.
   - **Etapa 2**: Desafio obrigatório de código **MFA 2FA de 6 dígitos** (TOTP Autenticador / Código Corporativo) em `POST /api/auth/verify-mfa`.
-  - **Sessão Segura**: Cookie `HttpOnly` assinado (`stihub_session`, `SameSite=Lax`, `Path=/`) com `mfaVerified: true`, perfil RBAC, escopo de visibilidade e encerramento imediato em `POST /api/auth/logout`.
+  - **Sessão Segura & Resolução Criptográfica de Segredo (`resolveStiHubSigningSecret`)**:
+  - Cookie `HttpOnly` assinado via HMAC-SHA256 (`stihub_session`, `SameSite=Lax`, `Path=/`) com `mfaVerified: true`, perfil RBAC, escopo de visibilidade e encerramento imediato em `POST /api/auth/logout`.
+  - Eliminação de segredo estático previsível no código-fonte: resolução prioritária via variáveis de ambiente (`STI_HUB_SESSION_SECRET` / `NEXTAUTH_SECRET` / `AUTH_SECRET`), com derivação efêmera CSPRNG por processo/ambiente em dev/test e alerta de segurança em produção (`NODE_ENV === 'production'`).
 - **Proteção Total de Rotas via Next.js Edge Middleware (`src/middleware.ts`)**:
-  - Bloqueia acessos não autenticados ou sem `mfaVerified` redirecionando páginas para `/login?next=...` e retornando `401 Unauthorized` em rotas `/api/*` protegidas.
-  - Rotas públicas estritamente controladas: `/login`, `/api/auth/*`, `/proposta/[id]` + `GET /api/erp/proposals/:id` (visualização/impressão de proposta pelo cliente) e `/api/health`.
+  - Bloqueia acessos não autenticados ou sem `mfaVerified` redirecionando páginas para `/login?next=...` e retornando `401 Unauthorized` em rotas `/api/*` protegidas (incluindo `GET /api/erp/proposals` e `/api/erp/daily-sync`, que exigem sessão MFA autenticada e módulo `ERP`).
+  - Rotas públicas estritamente controladas: `/login`, `/api/auth/*`, `/portal` + `/api/portal/*`, `/proposta/[id]` + exclusivamente rotas individuais de uma proposta específica (`GET /api/erp/proposals/:id` e `POST /api/erp/proposals/:id/approve` para visualização/assinatura ICP-Brasil pelo cliente externo) e `/api/health`.
 - **Subdomínio Oficial em Produção (Vercel)**:
   - Produção ativa e publicada em **`https://sti-hub.vercel.app`**, com suporte a CNAME customizado corporativo (`https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br`).
 
