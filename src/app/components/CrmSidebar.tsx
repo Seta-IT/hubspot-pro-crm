@@ -330,7 +330,7 @@ export default function CrmSidebar({
             </button>
           </div>
 
-          {/* 5. DATA HEALTH (AUDITA BASE CRM E BASE ERP) */}
+          {/* 5. DATA HEALTH (EXCLUSIVO DO CRM) */}
           <div className="rounded-md pt-2 border-t border-slate-200">
             <button
               type="button"
@@ -352,7 +352,7 @@ export default function CrmSidebar({
                     activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
                   }`}
                 />
-                <span className="truncate">Data Health</span>
+                <span className="truncate">Data Health (CRM)</span>
               </span>
               {expanded.DATA_HEALTH ? (
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" />
@@ -370,26 +370,12 @@ export default function CrmSidebar({
                     closeMobileIfOpen();
                   }}
                   className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                    activeModule === 'DATA_HEALTH' && dataHealthScope === 'CRM'
+                    activeModule === 'DATA_HEALTH'
                       ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
                       : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                   }`}
                 >
                   <span>Auditoria Base CRM</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectDataHealth('ERP');
-                    closeMobileIfOpen();
-                  }}
-                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                    activeModule === 'DATA_HEALTH' && dataHealthScope === 'ERP'
-                      ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
-                      : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
-                  }`}
-                >
-                  <span>Auditoria Base ERP</span>
                 </button>
               </div>
             )}

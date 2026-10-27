@@ -33,6 +33,7 @@ import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
 import UserAccountModal from './components/UserAccountModal';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
+import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Lock, Menu } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
@@ -1166,59 +1167,50 @@ export default function HubSpotProCrmApp() {
             </div>
           </div>
 
-          {/* Global HubSpot Search Input */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-3.5 h-3.5 text-[#99acc2] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              placeholder="Pesquisar no STI-hub — Seta Telecom CRM & GestãoClick (contatos, empresas, e-mail, CNPJ)..."
-              className="w-full pl-8 pr-7 py-1.5 rounded-[4px] bg-[#33475b] border border-[#516f90] text-xs text-white placeholder-[#99acc2] focus:bg-white focus:text-[#33475b] focus:placeholder-[#516f90] focus:outline-none focus:border-[#0091ae] transition"
-            />
-            {globalSearch && (
-              <button
-                type="button"
-                onClick={() => setGlobalSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-[#99acc2] hover:text-white"
-              >
-                Limpar
-              </button>
-            )}
-            {quickSearchContacts.length > 0 && (
-              <div className="absolute left-0 right-0 mt-1.5 bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl z-50 overflow-hidden text-[#33475b]">
-                <div className="px-3 py-1.5 bg-[#f5f8fa] border-b border-[#cbd6e2] text-[10px] font-bold uppercase tracking-wider text-[#516f90]">
-                  Resultados no CRM ({quickSearchContacts.length})
-                </div>
-                <div className="divide-y divide-[#eaf0f6] max-h-72 overflow-y-auto">
-                  {quickSearchContacts.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        setGlobalSearch("");
-                        setInitialContactIdForDrawer(c.id);
-                        setActiveModule("CONTACTS_COMPANIES");
-                      }}
-                      className="w-full text-left px-3.5 py-2.5 hover:bg-[#eaf0f6]/70 flex items-center justify-between text-xs transition"
-                    >
-                      <div>
-                        <div className="font-bold text-[#0091ae] hover:underline">
-                          {c.firstName} {c.lastName}
-                        </div>
-                        <div className="text-[11px] text-[#516f90]">
-                          {c.email} {c.company?.name ? `• ${c.company.name}` : ""}
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-[3px] bg-[#e5f8f6] text-[#007a6c] border border-[#00bda5]/30 font-bold text-[10px]">
-                        Score {c.leadScore}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Global HubSpot-Style Header Search (Todos os Sistemas | CRM | ERP | Chamados + Pílulas de Categoria) */}
+          <GlobalHeaderSearch
+            contacts={contacts}
+            companies={companies}
+            deals={deals}
+            proposals={erpData?.proposals || []}
+            catalog={erpData?.catalog || []}
+            rentalContracts={erpData?.rentalContracts || []}
+            invoices={erpData?.invoices || []}
+            serviceOrders={erpData?.serviceOrders || []}
+            tickets={tickets}
+            onSelectResult={(entry: SearchResultEntry) => {
+              if (entry.category === 'CONTACTS') {
+                setInitialContactIdForDrawer(entry.entityId);
+                setContactsInitialSubView('CONTACTS');
+                setLastCrmSubModule('CONTACTS_COMPANIES');
+                setActiveModule('CONTACTS_COMPANIES');
+              } else if (entry.category === 'COMPANIES') {
+                setContactsInitialSubView('COMPANIES');
+                setLastCrmSubModule('CONTACTS_COMPANIES');
+                setActiveModule('CONTACTS_COMPANIES');
+              } else if (entry.category === 'DEALS') {
+                setLastCrmSubModule('DEALS_KANBAN');
+                setActiveModule('DEALS_KANBAN');
+              } else if (entry.category === 'PROPOSALS') {
+                setErpInitialSection('ORCAMENTOS');
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'PRODUCTS') {
+                setErpInitialSection('ITENS');
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'CONTRACTS') {
+                setErpInitialSection('CONTRATOS');
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'INVOICES') {
+                setErpInitialSection('FISCAL');
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'SERVICE_ORDERS') {
+                setErpInitialSection('ORDENS_SERVICOS');
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'TICKETS') {
+                setActiveModule('SERVICE_DESK');
+              }
+            }}
+          />
 
           {/* Right Status & Profile Controls */}
           <div className="flex items-center gap-2 shrink-0">
@@ -1394,11 +1386,11 @@ export default function HubSpotProCrmApp() {
       </header>
 
       {/* ====================================================================
-          STI-HUB CLEAN CONTEXTUAL SUB-HEADER (CLICKABLE BADGES + ACTIONS)
+          STI-HUB CLEAN CONTEXTUAL SUB-HEADER (ISOLADO POR SISTEMA: CRM | ERP | CHAMADOS)
       ==================================================================== */}
       <div className="bg-white border-b border-[#cbd6e2] px-3 sm:px-6 py-2 shadow-2xs">
         <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2">
-          {/* Left Breadcrumb & Separate Clickable Badges */}
+          {/* Left Breadcrumb & Strictly Scoped Clickable Badges */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium mr-1">
               <button
@@ -1414,101 +1406,200 @@ export default function HubSpotProCrmApp() {
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setContactsInitialSubView("CONTACTS");
-                setActiveModule("CONTACTS_COMPANIES");
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
-            >
-              {contacts.length} Contatos
-            </button>
+            {/* BADGES EXCLUSIVOS QUANDO NO SISTEMA 1: CRM */}
+            {isCrmActive && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContactsInitialSubView("CONTACTS");
+                    setActiveModule("CONTACTS_COMPANIES");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+                >
+                  {contacts.length} Contatos CRM
+                </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setContactsInitialSubView("COMPANIES");
-                setActiveModule("CONTACTS_COMPANIES");
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
-            >
-              {companies.length} Empresas
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContactsInitialSubView("COMPANIES");
+                    setActiveModule("CONTACTS_COMPANIES");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+                >
+                  {companies.length} Empresas CRM
+                </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setErpInitialSection("CADASTROS");
-                setActiveModule("ERP_GESTAOCLICK");
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
-            >
-              ERP: {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLastCrmSubModule("DEALS_KANBAN");
+                    setActiveModule("DEALS_KANBAN");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-sky-50 hover:bg-sky-100 text-[#0091ae] border border-sky-200 text-[11px] font-bold cursor-pointer transition"
+                >
+                  {deals.length} Negócios Ativos
+                </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setErpInitialSection("CONTRATOS");
-                setActiveModule("ERP_GESTAOCLICK");
-              }}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
-            >
-              {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos Locação
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDataHealthScope("CRM");
+                    setLastCrmSubModule("DATA_HEALTH");
+                    setActiveModule("DATA_HEALTH");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold cursor-pointer transition"
+                >
+                  Data Health CRM: {healthSummary?.globalHealthScore ?? 92}%
+                </button>
+              </>
+            )}
+
+            {/* BADGES EXCLUSIVOS QUANDO NO SISTEMA 2: ERP */}
+            {activeModule === "ERP_GESTAOCLICK" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("CADASTROS");
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                >
+                  {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes ERP
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("ORCAMENTOS");
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                >
+                  {erpData?.gestaoClickConfig?.liveTotals?.orcamentos ?? 2077} Orçamentos
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("CONTRATOS");
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                >
+                  {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos de Locação
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("ORDENS_SERVICOS");
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                >
+                  {erpData?.gestaoClickConfig?.liveTotals?.ordensServicos ?? 1378} O.S.
+                </button>
+              </>
+            )}
+
+            {/* BADGES EXCLUSIVOS QUANDO NO SISTEMA 3: CHAMADOS */}
+            {activeModule === "SERVICE_DESK" && (
+              <>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-indigo-50 text-indigo-800 border border-indigo-200 text-[11px] font-bold">
+                  {ticketKpis.openCount} Chamados Abertos
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
+                  SLA {ticketKpis.slaComplianceRate}% no Prazo
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-slate-100 text-slate-800 border border-slate-300 text-[11px] font-bold">
+                  Fila NOC Telecom 24x7
+                </span>
+              </>
+            )}
           </div>
 
-          {/* Right Clean Action Bar: Pipeline Selector + E-mail Mailer + Nova Proposta */}
+          {/* Right Action Bar Strictly Scoped to the Active System */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
-              <span className="text-[11px] font-bold text-[#516f90]">Pipeline:</span>
-              <select
-                aria-label="Seletor Global de Pipeline"
-                value={selectedPipelineId}
-                onChange={(e) => {
-                  setSelectedPipelineId(e.target.value);
-                  setActiveModule("DEALS_KANBAN");
-                }}
-                className="bg-transparent text-xs font-bold text-[#0091ae] focus:outline-none cursor-pointer"
+            {isCrmActive && (
+              <>
+                <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
+                  <span className="text-[11px] font-bold text-[#516f90]">Pipeline:</span>
+                  <select
+                    aria-label="Seletor Global de Pipeline"
+                    value={selectedPipelineId}
+                    onChange={(e) => {
+                      setSelectedPipelineId(e.target.value);
+                      setActiveModule("DEALS_KANBAN");
+                    }}
+                    className="bg-transparent text-xs font-bold text-[#0091ae] focus:outline-none cursor-pointer"
+                  >
+                    {pipelines.map((p) => (
+                      <option key={p.id} value={p.id} className="text-[#33475b]">
+                        {p.name} ({deals.filter((d) => d.pipelineId === p.id).length} deals)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setGlobalEmailModal({
+                      docType: "PROPOSAL",
+                      companyName: companies[0]?.name || "MUNDIVOX COMUNICACOES LTDA",
+                      companyCnpj: companies[0]?.cnpj || "07.228.550/0001-19",
+                      recipientName: "Maria Luiza",
+                      documentCode: "4695",
+                      amountBrl: 4320,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                >
+                  Enviar E-mail ao Cliente
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLastCrmSubModule("DEALS_KANBAN");
+                    setActiveModule("DEALS_KANBAN");
+                  }}
+                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                >
+                  + Novo Negócio (Deal)
+                </button>
+              </>
+            )}
+
+            {activeModule === "ERP_GESTAOCLICK" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPrefillProposalDeal(null);
+                    setErpInitialSection("ORCAMENTOS");
+                    setAutoOpenNewProposalTrigger((n) => n + 1);
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                >
+                  + Novo Orçamento / Proposta PDF
+                </button>
+              </>
+            )}
+
+            {activeModule === "SERVICE_DESK" && (
+              <button
+                type="button"
+                onClick={() => setActiveModule("SERVICE_DESK")}
+                className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
               >
-                {pipelines.map((p) => (
-                  <option key={p.id} value={p.id} className="text-[#33475b]">
-                    {p.name} ({deals.filter((d) => d.pipelineId === p.id).length} deals)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                setGlobalEmailModal({
-                  docType: "PROPOSAL",
-                  companyName: companies[0]?.name || "MUNDIVOX COMUNICACOES LTDA",
-                  companyCnpj: companies[0]?.cnpj || "07.228.550/0001-19",
-                  recipientName: "Maria Luiza",
-                  documentCode: "4695",
-                  amountBrl: 4320,
-                })
-              }
-              className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
-            >
-              Enviar E-mail ao Cliente
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setPrefillProposalDeal(null);
-                setErpInitialSection("ORCAMENTOS");
-                setAutoOpenNewProposalTrigger((n) => n + 1);
-                setActiveModule("ERP_GESTAOCLICK");
-              }}
-              className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
-            >
-              Novo Orçamento / Proposta PDF
-            </button>
+                + Novo Chamado NOC
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1746,6 +1837,16 @@ export default function HubSpotProCrmApp() {
                   <OverviewAiCopilotTab
                     report={aiReport}
                     loading={loadingAll}
+                    contactsCount={contacts.length}
+                    companiesCount={companies.length}
+                    dealsCount={deals.length}
+                    formsCount={webForms.length}
+                    automationsCount={workflows.length + sequences.length}
+                    healthScore={healthSummary?.globalHealthScore ?? 92}
+                    onNavigateToMarketingForms={() => {
+                      setLastCrmSubModule('MARKETING_FORMS');
+                      setActiveModule('MARKETING_FORMS');
+                    }}
                     onRefresh={() => fetchAllCrmData()}
                     onAskQuestion={handleAskAiQuestion}
                     askingQuestion={askingAi}
@@ -1871,6 +1972,7 @@ export default function HubSpotProCrmApp() {
 
                 {activeModule === 'DATA_HEALTH' && (
                   <DataHealthTab
+                    systemScope="crm"
                     summary={healthSummary}
                     duplicates={duplicates}
                     contacts={contacts}

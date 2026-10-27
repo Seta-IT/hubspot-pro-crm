@@ -5,11 +5,12 @@ import {
   ArrowRight,
   Plus,
   Settings,
-  Wallet,
   TrendingUp,
-  FileText,
-  FileCheck2,
-  Headphones,
+  Users,
+  Briefcase,
+  Target,
+  Workflow,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import {
@@ -17,7 +18,6 @@ import {
   HiddenOpportunityItem,
 } from '../../modules/ai-insights/ai-insights-service';
 import { formatBRL } from './ui-helpers';
-import { SETA_DASHBOARD_BASELINE } from './GestaoClickDashboard';
 
 interface OverviewAiCopilotTabProps {
   report: AiInsightsReport | null;
@@ -31,6 +31,7 @@ interface OverviewAiCopilotTabProps {
   onNavigateToErpSection?: (section: string) => void;
   onNavigateToServiceDesk?: () => void;
   onNavigateToAutomations?: () => void;
+  onNavigateToMarketingForms?: () => void;
   onConvertOpportunityToDeal: (opp: HiddenOpportunityItem) => Promise<void>;
   onRegisterQuickFollowUp: (item: {
     dealId: string | null;
@@ -39,17 +40,23 @@ interface OverviewAiCopilotTabProps {
     channel: string;
     message: string;
   }) => Promise<void>;
+  contactsCount?: number;
+  companiesCount?: number;
+  dealsCount?: number;
+  formsCount?: number;
+  automationsCount?: number;
+  healthScore?: number;
 }
 
-const CHART_CATALOG = [
-  { id: 'ERP_CASH_FLOW', label: 'Gráfico 1 (ERP): Fluxo de Caixa Mensal (Recebimentos x Pagamentos)' },
-  { id: 'ERP_SALES_TREND', label: 'Gráfico 2 (ERP): Evolução de Vendas & Locações (Últimos 6 meses)' },
-  { id: 'CRM_DEALS_FUNNEL', label: 'Gráfico 3 (CRM): Funil de Vendas por Etapa (Deals Pipeline)' },
-  { id: 'ERP_BANK_BALANCES', label: 'Gráfico 4 (ERP): Saldo por Conta Bancária (Banco Inter x Itaú)' },
-  { id: 'CRM_LIFECYCLE_DONUT', label: 'Gráfico 5 (CRM): Contatos & Empresas por Ciclo de Vida' },
-  { id: 'ERP_FISCAL_MIX', label: 'Gráfico 6 (ERP): Faturamento Fiscal (Locação 0% ISS vs NFS-e)' },
-  { id: 'CRM_SLA_TICKETS', label: 'Gráfico 7 (CRM): Chamados por Prioridade & SLA (Service Desk)' },
-  { id: 'CRM_DATA_HEALTH', label: 'Gráfico 8 (CRM): Saúde da Base de Dados (Data Health Score)' },
+const CRM_CHART_CATALOG = [
+  { id: 'CRM_DEALS_FUNNEL', label: 'Gráfico 1 (CRM): Funil de Negócios por Etapa (Deals Pipeline)' },
+  { id: 'CRM_PIPELINE_GROWTH', label: 'Gráfico 2 (CRM): Evolução de Pipeline & Receita Comercial (Sales Hub)' },
+  { id: 'CRM_PIPELINES_PERFORMANCE', label: 'Gráfico 3 (CRM): Performance por Pipeline Comercial (4 Pipelines)' },
+  { id: 'CRM_MARKETING_ORIGINS', label: 'Gráfico 4 (CRM): Conversão Marketing Hub & Origem de Leads' },
+  { id: 'CRM_LIFECYCLE_DONUT', label: 'Gráfico 5 (CRM): Contatos & Empresas CRM por Ciclo de Vida (MQL / SQL)' },
+  { id: 'CRM_DATA_HEALTH', label: 'Gráfico 6 (CRM): Saúde da Base CRM (Data Health Score Exclusivo CRM)' },
+  { id: 'CRM_RECENT_ACTIVITIES', label: 'Gráfico 7 (CRM): Atividades & Tarefas Comerciais Recentes (Follow-ups)' },
+  { id: 'CRM_QUOTA_ATTAINMENT', label: 'Gráfico 8 (CRM): Metas & Quotas por Executivo Comercial (Sales Hub)' },
 ];
 
 function greeting(): string {
@@ -64,24 +71,30 @@ export default function OverviewAiCopilotTab({
   onNavigateToDeals,
   onNavigateToContacts,
   onNavigateToDataHealth,
-  onNavigateToErpSection,
-  onNavigateToServiceDesk,
+  onNavigateToAutomations,
+  onNavigateToMarketingForms,
+  contactsCount = 23,
+  companiesCount = 23,
+  dealsCount = 13,
+  formsCount = 3,
+  automationsCount = 5,
+  healthScore = 92,
 }: OverviewAiCopilotTabProps) {
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [enabledCharts, setEnabledCharts] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {
-      ERP_CASH_FLOW: true,
-      ERP_SALES_TREND: true,
       CRM_DEALS_FUNNEL: true,
-      ERP_BANK_BALANCES: true,
+      CRM_PIPELINE_GROWTH: true,
+      CRM_PIPELINES_PERFORMANCE: true,
+      CRM_MARKETING_ORIGINS: true,
       CRM_LIFECYCLE_DONUT: true,
-      ERP_FISCAL_MIX: true,
-      CRM_SLA_TICKETS: true,
       CRM_DATA_HEALTH: true,
+      CRM_RECENT_ACTIVITIES: true,
+      CRM_QUOTA_ATTAINMENT: true,
     };
     if (typeof window !== 'undefined') {
       try {
-        const saved = window.localStorage.getItem('sti_hub_clean_charts_v2');
+        const saved = window.localStorage.getItem('sti_hub_crm_only_charts_v3');
         if (saved) return { ...defaults, ...JSON.parse(saved) };
       } catch {
         // ignore
@@ -95,7 +108,7 @@ export default function OverviewAiCopilotTab({
       const next = { ...prev, [id]: !prev[id] };
       if (typeof window !== 'undefined') {
         try {
-          window.localStorage.setItem('sti_hub_clean_charts_v2', JSON.stringify(next));
+          window.localStorage.setItem('sti_hub_crm_only_charts_v3', JSON.stringify(next));
         } catch {
           // ignore
         }
@@ -104,100 +117,26 @@ export default function OverviewAiCopilotTab({
     });
   };
 
-  const s = SETA_DASHBOARD_BASELINE;
-  const openPipeline = report?.revenueForecast.totalOpenPipelineValue ?? 1285000;
-  const weightedForecast = report?.revenueForecast.weightedPipelineValue ?? 684000;
+  const openPipeline = report?.revenueForecast.totalOpenPipelineValue ?? 1712600;
+  const weightedForecast = report?.revenueForecast.weightedPipelineValue ?? 1194550;
+  const wonRevenue = report?.revenueForecast.closedWonValue ?? 420000;
   const stages = report?.funnelBottlenecks ?? [
-    { stageId: '1', stageName: '1. Descoberta', totalValue: 320000, dealCount: 4 },
-    { stageId: '2', stageName: '2. Arquitetura', totalValue: 410000, dealCount: 3 },
-    { stageId: '3', stageName: '3. Proposta', totalValue: 365000, dealCount: 3 },
-    { stageId: '4', stageName: '4. Negociação', totalValue: 190000, dealCount: 2 },
+    { stageId: '1', stageName: 'Prospecção & Descoberta', totalValue: 115000, dealCount: 1 },
+    { stageId: '2', stageName: 'Qualificação Executiva (SQL)', totalValue: 280000, dealCount: 3 },
+    { stageId: '3', stageName: 'Demonstração & Diagnóstico', totalValue: 520000, dealCount: 4 },
+    { stageId: '4', stageName: 'Negociação & Fechamento', totalValue: 797600, dealCount: 5 },
   ];
 
-  // SVG 1: Cash Flow Bars + Line
-  const renderCashFlowSvg = () => {
-    const W = 540;
-    const H = 185;
-    const pad = 28;
-    const maxAbs = Math.max(
-      1,
-      ...s.cashFlowMonthly.map((d) => Math.max(d.recebimentos, d.pagamentos, Math.abs(d.saldo)))
-    );
-    const mid = H / 2 + 10;
-    const scale = (v: number) => (v / maxAbs) * (H / 2 - 22);
-    const step = (W - pad * 2) / s.cashFlowMonthly.length;
-    const pts = s.cashFlowMonthly
-      .map((d, i) => `${pad + step * i + step / 2},${mid - scale(d.saldo)}`)
-      .join(' ');
+  const crmMonthlyTrend = [
+    { month: 'mai', pipelineCriado: 640000, dealsGanhos: 185000 },
+    { month: 'jun', pipelineCriado: 820000, dealsGanhos: 240000 },
+    { month: 'jul', pipelineCriado: 910000, dealsGanhos: 295000 },
+    { month: 'ago', pipelineCriado: 1120000, dealsGanhos: 340000 },
+    { month: 'set', pipelineCriado: 1480000, dealsGanhos: 410000 },
+    { month: 'out', pipelineCriado: openPipeline, dealsGanhos: wonRevenue },
+  ];
 
-    return (
-      <svg viewBox={`0 0 ${W} ${H + 22}`} className="w-full h-52">
-        <line x1={pad} x2={W - pad} y1={mid} y2={mid} stroke="#e2e8f0" strokeWidth="1.5" />
-        {s.cashFlowMonthly.map((d, i) => {
-          const x = pad + step * i + step / 2;
-          const hR = scale(d.recebimentos);
-          const hP = scale(d.pagamentos);
-          return (
-            <g key={d.month}>
-              <rect x={x - 15} y={mid - hR} width={13} height={hR} fill="#16a34a" rx={2} />
-              <rect x={x + 2} y={mid} width={13} height={hP} fill="#dc2626" rx={2} />
-              <text x={x} y={H + 16} textAnchor="middle" fontSize="11" fill="#64748b" fontWeight="600">
-                {d.month}
-              </text>
-            </g>
-          );
-        })}
-        <polyline points={pts} fill="none" stroke="#475569" strokeWidth="2" />
-        {s.cashFlowMonthly.map((d, i) => (
-          <circle
-            key={`c-${d.month}`}
-            cx={pad + step * i + step / 2}
-            cy={mid - scale(d.saldo)}
-            r="3.5"
-            fill="#1e3a6e"
-          />
-        ))}
-      </svg>
-    );
-  };
-
-  // SVG 2: Smooth Area Sales Trend
-  const renderSalesAreaSvg = () => {
-    const W = 540;
-    const H = 185;
-    const pad = 28;
-    const max = Math.max(1, ...s.salesMonthly.map((d) => d.vendas)) * 1.12;
-    const step = (W - pad * 2) / Math.max(1, s.salesMonthly.length - 1);
-    const y = (v: number) => H - 10 - (v / max) * (H - 34);
-    const pts = s.salesMonthly.map((d, i) => ({ x: pad + step * i, y: y(d.vendas) }));
-    let path = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      const p0 = pts[i - 1];
-      const p1 = pts[i];
-      const cx = (p0.x + p1.x) / 2;
-      path += ` C ${cx} ${p0.y}, ${cx} ${p1.y}, ${p1.x} ${p1.y}`;
-    }
-    const area = `${path} L ${pts[pts.length - 1].x} ${H - 10} L ${pts[0].x} ${H - 10} Z`;
-    const avgY = y(s.salesMonthlyAverage);
-
-    return (
-      <svg viewBox={`0 0 ${W} ${H + 22}`} className="w-full h-52">
-        <path d={area} fill="#1e3a6e" fillOpacity="0.12" />
-        <path d={path} fill="none" stroke="#1e3a6e" strokeWidth="2.5" />
-        <line x1={pad} x2={W - pad} y1={avgY} y2={avgY} stroke="#94a3b8" strokeDasharray="5 4" />
-        {pts.map((p, i) => (
-          <g key={s.salesMonthly[i].month}>
-            <circle cx={p.x} cy={p.y} r="4" fill="#1e3a6e" />
-            <text x={p.x} y={H + 16} textAnchor="middle" fontSize="11" fill="#64748b" fontWeight="600">
-              {s.salesMonthly[i].month}
-            </text>
-          </g>
-        ))}
-      </svg>
-    );
-  };
-
-  // SVG 3: Deals Funnel Horizontal Bars
+  // SVG 1: Deals Funnel Horizontal Bars (CRM)
   const renderDealsFunnelSvg = () => {
     const list = stages.slice(0, 5);
     const maxVal = Math.max(1, ...list.map((st) => st.totalValue));
@@ -228,49 +167,103 @@ export default function OverviewAiCopilotTab({
     );
   };
 
-  // SVG 4: Bank Accounts Visual Comparison
-  const renderBankAccountsChart = () => {
-    const inter = 4572238.02;
-    const itau = -2370472.62;
-    const max = inter;
+  // SVG 2: Evolução de Pipeline & Receita Comercial (Sales Hub)
+  const renderPipelineGrowthSvg = () => {
+    const W = 540;
+    const H = 185;
+    const pad = 28;
+    const maxVal = Math.max(1, ...crmMonthlyTrend.map((d) => d.pipelineCriado)) * 1.1;
+    const step = (W - pad * 2) / crmMonthlyTrend.length;
+    const scale = (v: number) => (v / maxVal) * (H - 36);
+    const base = H - 12;
+    const pts = crmMonthlyTrend
+      .map((d, i) => `${pad + step * i + step / 2},${base - scale(d.dealsGanhos)}`)
+      .join(' ');
+
     return (
-      <div className="space-y-4 py-2">
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-orange-500" /> Banco Inter (Conta PJ)
-            </span>
-            <strong className="text-emerald-700 font-black">{formatBRL(inter)}</strong>
-          </div>
-          <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-600 rounded-full" style={{ width: '100%' }} />
-          </div>
-        </div>
+      <svg viewBox={`0 0 ${W} ${H + 22}`} className="w-full h-52">
+        <line x1={pad} x2={W - pad} y1={base} y2={base} stroke="#e2e8f0" strokeWidth="1.5" />
+        {crmMonthlyTrend.map((d, i) => {
+          const x = pad + step * i + step / 2;
+          const hPipe = scale(d.pipelineCriado);
+          const hWon = scale(d.dealsGanhos);
+          return (
+            <g key={d.month}>
+              <rect x={x - 15} y={base - hPipe} width={13} height={hPipe} fill="#0091ae" rx={2} />
+              <rect x={x + 2} y={base - hWon} width={13} height={hWon} fill="#16a34a" rx={2} />
+              <text x={x} y={H + 16} textAnchor="middle" fontSize="11" fill="#64748b" fontWeight="600">
+                {d.month}
+              </text>
+            </g>
+          );
+        })}
+        <polyline points={pts} fill="none" stroke="#ff7a59" strokeWidth="2.5" />
+      </svg>
+    );
+  };
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-800" /> Banco Itaú
-            </span>
-            <strong className="text-rose-600 font-black">{formatBRL(itau)}</strong>
+  // SVG 3: Performance por Pipeline Comercial (CRM)
+  const renderPipelinesPerformance = () => {
+    const pipes = [
+      { name: 'Pipeline 1: Locação & Serviços B2B', value: 845000, deals: 5, color: '#0d2b4e' },
+      { name: 'Pipeline 2: Venda de Equipamentos', value: 492600, deals: 4, color: '#0091ae' },
+      { name: 'Pipeline 3: Expansão, Aditivos & Upsell', value: 245000, deals: 2, color: '#16a34a' },
+      { name: 'Pipeline 4: Cotações & Projetos Especiais', value: 130000, deals: 2, color: '#ff7a59' },
+    ];
+    const maxV = Math.max(1, ...pipes.map((p) => p.value));
+    return (
+      <div className="space-y-3 py-2">
+        {pipes.map((p) => (
+          <div key={p.name} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-800 truncate">{p.name}</span>
+              <span className="font-extrabold text-slate-900">
+                {formatBRL(p.value)} <span className="text-slate-400 font-normal">({p.deals} deals)</span>
+              </span>
+            </div>
+            <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${Math.round((p.value / maxV) * 100)}%`, backgroundColor: p.color }}
+              />
+            </div>
           </div>
-          <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-rose-500 rounded-full"
-              style={{ width: `${Math.round((Math.abs(itau) / max) * 100)}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-          <span className="text-slate-500 font-semibold">Saldo Líquido Disponível Hoje</span>
-          <strong className="text-base font-black text-[#1e3a6e]">R$ 2.201.765,40</strong>
-        </div>
+        ))}
       </div>
     );
   };
 
-  // SVG 5: Contacts & Companies Donut
+  // SVG 4: Conversão Marketing Hub & Origem de Leads (CRM)
+  const renderMarketingOrigins = () => {
+    const origins = [
+      { source: 'Prospecção Outbound ABM (Tier 1)', leads: 48, conv: '34%', pct: 88, color: '#0d2b4e' },
+      { source: 'Formulários Web & Landing Pages', leads: 36, conv: '28%', pct: 72, color: '#ff7a59' },
+      { source: 'Campanhas E-mail Marketing B2B', leads: 29, conv: '22%', pct: 58, color: '#0091ae' },
+      { source: 'Indicação de Parceiros & Eventos', leads: 19, conv: '41%', pct: 46, color: '#16a34a' },
+    ];
+    return (
+      <div className="space-y-3 py-2">
+        {origins.map((o) => (
+          <div key={o.source} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-700 truncate">{o.source}</span>
+              <span className="font-extrabold text-slate-900">
+                {o.leads} leads <span className="text-emerald-700">({o.conv} SQL)</span>
+              </span>
+            </div>
+            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${o.pct}%`, backgroundColor: o.color }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // SVG 5: Contatos & Empresas CRM por Ciclo de Vida
   const renderLifecycleDonut = () => {
     return (
       <div className="flex items-center justify-around py-3 gap-4">
@@ -281,9 +274,9 @@ export default function OverviewAiCopilotTab({
             cy="74"
             r="52"
             fill="none"
-            stroke="#1e3a6e"
+            stroke="#0d2b4e"
             strokeWidth="18"
-            strokeDasharray="195 327"
+            strokeDasharray="165 327"
             transform="rotate(-90 74 74)"
           />
           <circle
@@ -293,8 +286,8 @@ export default function OverviewAiCopilotTab({
             fill="none"
             stroke="#0091ae"
             strokeWidth="18"
-            strokeDasharray="82 327"
-            strokeDashoffset="-195"
+            strokeDasharray="100 327"
+            strokeDashoffset="-165"
             transform="rotate(-90 74 74)"
           />
           <circle
@@ -304,125 +297,45 @@ export default function OverviewAiCopilotTab({
             fill="none"
             stroke="#ff7a59"
             strokeWidth="18"
-            strokeDasharray="50 327"
-            strokeDashoffset="-277"
+            strokeDasharray="62 327"
+            strokeDashoffset="-265"
             transform="rotate(-90 74 74)"
           />
           <text x="74" y="70" textAnchor="middle" fontSize="16" fontWeight="900" fill="#0f172a">
-            1.184
+            {contactsCount}
           </text>
           <text x="74" y="86" textAnchor="middle" fontSize="10" fontWeight="600" fill="#64748b">
-            Clientes B2B
+            Contatos CRM
           </text>
         </svg>
 
         <div className="space-y-2 text-xs">
           <div className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#1e3a6e]" /> Clientes Ativos (ERP)
+              <span className="w-2.5 h-2.5 rounded-full bg-[#0d2b4e]" /> Contas Enterprise ABM
             </span>
-            <strong className="text-slate-900">60%</strong>
+            <strong className="text-slate-900">50%</strong>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#0091ae]" /> Oportunidades / SQL
+              <span className="w-2.5 h-2.5 rounded-full bg-[#0091ae]" /> Oportunidades (SQL)
             </span>
-            <strong className="text-slate-900">25%</strong>
+            <strong className="text-slate-900">31%</strong>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#ff7a59]" /> Leads / MQLs
+              <span className="w-2.5 h-2.5 rounded-full bg-[#ff7a59]" /> Leads Qualificados (MQL)
             </span>
-            <strong className="text-slate-900">15%</strong>
+            <strong className="text-slate-900">19%</strong>
           </div>
         </div>
       </div>
     );
   };
 
-  // SVG 6: Fiscal Mix (Locação 0% ISS vs Serviços LC 116)
-  const renderFiscalChart = () => {
-    return (
-      <div className="flex items-center justify-around py-3 gap-4">
-        <svg width="148" height="148" viewBox="0 0 148 148" className="shrink-0">
-          <circle cx="74" cy="74" r="52" fill="none" stroke="#e2e8f0" strokeWidth="18" />
-          <circle
-            cx="74"
-            cy="74"
-            r="52"
-            fill="none"
-            stroke="#16a34a"
-            strokeWidth="18"
-            strokeDasharray="260 327"
-            transform="rotate(-90 74 74)"
-          />
-          <circle
-            cx="74"
-            cy="74"
-            r="52"
-            fill="none"
-            stroke="#6366f1"
-            strokeWidth="18"
-            strokeDasharray="67 327"
-            strokeDashoffset="-260"
-            transform="rotate(-90 74 74)"
-          />
-          <text x="74" y="70" textAnchor="middle" fontSize="15" fontWeight="900" fill="#16a34a">
-            0% ISS
-          </text>
-          <text x="74" y="86" textAnchor="middle" fontSize="9" fontWeight="700" fill="#64748b">
-            SV 31 STF
-          </text>
-        </svg>
-
-        <div className="space-y-2 text-xs">
-          <div>
-            <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" /> Faturas de Locação (80%)
-            </span>
-            <strong className="text-emerald-700 block ml-4">Isento de ISS (LC 116 + SV 31)</strong>
-          </div>
-          <div>
-            <span className="flex items-center gap-1.5 text-slate-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> NFS-e Serviços (20%)
-            </span>
-            <strong className="text-indigo-700 block ml-4">Suporte NOC (Item 01.07)</strong>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // SVG 7: Tickets & O.S. Bar Chart
-  const renderTicketsChart = () => {
-    const bars = [
-      { label: 'No Prazo (SLA OK)', pct: 94, color: '#16a34a', count: '1.295 O.S.' },
-      { label: 'Em Andamento NOC', pct: 48, color: '#0091ae', count: '68 O.S.' },
-      { label: 'Prioridade P1 Crítica', pct: 14, color: '#dc2626', count: '15 Chamados' },
-    ];
-    return (
-      <div className="space-y-3.5 py-2">
-        {bars.map((b) => (
-          <div key={b.label} className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-700">{b.label}</span>
-              <strong className="text-slate-900">{b.count}</strong>
-            </div>
-            <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${b.pct}%`, backgroundColor: b.color }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  // SVG 8: Data Health Score Gauge
+  // SVG 6: Saúde da Base CRM (Data Health Score Exclusivo CRM)
   const renderDataHealthGauge = () => {
-    const score = 92;
+    const score = healthScore || 92;
     return (
       <div className="flex items-center justify-around py-3 gap-4">
         <svg width="148" height="148" viewBox="0 0 148 148" className="shrink-0">
@@ -442,36 +355,111 @@ export default function OverviewAiCopilotTab({
             {score}%
           </text>
           <text x="74" y="88" textAnchor="middle" fontSize="10" fontWeight="700" fill="#007a6c">
-            SAÚDE EXCELENTE
+            BASE CRM ÍNTEGRA
           </text>
         </svg>
 
         <div className="space-y-2 text-xs">
           <div className="text-slate-600">
-            Completude Cadastral: <strong className="text-slate-900">94%</strong>
+            Completude Contatos/Deals: <strong className="text-slate-900">94%</strong>
           </div>
           <div className="text-slate-600">
-            Validação CNPJ &amp; E.164: <strong className="text-emerald-700">96%</strong>
+            Validação E-mail &amp; E.164: <strong className="text-emerald-700">96%</strong>
           </div>
           <div className="text-slate-600">
-            Desduplicação Base: <strong className="text-slate-900">89%</strong>
+            Trava Anti-Merge CNPJ (CRM): <strong className="text-slate-900">Ativa</strong>
           </div>
         </div>
       </div>
     );
   };
 
+  //Bloco 7: Atividades & Tarefas Comerciais Recentes (CRM)
+  const renderRecentCrmActivities = () => {
+    const acts = [
+      {
+        title: 'Reunião Executiva de Fechamento — Cluster SD-WAN',
+        account: 'MUNDIVOX COMUNICACOES LTDA',
+        owner: 'Marcelo Lopes Mira',
+        tag: 'Reunião',
+      },
+      {
+        title: 'Follow-up Comercial — Expansão Parque Telefonia IP',
+        account: 'Digisystem Serviços Especializados',
+        owner: 'Evelyn Ternero',
+        tag: 'Follow-up',
+      },
+      {
+        title: 'Qualificação SQL & Descoberta Técnica B2B',
+        account: '2S Inovações Tecnológicas S.A.',
+        owner: 'Marcelo Lopes Mira',
+        tag: 'Call SQL',
+      },
+    ];
+    return (
+      <div className="divide-y divide-slate-100 text-xs">
+        {acts.map((a, i) => (
+          <div key={i} className="py-2.5 flex items-center justify-between gap-2">
+            <div>
+              <div className="font-bold text-slate-800">{a.title}</div>
+              <div className="text-[11px] text-slate-500">
+                {a.account} • Executivo: {a.owner}
+              </div>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-sky-50 text-[#0091ae] border border-sky-200 font-bold text-[10px] shrink-0">
+              {a.tag}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Bloco 8: Metas & Quotas Comerciais por Executivo
+  const renderQuotaAttainment = () => {
+    const reps = [
+      { name: 'Marcelo Lopes Mira', current: 985000, quota: 1000000, pct: 98 },
+      { name: 'Evelyn Ternero Seta Telecom', current: 540000, quota: 650000, pct: 83 },
+      { name: 'Paula Campos (Inside Sales)', current: 187600, quota: 250000, pct: 75 },
+    ];
+    return (
+      <div className="space-y-3 py-2 text-xs">
+        {reps.map((r) => (
+          <div key={r.name} className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800">{r.name}</span>
+              <span className="font-extrabold text-emerald-700">
+                {formatBRL(r.current)} / {formatBRL(r.quota)} ({r.pct}%)
+              </span>
+            </div>
+            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-600 rounded-full"
+                style={{ width: `${r.pct}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const chartCardCls =
-    'group bg-white rounded-xl border border-slate-200/90 p-5 shadow-2xs hover:border-[#1e3a6e] hover:shadow-md transition cursor-pointer flex flex-col justify-between';
+    'group bg-white rounded-xl border border-slate-200/90 p-5 shadow-2xs hover:border-[#0091ae] hover:shadow-md transition cursor-pointer flex flex-col justify-between';
 
   return (
     <div className="space-y-5">
-      {/* 1. MINIMALIST HEADER */}
+      {/* 1. HEADER EXCLUSIVO DO DASHBOARD CRM */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">{greeting()}, Marcelo</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-slate-800">{greeting()}, Marcelo</h1>
+            <span className="px-2.5 py-0.5 rounded-full bg-orange-50 text-[#e05835] border border-orange-200 text-[11px] font-extrabold">
+              Dashboard Exclusivo CRM (Sales Hub &amp; Marketing Hub)
+            </span>
+          </div>
           <p className="text-xs text-slate-500">
-            STI-hub • Clique em qualquer gráfico ou indicador para abrir a página referente.
+            STI-hub CRM • Indicadores comerciais, funil de vendas, geração de demanda, automações e Data Health do CRM.
           </p>
         </div>
 
@@ -481,15 +469,15 @@ export default function OverviewAiCopilotTab({
             onClick={() => setShowCustomizer((v) => !v)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 cursor-pointer"
           >
-            <Settings className="w-3.5 h-3.5 text-[#1e3a6e]" />
-            Personalizar Gráficos ({Object.values(enabledCharts).filter(Boolean).length}/8)
+            <Settings className="w-3.5 h-3.5 text-[#0091ae]" />
+            Personalizar Gráficos CRM ({Object.values(enabledCharts).filter(Boolean).length}/8)
           </button>
           <button
             type="button"
-            onClick={() => onNavigateToErpSection?.('ORCAMENTOS')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
+            onClick={onNavigateToDeals}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer shadow-2xs"
           >
-            <Plus className="w-3.5 h-3.5" /> Novo Orçamento
+            <Plus className="w-3.5 h-3.5" /> + Novo Negócio (Deal)
           </button>
         </div>
       </div>
@@ -499,7 +487,7 @@ export default function OverviewAiCopilotTab({
         <div className="bg-white rounded-xl border border-slate-300 p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-800">
-              Escolha os gráficos do CRM e do ERP exibidos no seu Dashboard Inicial:
+              Escolha os gráficos exclusivos do CRM exibidos no seu Dashboard Comercial:
             </span>
             <button
               type="button"
@@ -510,7 +498,7 @@ export default function OverviewAiCopilotTab({
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-            {CHART_CATALOG.map((c) => {
+            {CRM_CHART_CATALOG.map((c) => {
               const on = Boolean(enabledCharts[c.id]);
               return (
                 <label
@@ -518,11 +506,11 @@ export default function OverviewAiCopilotTab({
                   onClick={() => toggleChart(c.id)}
                   className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center gap-2 cursor-pointer transition ${
                     on
-                      ? 'border-[#1e3a6e] bg-blue-50/50 text-[#1e3a6e]'
+                      ? 'border-[#0091ae] bg-sky-50/50 text-[#0d2b4e]'
                       : 'border-slate-200 bg-slate-50 text-slate-400'
                   }`}
                 >
-                  <input type="checkbox" readOnly checked={on} className="accent-[#1e3a6e]" />
+                  <input type="checkbox" readOnly checked={on} className="accent-[#0091ae]" />
                   <span className="truncate">{c.label}</span>
                 </label>
               );
@@ -531,22 +519,22 @@ export default function OverviewAiCopilotTab({
         </div>
       )}
 
-      {/* 2. TOP 5 COMPACT CLICKABLE KPI FLASHCARDS */}
+      {/* 2. TOP 5 KPI FLASHCARDS EXCLUSIVOS DO CRM (ZERO DADOS DE ERP / BANCOS / O.S.) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <button
           type="button"
-          onClick={() => onNavigateToErpSection?.('FINANCEIRO')}
-          className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-[#1e3a6e] hover:shadow-sm transition cursor-pointer"
+          onClick={onNavigateToDeals}
+          className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-[#0091ae] hover:shadow-sm transition cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Saldo Disponível Hoje</span>
-            <Wallet className="w-4 h-4 text-[#1e3a6e]" />
+            <span>Pipeline Total em Aberto (CRM)</span>
+            <Briefcase className="w-4 h-4 text-[#0091ae]" />
           </div>
-          <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-[#1e3a6e]">
-            R$ 2.201.765,40
+          <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-[#0091ae]">
+            {formatBRL(openPipeline)}
           </div>
-          <div className="text-[11px] text-[#1e3a6e] font-semibold mt-1 flex items-center justify-between">
-            <span>3 contas bancárias</span>
+          <div className="text-[11px] text-[#0091ae] font-semibold mt-1 flex items-center justify-between">
+            <span>{dealsCount} negócios ativos nos 4 funis</span>
             <ArrowRight className="w-3 h-3" />
           </div>
         </button>
@@ -554,122 +542,78 @@ export default function OverviewAiCopilotTab({
         <button
           type="button"
           onClick={onNavigateToDeals}
-          className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-[#0091ae] hover:shadow-sm transition cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Pipeline &amp; Forecast CRM</span>
-            <TrendingUp className="w-4 h-4 text-[#0091ae]" />
-          </div>
-          <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-[#0091ae]">
-            {formatBRL(weightedForecast)}
-          </div>
-          <div className="text-[11px] text-[#0091ae] font-semibold mt-1 flex items-center justify-between">
-            <span>Aberto: {formatBRL(openPipeline)}</span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onNavigateToErpSection?.('ORCAMENTOS')}
           className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-[#ff7a59] hover:shadow-sm transition cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Orçamentos &amp; Propostas</span>
-            <FileText className="w-4 h-4 text-[#ff7a59]" />
+            <span>Forecast Ponderado (Sales Hub)</span>
+            <TrendingUp className="w-4 h-4 text-[#ff7a59]" />
           </div>
           <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-[#e05835]">
-            2.077 Orçamentos
+            {formatBRL(weightedForecast)}
           </div>
           <div className="text-[11px] text-[#e05835] font-semibold mt-1 flex items-center justify-between">
-            <span>Último: #4695 Mundivox</span>
+            <span>Ponderado por etapa do funil</span>
             <ArrowRight className="w-3 h-3" />
           </div>
         </button>
 
         <button
           type="button"
-          onClick={() => onNavigateToErpSection?.('CONTRATOS')}
+          onClick={() => onNavigateToContacts()}
+          className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-[#0d2b4e] hover:shadow-sm transition cursor-pointer"
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Contatos &amp; Empresas (CRM)</span>
+            <Users className="w-4 h-4 text-[#0d2b4e]" />
+          </div>
+          <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-[#0d2b4e]">
+            {contactsCount} Contatos • {companiesCount} Emp.
+          </div>
+          <div className="text-[11px] text-[#0d2b4e] font-semibold mt-1 flex items-center justify-between">
+            <span>Leads, MQLs, SQLs &amp; Contas ABM</span>
+            <ArrowRight className="w-3 h-3" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigateToDeals}
           className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-emerald-600 hover:shadow-sm transition cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Contratos de Locação</span>
-            <FileCheck2 className="w-4 h-4 text-emerald-600" />
+            <span>Negócios Ganhos &amp; Conversão</span>
+            <Target className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-lg font-extrabold text-emerald-700 mt-1.5">
-            344 Contratos
+            {formatBRL(wonRevenue)}
           </div>
           <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center justify-between">
-            <span>Isentos ISS (SV 31 STF)</span>
+            <span>Win Rate: 38% • Ticket Médio B2B</span>
             <ArrowRight className="w-3 h-3" />
           </div>
         </button>
 
         <button
           type="button"
-          onClick={() => onNavigateToServiceDesk?.()}
+          onClick={() => (onNavigateToMarketingForms ? onNavigateToMarketingForms() : onNavigateToAutomations?.())}
           className="text-left group bg-white rounded-xl border border-slate-200 p-4 hover:border-indigo-600 hover:shadow-sm transition cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Chamados &amp; O.S.</span>
-            <Headphones className="w-4 h-4 text-indigo-600" />
+            <span>Marketing Hub &amp; Automações</span>
+            <Workflow className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-lg font-extrabold text-slate-900 mt-1.5 group-hover:text-indigo-700">
-            1.378 O.S.
+            {formsCount} Forms • {automationsCount} Fluxos
           </div>
           <div className="text-[11px] text-indigo-700 font-semibold mt-1 flex items-center justify-between">
-            <span>SLA 94% no prazo</span>
+            <span>Captação &amp; Cadências ABM Ativas</span>
             <ArrowRight className="w-3 h-3" />
           </div>
         </button>
       </div>
 
-      {/* 3. CLEAN 2-COLUMN VISUAL CHARTS GRID (100% CLICKABLE) */}
+      {/* 3. GRID DE GRÁFICOS E PAINÉIS 100% EXCLUSIVOS DO CRM */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {enabledCharts.ERP_CASH_FLOW && (
-          <div
-            onClick={() => onNavigateToErpSection?.('FINANCEIRO')}
-            className={chartCardCls}
-          >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#1e3a6e]">
-                  Acompanhe o <span className="text-[#1e3a6e]">fluxo de caixa</span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Saldo do período: <strong className="text-slate-800">R$ 804.185,24</strong> • Melhor mês: set (R$ 302.303,45)
-                </p>
-              </div>
-              <span className="text-xs font-bold text-[#1e3a6e] inline-flex items-center gap-1 shrink-0">
-                Abrir página <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-              </span>
-            </div>
-            {renderCashFlowSvg()}
-          </div>
-        )}
-
-        {enabledCharts.ERP_SALES_TREND && (
-          <div
-            onClick={() => onNavigateToErpSection?.('VENDAS')}
-            className={chartCardCls}
-          >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#1e3a6e]">
-                  Veja suas <span className="text-[#1e3a6e]">vendas &amp; locações</span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Vendas no período: <strong className="text-slate-800">R$ 207.113,75</strong> • Média: R$ 34.518,96/mês
-                </p>
-              </div>
-              <span className="text-xs font-bold text-[#1e3a6e] inline-flex items-center gap-1 shrink-0">
-                Abrir página <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-              </span>
-            </div>
-            {renderSalesAreaSvg()}
-          </div>
-        )}
-
         {enabledCharts.CRM_DEALS_FUNNEL && (
           <div onClick={onNavigateToDeals} className={chartCardCls}>
             <div className="flex items-start justify-between gap-2 mb-2">
@@ -689,25 +633,63 @@ export default function OverviewAiCopilotTab({
           </div>
         )}
 
-        {enabledCharts.ERP_BANK_BALANCES && (
+        {enabledCharts.CRM_PIPELINE_GROWTH && (
+          <div onClick={onNavigateToDeals} className={chartCardCls}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#0091ae]">
+                  Evolução de <span className="text-[#0091ae]">Pipeline &amp; Receita Comercial</span> (Sales Hub)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Comparativo mensal de Deals Criados (azul) vs. Deals Fechados Ganhos (verde)
+                </p>
+              </div>
+              <span className="text-xs font-bold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+                Abrir Forecast <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </span>
+            </div>
+            {renderPipelineGrowthSvg()}
+          </div>
+        )}
+
+        {enabledCharts.CRM_PIPELINES_PERFORMANCE && (
+          <div onClick={onNavigateToDeals} className={chartCardCls}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#0091ae]">
+                  Performance por <span className="text-[#0091ae]">Pipeline Comercial</span> (CRM)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Distribuição de volume comercial entre os 4 pipelines ativos do Sales Hub
+                </p>
+              </div>
+              <span className="text-xs font-bold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+                Ver Pipelines <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </span>
+            </div>
+            {renderPipelinesPerformance()}
+          </div>
+        )}
+
+        {enabledCharts.CRM_MARKETING_ORIGINS && (
           <div
-            onClick={() => onNavigateToErpSection?.('FINANCEIRO')}
+            onClick={() => (onNavigateToMarketingForms ? onNavigateToMarketingForms() : onNavigateToContacts())}
             className={chartCardCls}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
               <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#1e3a6e]">
-                  Saldo das <span className="text-[#1e3a6e]">contas bancárias</span> (ERP)
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#ff7a59]">
+                  Conversão <span className="text-[#ff7a59]">Marketing Hub &amp; Origem de Leads</span> (CRM)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Banco Inter, Banco Itaú e Conta Integrada
+                  Performance de aquisição B2B por canal (Outbound ABM, Landing Pages e E-mail)
                 </p>
               </div>
-              <span className="text-xs font-bold text-[#1e3a6e] inline-flex items-center gap-1 shrink-0">
-                Ver contas <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              <span className="text-xs font-bold text-[#ff7a59] inline-flex items-center gap-1 shrink-0">
+                Abrir Marketing Hub <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
-            {renderBankAccountsChart()}
+            {renderMarketingOrigins()}
           </div>
         )}
 
@@ -716,10 +698,10 @@ export default function OverviewAiCopilotTab({
             <div className="flex items-start justify-between gap-2 mb-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#0091ae]">
-                  Contatos &amp; Empresas por <span className="text-[#0091ae]">ciclo de vida</span>
+                  Contatos &amp; Empresas por <span className="text-[#0091ae]">ciclo de vida</span> (CRM)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Base sincronizada STI-hub + GestãoClick Matriz #118887
+                  Qualificação da carteira comercial no Portal HubSpot #4369067
                 </p>
               </div>
               <span className="text-xs font-bold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
@@ -730,63 +712,63 @@ export default function OverviewAiCopilotTab({
           </div>
         )}
 
-        {enabledCharts.ERP_FISCAL_MIX && (
-          <div
-            onClick={() => onNavigateToErpSection?.('FISCAL')}
-            className={chartCardCls}
-          >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-emerald-700">
-                  Faturamento por <span className="text-emerald-700">natureza fiscal</span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Faturas de Locação (LC 116/03 + SV 31 STF) vs NFS-e Serviços
-                </p>
-              </div>
-              <span className="text-xs font-bold text-emerald-700 inline-flex items-center gap-1 shrink-0">
-                Abrir Fiscal <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-              </span>
-            </div>
-            {renderFiscalChart()}
-          </div>
-        )}
-
-        {enabledCharts.CRM_SLA_TICKETS && (
-          <div onClick={() => onNavigateToServiceDesk?.()} className={chartCardCls}>
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-indigo-700">
-                  Ordens de Serviço &amp; <span className="text-indigo-700">SLA de Atendimento</span>
-                </h3>
-                <p className="text-xs text-slate-500">
-                  1.378 O.S. técnicas e chamados NOC monitorados
-                </p>
-              </div>
-              <span className="text-xs font-bold text-indigo-700 inline-flex items-center gap-1 shrink-0">
-                Abrir Chamados <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-              </span>
-            </div>
-            {renderTicketsChart()}
-          </div>
-        )}
-
         {enabledCharts.CRM_DATA_HEALTH && (
           <div onClick={onNavigateToDataHealth} className={chartCardCls}>
             <div className="flex items-start justify-between gap-2 mb-2">
               <div>
-                <h3 className="text-sm font-bold text-slate-800 group-hover:text-teal-700">
-                  Saúde &amp; Integridade da <span className="text-teal-700">base de dados</span>
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-teal-700 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-teal-600" />
+                  <span>
+                    Saúde da Base <span className="text-teal-700">Data Health (CRM)</span>
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Score de completude, CNPJ e higienização automática
+                  Diagnóstico exclusivo de Contatos, Empresas e Negócios do CRM
                 </p>
               </div>
               <span className="text-xs font-bold text-teal-700 inline-flex items-center gap-1 shrink-0">
-                Abrir Data Health <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+                Auditoria CRM <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
             {renderDataHealthGauge()}
+          </div>
+        )}
+
+        {enabledCharts.CRM_RECENT_ACTIVITIES && (
+          <div onClick={onNavigateToDeals} className={chartCardCls}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-[#0091ae]">
+                  Atividades &amp; <span className="text-[#0091ae]">Tarefas Comerciais Recentes</span> (CRM)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Últimas reuniões executivas, ligações SQL e follow-ups registrados nos Deals
+                </p>
+              </div>
+              <span className="text-xs font-bold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+                Ver Timeline <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </span>
+            </div>
+            {renderRecentCrmActivities()}
+          </div>
+        )}
+
+        {enabledCharts.CRM_QUOTA_ATTAINMENT && (
+          <div onClick={onNavigateToDeals} className={chartCardCls}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 group-hover:text-emerald-700">
+                  Atingimento de <span className="text-emerald-700">Metas &amp; Quotas Comerciais</span> (Sales Hub)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Performance individual dos executivos de conta no trimestre atual
+                </p>
+              </div>
+              <span className="text-xs font-bold text-emerald-700 inline-flex items-center gap-1 shrink-0">
+                Abrir Sales Hub <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </span>
+            </div>
+            {renderQuotaAttainment()}
           </div>
         )}
       </div>

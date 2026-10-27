@@ -2075,4 +2075,72 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica').isValid, true);
     assert.equal(validateDocumentByPersonType('14.806.925/0001-99', 'Pessoa Jurídica').isValid, false);
   });
+
+  it('garante isolamento estrito dos 3 Dashboards (CRM, ERP, Chamados), Data Health individual por sistema e Pesquisa Global estilo HubSpot (GlobalHeaderSearch)', () => {
+    const rootDir = process.cwd();
+    const crmDashSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/OverviewAiCopilotTab.tsx'), 'utf8');
+    const crmSidebarSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/CrmSidebar.tsx'), 'utf8');
+    const gcSidebarSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/GestaoClickSidebar.tsx'), 'utf8');
+    const dhSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/DataHealthTab.tsx'), 'utf8');
+    const sdSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ServiceDeskTab.tsx'), 'utf8');
+    const globalSearchSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/GlobalHeaderSearch.tsx'), 'utf8');
+
+    // 1. Dashboard do CRM não contém informações do ERP (zero saldo bancário, fluxo de caixa ERP, contratos de locação ou orçamentos)
+    assert.equal(crmDashSrc.includes('Saldo Disponível Hoje'), false);
+    assert.equal(crmDashSrc.includes('Saldo das contas bancárias'), false);
+    assert.equal(crmDashSrc.includes('Acompanhe o <span className="text-[#1e3a6e]">fluxo de caixa</span>'), false);
+    assert.equal(crmDashSrc.includes('344 Contratos'), false);
+    assert.equal(crmDashSrc.includes('2.077 Orçamentos'), false);
+    assert.ok(crmDashSrc.includes('Pipeline Total em Aberto (CRM)'));
+    assert.ok(crmDashSrc.includes('Forecast Ponderado (Sales Hub)'));
+    assert.ok(crmDashSrc.includes('+ Novo Negócio (Deal)'));
+
+    // 2. Sidebar do CRM não contém "Auditoria Base ERP" e Sidebar do ERP contém "Data Health (ERP)"
+    assert.equal(crmSidebarSrc.includes('Auditoria Base ERP'), false);
+    assert.ok(crmSidebarSrc.includes('Auditoria Base CRM'));
+    assert.ok(gcSidebarSrc.includes('Data Health (ERP)'));
+
+    // 3. DataHealthTab suporta systemScope individual ('crm' | 'erp' | 'chamados') e ServiceDeskTab tem Dashboard Chamados e Data Health (Chamados)
+    assert.ok(dhSrc.includes("resolvedScope === 'CHAMADOS'"));
+    assert.ok(dhSrc.includes("resolvedScope === 'ERP'"));
+    assert.ok(sdSrc.includes('Visão Geral (Dashboard Chamados)'));
+    assert.ok(sdSrc.includes('Data Health (Chamados)'));
+
+    // 4. GlobalHeaderSearch estilo HubSpot com seletor de sistema (Todos | CRM | ERP | Chamados), pílulas de categoria, Limpar filtros e Resultados selecionados recentemente
+    assert.ok(globalSearchSrc.includes('Todos os Sistemas'));
+    assert.ok(globalSearchSrc.includes('Orçamentos / Propostas'));
+    assert.ok(globalSearchSrc.includes('Produtos / Itens'));
+    assert.ok(globalSearchSrc.includes('Notas Fiscais'));
+    assert.ok(globalSearchSrc.includes('Limpar filtros'));
+    assert.ok(globalSearchSrc.includes('Resultados selecionados recentemente'));
+  });
+
+  it('elimina o termo "Virar Contrato" em favor de "Gerar Contrato", limpa a listagem de Contratos deixando apenas Lupa e Lápis, e organiza todas as ações em 6 abas separadas dentro do Contrato (incluindo Renovar Vigência com prazo personalizado fora do padrão e revisão completa)', () => {
+    const rootDir = process.cwd();
+    const erpSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    const modalsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpEditModals.tsx'), 'utf8');
+
+    // 1. Proibido "Virar Contrato"; obrigatório "Gerar Contrato"
+    assert.equal(/virar contrato/i.test(erpSrc), false);
+    assert.equal(/virar contrato/i.test(modalsSrc), false);
+    assert.ok(erpSrc.includes('Gerar Contrato'));
+    assert.ok(modalsSrc.includes('Gerar Contrato'));
+
+    // 2. 6 abas separadas dentro de ContractEditModal
+    for (const tabId of [
+      'DADOS_GERAIS',
+      'RENOVAR_VIGENCIA',
+      'FATURAMENTO_RECIBOS',
+      'REAJUSTE_ADITIVOS',
+      'EQUIPAMENTOS_PATRIMONIO',
+      'DOCUMENTO_HISTORICO',
+    ]) {
+      assert.ok(modalsSrc.includes(`'${tabId}'`), `ContractEditModal deve possuir a aba ${tabId}`);
+    }
+
+    // 3. Aba Renovar Vigência oferece prazos padrão (12, 24, 36, 48, 60) + Prazo Personalizado (Fora do Padrão) e revisão/confirmação de todas as informações do contrato
+    assert.ok(modalsSrc.includes('Prazo Personalizado (Fora do Padrão)'));
+    assert.ok(modalsSrc.includes('Configurar Tempo Fora do Padrão do Mercado'));
+    assert.ok(modalsSrc.includes('Confirmar Renovação de Vigência e Salvar Alterações'));
+  });
 });

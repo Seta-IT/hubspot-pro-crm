@@ -41,6 +41,8 @@ import {
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import DataHealthTab from './DataHealthTab';
+import { ShieldCheck } from 'lucide-react';
 
 export type TicketsViewMode =
   | 'KANBAN'
@@ -242,6 +244,9 @@ export default function ServiceDeskTab({
     return 'KANBAN';
   });
   const [mobileStatusFilter, setMobileStatusFilter] = useState<string>('ALL');
+  const [chamadosMacroTab, setChamadosMacroTab] = useState<
+    'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS'
+  >('OPERATIONS');
 
   const handleSelectTicketViewMode = (mode: TicketsViewMode) => {
     setViewMode(mode);
@@ -500,6 +505,148 @@ export default function ServiceDeskTab({
           onClose={() => setEmailModalPayload(null)}
         />
       )}
+
+      {/* BARRA DE NAVEGAÇÃO INTERNA EXCLUSIVA DO SISTEMA 3: CHAMADOS (OPERAÇÃO | DASHBOARD CHAMADOS | DATA HEALTH CHAMADOS) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-2.5 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[
+            {
+              id: 'OPERATIONS' as const,
+              label: `Operação de Chamados & Filas NOC (${tickets.length})`,
+            },
+            {
+              id: 'DASHBOARD_CHAMADOS' as const,
+              label: 'Visão Geral (Dashboard Chamados)',
+            },
+            {
+              id: 'DATA_HEALTH_CHAMADOS' as const,
+              label: 'Data Health (Chamados)',
+            },
+          ].map((tab) => {
+            const act = chamadosMacroTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setChamadosMacroTab(tab.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                  act
+                    ? 'bg-[#0d2b4e] text-white shadow-xs'
+                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-[11px] font-bold text-slate-500 px-2">
+          Sistema Exclusivo: 3. Chamados (Service Hub &amp; NOC Seta Telecom)
+        </span>
+      </div>
+
+      {chamadosMacroTab === 'DATA_HEALTH_CHAMADOS' && (
+        <DataHealthTab
+
+          contacts={contacts}
+          companies={companies}
+          tickets={tickets}
+          systemScope="chamados"
+          initialScope="CHAMADOS"
+          loading={false}
+          onRefresh={() => {}}
+          onMergeDuplicate={async () => {}}
+          onAutoClean={async () => null}
+          onEnrichEntity={async () => {}}
+          onNavigateToContact={() => {}}
+        />
+      )}
+
+      {chamadosMacroTab === 'DASHBOARD_CHAMADOS' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 block">
+                  DASHBOARD EXCLUSIVO • SISTEMA 3: CHAMADOS (NOC &amp; SERVICE DESK)
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Indicadores de Atendimento, Cumprimento de SLA (FRT/MTTR) e Carga por Fila NOC
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChamadosMacroTab('OPERATIONS')}
+                className="px-3.5 py-2 rounded-xl bg-[#0d2b4e] text-white text-xs font-extrabold cursor-pointer"
+              >
+                Ir para Operação de Tickets &rarr;
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 text-xs">
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Volume de Chamados por Fila de Atendimento NOC
+                </h4>
+                <div className="space-y-2.5">
+                  {allQueues.map((q) => {
+                    const cnt = tickets.filter((t) => t.assignee === q).length;
+                    const pct = Math.max(12, Math.round((cnt / Math.max(1, tickets.length)) * 100));
+                    return (
+                      <div key={q} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800">{q}</span>
+                          <strong className="text-slate-900">{cnt} protocolo(s) ({pct}%)</strong>
+                        </div>
+                        <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#0d2b4e] rounded-full"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Distribuição por Severidade / Prioridade SLA
+                </h4>
+                <div className="space-y-2.5">
+                  {[
+                    { key: 'CRITICAL', label: 'P1 • Crítica (SLA 1h / 4h)', color: 'bg-rose-600' },
+                    { key: 'HIGH', label: 'P2 • Alta (SLA 2h / 8h)', color: 'bg-orange-500' },
+                    { key: 'MEDIUM', label: 'P3 • Média (SLA 4h / 24h)', color: 'bg-amber-500' },
+                    { key: 'LOW', label: 'P4 • Baixa (SLA 8h / 48h)', color: 'bg-emerald-600' },
+                  ].map((pr) => {
+                    const cnt = tickets.filter((t) => t.priority === pr.key).length;
+                    const pct = Math.max(8, Math.round((cnt / Math.max(1, tickets.length)) * 100));
+                    return (
+                      <div key={pr.key} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800">{pr.label}</span>
+                          <strong className="text-slate-900">{cnt} chamado(s)</strong>
+                        </div>
+                        <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${pr.color}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {chamadosMacroTab !== 'DATA_HEALTH_CHAMADOS' && (
+        <div className="space-y-6">
       {/* STI-HUB SERVICE MANAGEMENT KPI FLASHCARDS (CLICÁVEIS) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
@@ -1431,6 +1578,9 @@ export default function ServiceDeskTab({
           </div>
         )}
       </div>
+
+        </div>
+      )}
 
       {/* NEW TICKET MODAL */}
       {showNewModal && (

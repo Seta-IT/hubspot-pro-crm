@@ -51,6 +51,7 @@ export function ProposalEditModal({
   onClose,
   onSave,
   onCustomerCreated,
+  onGenerateContract,
   onShowToast,
   catalog = [],
   companies = [],
@@ -62,6 +63,7 @@ export function ProposalEditModal({
   onClose: () => void;
   onSave: (updated: ErpCommercialProposal) => Promise<void>;
   onCustomerCreated?: (created: Company) => Promise<void> | void;
+  onGenerateContract?: (proposal: ErpCommercialProposal) => void;
   onShowToast?: (msg: string) => void;
   catalog?: ErpCatalogItem[];
   companies?: Company[];
@@ -1888,13 +1890,25 @@ export function ProposalEditModal({
 
           {/* RODAPÉ FIXO DO GESTÃOCLICK */}
           <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
-            >
-              Cancelar
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              {!isNew && onGenerateContract && (
+                <button
+                  type="button"
+                  onClick={() => onGenerateContract(draft)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                >
+                  <FileCheck2 className="w-4 h-4" />
+                  <span>Gerar Contrato</span>
+                </button>
+              )}
+            </div>
 
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
@@ -2162,22 +2176,71 @@ function computeContractEndDate(startDateStr: string, months: number): string {
   return target.toISOString().slice(0, 10);
 }
 
-// 2. RENTAL CONTRACT FULL EDITOR MODAL
+// 2. RENTAL CONTRACT FULL EDITOR MODAL (COM 6 ABAS SEPARADAS: DADOS GERAIS, RENOVAR VIGÊNCIA, FATURAMENTO, REAJUSTE & ADITIVOS, EQUIPAMENTOS S/N, DOCUMENTO PDF)
+export type ContractModalTabId =
+  | 'DADOS_GERAIS'
+  | 'RENOVAR_VIGENCIA'
+  | 'FATURAMENTO_RECIBOS'
+  | 'REAJUSTE_ADITIVOS'
+  | 'EQUIPAMENTOS_PATRIMONIO'
+  | 'DOCUMENTO_HISTORICO';
+
 export function ContractEditModal({
   contract,
+  initialTab = 'DADOS_GERAIS',
+  readOnly: readOnlyProp = false,
   onClose,
   onSave,
+  onDelete,
+  onGenerateInvoice,
+  onGenerateRemessaNfe,
+  onOpenPartialReturn,
+  onShowToast,
 }: {
   contract: ErpRentalContract;
+  initialTab?: ContractModalTabId;
+  readOnly?: boolean;
   onClose: () => void;
   onSave: (updated: ErpRentalContract) => Promise<void>;
+  onDelete?: (contract: ErpRentalContract) => Promise<void>;
+  onGenerateInvoice?: (contractId: string) => Promise<void>;
+  onGenerateRemessaNfe?: (contractId: string) => Promise<void>;
+  onOpenPartialReturn?: (contract: ErpRentalContract) => void;
+  onShowToast?: (msg: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<ContractModalTabId>(initialTab);
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnlyProp));
   const [draft, setDraft] = useState<ErpRentalContract>(() => ({
     ...structuredClone(contract),
     modality: contract.modality || 'LOCACAO',
   }));
-  const [autoSyncMonthly, setAutoSyncMonthly] = useState<boolean>(true);
+  const [autoSyncMonthly, setAutoSyncMonthly] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const [renewalPresetMode, setRenewalPresetMode] = useState<
+    '12' | '24' | '36' | '48' | '60' | 'CUSTOM'
+  >('12');
+  const [customDurationUnit, setCustomDurationUnit] = useState<'MONTHS' | 'DAYS' | 'DATES'>('MONTHS');
+  const [customMonthsValue, setCustomMonthsValue] = useState<string>('18');
+  const [customDaysValue, setCustomDaysValue] = useState<string>('90');
+  const [renewalReadjustmentPercent, setRenewalReadjustmentPercent] = useState<string>('0');
+  const [renewalSlaText, setRenewalSlaText] = useState<string>(
+    'SLA 99,95% NOC 24x7 com Substituição Expressa (Advance Replacement em 4h)'
+  );
+
+  const [billingCompetence, setBillingCompetence] = useState<string>(
+    draft.lastBilledCompetence || '10/2026'
+  );
+  const [billingIssuing, setBillingIssuing] = useState<boolean>(false);
+
+  const [readjPercentInput, setReadjPercentInput] = useState<string>(
+    draft.readjustmentIndex === 'IGP-M' ? '3.80' : '4.50'
+  );
+  const [readjNoteInput, setReadjNoteInput] = useState<string>(
+    `Reajuste contratual ${draft.readjustmentIndex || 'IPCA'} aplicado sobre a vigência`
+  );
 
   const sumEquipmentsMonthly = (equipments: ErpRentalEquipmentItem[]) =>
     equipments.reduce(
@@ -2197,6 +2260,110 @@ export function ContractEditModal({
     }));
   };
 
+  const applyRenewalDurationToDraft = (
+    preset: '12' | '24' | '36' | '48' | '60' | 'CUSTOM',
+    unit: 'MONTHS' | 'DAYS' | 'DATES',
+    monthsStr: string,
+    daysStr: string
+  ) => {
+    const baseStart = draft.startDate || new Date().toISOString().slice(0, 10);
+    if (preset !== 'CUSTOM') {
+      const m = Number(preset);
+      const nextEnd = computeContractEndDate(baseStart, m);
+      setDraft((prev) => ({
+        ...prev,
+        contractMonths: m,
+        endDate: nextEnd,
+        status: 'ATIVO',
+      }));
+      return;
+    }
+    if (unit === 'MONTHS') {
+      const m = Math.max(1, Number(monthsStr) || 1);
+      const nextEnd = computeContractEndDate(baseStart, m);
+      setDraft((prev) => ({
+        ...prev,
+        contractMonths: m,
+        endDate: nextEnd,
+        status: 'ATIVO',
+      }));
+    } else if (unit === 'DAYS') {
+      const d = Math.max(1, Number(daysStr) || 30);
+      const dt = new Date(`${baseStart.slice(0, 10)}T12:00:00Z`);
+      if (!Number.isNaN(dt.getTime())) {
+        dt.setUTCDate(dt.getUTCDate() + d);
+        setDraft((prev) => ({
+          ...prev,
+          contractMonths: Math.max(1, Math.round(d / 30)),
+          endDate: dt.toISOString().slice(0, 10),
+          status: 'ATIVO',
+        }));
+      }
+    }
+  };
+
+  const handleConfirmRenewalAndSave = async () => {
+    setSaving(true);
+    try {
+      const pct = Number(renewalReadjustmentPercent) || 0;
+      const updatedMonthly =
+        pct > 0
+          ? Math.round(draft.monthlyValue * (1 + pct / 100) * 100) / 100
+          : draft.monthlyValue;
+      const updatedContract: ErpRentalContract = {
+        ...draft,
+        monthlyValue: updatedMonthly,
+        status: 'ATIVO',
+        ...(pct > 0
+          ? {
+              lastReadjustmentDate: new Date().toLocaleDateString('pt-BR'),
+              lastReadjustmentPercent: pct,
+            }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      await onSave(updatedContract);
+      onShowToast?.(
+        `Vigência do contrato ${updatedContract.contractNumber} renovada até ${updatedContract.endDate} e dados confirmados!`
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplyReadjustmentInsideTab = async () => {
+    setSaving(true);
+    try {
+      const pct = Number(readjPercentInput) || 0;
+      const prevVal = draft.monthlyValue;
+      const nextVal = Math.round(prevVal * (1 + pct / 100) * 100) / 100;
+      const historyEntry = {
+        id: `rh-${Date.now()}`,
+        appliedAt: new Date().toLocaleDateString('pt-BR'),
+        index: draft.readjustmentIndex,
+        percentage: pct,
+        previousMonthlyValue: prevVal,
+        newMonthlyValue: nextVal,
+        note: readjNoteInput,
+      };
+      const updatedContract: ErpRentalContract = {
+        ...draft,
+        monthlyValue: nextVal,
+        lastReadjustmentDate: historyEntry.appliedAt,
+        lastReadjustmentPercent: pct,
+        readjustmentHistory: [historyEntry, ...(draft.readjustmentHistory || [])],
+        updatedAt: new Date().toISOString(),
+      };
+      setDraft(updatedContract);
+      await onSave(updatedContract);
+      onShowToast?.(
+        `Reajuste (${draft.readjustmentIndex} +${pct}%) confirmado e salvo no contrato ${updatedContract.contractNumber}!`
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -2207,459 +2374,930 @@ export function ContractEditModal({
     }
   };
 
+  const CONTRACT_TABS: Array<{ id: ContractModalTabId; label: string }> = [
+    { id: 'DADOS_GERAIS', label: '1. Dados Gerais & Revisão' },
+    { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
+    { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
+    { id: 'REAJUSTE_ADITIVOS', label: '4. Reajuste & Aditivos' },
+    { id: 'EQUIPAMENTOS_PATRIMONIO', label: `5. Equipamentos & Patrimônio (${draft.equipments.length})` },
+    { id: 'DOCUMENTO_HISTORICO', label: '6. Documento PDF & Histórico' },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-5xl w-full overflow-hidden my-8">
-        <div className="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
+    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
+        <div className="px-5 py-3.5 bg-[#0d2b4e] text-white flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
             <FileCheck2 className="w-5 h-5 text-emerald-300" />
             <div>
               <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
-                Editor Completo de Contrato de Locação, Patrimônios (S/N) &amp; Vigência — Seta Telecom
+                Central do Contrato • Seta Telecom ERP (6 Abas de Gestão e Confirmação)
               </span>
-              <h3 className="text-sm font-extrabold">
-                {draft.contractNumber} — {draft.companyName}
+              <h3 className="text-sm sm:text-base font-extrabold">
+                {draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}
               </h3>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isReadOnly && (
+              <button
+                type="button"
+                onClick={() => setIsReadOnly(false)}
+                className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+              >
+                Habilitar Edição
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-300 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs max-h-[84vh] overflow-y-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-              <input
-                type="text"
-                value={draft.contractNumber}
-                onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">Objeto / Título do Contrato *</label>
-              <input
-                type="text"
-                required
-                value={draft.title}
-                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Modalidade Contratual</label>
-              <select
-                value={draft.modality || 'LOCACAO'}
-                onChange={(e) =>
-                  setDraft({ ...draft, modality: e.target.value as ErpContractModality })
-                }
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-indigo-950"
-              >
-                <option value="LOCACAO">Locação de Equipamentos (SV 31 STF)</option>
-                <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
-                <option value="ASSINATURA">Assinatura / Telecom SCM</option>
-                <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="sm:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
-              <input
-                type="text"
-                required
-                value={draft.companyName}
-                onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-              <input
-                type="text"
-                value={draft.companyCnpj}
-                onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Status de Vigência</label>
-              <select
-                value={draft.status}
-                onChange={(e) =>
-                  setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })
-                }
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
-              >
-                <option value="ATIVO">ATIVO</option>
-                <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
-                <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
-                <option value="ENCERRADO">ENCERRADO</option>
-              </select>
-            </div>
-          </div>
-
-          {/* VIGÊNCIA, REAJUSTE E FATURAMENTO */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Início da Vigência</label>
-              <input
-                type="date"
-                value={(draft.startDate || '').slice(0, 10)}
-                onChange={(e) => {
-                  const nextStart = e.target.value;
-                  const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
-                  setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
-                }}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Prazo (Meses)</label>
-              <input
-                type="number"
-                min={1}
-                value={draft.contractMonths}
-                onChange={(e) => {
-                  const nextMonths = Math.max(1, Number(e.target.value) || 24);
-                  const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
-                  setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd });
-                }}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Fim da Vigência</label>
-              <input
-                type="date"
-                value={(draft.endDate || '').slice(0, 10)}
-                onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Dia Vencimento</label>
-              <input
-                type="number"
-                min={1}
-                max={31}
-                value={draft.dueDay}
-                onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Índice Reajuste Anual</label>
-              <select
-                value={draft.readjustmentIndex}
-                onChange={(e) =>
-                  setDraft({ ...draft, readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL' })
-                }
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-              >
-                <option value="IPCA">IPCA (IBGE)</option>
-                <option value="IGP-M">IGP-M (FGV)</option>
-                <option value="FIXO">FIXO</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Aluguel Mensal (R$)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={draft.monthlyValue}
-                onChange={(e) => {
-                  setAutoSyncMonthly(false);
-                  setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
-                }}
-                className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-extrabold text-emerald-700"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">NF-e Remessa Nº</label>
-              <input
-                type="text"
-                value={draft.remessaNfeNumber}
-                onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">CFOP Remessa Padrão</label>
-              <select
-                value={draft.remessaCfop}
-                onChange={(e) =>
-                  setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })
-                }
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-mono font-bold"
-              >
-                <option value="5.908">5.908 — Remessa de Locação Estadual (SP)</option>
-                <option value="6.908">6.908 — Remessa de Locação Interestadual</option>
-              </select>
-            </div>
-            <div className="flex items-end">
+        <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {CONTRACT_TABS.map((tab) => {
+            const act = activeTab === tab.id;
+            return (
               <button
+                key={tab.id}
                 type="button"
-                onClick={() => {
-                  const total = sumEquipmentsMonthly(draft.equipments);
-                  setAutoSyncMonthly(true);
-                  setDraft({ ...draft, monthlyValue: total });
-                }}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-extrabold cursor-pointer"
+                onClick={() => setActiveTab(tab.id)}
+                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                  act
+                    ? 'bg-[#1e3a6e] text-white shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                }`}
               >
-                <Calculator className="w-3.5 h-3.5" />
-                Recalcular Mensalidade pelos Itens ({formatBRL(sumEquipmentsMonthly(draft.equipments))})
+                {tab.label}
               </button>
-            </div>
-          </div>
+            );
+          })}
+        </div>
 
-          {/* Equipments S/N & Patrimony */}
-          <div className="border border-slate-200 rounded-lg p-3.5 bg-slate-50 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
-                  Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
-                </span>
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+          {activeTab === 'DADOS_GERAIS' && (
+            <fieldset disabled={isReadOnly} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
+                  <input
+                    type="text"
+                    value={draft.contractNumber}
+                    onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">Objeto / Título do Contrato *</label>
+                  <input
+                    type="text"
+                    required
+                    value={draft.title}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Modalidade Contratual</label>
+                  <select
+                    value={draft.modality || 'LOCACAO'}
+                    onChange={(e) =>
+                      setDraft({ ...draft, modality: e.target.value as ErpContractModality })
+                    }
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-indigo-950"
+                  >
+                    <option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
+                    <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
+                    <option value="ASSINATURA">Assinatura / Telecom SCM</option>
+                    <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
+                  </select>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const eq: ErpRentalEquipmentItem = {
-                    id: `eq-${Date.now()}`,
-                    skuGestaoClick: `GC-EQ-00${draft.equipments.length + 101}`,
-                    description: 'Equipamento Telecom Locado Seta',
-                    serialNumber: `SN-SETA-${Math.floor(10000 + Math.random() * 90000)}`,
-                    assetTag: `PAT-SETA-00${draft.equipments.length + 401}`,
-                    assetStatus: 'EM_CLIENTE',
-                    ncm: '8517.62.59',
-                    quantity: 1,
-                    unitMonthlyRent: 1200,
-                    assetValueBrl: 12000,
-                    remessaCfop: draft.remessaCfop || '5.908',
-                    remessaNfeKey: '35261018456789000190550010004191011000419991',
-                  };
-                  updateEquipments([...draft.equipments, eq]);
-                }}
-                className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Adicionar Equipamento / Patrimônio (S/N)
-              </button>
-            </div>
 
-            <div className="space-y-2">
-              {draft.equipments.map((eq, idx) => (
-                <div
-                  key={eq.id || idx}
-                  className="bg-white p-3 rounded border border-slate-200 space-y-2"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">SKU GestãoClick</label>
-                      <input
-                        type="text"
-                        value={eq.skuGestaoClick}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = { ...copy[idx], skuGestaoClick: e.target.value };
-                          updateEquipments(copy);
-                        }}
-                        placeholder="SKU"
-                        className="w-full px-2 py-1 rounded border font-mono text-xs"
-                      />
-                    </div>
-                    <div className="sm:col-span-4">
-                      <label className="text-[10px] text-slate-400 block">Descrição do Ativo / Equipamento</label>
-                      <input
-                        type="text"
-                        value={eq.description}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = { ...copy[idx], description: e.target.value };
-                          updateEquipments(copy);
-                        }}
-                        placeholder="Equipamento"
-                        className="w-full px-2 py-1 rounded border font-semibold text-xs"
-                      />
-                    </div>
-                    <div className="sm:col-span-3">
-                      <label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
-                      <input
-                        type="text"
-                        value={eq.serialNumber}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = { ...copy[idx], serialNumber: e.target.value };
-                          updateEquipments(copy);
-                        }}
-                        placeholder="Nº Série"
-                        className="w-full px-2 py-1 rounded border font-mono font-bold text-indigo-950 text-xs"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">Tag Patrimônio</label>
-                      <input
-                        type="text"
-                        value={eq.assetTag || ''}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = { ...copy[idx], assetTag: e.target.value };
-                          updateEquipments(copy);
-                        }}
-                        placeholder="PAT-SETA-001"
-                        className="w-full px-2 py-1 rounded border font-mono text-xs"
-                      />
-                    </div>
-                    <div className="sm:col-span-1 flex items-end justify-end pt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
+                  <input
+                    type="text"
+                    required
+                    value={draft.companyName}
+                    onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
+                  <input
+                    type="text"
+                    value={draft.companyCnpj}
+                    onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Status de Vigência</label>
+                  <select
+                    value={draft.status}
+                    onChange={(e) =>
+                      setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })
+                    }
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                  >
+                    <option value="ATIVO">ATIVO</option>
+                    <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
+                    <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
+                    <option value="ENCERRADO">ENCERRADO</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Início da Vigência</label>
+                  <input
+                    type="date"
+                    value={(draft.startDate || '').slice(0, 10)}
+                    onChange={(e) => {
+                      const nextStart = e.target.value;
+                      const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
+                      setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
+                    }}
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Prazo (Meses)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.contractMonths}
+                    onChange={(e) => {
+                      const nextMonths = Math.max(1, Number(e.target.value) || 24);
+                      const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
+                      setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd });
+                    }}
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Fim da Vigência</label>
+                  <input
+                    type="date"
+                    value={(draft.endDate || '').slice(0, 10)}
+                    onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Dia Vencimento</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={draft.dueDay}
+                    onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste</label>
+                  <select
+                    value={draft.readjustmentIndex}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
+                      })
+                    }
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
+                  >
+                    <option value="IPCA">IPCA (IBGE)</option>
+                    <option value="IGP-M">IGP-M (FGV)</option>
+                    <option value="IST_ANATEL">IST Anatel</option>
+                    <option value="FIXO">FIXO / Negociado</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Mensalidade (R$)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={draft.monthlyValue}
+                    onChange={(e) => {
+                      setAutoSyncMonthly(false);
+                      setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
+                    }}
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-extrabold text-emerald-700"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">NF-e Remessa Nº &amp; CFOP</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={draft.remessaNfeNumber}
+                      onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
+                      placeholder="Nº NF-e Remessa"
+                      className="px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                    <select
+                      value={draft.remessaCfop}
+                      onChange={(e) =>
+                        setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })
+                      }
+                      className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-bold"
+                    >
+                      <option value="5.908">CFOP 5.908 (Estadual)</option>
+                      <option value="6.908">CFOP 6.908 (Interestadual)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
+                  <input
+                    type="text"
+                    value={draft.legalBasisNote}
+                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300"
+                  />
+                </div>
+              </div>
+            </fieldset>
+          )}
+
+          {activeTab === 'RENOVAR_VIGENCIA' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-emerald-800 block">
+                      PASSO 1 • ESCOLHA O PRAZO DE RENOVAÇÃO DE VIGÊNCIA (PADRÃO OU FORA DO PADRÃO DE MERCADO)
+                    </span>
+                    <h4 className="text-sm font-extrabold text-slate-900">
+                      Selecione o tempo de renovação ou adicione um prazo personalizado fora do padrão:
+                    </h4>
+                  </div>
+                  <span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-extrabold text-xs">
+                    Nova Vigência: {draft.startDate} até {draft.endDate} ({draft.contractMonths} meses)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                  {(
+                    [
+                      { id: '12', label: '12 meses (1 ano)' },
+                      { id: '24', label: '24 meses (2 anos)' },
+                      { id: '36', label: '36 meses (3 anos)' },
+                      { id: '48', label: '48 meses (4 anos)' },
+                      { id: '60', label: '60 meses (5 anos)' },
+                      { id: 'CUSTOM', label: 'Prazo Personalizado (Fora do Padrão)' },
+                    ] as const
+                  ).map((opt) => {
+                    const isSel = renewalPresetMode === opt.id;
+                    return (
                       <button
+                        key={opt.id}
                         type="button"
-                        disabled={draft.equipments.length <= 1}
-                        onClick={() =>
-                          updateEquipments(draft.equipments.filter((_, i) => i !== idx))
-                        }
-                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded disabled:opacity-30 cursor-pointer"
+                        onClick={() => {
+                          setRenewalPresetMode(opt.id);
+                          applyRenewalDurationToDraft(
+                            opt.id,
+                            customDurationUnit,
+                            customMonthsValue,
+                            customDaysValue
+                          );
+                        }}
+                        className={`p-2.5 rounded-lg border text-xs font-extrabold transition cursor-pointer ${
+                          isSel
+                            ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-sm'
+                            : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
+                        }`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {opt.label}
                       </button>
+                    );
+                  })}
+                </div>
+
+                {renewalPresetMode === 'CUSTOM' && (
+                  <div className="p-3.5 rounded-lg bg-white border border-emerald-300 space-y-3">
+                    <div className="font-extrabold text-slate-800">
+                      Configurar Tempo Fora do Padrão do Mercado (Meses, Dias Corridos ou Datas Específicas):
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Unidade de Tempo</label>
+                        <select
+                          value={customDurationUnit}
+                          onChange={(e) => {
+                            const u = e.target.value as 'MONTHS' | 'DAYS' | 'DATES';
+                            setCustomDurationUnit(u);
+                            applyRenewalDurationToDraft('CUSTOM', u, customMonthsValue, customDaysValue);
+                          }}
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                        >
+                          <option value="MONTHS">Meses Personalizados (ex.: 6, 7, 18m)</option>
+                          <option value="DAYS">Dias Corridos (ex.: 90, 180 dias)</option>
+                          <option value="DATES">Datas Específicas (Início e Término)</option>
+                        </select>
+                      </div>
+
+                      {customDurationUnit === 'MONTHS' && (
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Quantidade de Meses (Qualquer Prazo)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={240}
+                            value={customMonthsValue}
+                            onChange={(e) => {
+                              setCustomMonthsValue(e.target.value);
+                              applyRenewalDurationToDraft(
+                                'CUSTOM',
+                                'MONTHS',
+                                e.target.value,
+                                customDaysValue
+                              );
+                            }}
+                            placeholder="Ex.: 18"
+                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                          />
+                        </div>
+                      )}
+
+                      {customDurationUnit === 'DAYS' && (
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Quantidade de Dias Corridos
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={3650}
+                            value={customDaysValue}
+                            onChange={(e) => {
+                              setCustomDaysValue(e.target.value);
+                              applyRenewalDurationToDraft(
+                                'CUSTOM',
+                                'DAYS',
+                                customMonthsValue,
+                                e.target.value
+                              );
+                            }}
+                            placeholder="Ex.: 90"
+                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Início</label>
+                        <input
+                          type="date"
+                          value={(draft.startDate || '').slice(0, 10)}
+                          onChange={(e) => setDraft({ ...draft, startDate: e.target.value })}
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Término</label>
+                        <input
+                          type="date"
+                          value={(draft.endDate || '').slice(0, 10)}
+                          onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-emerald-800"
+                        />
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-center pt-1 border-t border-slate-100">
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">NCM</label>
-                      <input
-                        type="text"
-                        value={eq.ncm}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = { ...copy[idx], ncm: e.target.value };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border font-mono text-xs"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">CFOP Remessa</label>
-                      <select
-                        value={eq.remessaCfop || '5.908'}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = {
-                            ...copy[idx],
-                            remessaCfop: e.target.value as '5.908' | '6.908',
-                          };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border bg-white font-mono text-xs"
-                      >
-                        <option value="5.908">5.908 (Estadual)</option>
-                        <option value="6.908">6.908 (Interestadual)</option>
-                      </select>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">Status Físico S/N</label>
-                      <select
-                        value={eq.assetStatus || 'EM_CLIENTE'}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = {
-                            ...copy[idx],
-                            assetStatus: e.target.value as ErpAssetStatus,
-                          };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border bg-white text-xs font-bold"
-                      >
-                        <option value="EM_CLIENTE">Em Cliente</option>
-                        <option value="MANUTENCAO_RMA">Manutenção / RMA</option>
-                        <option value="DEVOLVIDO">Devolvido</option>
-                      </select>
-                    </div>
-                    <div className="sm:col-span-1">
-                      <label className="text-[10px] text-slate-400 block">Qtd</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={eq.quantity}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = {
-                            ...copy[idx],
-                            quantity: Math.max(1, Number(e.target.value) || 1),
-                          };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border text-center font-bold"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={eq.unitMonthlyRent}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = {
-                            ...copy[idx],
-                            unitMonthlyRent: Number(e.target.value) || 0,
-                          };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border text-right font-bold text-emerald-700"
-                      />
-                    </div>
-                    <div className="sm:col-span-3">
-                      <label className="text-[10px] text-slate-400 block">Valor Patrimonial (R$)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={eq.assetValueBrl}
-                        onChange={(e) => {
-                          const copy = [...draft.equipments];
-                          copy[idx] = {
-                            ...copy[idx],
-                            assetValueBrl: Number(e.target.value) || 0,
-                          };
-                          updateEquipments(copy);
-                        }}
-                        className="w-full px-2 py-1 rounded border text-right font-bold text-slate-800"
-                      />
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+                    PASSO 2 • REVISÃO E CONFIRMAÇÃO DE TODAS AS INFORMAÇÕES DO CONTRATO (EDITÁVEL SE NECESSÁRIO)
+                  </span>
+                  <h4 className="text-sm font-extrabold text-slate-900">
+                    Confirme ou edite qualquer cláusula, cliente, valor mensal, reajuste ou SLA antes de efetivar a renovação:
+                  </h4>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
+                    <input
+                      type="text"
+                      value={draft.contractNumber}
+                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Cliente / Razão Social</label>
+                    <input
+                      type="text"
+                      value={draft.companyName}
+                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
+                    <input
+                      type="text"
+                      value={draft.companyCnpj}
+                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Valor Mensal Atual / Renovado (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={draft.monthlyValue}
+                      onChange={(e) =>
+                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Índice de Reajuste</label>
+                    <select
+                      value={draft.readjustmentIndex}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                    >
+                      <option value="IPCA">IPCA (IBGE)</option>
+                      <option value="IGP-M">IGP-M (FGV)</option>
+                      <option value="IST_ANATEL">IST Anatel</option>
+                      <option value="FIXO">FIXO / Negociado</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">% Reajuste na Renovação (Opcional)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={renewalReadjustmentPercent}
+                      onChange={(e) => setRenewalReadjustmentPercent(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Dia de Vencimento</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={draft.dueDay}
+                      onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Objeto / Escopo do Contrato</label>
+                    <input
+                      type="text"
+                      value={draft.title}
+                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">SLA &amp; Condições Comerciais</label>
+                    <input
+                      type="text"
+                      value={renewalSlaText}
+                      onChange={(e) => setRenewalSlaText(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleConfirmRenewalAndSave}
+                    className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-sm cursor-pointer"
+                  >
+                    {saving ? 'Confirmando Renovação...' : 'Confirmar Renovação de Vigência e Salvar Alterações'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'FATURAMENTO_RECIBOS' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+                  REVISÃO PARA EMISSÃO DE FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF) OU NF-E REMESSA
+                </span>
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Confira e edite se necessário os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Locatária / Cliente</label>
+                    <input
+                      type="text"
+                      value={draft.companyName}
+                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
+                    <input
+                      type="text"
+                      value={draft.companyCnpj}
+                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Competência (MM/AAAA)</label>
+                    <input
+                      type="text"
+                      value={billingCompetence}
+                      onChange={(e) => {
+                        setBillingCompetence(e.target.value);
+                        setDraft({ ...draft, lastBilledCompetence: e.target.value });
+                      }}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Valor da Fatura (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={draft.monthlyValue}
+                      onChange={(e) =>
+                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  {onGenerateInvoice && (
+                    <button
+                      type="button"
+                      disabled={billingIssuing}
+                      onClick={async () => {
+                        setBillingIssuing(true);
+                        try {
+                          await onSave(draft);
+                          await onGenerateInvoice(draft.id);
+                        } finally {
+                          setBillingIssuing(false);
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                    >
+                      Confirmar e Emitir Fatura / Recibo de Locação do Mês
+                    </button>
+                  )}
+                  {onGenerateRemessaNfe && (
+                    <button
+                      type="button"
+                      disabled={billingIssuing}
+                      onClick={async () => {
+                        setBillingIssuing(true);
+                        try {
+                          await onSave(draft);
+                          await onGenerateRemessaNfe(draft.id);
+                        } finally {
+                          setBillingIssuing(false);
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                    >
+                      Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'REAJUSTE_ADITIVOS' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[10px] font-black uppercase text-indigo-800 block">
+                  APLICAÇÃO DE REAJUSTE ANUAL (IPCA / IGP-M / PERSONALIZADO) &amp; ADITIVOS CONTRATUAIS
+                </span>
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Revise as informações do contrato e confirme o percentual de reajuste ou devolução parcial pro-rata:
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Índice Contratual</label>
+                    <select
+                      value={draft.readjustmentIndex}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                    >
+                      <option value="IPCA">IPCA (IBGE)</option>
+                      <option value="IGP-M">IGP-M (FGV)</option>
+                      <option value="IST_ANATEL">IST Anatel</option>
+                      <option value="FIXO">FIXO / Negociado</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Percentual de Reajuste (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={readjPercentInput}
+                      onChange={(e) => setReadjPercentInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Mensalidade Atual (R$)</label>
+                    <input
+                      type="number"
+                      value={draft.monthlyValue}
+                      onChange={(e) =>
+                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
+                    <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 font-black text-emerald-800">
+                      {formatBRL(
+                        Math.round(
+                          draft.monthlyValue * (1 + (Number(readjPercentInput) || 0) / 100) * 100
+                        ) / 100
+                      )}
+                      /mês
                     </div>
                   </div>
                 </div>
-              ))}
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Justificativa / Cláusula do Aditivo</label>
+                  <input
+                    type="text"
+                    value={readjNoteInput}
+                    onChange={(e) => setReadjNoteInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded border border-slate-300"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleApplyReadjustmentInsideTab}
+                    className="px-5 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold cursor-pointer"
+                  >
+                    Confirmar Reajuste Anual e Atualizar Contrato
+                  </button>
+
+                  {onOpenPartialReturn && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenPartialReturn(draft);
+                      }}
+                      className="px-4 py-2.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-extrabold cursor-pointer"
+                    >
+                      Abrir Devolução Parcial de Equipamentos &amp; Rateio Pro-Rata
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
-            <textarea
-              rows={2}
-              value={draft.legalBasisNote}
-              onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
-              className="w-full px-3 py-2 rounded border border-slate-300"
-            />
-          </div>
+          {activeTab === 'EQUIPAMENTOS_PATRIMONIO' && (
+            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
+                    Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const eq: ErpRentalEquipmentItem = {
+                      id: `eq-${Date.now()}`,
+                      skuGestaoClick: '',
+                      description: '',
+                      serialNumber: '',
+                      assetTag: '',
+                      assetStatus: 'EM_CLIENTE',
+                      ncm: '8517.62.59',
+                      quantity: 1,
+                      unitMonthlyRent: 0,
+                      assetValueBrl: 0,
+                      remessaCfop: draft.remessaCfop || '5.908',
+                      remessaNfeKey: '',
+                    };
+                    updateEquipments([...draft.equipments, eq]);
+                  }}
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  + Adicionar Equipamento / Patrimônio (S/N)
+                </button>
+              </div>
 
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
-              Cancelar
-            </button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer">
-              {saving ? 'Salvando...' : 'Salvar Contrato'}
-            </button>
+              <div className="space-y-2">
+                {draft.equipments.map((eq, idx) => (
+                  <div
+                    key={eq.id || idx}
+                    className="bg-white p-3 rounded border border-slate-200 space-y-2"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] text-slate-400 block">SKU</label>
+                        <input
+                          type="text"
+                          value={eq.skuGestaoClick}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], skuGestaoClick: e.target.value };
+                            updateEquipments(copy);
+                          }}
+                          className="w-full px-2 py-1 rounded border font-mono text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-4">
+                        <label className="text-[10px] text-slate-400 block">Descrição do Ativo</label>
+                        <input
+                          type="text"
+                          value={eq.description}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], description: e.target.value };
+                            updateEquipments(copy);
+                          }}
+                          className="w-full px-2 py-1 rounded border font-semibold text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
+                        <input
+                          type="text"
+                          value={eq.serialNumber}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], serialNumber: e.target.value };
+                            updateEquipments(copy);
+                          }}
+                          className="w-full px-2 py-1 rounded border font-mono font-bold text-indigo-950 text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
+                        <input
+                          type="number"
+                          value={eq.unitMonthlyRent}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
+                            updateEquipments(copy);
+                          }}
+                          className="w-full px-2 py-1 rounded border font-bold text-emerald-700 text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-1 flex items-end justify-end pt-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateEquipments(draft.equipments.filter((_, i) => i !== idx))
+                          }
+                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'DOCUMENTO_HISTORICO' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Minuta Contratual &amp; Histórico de Reajustes / Devoluções Parciais
+                </h4>
+                <p className="text-xs text-slate-600">
+                  Contrato <strong>{draft.contractNumber}</strong> firmado com <strong>{draft.companyName}</strong> ({draft.companyCnpj}), vigência de <strong>{draft.startDate}</strong> a <strong>{draft.endDate}</strong> ({draft.contractMonths} meses), valor mensal de <strong>{formatBRL(draft.monthlyValue)}</strong>.
+                </p>
+                <p className="text-xs text-emerald-800 font-semibold">
+                  Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
+            <div>
+              {!isReadOnly && onDelete && (
+                !confirmDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                  >
+                    Excluir Contrato
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 p-2 rounded bg-rose-50 border border-rose-300">
+                    <span className="font-extrabold text-rose-800">Confirmar exclusão definitiva?</span>
+                    <button
+                      type="button"
+                      disabled={deleting}
+                      onClick={async () => {
+                        setDeleting(true);
+                        try {
+                          await onDelete(draft);
+                          onClose();
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                      className="px-3 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                    >
+                      {deleting ? 'Excluindo...' : 'Sim, Excluir'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="px-2.5 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
+              </button>
+              {!isReadOnly && (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shadow-sm"
+                >
+                  {saving ? 'Salvando...' : 'Salvar Alterações do Contrato'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

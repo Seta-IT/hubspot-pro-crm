@@ -15,6 +15,7 @@ import {
   MessageSquare,
   LineChart,
   Settings,
+  ShieldCheck,
   ChevronDown,
   ChevronRight,
   Plus,
@@ -165,6 +166,11 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'REL_PERSONALIZADOS', label: 'Personalizados' },
       { id: 'REL_LOGS', label: 'Logs do sistema' },
     ],
+  },
+  {
+    id: 'DATA_HEALTH_ERP',
+    label: 'Data Health (ERP)',
+    icon: ShieldCheck,
   },
   {
     id: 'CONFIGURACOES',

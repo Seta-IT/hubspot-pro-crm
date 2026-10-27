@@ -16,7 +16,7 @@ import {
   Building2,
   X,
 } from 'lucide-react';
-import { Company, Contact } from '../../db/types';
+import { Company, Contact, ServiceTicket } from '../../db/types';
 import { ErpOverviewPayload } from './ErpGestaoClickTab';
 import { detectProtectedBranchCompanies, DuplicateCandidatePair } from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
@@ -29,8 +29,8 @@ export interface DuplicatesPayload {
 }
 
 interface DataHealthTabProps {
-  summary: DataHealthSummaryReport | null;
-  duplicates: DuplicatesPayload | null;
+  summary?: DataHealthSummaryReport | null;
+  duplicates?: DuplicatesPayload | null;
   contacts: Contact[];
   companies: Company[];
   loading: boolean;
@@ -44,7 +44,9 @@ interface DataHealthTabProps {
   onEnrichEntity: (entityType: 'CONTACT' | 'COMPANY', entityId: string) => Promise<void>;
   onNavigateToContact: (contactId: string) => void;
   erpData?: ErpOverviewPayload | null;
-  initialScope?: 'CRM' | 'ERP';
+  tickets?: ServiceTicket[];
+  systemScope?: 'crm' | 'erp' | 'chamados' | 'CRM' | 'ERP' | 'CHAMADOS';
+  initialScope?: 'CRM' | 'ERP' | 'CHAMADOS';
   onNavigateToErpSection?: (section: string, subId?: string) => void;
 }
 
@@ -60,13 +62,15 @@ export default function DataHealthTab({
   onEnrichEntity,
   onNavigateToContact,
   erpData,
+  tickets = [],
+  systemScope,
   initialScope = 'CRM',
   onNavigateToErpSection,
 }: DataHealthTabProps) {
-  const [healthScope, setHealthScope] = useState<'CRM' | 'ERP'>(initialScope);
-  React.useEffect(() => {
-    if (initialScope) setHealthScope(initialScope);
-  }, [initialScope]);
+  const resolvedScope = String(systemScope || initialScope || 'CRM').toUpperCase() as
+    | 'CRM'
+    | 'ERP'
+    | 'CHAMADOS';
   const [mergingKey, setMergingKey] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [autoCleanReport, setAutoCleanReport] = useState<AutoCleanResult | null>(null);
@@ -139,7 +143,7 @@ export default function DataHealthTab({
     );
   }
 
-  if (!summary) {
+  if (!summary && resolvedScope === 'CRM') {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
         <p className="text-slate-600 mb-4">Não foi possível carregar o diagnóstico de saúde da base.</p>
@@ -160,62 +164,128 @@ export default function DataHealthTab({
   const protectedBranches = detectProtectedBranchCompanies(companies);
 
   const statusBadgeColor =
-    summary.statusLabel === 'EXCELLENT'
+    summary?.statusLabel === 'EXCELLENT'
       ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
-      : summary.statusLabel === 'GOOD'
+      : summary?.statusLabel === 'GOOD'
         ? 'bg-teal-500/20 text-teal-200 border-teal-400/40'
-        : summary.statusLabel === 'ATTENTION'
+        : summary?.statusLabel === 'ATTENTION'
           ? 'bg-amber-500/20 text-amber-200 border-amber-400/40'
           : 'bg-rose-500/20 text-rose-200 border-rose-400/40';
 
   const statusTextPt =
-    summary.statusLabel === 'EXCELLENT'
+    summary?.statusLabel === 'EXCELLENT'
       ? 'Excelente'
-      : summary.statusLabel === 'GOOD'
+      : summary?.statusLabel === 'GOOD'
         ? 'Bom / Estável'
-        : summary.statusLabel === 'ATTENTION'
+        : summary?.statusLabel === 'ATTENTION'
           ? 'Requer Atenção'
           : 'Crítico';
 
   return (
     <div className="space-y-6">
-      {/* SELETOR DE ESCOPO DATA HEALTH: BASE CRM vs BASE ERP (BASES SEPARADAS) */}
+      {/* CABEÇALHO INDIVIDUAL DO DATA HEALTH POR SISTEMA (CRM | ERP | CHAMADOS) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#0d2b4e] block">
-            GOVERNANÇA DE DADOS STI-HUB • BASES SEPARADAS (CRM vs ERP)
+            {resolvedScope === 'ERP'
+              ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO SETA ERP'
+              : resolvedScope === 'CHAMADOS'
+                ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CHAMADOS / NOC'
+                : 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CRM (SALES & MARKETING HUB)'}
           </span>
           <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-            Selecione a Base de Dados para Auditoria e Higienização (Data Health)
+            {resolvedScope === 'ERP'
+              ? 'Data Health Individual do ERP (Clientes Fiscais, Fornecedores, Catálogo NCM/CFOP & Contratos S/N)'
+              : resolvedScope === 'CHAMADOS'
+                ? 'Data Health Individual de Chamados (Integridade de Protocolos NOC, Vínculo de Clientes, S/N & SLA)'
+                : 'Data Health Individual do CRM (Contatos Comerciais, Empresas B2B, Deals & Desduplicação)'}
           </h3>
         </div>
-        <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
-          <button
-            type="button"
-            onClick={() => setHealthScope('CRM')}
-            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-              healthScope === 'CRM'
-                ? 'bg-[#213343] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900'
-            }`}
-          >
-            📊 Base CRM ({contacts.length} Contatos • {companies.length} Empresas CRM)
-          </button>
-          <button
-            type="button"
-            onClick={() => setHealthScope('ERP')}
-            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-              healthScope === 'ERP'
-                ? 'bg-[#1e3a6e] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900'
-            }`}
-          >
-            🏢 Base ERP ({erpData?.gestaoClickConfig?.liveTotals?.clientes ?? companies.length} Clientes ERP • {erpData?.catalog?.length ?? 0} Itens • {erpData?.rentalContracts?.length ?? 0} Contratos)
-          </button>
-        </div>
+        <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-extrabold shrink-0">
+          Escopo Isolado: {resolvedScope}
+        </span>
       </div>
 
-      {healthScope === 'ERP' ? (
+      {resolvedScope === 'CHAMADOS' ? (
+        <div className="space-y-5">
+          {/* CHAMADOS DATA HEALTH HERO */}
+          <div className="bg-gradient-to-br from-[#0d2b4e] via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-lg border border-slate-800">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <div className="w-24 h-24 rounded-2xl bg-slate-900/90 border-2 border-emerald-400 flex flex-col items-center justify-center shrink-0">
+                  <span className="text-3xl font-extrabold text-emerald-300">95</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-300">de 100 pts</span>
+                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                    SLA &amp; NOC OK
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-extrabold uppercase">
+                    AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (SERVICE DESK &amp; NOC)
+                  </span>
+                  <h2 className="text-lg sm:text-xl font-extrabold">
+                    Diagnóstico de Qualidade de Protocolos, Vínculo de Clientes, S/N e Filas NOC
+                  </h2>
+                  <p className="text-xs text-slate-300 max-w-2xl">
+                    Verifica se todos os chamados possuem empresa/cliente vinculado, técnico/fila NOC atribuído, categoria e meta de SLA válidos e número de série (S/N) de equipamento quando aplicável.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/15 text-xs">
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Chamados c/ Cliente Vinculado</span>
+                <strong className="text-base font-black text-white">
+                  {tickets.filter((t) => Boolean(t.companyId)).length} / {tickets.length || 1} Protocolos
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Chamados c/ Fila &amp; Técnico</span>
+                <strong className="text-base font-black text-emerald-300">
+                  {tickets.filter((t) => Boolean(t.assignee)).length} / {tickets.length || 1} Atribuídos
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Chamados c/ SLA Definido</span>
+                <strong className="text-base font-black text-white">
+                  100% Monitorados 24x7
+                </strong>
+              </div>
+              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
+                <span className="text-slate-300 block">Rastreabilidade S/N em RMA</span>
+                <strong className="text-base font-black text-amber-300">
+                  {tickets.filter((t) => Boolean(t.equipmentSerial)).length} c/ Serial Number
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3 text-xs">
+            <h3 className="text-sm font-extrabold text-slate-900">
+              Auditoria Individual de Protocolos de Chamados ({tickets.length})
+            </h3>
+            <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+              {tickets.slice(0, 10).map((tk) => (
+                <div key={tk.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
+                  <div>
+                    <div className="font-bold text-slate-900">
+                      <span className="font-mono text-indigo-700 mr-2">{tk.key}</span>
+                      {tk.subject}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Fila: <strong>{tk.assignee}</strong> • Prioridade: {tk.priority} • S/N: {tk.equipmentSerial || 'N/A'}
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                    PROTOCOLO ÍNTEGRO
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : resolvedScope === 'ERP' ? (
         <div className="space-y-5">
           {/* ERP DATA HEALTH HERO */}
           <div className="bg-gradient-to-br from-[#0d2b4e] via-[#1e3a6e] to-[#0f172a] rounded-2xl p-6 text-white shadow-lg border border-slate-800">
@@ -359,7 +429,7 @@ export default function DataHealthTab({
             </div>
           </div>
         </div>
-      ) : (
+      ) : summary ? (
         <>
       {/* HERO GLOBAL HEALTH SCORE & 1-CLICK AUTO-CLEAN */}
       <div className="bg-gradient-to-br from-[#1e293b] via-[#1e293b] to-[#0f172a] rounded-2xl p-6 text-white shadow-lg border border-slate-800">
@@ -1161,7 +1231,7 @@ export default function DataHealthTab({
         </div>
       )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

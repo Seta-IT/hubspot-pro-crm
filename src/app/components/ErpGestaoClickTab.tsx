@@ -96,6 +96,7 @@ import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
+import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
 import {
   CATALOG_ITEM_EDITOR_FIELDS,
@@ -174,6 +175,7 @@ export type GestaoClickMenuSection =
   | 'CONTRATOS'
   | 'ATENDIMENTOS'
   | 'RELATORIOS'
+  | 'DATA_HEALTH_ERP'
   | 'CONFIGURACOES';
 
 
@@ -310,6 +312,10 @@ export default function ErpGestaoClickTab({
   const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
+  const [editingContractTab, setEditingContractTab] = useState<
+    'DADOS_GERAIS' | 'RENOVAR_VIGENCIA' | 'FATURAMENTO_RECIBOS' | 'REAJUSTE_ADITIVOS' | 'EQUIPAMENTOS_PATRIMONIO' | 'DOCUMENTO_HISTORICO'
+  >('DADOS_GERAIS');
+  const [editingContractReadOnly, setEditingContractReadOnly] = useState<boolean>(false);
   const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);
   const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
   const [genericModal, setGenericModal] = useState<{
@@ -1038,6 +1044,59 @@ export default function ErpGestaoClickTab({
     { id: 'CONFIGURACOES', label: 'Configurações', icon: Settings },
   ];
 
+  const openGenerateContractFromProposal = (prop: ErpCommercialProposal) => {
+    const startDate = new Date().toISOString().slice(0, 10);
+    const months = Math.max(1, Number(prop.contractMonths) || 24);
+    const endDate = new Date(Date.now() + months * 30 * 86400000).toISOString().slice(0, 10);
+    const nextNum = 100 + rentalContracts.length + 1;
+    const equipments: ErpRentalEquipmentItem[] = (prop.items || []).map((it, idx) => ({
+      id: `eq-${Date.now()}-${idx}`,
+      skuGestaoClick: it.sku || `GC-EQ-00${idx + 101}`,
+      description: it.description || prop.title,
+      serialNumber: it.serialNumber || `SN-SETA-${10000 + idx}`,
+      assetTag: `PAT-SETA-00${nextNum}-${idx + 1}`,
+      assetStatus: 'EM_CLIENTE',
+      ncm: it.ncmOrServiceCode || '8517.62.59',
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      unitMonthlyRent: Number(it.unitPrice) || 0,
+      assetValueBrl: (Number(it.unitPrice) || 0) * 6,
+      remessaCfop: '5.908',
+      remessaNfeKey: '',
+    }));
+
+    setEditingProposal(null);
+    setIsCreatingProposalModal(false);
+    setEditingContractReadOnly(false);
+    setEditingContractTab('RENOVAR_VIGENCIA');
+    setEditingContract({
+      id: `ctr-${Date.now()}`,
+      contractNumber: `LOC-2026-${nextNum}`,
+      title: prop.title || `Contrato de Locação — ${prop.companyName}`,
+      modality: prop.modality === 'SERVICE' ? 'SERVICO' : prop.modality === 'HYBRID' ? 'HIBRIDO' : 'LOCACAO',
+      companyId: prop.companyId || null,
+      companyName: prop.companyName || '',
+      companyCnpj: prop.companyCnpj || '',
+      contactId: prop.contactId || null,
+      dealId: prop.dealId || null,
+      proposalId: prop.id,
+      monthlyValue: prop.monthlyRecurringTotal || prop.totalContractValue || 0,
+      dueDay: 10,
+      startDate,
+      endDate,
+      contractMonths: months,
+      readjustmentIndex: prop.readjustmentIndex || 'IPCA',
+      status: 'ATIVO',
+      remessaNfeNumber: `000.420.${nextNum}`,
+      remessaCfop: '5.908',
+      legalBasisNote:
+        'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).',
+      lastBilledCompetence: new Date().toISOString().slice(0, 7).split('-').reverse().join('/'),
+      equipments,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
   const openNewContractPreset = (modality: ErpContractModality) => {
     const startDate = new Date().toISOString().slice(0, 10);
     const endDate = new Date(Date.now() + 24 * 30 * 86400000).toISOString().slice(0, 10);
@@ -1647,7 +1706,7 @@ export default function ErpGestaoClickTab({
                               <button
                                 type="button"
                                 disabled={busyId === prop.id}
-                                onClick={() => handleApproveProposal(prop.id)}
+                                onClick={() => openGenerateContractFromProposal(prop)}
                                 title="Aprovar e Gerar Contrato"
                                 className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer"
                               >
@@ -2088,7 +2147,7 @@ export default function ErpGestaoClickTab({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <span className="text-[10px] font-black uppercase text-amber-800 block">
-                  Propostas de Locação / Serviços Prontas para Virar Contrato
+                  Propostas de Locação / Serviços Prontas para Gerar Contrato
                 </span>
                 <h3 className="text-xs font-extrabold text-slate-900">
                   Converta orçamentos aprovados em Contratos de Locação ativos com 1 clique (preservando S/N e índice de reajuste):
@@ -2141,7 +2200,7 @@ export default function ErpGestaoClickTab({
                         onClick={() => handleApproveProposal(prop.id)}
                         className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
                       >
-                        {busyId === prop.id ? "Convertendo..." : "✓ Virar Contrato"}
+                        Gerar Contrato
                       </button>
                     </div>
                   </div>
@@ -2344,325 +2403,143 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
         ) : (
-          displayedContracts.map((ctr) => {
-            const modality = inferContractModality(ctr);
-            const modalityMeta = getModalityBadgeMeta(modality);
-            const statusMeta = getContractStatusBadgeMeta(ctr.status);
-            const validityInfo = computeContractValidityInfo(ctr.endDate, ctr.status);
-            const originProposal = proposals.find(
-              (p) =>
-                (ctr.proposalId && (p.id === ctr.proposalId || p.code === ctr.proposalId)) ||
-                p.convertedContractId === ctr.id
-            );
-            const isHighlighted = highlightedContractId === ctr.id || highlightedContractId === ctr.contractNumber;
+          <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-extrabold text-[#0d2b4e]">
+                Listagem de Contratos ({displayedContracts.length}) — Clique na Lupa para Consultar ou no Lápis para Editar (Renovação de Vigência, Faturamento, Reajuste e S/N estão organizados em abas dentro do contrato)
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] text-left text-xs">
+                <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-3 w-8">Sel.</th>
+                    <th className="py-2.5 px-3">Nº Contrato</th>
+                    <th className="py-2.5 px-3">Cliente / Locatária &amp; CNPJ</th>
+                    <th className="py-2.5 px-3">Objeto &amp; Modalidade</th>
+                    <th className="py-2.5 px-3">Vigência &amp; Prazo</th>
+                    <th className="py-2.5 px-3">Índice</th>
+                    <th className="py-2.5 px-3">Situação</th>
+                    <th className="py-2.5 px-3 text-right">Mensalidade (MRR)</th>
+                    <th className="py-2.5 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {displayedContracts.map((ctr) => {
+                    const modality = inferContractModality(ctr);
+                    const modalityMeta = getModalityBadgeMeta(modality);
+                    const statusMeta = getContractStatusBadgeMeta(ctr.status);
+                    const validityInfo = computeContractValidityInfo(ctr.endDate, ctr.status);
+                    const isChecked = selectedContractIdsForBatch.includes(ctr.id);
 
-            return (
-              <div
-                key={ctr.id}
-                className={`bg-white rounded-md border p-5 shadow-xs space-y-4 transition ${
-                  isHighlighted
-                    ? "border-2 border-[#ff7a59] ring-2 ring-[#ff7a59]/20"
-                    : "border-slate-200"
-                }`}
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedContractIdsForBatch.includes(ctr.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedContractIdsForBatch((prev) => [...prev, ctr.id]);
-                          } else {
-                            setSelectedContractIdsForBatch((prev) => prev.filter((id) => id !== ctr.id));
-                          }
+                    return (
+                      <tr
+                        key={ctr.id}
+                        onClick={() => {
+                          setEditingContractReadOnly(false);
+                          setEditingContractTab('DADOS_GERAIS');
+                          setEditingContract(ctr);
                         }}
-                        title="Selecionar para Faturamento / E-mail em Massa"
-                        className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
-                      />
-                      <span className="px-2.5 py-0.5 rounded text-xs font-black bg-indigo-950 text-white">
-                        {ctr.contractNumber}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${statusMeta.cls}`}>
-                        {statusMeta.label}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded text-[11px] font-bold ${modalityMeta.cls}`}>
-                        {modalityMeta.label}
-                      </span>
-                      <span className="px-2.5 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[11px] font-extrabold">
-                        Índice Reajuste: {ctr.readjustmentIndex}
-                        {ctr.lastReadjustmentPercent
-                          ? ` (Últ.: +${ctr.lastReadjustmentPercent}% em ${ctr.lastReadjustmentDate})`
-                          : ""}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded text-[11px] font-extrabold ${validityInfo.cls}`}>
-                        {validityInfo.label}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-xs font-bold">
-                        NF-e Remessa CFOP {ctr.remessaCfop} Nº {ctr.remessaNfeNumber}
-                      </span>
-                    </div>
-
-                    <h3 className="text-base font-extrabold text-slate-900">{ctr.title}</h3>
-
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                      <span>
-                        Locatária: <strong>{ctr.companyName}</strong> ({ctr.companyCnpj})
-                      </span>
-                      <span>•</span>
-                      <span>
-                        Vigência: <strong>{ctr.startDate}</strong> até <strong>{ctr.endDate}</strong> (
-                        {ctr.contractMonths}m • Venc. dia {ctr.dueDay})
-                      </span>
-                      {(originProposal || ctr.proposalId) && (
-                        <>
-                          <span>•</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHighlightedProposalId(originProposal?.id || ctr.proposalId);
-                              setActiveSection("ORCAMENTOS");
-                              onShowToast(
-                                `Navegando para a proposta de origem ${originProposal?.code || ctr.proposalId}`
-                              );
+                        className={`cursor-pointer transition ${
+                          isChecked ? 'bg-blue-50/80 hover:bg-blue-100/60' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedContractIdsForBatch((prev) => [...prev, ctr.id]);
+                              } else {
+                                setSelectedContractIdsForBatch((prev) =>
+                                  prev.filter((id) => id !== ctr.id)
+                                );
+                              }
                             }}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-extrabold cursor-pointer"
-                          >
-                            <FileText className="w-3 h-3" />
-                            Origem: Proposta {originProposal?.code || ctr.proposalId}
-                          </button>
-                          <a
-                            href={
-                              originProposal
-                                ? buildPublicProposalUrl(originProposal)
-                                : `/proposta/${encodeURIComponent(String(ctr.proposalId))}`
-                            }
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1e3a6e] underline"
-                          >
-                            <ExternalLink className="w-3 h-3" /> Abrir PDF da Proposta
-                          </a>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-right bg-emerald-50 px-3.5 py-2 rounded border border-emerald-200">
-                      <span className="text-[10px] uppercase font-bold text-emerald-700 block">
-                        Mensalidade Contratual ({modality === "SERVICO" ? "NFS-e LC 116" : "0% ISS"})
-                      </span>
-                      <span className="text-base font-black text-emerald-800">
-                        {formatBRL(ctr.monthlyValue)}/mês
-                      </span>
-                      <span className="text-[10px] text-emerald-700 block">
-                        TCV: {formatBRL(ctr.monthlyValue * ctr.contractMonths)}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setEditingContract(ctr)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Contrato / S/N
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setPartialReturnModalContract(ctr)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold cursor-pointer shadow-2xs"
-                      title="Devolver parte dos equipamentos (ex: 2 de 10+) com rateio proporcional pro-rata sem pausar o contrato"
-                    >
-                      <Scale className="w-3.5 h-3.5" /> ⚖️ Devolução Parcial &amp; Rateio Pro-Rata
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReadjustModal({
-                          contract: ctr,
-                          index: ctr.readjustmentIndex || "IPCA",
-                          percentage: ctr.readjustmentIndex === "IGP-M" ? "3.80" : "4.50",
-                          note: `Reajuste anual acumulado ${ctr.readjustmentIndex || "IPCA"} conforme cláusula contratual`,
-                        })
-                      }
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
-                    >
-                      <TrendingUp className="w-3.5 h-3.5" /> Aplicar Reajuste Anual ({ctr.readjustmentIndex})
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={busyId === `renew-${ctr.id}`}
-                      onClick={() => handleRenewContract(ctr, 12)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      {busyId === `renew-${ctr.id}` ? "Renovando..." : "Renovar Vigência (+12m)"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateRemessaNfe(ctr.id)}
-                      className="px-3 py-2 rounded border border-slate-300 text-xs font-bold hover:bg-slate-50 cursor-pointer"
-                    >
-                      Emitir NF-e Remessa ({ctr.remessaCfop})
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateContractInvoice(ctr.id)}
-                      className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
-                    >
-                      Emitir Fatura Locação do Mês
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteContract(ctr)}
-                      title="Excluir Contrato"
-                      className="p-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto border border-slate-200 rounded">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2 px-3">SKU</th>
-                        <th className="py-2 px-3">Equipamento / Ativo Locado</th>
-                        <th className="py-2 px-3">Nº de Série (S/N) &amp; Patrimônio</th>
-                        <th className="py-2 px-3">Status S/N</th>
-                        <th className="py-2 px-3">NCM / CFOP</th>
-                        <th className="py-2 px-3 text-right">Qtd</th>
-                        <th className="py-2 px-3 text-right">Patrimônio (R$)</th>
-                        <th className="py-2 px-3 text-right">Locação Mensal</th>
-                        <th className="py-2 px-3 text-right">RMA / S/N</th>
+                            className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-black text-[#1e3a6e]">
+                          {ctr.contractNumber}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{ctr.companyName}</div>
+                          <div className="font-mono text-[11px] text-slate-500">
+                            {ctr.companyCnpj || '—'}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-slate-800 truncate max-w-xs">
+                            {ctr.title}
+                          </div>
+                          <span className={`inline-block mt-0.5 px-2 py-0.2 rounded text-[10px] font-bold ${modalityMeta.cls}`}>
+                            {modalityMeta.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-[11px]">
+                          <div className="font-semibold text-slate-800">
+                            {ctr.startDate} até {ctr.endDate}
+                          </div>
+                          <span className={`inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold ${validityInfo.cls}`}>
+                            {ctr.contractMonths}m • {validityInfo.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-extrabold">
+                            {ctr.readjustmentIndex}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${statusMeta.cls}`}>
+                            {statusMeta.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="font-black text-emerald-700">
+                            {formatBRL(ctr.monthlyValue)}/mês
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            TCV: {formatBRL(ctr.monthlyValue * ctr.contractMonths)}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              title="Consultar / Visualizar Contrato (6 Abas)"
+                              aria-label="Consultar Cadastro"
+                              onClick={() => {
+                                setEditingContractReadOnly(true);
+                                setEditingContractTab('DADOS_GERAIS');
+                                setEditingContract(ctr);
+                              }}
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition shadow-2xs cursor-pointer"
+                            >
+                              <Search className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Editar Contrato / Renovar Vigência / Faturar / Reajustar"
+                              aria-label="Editar Cadastro"
+                              onClick={() => {
+                                setEditingContractReadOnly(false);
+                                setEditingContractTab('DADOS_GERAIS');
+                                setEditingContract(ctr);
+                              }}
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition shadow-2xs cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {ctr.equipments.map((eq, eqIdx) => {
-                        const eqStatus = eq.assetStatus || "EM_CLIENTE";
-                        const eqTag =
-                          eq.assetTag || `PAT-${ctr.contractNumber.replace(/[^0-9]/g, "")}-${eqIdx + 1}`;
-                        return (
-                          <tr key={eq.id || eqIdx}>
-                            <td className="py-2 px-3 font-mono font-bold">{eq.skuGestaoClick}</td>
-                            <td className="py-2 px-3 font-semibold">{eq.description}</td>
-                            <td className="py-2 px-3 font-mono">
-                              <span className="font-bold text-indigo-950">{eq.serialNumber}</span>
-                              <span className="text-[10px] text-slate-400 block">Tag: {eqTag}</span>
-                            </td>
-                            <td className="py-2 px-3">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  eqStatus === "EM_CLIENTE"
-                                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                    : eqStatus === "MANUTENCAO_RMA"
-                                      ? "bg-amber-100 text-amber-800"
-                                      : "bg-slate-200 text-slate-700"
-                                }`}
-                              >
-                                {eqStatus === "EM_CLIENTE"
-                                  ? "Em Cliente"
-                                  : eqStatus === "MANUTENCAO_RMA"
-                                    ? "RMA / Manutenção"
-                                    : "Devolvido"}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 font-mono text-[11px]">
-                              {eq.ncm} • CFOP {eq.remessaCfop}
-                            </td>
-                            <td className="py-2 px-3 text-right">{eq.quantity}</td>
-                            <td className="py-2 px-3 text-right">{formatBRL(eq.assetValueBrl)}</td>
-                            <td className="py-2 px-3 text-right font-bold text-emerald-700">
-                              {formatBRL(eq.quantity * eq.unitMonthlyRent)}
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRmaModal({
-                                    contract: ctr,
-                                    equipmentIdx: eqIdx,
-                                    newSerialNumber: eq.serialNumber,
-                                    newAssetTag: eqTag,
-                                    newStatus: eqStatus,
-                                  })
-                                }
-                                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 text-[10px] font-bold cursor-pointer"
-                              >
-                                Trocar S/N
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {ctr.partialReturns && ctr.partialReturns.length > 0 && (
-                  <div className="p-3 rounded bg-purple-50/70 border border-purple-200 space-y-1.5 text-xs">
-                    <div className="flex items-center gap-1.5 font-extrabold text-purple-950 text-[11px] uppercase">
-                      <Scale className="w-3.5 h-3.5 text-purple-700" />
-                      Histórico de Devoluções Parciais &amp; Rateios Pro-Rata ({ctr.partialReturns.length}) — Contrato Mantido ATIVO
-                    </div>
-                    <div className="space-y-1">
-                      {ctr.partialReturns.map((pr) => (
-                        <div
-                          key={pr.id}
-                          className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-purple-950 bg-white/90 px-2.5 py-1.5 rounded border border-purple-100"
-                        >
-                          <span>
-                            <strong>{pr.returnedAt}</strong> • Uso no ciclo: <strong>{pr.cycleDaysUsed}/30 dias</strong> •{" "}
-                            {pr.returnedItems.map((ri) => `${ri.quantityReturned}x ${ri.description} (${ri.serialNumber})`).join(", ")}{" "}
-                            {pr.returnNfeNumber ? `• NF Retorno CFOP 5.909 Nº ${pr.returnNfeNumber}` : ""}
-                          </span>
-                          <span className="font-mono font-bold">
-                            Fatura Mês Pro-Rata: <strong className="text-amber-800">{formatBRL(pr.currentCycleProRataTotalBrl)}</strong> • Novo MRR:{" "}
-                            <strong className="text-emerald-700">{formatBRL(pr.newRecurringMonthlyValue)}/mês</strong>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {ctr.readjustmentHistory && ctr.readjustmentHistory.length > 0 && (
-                  <div className="p-3 rounded bg-indigo-50/60 border border-indigo-200 space-y-1.5 text-xs">
-                    <div className="flex items-center gap-1.5 font-extrabold text-indigo-950 text-[11px] uppercase">
-                      <History className="w-3.5 h-3.5 text-indigo-700" />
-                      Histórico de Reajustes Anuais Aplicados ({ctr.readjustmentHistory.length})
-                    </div>
-                    <div className="space-y-1">
-                      {ctr.readjustmentHistory.map((h) => (
-                        <div
-                          key={h.id}
-                          className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-indigo-900 bg-white/80 px-2.5 py-1.5 rounded border border-indigo-100"
-                        >
-                          <span>
-                            <strong>{h.appliedAt}</strong> • Índice <strong>{h.index}</strong> (+
-                            {h.percentage.toFixed(2)}%) — {h.note || "Correção monetária contratual"}
-                          </span>
-                          <span className="font-mono font-bold">
-                            {formatBRL(h.previousMonthlyValue)} →{" "}
-                            <strong className="text-emerald-700">{formatBRL(h.newMonthlyValue)}/mês</strong>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -5118,6 +4995,27 @@ export default function ErpGestaoClickTab({
             />
           )}
 
+          {activeSection === 'DATA_HEALTH_ERP' && (
+            <DataHealthTab
+
+              contacts={contacts}
+              companies={companies}
+              erpData={erpData}
+              systemScope="erp"
+              initialScope="ERP"
+              loading={false}
+              onRefresh={onRefresh}
+              onMergeDuplicate={async () => {}}
+              onAutoClean={async () => null}
+              onEnrichEntity={async () => {}}
+              onNavigateToContact={() => {}}
+              onNavigateToErpSection={(sec, subId) => {
+                setActiveSection((sec as GestaoClickMenuSection) || 'CADASTROS');
+                if (subId) setActiveSubId(subId);
+              }}
+            />
+          )}
+
           {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5236,6 +5134,7 @@ export default function ErpGestaoClickTab({
             recordUpsertedCompany(created);
             await onRefresh();
           }}
+          onGenerateContract={(prop) => openGenerateContractFromProposal(prop)}
           onShowToast={onShowToast}
           catalog={catalog}
           companies={companies}
@@ -5247,8 +5146,15 @@ export default function ErpGestaoClickTab({
       {editingContract && (
         <ContractEditModal
           contract={editingContract}
+          initialTab={editingContractTab}
+          readOnly={editingContractReadOnly}
           onClose={() => setEditingContract(null)}
           onSave={handleSaveEditedContract}
+          onDelete={handleDeleteContract}
+          onGenerateInvoice={handleGenerateContractInvoice}
+          onGenerateRemessaNfe={handleGenerateRemessaNfe}
+          onOpenPartialReturn={(ctr) => setPartialReturnModalContract(ctr)}
+          onShowToast={onShowToast}
         />
       )}
       {editingInvoice && (
