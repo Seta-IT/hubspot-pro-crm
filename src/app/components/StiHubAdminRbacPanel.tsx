@@ -2,6 +2,25 @@
 
 import React, { useState, useEffect } from 'react';
 import {
+  buildDefaultCrmItemPermissions,
+  buildDefaultErpItemPermissions,
+  CRM_MODULE_ITEMS_CATALOG,
+  CRM_ROLES_CATALOG,
+  CrmAccountRole,
+  CrudPermissionFlags,
+  ERP_MODULE_ITEMS_CATALOG,
+  ERP_ROLES_CATALOG,
+  ErpAccountRole,
+  inferCrmAndErpRolesFromLegacyRole,
+} from '../lib/rbac';
+import {
+  buildOtpAuthUri,
+  buildTotpQrCodeSvgDataUrl,
+  formatBase32SecretBlocks,
+  generateTotpCodeSync,
+  generateTotpSecretBase32,
+} from '../lib/auth';
+import {
   ShieldCheck,
   Users,
   KeyRound,
@@ -132,6 +151,16 @@ export default function StiHubAdminRbacPanel({
   const [newUserDept, setNewUserDept] = useState('Comercial B2B & Locação');
   const [newUserTitle, setNewUserTitle] = useState('Executivo de Contas');
   const [newUserRole, setNewUserRole] = useState<StiHubRoleId>('VENDEDOR_SALES');
+  const [newUserCrmRole, setNewUserCrmRole] = useState<CrmAccountRole>('CRM_SALES_REP');
+  const [newUserErpRole, setNewUserErpRole] = useState<ErpAccountRole>('ERP_COMMERCIAL');
+  const [newUserTotpSecret, setNewUserTotpSecret] = useState<string>(() =>
+    generateTotpSecretBase32('novo.colaborador@setatelecom.com.br')
+  );
+  const [activeCrudDomainTab, setActiveCrudDomainTab] = useState<'CRM' | 'ERP'>('CRM');
+  const [selectedCrmRoleForCrud, setSelectedCrmRoleForCrud] = useState<CrmAccountRole>('CRM_SALES_MANAGER');
+  const [selectedErpRoleForCrud, setSelectedErpRoleForCrud] = useState<ErpAccountRole>('ERP_STOCK_MANAGER');
+  const [crmRolesMatrixState, setCrmRolesMatrixState] = useState(() => structuredClone(CRM_ROLES_CATALOG));
+  const [erpRolesMatrixState, setErpRolesMatrixState] = useState(() => structuredClone(ERP_ROLES_CATALOG));
   const [newUserScope, setNewUserScope] = useState<StiHubVisibilityScope>('PROPRIOS');
   const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
   const [newUserModules, setNewUserModules] = useState<StiHubMacroModule[]>(['CRM', 'ERP']);
@@ -487,6 +516,11 @@ export default function StiHubAdminRbacPanel({
         department: newUserDept.trim(),
         jobTitle: newUserTitle.trim(),
         roleId: newUserRole,
+        crmRole: newUserCrmRole,
+        erpRole: newUserErpRole,
+        totpSecret: newUserTotpSecret,
+        crmItemPermissions: crmRolesMatrixState[newUserCrmRole]?.itemPermissions || buildDefaultCrmItemPermissions(newUserCrmRole),
+        erpItemPermissions: erpRolesMatrixState[newUserErpRole]?.itemPermissions || buildDefaultErpItemPermissions(newUserErpRole),
         scope: newUserScope,
         enabledModules: effectiveMods,
         moduleAccess: {
@@ -1100,6 +1134,180 @@ export default function StiHubAdminRbacPanel({
                 </div>
               );
             })()}
+          </div>
+
+          {/* ==================================================================
+              MATRIZ DE PERMISSÕES SEPARADA (CRM ≠ ERP): VISUALIZAR | EDITAR | DELETAR PARA CADA MÓDULO E ITEM
+          ================================================================== */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
+                  TIPOS DE CONTA E PERMISSÕES INDEPENDENTES (CRM ≠ ERP) • VISUALIZAR, EDITAR E DELETAR POR ITEM
+                </span>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+                  Permissões Granulares (Visualizar | Editar | Deletar) por Módulo e Item do Módulo
+                </h3>
+              </div>
+              <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setActiveCrudDomainTab('CRM')}
+                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    activeCrudDomainTab === 'CRM'
+                      ? 'bg-[#0d2b4e] text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  Aba 1: Tipos de Conta &amp; Permissões do CRM ({CRM_MODULE_ITEMS_CATALOG.length} Itens)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCrudDomainTab('ERP')}
+                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    activeCrudDomainTab === 'ERP'
+                      ? 'bg-[#1e3a6e] text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  Aba 2: Tipos de Conta &amp; Permissões do ERP ({ERP_MODULE_ITEMS_CATALOG.length} Itens)
+                </button>
+              </div>
+            </div>
+
+            {activeCrudDomainTab === 'CRM' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {(Object.keys(crmRolesMatrixState) as CrmAccountRole[]).map((cKey) => {
+                  const rDef = crmRolesMatrixState[cKey];
+                  const active = selectedCrmRoleForCrud === cKey;
+                  return (
+                    <button
+                      key={cKey}
+                      type="button"
+                      onClick={() => setSelectedCrmRoleForCrud(cKey)}
+                      className={`text-left p-3 rounded-xl border transition cursor-pointer ${
+                        active
+                          ? 'bg-[#0d2b4e] text-white border-[#0d2b4e]'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                    >
+                      <div className="text-[10px] font-mono font-black opacity-80">{cKey}</div>
+                      <div className="font-extrabold text-xs mt-0.5">{rDef.label}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {(Object.keys(erpRolesMatrixState) as ErpAccountRole[]).map((eKey) => {
+                  const rDef = erpRolesMatrixState[eKey];
+                  const active = selectedErpRoleForCrud === eKey;
+                  return (
+                    <button
+                      key={eKey}
+                      type="button"
+                      onClick={() => setSelectedErpRoleForCrud(eKey)}
+                      className={`text-left p-3 rounded-xl border transition cursor-pointer ${
+                        active
+                          ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                    >
+                      <div className="text-[10px] font-mono font-black opacity-80">{eKey}</div>
+                      <div className="font-extrabold text-xs mt-0.5">{rDef.label}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-96 overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900 text-white uppercase text-[10px] sticky top-0">
+                  <tr>
+                    <th className="py-2.5 px-3">Módulo ({activeCrudDomainTab})</th>
+                    <th className="py-2.5 px-3">Item do Módulo</th>
+                    <th className="py-2.5 px-3 text-center">Visualizar (View)</th>
+                    <th className="py-2.5 px-3 text-center">Editar (Edit)</th>
+                    <th className="py-2.5 px-3 text-center">Deletar (Delete)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {(activeCrudDomainTab === 'CRM'
+                    ? CRM_MODULE_ITEMS_CATALOG
+                    : ERP_MODULE_ITEMS_CATALOG
+                  ).map((item) => {
+                    const perms =
+                      activeCrudDomainTab === 'CRM'
+                        ? crmRolesMatrixState[selectedCrmRoleForCrud].itemPermissions[item.itemId]
+                        : erpRolesMatrixState[selectedErpRoleForCrud].itemPermissions[item.itemId];
+                    const flags: CrudPermissionFlags = perms || {
+                      view: false,
+                      edit: false,
+                      delete: false,
+                    };
+                    const toggleFlag = (field: keyof CrudPermissionFlags, val: boolean) => {
+                      if (activeCrudDomainTab === 'CRM') {
+                        setCrmRolesMatrixState((prev) => ({
+                          ...prev,
+                          [selectedCrmRoleForCrud]: {
+                            ...prev[selectedCrmRoleForCrud],
+                            itemPermissions: {
+                              ...prev[selectedCrmRoleForCrud].itemPermissions,
+                              [item.itemId]: { ...flags, [field]: val },
+                            },
+                          },
+                        }));
+                      } else {
+                        setErpRolesMatrixState((prev) => ({
+                          ...prev,
+                          [selectedErpRoleForCrud]: {
+                            ...prev[selectedErpRoleForCrud],
+                            itemPermissions: {
+                              ...prev[selectedErpRoleForCrud].itemPermissions,
+                              [item.itemId]: { ...flags, [field]: val },
+                            },
+                          },
+                        }));
+                      }
+                    };
+                    return (
+                      <tr key={item.itemId} className="hover:bg-slate-50">
+                        <td className="py-2 px-3 font-bold text-slate-700">{item.moduleLabel}</td>
+                        <td className="py-2 px-3">
+                          <div className="font-bold text-slate-900">{item.itemLabel}</div>
+                          <div className="font-mono text-[10px] text-slate-400">{item.itemId}</div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={flags.view}
+                            onChange={(e) => toggleFlag('view', e.target.checked)}
+                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={flags.edit}
+                            onChange={(e) => toggleFlag('edit', e.target.checked)}
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={flags.delete}
+                            onChange={(e) => toggleFlag('delete', e.target.checked)}
+                            className="w-4 h-4 accent-rose-600 cursor-pointer"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* 22 Seta Telecom Users Table */}
@@ -2952,6 +3160,80 @@ export default function StiHubAdminRbacPanel({
                     <option value="TOTP_AUTHENTICATOR">Google Authenticator (TOTP)</option>
                     <option value="EMAIL_OTP">Código OTP por E-mail</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Seleção Independente: Tipo de Conta no CRM vs Tipo de Conta no ERP + QR Code 2FA Google Authenticator */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-blue-50/50 border border-blue-200">
+                <div>
+                  <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                    Tipo de Conta no CRM (Exclusivo CRM &amp; Chamados):
+                  </label>
+                  <select
+                    value={newUserCrmRole}
+                    onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                  >
+                    {(Object.keys(crmRolesMatrixState) as CrmAccountRole[]).map((cKey) => (
+                      <option key={cKey} value={cKey}>
+                        {cKey} — {crmRolesMatrixState[cKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                    Tipo de Conta no ERP (Admin / Comercial / Financeiro / Gerência de Estoque):
+                  </label>
+                  <select
+                    value={newUserErpRole}
+                    onChange={(e) => setNewUserErpRole(e.target.value as ErpAccountRole)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                  >
+                    {(Object.keys(erpRolesMatrixState) as ErpAccountRole[]).map((eKey) => (
+                      <option key={eKey} value={eKey}>
+                        {eKey} — {erpRolesMatrixState[eKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2 flex flex-col sm:flex-row items-center gap-4 pt-2 border-t border-blue-200">
+                  <img
+                    src={buildTotpQrCodeSvgDataUrl(
+                      buildOtpAuthUri({
+                        secretBase32: newUserTotpSecret,
+                        email: newUserEmail.trim() || 'novo.colaborador@setatelecom.com.br',
+                        accountName: newUserName.trim() || 'Novo Colaborador',
+                      }),
+                      newUserTotpSecret
+                    )}
+                    alt="QR Code Google Authenticator"
+                    className="w-24 h-24 rounded-xl border border-slate-300 bg-white p-1 shrink-0"
+                  />
+                  <div className="space-y-1 flex-1">
+                    <div className="font-extrabold text-[#0d2b4e]">
+                      2FA Google Authenticator Pronto para Escanear (RFC 6238 TOTP)
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                        {formatBase32SecretBlocks(newUserTotpSecret)}
+                      </code>
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
+                        Código 6 dígitos: {generateTotpCodeSync(newUserTotpSecret)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewUserTotpSecret(
+                            generateTotpSecretBase32(`user-${Date.now()}@setatelecom.com.br`)
+                          )
+                        }
+                        className="px-2 py-0.5 rounded bg-white border border-slate-300 font-bold cursor-pointer"
+                      >
+                        Regerar Chave 2FA
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 

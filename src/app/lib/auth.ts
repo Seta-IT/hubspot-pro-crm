@@ -544,6 +544,17 @@ export function buildTotpQrCodeSvgDataUrl(otpAuthUri: string, _secretBase32?: st
 /**
  * Generates a deterministic 6-digit TOTP code for the current 30-second window.
  */
+export function generateTotpCodeSync(
+  secretBase32?: string,
+  timestampMs: number = Date.now()
+): string {
+  const effectiveSecret =
+    secretBase32 && isValidPureBase32Secret(secretBase32)
+      ? secretBase32
+      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
+  return computeRfc6238Totp(effectiveSecret, timestampMs, 0).code;
+}
+
 export function computeCurrentTotpCode(windowOffset = 0, secretBase32?: string): {
   code: string;
   secondsRemaining: number;

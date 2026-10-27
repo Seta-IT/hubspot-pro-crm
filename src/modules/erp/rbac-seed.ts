@@ -1,4 +1,18 @@
 import {
+  buildDefaultCrmItemPermissions,
+  buildDefaultErpItemPermissions,
+  buildDefaultItemPermissionsForRole,
+  CRM_MODULE_ITEMS_CATALOG,
+  CRM_ROLES_CATALOG,
+  CrmAccountRole,
+  ERP_MODULE_ITEMS_CATALOG,
+  ERP_ROLES_CATALOG,
+  ErpAccountRole,
+  inferCrmAndErpRolesFromLegacyRole,
+  MODULE_ITEMS_CRUD_CATALOG,
+  RBAC_ROLES_CATALOG,
+} from '../../app/lib/rbac';
+import {
   StiHubCrmPermissions,
   StiHubCustomPropertySpec,
   StiHubErpPermissions,
@@ -278,6 +292,21 @@ export function buildDefaultErpPermissionsForRole(roleId: StiHubRoleId): StiHubE
         canIssueFiscalDocuments: false,
         canApproveProposals: false,
         canDeleteErpRecords: false,
+      };
+    case "GERENCIA_ESTOQUE":
+    case "STOCK_MANAGER":
+      return {
+        erpRole: "STOCK_MANAGER",
+        financeBanksAccess: "NONE",
+        fiscalIssuanceAccess: "EDIT",
+        proposalsQuotesAccess: "VIEW",
+        stockOsSalesAccess: "FULL",
+        rentalContractsAccess: "VIEW",
+        maxDiscountPercent: 15,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: true,
+        canApproveProposals: false,
+        canDeleteErpRecords: true,
       };
     case "OPERADOR_PDV_ESTOQUE":
       return {
@@ -1068,12 +1097,20 @@ export function createSeedRbacState(): StiHubRbacState {
 
   const enrichedRoles: StiHubRoleDefinition[] = roles.map((r) => {
     const modAcc = buildDefaultModuleAccessForRole(r.id);
+    const { crmRole, erpRole } = inferCrmAndErpRolesFromLegacyRole(r.id);
+    const crmItemPermissions = buildDefaultCrmItemPermissions(crmRole);
+    const erpItemPermissions = buildDefaultErpItemPermissions(erpRole);
     return {
       ...r,
+      crmRole,
+      erpRole,
       enabledModules: modAcc.enabledModules,
       moduleAccess: modAcc.moduleAccess,
       crmPermissions: buildDefaultCrmPermissionsForRole(r.id, r.defaultScope),
       erpPermissions: buildDefaultErpPermissionsForRole(r.id),
+      crmItemPermissions,
+      erpItemPermissions,
+      itemPermissions: { ...crmItemPermissions, ...erpItemPermissions },
     };
   });
 
@@ -1088,12 +1125,21 @@ export function createSeedRbacState(): StiHubRbacState {
       crmPerms.canDeleteCrmRecords = u.actionGuardsOverride.canDeleteRecords;
       erpPerms.canDeleteErpRecords = u.actionGuardsOverride.canDeleteRecords;
     }
+    const { crmRole, erpRole } = inferCrmAndErpRolesFromLegacyRole(u.roleId);
+    const crmItemPermissions = buildDefaultCrmItemPermissions(crmRole);
+    const erpItemPermissions = buildDefaultErpItemPermissions(erpRole);
     return {
       ...u,
+      role: u.roleId,
+      crmRole,
+      erpRole,
       enabledModules: modAcc.enabledModules,
       moduleAccess: modAcc.moduleAccess,
       crmPermissions: crmPerms,
       erpPermissions: erpPerms,
+      crmItemPermissions,
+      erpItemPermissions,
+      itemPermissions: { ...crmItemPermissions, ...erpItemPermissions },
       totpSecret: generateTotpSecretBase32(u.email),
       totpConfiguredAt: u.mfaEnabled ? u.createdAt : null,
     };

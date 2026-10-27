@@ -1,3 +1,14 @@
+import {
+  CRM_MODULE_ITEMS_CATALOG,
+  CRM_ROLES_CATALOG,
+  ERP_MODULE_ITEMS_CATALOG,
+  ERP_ROLES_CATALOG,
+  MODULE_ITEMS_CRUD_CATALOG,
+  RBAC_ROLES_CATALOG,
+  buildDefaultCrmItemPermissions,
+  buildDefaultErpItemPermissions,
+} from '../src/app/lib/rbac';
+import { generateTotpCodeSync } from '../src/app/lib/auth';
 import { isPublicStiHubPath, evaluateStiHubRouteProtection, classifyRouteRequiredModule } from '../src/middleware';
 import { resolveStiHubSigningSecret, signStiHubSessionToken, verifyStiHubSessionToken } from '../src/app/lib/auth';
 import { filterGlobalSearchEntries, SEARCH_CATEGORY_PILLS, SearchCategoryKey, SearchResultEntry } from '../src/app/components/GlobalHeaderSearch';
@@ -847,6 +858,109 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
       },
     });
     assert.equal(poRes.status, 200);
+
+    // 6. Emissor NF-e de Importação 4.01 Sebrae (Simples Nacional CRT=1 / CSOSN 900) + Firewall Fiscal TXT (NE000007)
+    const analyzeRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/nfe-importacao/analyze-txt',
+      body: {
+        filename: 'NE000007.txt',
+        txt: [
+          'NOTA FISCAL|1|',
+          'B|35|01020100|IMPORTACAO|55|1|7|2026-09-01T15:30:00-03:00',
+          'C|RAZAO|FANTASIA|IE||||1',
+          'I|SKU|SEM GTIN||PRODUTO|73079900||3102|UN.|1.0000|10.00',
+          'N10h|1|900|3|21924.76|0.00|18.00|3946.46||||||',
+        ].join('\n'),
+      },
+    });
+    assert.equal(analyzeRes.status, 200);
+    const analysis = (analyzeRes.body as {
+      data: {
+        noteNumber: string;
+        crt: string;
+        itemsCount: number;
+        correctedTxt: string;
+        findings: Array<{ autoFix: boolean }>;
+      };
+    }).data;
+    assert.equal(analysis.noteNumber, '7');
+    assert.equal(analysis.crt, '1');
+    assert.equal(analysis.itemsCount, 1);
+    assert.ok(analysis.correctedTxt.includes('|3102|UN|'), 'Deve normalizar UN. -> UN e alinhar CFOP 3102');
+    assert.ok(analysis.correctedTxt.includes('N10h|1|900|3|21924.76|0.00|18.00|3946.46||||||'), 'Deve preservar CSOSN 900 e valores fiscais');
+
+    const emitImpRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/nfe-importacao/emit',
+      body: {
+        serie: '1',
+        nNF: '15',
+        natOp: 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO',
+        crt: '1',
+        di: {
+          nDI: '26/1998012-3',
+          dDI: '2026-10-20',
+          xLocDesemb: 'VIRACOPOS - CAMPINAS',
+          UFDesemb: 'SP',
+          dDesemb: '2026-10-22',
+          tpViaTransp: '4',
+          vAFRMM: 0,
+          tpIntermedio: '1',
+          cExportador: 'FORTINET-US',
+          currency: 'USD',
+          exchangeRatePtax: 5.5,
+          fobTotalForeign: 2000,
+          freteInternacionalBrl: 1000,
+          seguroInternacionalBrl: 200,
+          taxaSiscomexTotalBrl: 214.5,
+          outrasDespesasAduaneirasBrl: 385.5,
+          somarTributosEmVOutroSimples: true,
+          exporterIdEstrangeiro: 'US-CA-94086-FGT',
+          exporterName: 'FORTINET, INC.',
+          exporterAddress: '899 Kifer Road, Sunnyvale, CA',
+          exporterCountryCodeBacen: '2496',
+          exporterCountryName: 'ESTADOS UNIDOS',
+          additions: [{ nAdicao: '1', nSeqAdic: '1', cFabricante: 'FORTINET-US', vDescDI: 0 }],
+        },
+        rawItems: [
+          {
+            id: 'imp-fgt-1',
+            cProd: 'GC-EQ-00102',
+            xProd: 'APPLIANCE FIREWALL SD-WAN FORTIGATE 100F',
+            ncm: '85176259',
+            cfop: '3.551',
+            uCom: 'UN.',
+            qCom: 2,
+            fobUnitForeign: 1000,
+            iiRatePercent: 10,
+            ipiRatePercent: 5,
+            pisRatePercent: 2.1,
+            cofinsRatePercent: 9.65,
+            icmsRatePercent: 18,
+            nAdicao: '1',
+            nSeqAdic: '1',
+            cFabricante: 'FORTINET-US',
+          },
+        ],
+      },
+    });
+    assert.equal(emitImpRes.status, 201);
+    const emittedImp = (emitImpRes.body as {
+      data: { documentNumber: string; documentType: string; grossAmount: number };
+      importMetadata: {
+        totals: { vProd: number; vAduaneiro: number; vBC_ICMS: number; vICMS: number; vNF: number };
+        sebraeTxtContent: string;
+        sefazXmlContent: string;
+      };
+    });
+    assert.equal(emittedImp.data.documentType, 'NFE_IMPORTACAO');
+    assert.equal(emittedImp.importMetadata.totals.vProd, 11000);
+    assert.equal(emittedImp.importMetadata.totals.vAduaneiro, 12200);
+    assert.ok(emittedImp.importMetadata.totals.vBC_ICMS > emittedImp.importMetadata.totals.vAduaneiro);
+    assert.ok(emittedImp.importMetadata.sebraeTxtContent.includes('N10h|1|900|3|'));
+    assert.ok(emittedImp.importMetadata.sefazXmlContent.includes('<ICMSSN900>'));
+    assert.ok(emittedImp.importMetadata.sefazXmlContent.includes('<nDI>26/1998012-3</nDI>'));
   });
 });
 
@@ -2607,5 +2721,139 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
         process.env.STI_HUB_SESSION_SECRET = prevEnvSecret;
       }
     }
+  });
+  it('separa 100% os Tipos de Conta e Permissões do CRM (CRM_ROLES_CATALOG / CRM_MODULE_ITEMS_CATALOG) e do ERP (ERP_ROLES_CATALOG / ERP_MODULE_ITEMS_CATALOG), inclui Gerência de Estoque (ERP_STOCK_MANAGER / STOCK_MANAGER) com Visualizar/Editar/Deletar por item e cria usuário com 2FA Google Authenticator', async () => {
+    // 1. Verifica que os Tipos de Conta do CRM são distintos dos Tipos de Conta do ERP
+    const crmRoleKeys = Object.keys(CRM_ROLES_CATALOG);
+    const erpRoleKeys = Object.keys(ERP_ROLES_CATALOG);
+    for (const k of [
+      'CRM_ADMIN',
+      'CRM_SALES_MANAGER',
+      'CRM_SALES_REP',
+      'CRM_SDR_PRE_SALES',
+      'CRM_MARKETING',
+      'CRM_SERVICE_NOC',
+      'CRM_NONE',
+    ]) {
+      assert.ok(crmRoleKeys.includes(k), `CRM_ROLES_CATALOG deve conter ${k}`);
+    }
+    for (const k of [
+      'ERP_ADMIN',
+      'ERP_COMMERCIAL',
+      'ERP_FINANCE',
+      'ERP_STOCK_MANAGER',
+      'ERP_CONTRACTS_OS',
+      'ERP_PDV_BALCAO',
+      'ERP_NONE',
+    ]) {
+      assert.ok(erpRoleKeys.includes(k), `ERP_ROLES_CATALOG deve conter ${k}`);
+    }
+    assert.ok(RBAC_ROLES_CATALOG.STOCK_MANAGER, 'RBAC_ROLES_CATALOG deve conter STOCK_MANAGER');
+
+    // 2. Verifica separação dos catálogos de itens (CRM vs ERP) e presença de view/edit/delete em cada item
+    assert.ok(CRM_MODULE_ITEMS_CATALOG.length >= 14);
+    assert.ok(ERP_MODULE_ITEMS_CATALOG.length >= 19);
+    assert.equal(
+      MODULE_ITEMS_CRUD_CATALOG.length,
+      CRM_MODULE_ITEMS_CATALOG.length + ERP_MODULE_ITEMS_CATALOG.length
+    );
+    assert.ok(CRM_MODULE_ITEMS_CATALOG.every((i) => i.system === 'CRM'));
+    assert.ok(ERP_MODULE_ITEMS_CATALOG.every((i) => i.system === 'ERP'));
+
+    // Gerência de Estoque (ERP_STOCK_MANAGER) deve ter view/edit/delete = true nos itens de Estoque/Compras/Produtos/O.S.
+    const stockPerms = ERP_ROLES_CATALOG.ERP_STOCK_MANAGER.itemPermissions;
+    assert.deepEqual(stockPerms['erp.estoque_movimentacoes'], {
+      view: true,
+      edit: true,
+      delete: true,
+    });
+    assert.deepEqual(stockPerms['erp.estoque_cotacoes_compras'], {
+      view: true,
+      edit: true,
+      delete: true,
+    });
+    assert.deepEqual(stockPerms['erp.itens_produtos'], {
+      view: true,
+      edit: true,
+      delete: true,
+    });
+    assert.deepEqual(stockPerms['erp.ordens_servico'], {
+      view: true,
+      edit: true,
+      delete: true,
+    });
+    assert.deepEqual(stockPerms['erp.configuracoes_empresa'], {
+      view: false,
+      edit: false,
+      delete: false,
+    });
+
+    // Administrador CRM e Administrador ERP possuem view/edit/delete = true em todos os seus respectivos itens
+    const crmAdminPerms = buildDefaultCrmItemPermissions('CRM_ADMIN');
+    for (const item of CRM_MODULE_ITEMS_CATALOG) {
+      assert.deepEqual(crmAdminPerms[item.itemId], { view: true, edit: true, delete: true });
+    }
+    const erpAdminPerms = buildDefaultErpItemPermissions('ERP_ADMIN');
+    for (const item of ERP_MODULE_ITEMS_CATALOG) {
+      assert.deepEqual(erpAdminPerms[item.itemId], { view: true, edit: true, delete: true });
+    }
+
+    // 3. Cria novo usuário via POST /api/rbac/users com crmRole, erpRole, permissões CRUD customizadas e 2FA Google Authenticator
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const createUserRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/rbac/users',
+      body: {
+        name: 'Leandro Almeida (Gerente de Estoque)',
+        email: 'leandro.estoque@setatelecom.com.br',
+        department: 'Gerência de Estoque & Compras',
+        jobTitle: 'Gerente de Estoque & Suprimentos',
+        role: 'STOCK_MANAGER',
+        crmRole: 'CRM_NONE',
+        erpRole: 'ERP_STOCK_MANAGER',
+        mfaEnabled: true,
+        mfaMethod: 'TOTP_AUTHENTICATOR',
+        erpItemPermissions: {
+          ...buildDefaultErpItemPermissions('ERP_STOCK_MANAGER'),
+          'erp.financeiro_bancos_dre': { view: false, edit: false, delete: false },
+        },
+      },
+    });
+    assert.equal(createUserRes.status, 201);
+    const createdUser = (createUserRes.body as {
+      data: {
+        id: string;
+        email: string;
+        role: string;
+        crmRole: string;
+        erpRole: string;
+        totpSecret: string;
+        otpauthUri: string;
+        qrCodeSvgDataUrl: string;
+        currentTotpCode: string;
+        crmItemPermissions: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+        erpItemPermissions: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+      };
+    }).data;
+
+    assert.equal(createdUser.email, 'leandro.estoque@setatelecom.com.br');
+    assert.equal(createdUser.crmRole, 'CRM_NONE');
+    assert.equal(createdUser.erpRole, 'ERP_STOCK_MANAGER');
+    assert.ok(createdUser.totpSecret.length >= 16);
+    assert.ok(createdUser.otpauthUri.startsWith('otpauth://totp/'));
+    assert.ok(createdUser.qrCodeSvgDataUrl.startsWith('data:image/svg+xml'));
+    assert.equal(createdUser.currentTotpCode, generateTotpCodeSync(createdUser.totpSecret));
+    assert.deepEqual(createdUser.erpItemPermissions['erp.estoque_movimentacoes'], {
+      view: true,
+      edit: true,
+      delete: true,
+    });
+    assert.deepEqual(createdUser.crmItemPermissions['crm.deals_kanban'], {
+      view: false,
+      edit: false,
+      delete: false,
+    });
   });
 });

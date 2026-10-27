@@ -1,3 +1,11 @@
+import {
+  buildDefaultCrmItemPermissions,
+  buildDefaultErpItemPermissions,
+  buildDefaultItemPermissionsForRole,
+  CrmAccountRole,
+  ErpAccountRole,
+  inferCrmAndErpRolesFromLegacyRole,
+} from '../app/lib/rbac';
 // ============================================================================
 // HubSpot Pro CRM - Transactional Repository Layer (File-Persisted & In-Memory)
 // ============================================================================
@@ -5130,10 +5138,25 @@ export class CrmRepository {
       (u) => (id && u.id === id) || (emailNorm && u.email.toLowerCase() === emailNorm)
     );
 
-    const roleId: StiHubRoleId =
-      (input.roleId as StiHubRoleId) || existing?.roleId || "VENDEDOR_SALES";
+    const rawRoleInput = String(
+      input.roleId || (input as Record<string, unknown>).role || existing?.roleId || "VENDEDOR_SALES"
+    );
+    const roleId: StiHubRoleId = (rawRoleInput as StiHubRoleId) || "VENDEDOR_SALES";
     const roleDef = rbac.roles.find((r) => r.id === roleId) || rbac.roles[0];
-    const roleChanged = Boolean(existing && input.roleId && input.roleId !== existing.roleId);
+    const roleChanged = Boolean(
+      existing && (input.roleId || (input as Record<string, unknown>).role) && roleId !== existing.roleId
+    );
+    const inferredDual = inferCrmAndErpRolesFromLegacyRole(rawRoleInput);
+    const resolvedCrmRole = (
+      (input as Record<string, unknown>).crmRole ||
+      (roleChanged ? inferredDual.crmRole : existing?.crmRole) ||
+      inferredDual.crmRole
+    ) as CrmAccountRole;
+    const resolvedErpRole = (
+      (input as Record<string, unknown>).erpRole ||
+      (roleChanged ? inferredDual.erpRole : existing?.erpRole) ||
+      inferredDual.erpRole
+    ) as ErpAccountRole;
 
     if (existing) {
       existing.name = input.name !== undefined ? String(input.name).trim() : existing.name;
@@ -5207,13 +5230,33 @@ export class CrmRepository {
         };
       }
 
+      existing.role = rawRoleInput;
+      existing.crmRole = resolvedCrmRole;
+      existing.erpRole = resolvedErpRole;
+      existing.crmItemPermissions = {
+        ...buildDefaultCrmItemPermissions(resolvedCrmRole),
+        ...(existing.crmItemPermissions || {}),
+        ...((input as Record<string, unknown>).crmItemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+      };
+      existing.erpItemPermissions = {
+        ...buildDefaultErpItemPermissions(resolvedErpRole),
+        ...(existing.erpItemPermissions || {}),
+        ...((input as Record<string, unknown>).erpItemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+      };
+      existing.itemPermissions = {
+        ...existing.crmItemPermissions,
+        ...existing.erpItemPermissions,
+        ...(existing.itemPermissions || {}),
+        ...((input as Record<string, unknown>).itemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+      };
+
       existing.updatedAt = nowIso;
       this.appendSecurityAuditLog({
         action: "IAM_USER_UPDATED",
         module: "IAM_RBAC",
         resource: `/api/admin/users/${existing.id}`,
         status: "SUCCESS",
-        details: `Usuário ${existing.email} atualizado: role=${existing.roleId}, módulos=[${(existing.enabledModules || []).join(",")}], 2FA=${existing.mfaMethod}.`,
+        details: `Usuário ${existing.email} atualizado: role=${existing.roleId} (CRM=${existing.crmRole}, ERP=${existing.erpRole}), módulos=[${(existing.enabledModules || []).join(",")}], 2FA=${existing.mfaMethod}.`,
       });
       this.save();
       return { ...existing };
@@ -5237,6 +5280,20 @@ export class CrmRepository {
       ...(input.erpPermissions || {}),
     };
 
+    const crmItemPermissions = {
+      ...buildDefaultCrmItemPermissions(resolvedCrmRole),
+      ...((input as Record<string, unknown>).crmItemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+    };
+    const erpItemPermissions = {
+      ...buildDefaultErpItemPermissions(resolvedErpRole),
+      ...((input as Record<string, unknown>).erpItemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+    };
+    const itemPermissions = {
+      ...crmItemPermissions,
+      ...erpItemPermissions,
+      ...((input as Record<string, unknown>).itemPermissions as Record<string, { view: boolean; edit: boolean; delete: boolean }> || {}),
+    };
+
     const created: StiHubUserRecord = {
       id: id || `usr-seta-${Date.now().toString(36)}`,
       gestaoClickId: input.gestaoClickId || `GC-${Math.floor(100000 + Math.random() * 900000)}`,
@@ -5247,11 +5304,17 @@ export class CrmRepository {
       department: String(input.department || "Operações Seta Telecom"),
       jobTitle: String(input.jobTitle || roleDef.name),
       roleId,
+      role: rawRoleInput,
+      crmRole: resolvedCrmRole,
+      erpRole: resolvedErpRole,
       scope: targetScope,
       enabledModules: normMod.enabledModules,
       moduleAccess: normMod.moduleAccess,
       crmPermissions,
       erpPermissions,
+      crmItemPermissions,
+      erpItemPermissions,
+      itemPermissions,
       active: input.active !== false,
       mfaEnabled: input.mfaEnabled !== false,
       mfaMethod: input.mfaMethod || "TOTP_AUTHENTICATOR",
@@ -5329,6 +5392,26 @@ export class CrmRepository {
       role.actionGuards = {
         ...role.actionGuards,
         ...patch.actionGuards,
+      };
+    }
+    if (patch.crmRole) role.crmRole = String(patch.crmRole);
+    if (patch.erpRole) role.erpRole = String(patch.erpRole);
+    if (patch.crmItemPermissions && typeof patch.crmItemPermissions === "object") {
+      role.crmItemPermissions = {
+        ...(role.crmItemPermissions || {}),
+        ...patch.crmItemPermissions,
+      };
+    }
+    if (patch.erpItemPermissions && typeof patch.erpItemPermissions === "object") {
+      role.erpItemPermissions = {
+        ...(role.erpItemPermissions || {}),
+        ...patch.erpItemPermissions,
+      };
+    }
+    if (patch.itemPermissions && typeof patch.itemPermissions === "object") {
+      role.itemPermissions = {
+        ...(role.itemPermissions || {}),
+        ...patch.itemPermissions,
       };
     }
     role.updatedAt = new Date().toISOString();

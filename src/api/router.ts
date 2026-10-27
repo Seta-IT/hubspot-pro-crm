@@ -1,3 +1,16 @@
+import {
+  CRM_MODULE_ITEMS_CATALOG,
+  CRM_ROLES_CATALOG,
+  ERP_MODULE_ITEMS_CATALOG,
+  ERP_ROLES_CATALOG,
+  MODULE_ITEMS_CRUD_CATALOG,
+  RBAC_ROLES_CATALOG,
+} from '../app/lib/rbac';
+import {
+  buildOtpAuthUri,
+  buildTotpQrCodeSvgDataUrl,
+  generateTotpCodeSync,
+} from '../app/lib/auth';
 import type { ErpFinancialEntry } from "../db/types";
 // ============================================================================
 // HubSpot Pro CRM - Unified REST API Router & Controller
@@ -3771,16 +3784,26 @@ export class CrmApiRouter {
         };
       }
 
-      if (cleanPath === '/api/admin/rbac' && method === 'GET') {
+      if ((cleanPath === '/api/admin/rbac' || cleanPath === '/api/rbac') && method === 'GET') {
         const rbac = this.repo.getRbacState();
         return {
           status: 200,
           body: {
             data: {
               ...rbac,
+              rolesCatalog: RBAC_ROLES_CATALOG,
+              crmRolesCatalog: CRM_ROLES_CATALOG,
+              erpRolesCatalog: ERP_ROLES_CATALOG,
+              crmModuleItemsCatalog: CRM_MODULE_ITEMS_CATALOG,
+              erpModuleItemsCatalog: ERP_MODULE_ITEMS_CATALOG,
+              moduleItemsCatalog: MODULE_ITEMS_CRUD_CATALOG,
               modulesList: STI_HUB_MODULES_LIST,
               summary: {
                 totalRoles: rbac.roles.length,
+                totalCrmRoles: Object.keys(CRM_ROLES_CATALOG).length,
+                totalErpRoles: Object.keys(ERP_ROLES_CATALOG).length,
+                totalCrmItems: CRM_MODULE_ITEMS_CATALOG.length,
+                totalErpItems: ERP_MODULE_ITEMS_CATALOG.length,
                 totalUsers: rbac.users.length,
                 activeUsersCount: rbac.users.filter((u) => u.active).length,
                 inactiveUsersCount: rbac.users.filter((u) => !u.active).length,
@@ -3791,7 +3814,10 @@ export class CrmApiRouter {
         };
       }
 
-      if (cleanPath === '/api/admin/users' && (method === 'GET' || method === 'POST')) {
+      if (
+        (cleanPath === '/api/admin/users' || cleanPath === '/api/rbac/users') &&
+        (method === 'GET' || method === 'POST')
+      ) {
         if (method === 'GET') {
           const rbac = this.repo.getRbacState();
           return {
@@ -3806,26 +3832,54 @@ export class CrmApiRouter {
           };
         }
         const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
+        const otpauthUri = buildOtpAuthUri({
+          secretBase32: saved.totpSecret || '',
+          email: saved.email,
+          accountName: saved.name,
+        });
+        const qrCodeSvgDataUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, saved.totpSecret);
+        const currentTotpCode = generateTotpCodeSync(saved.totpSecret);
         return {
           status: 201,
-          body: { data: saved },
+          body: {
+            data: {
+              ...saved,
+              otpauthUri,
+              qrCodeSvgDataUrl,
+              currentTotpCode,
+            },
+          },
         };
       }
 
-      const adminUserIdMatch = cleanPath.match(/^\/api\/admin\/users\/([^/]+)$/);
+      const adminUserIdMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)$/);
       if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const userId = decodeURIComponent(adminUserIdMatch[1]);
         const saved = this.repo.upsertRbacUser({
           ...(body as Record<string, unknown>),
           id: userId,
         });
+        const otpauthUri = buildOtpAuthUri({
+          secretBase32: saved.totpSecret || '',
+          email: saved.email,
+          accountName: saved.name,
+        });
+        const qrCodeSvgDataUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, saved.totpSecret);
+        const currentTotpCode = generateTotpCodeSync(saved.totpSecret);
         return {
           status: 200,
-          body: { data: saved },
+          body: {
+            data: {
+              ...saved,
+              otpauthUri,
+              qrCodeSvgDataUrl,
+              currentTotpCode,
+            },
+          },
         };
       }
 
-      const adminRoleIdMatch = cleanPath.match(/^\/api\/admin\/roles\/([^/]+)$/);
+      const adminRoleIdMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/roles\/([^/]+)$/);
       if (adminRoleIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const roleId = decodeURIComponent(adminRoleIdMatch[1]) as StiHubRoleId;
         const updatedRole = this.repo.updateRbacRole(roleId, body as Record<string, unknown>);

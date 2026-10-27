@@ -1338,6 +1338,8 @@ export type StiHubRoleId =
   | "ANALISTA_MARKETING"
   | "FINANCEIRO_FATURAMENTO"
   | "FISCAL_CONTABIL"
+  | "GERENCIA_ESTOQUE"
+  | "STOCK_MANAGER"
   | "TECNICO_NOC_OS"
   | "OPERADOR_PDV_ESTOQUE";
 
@@ -1419,8 +1421,13 @@ export interface StiHubRoleDefinition {
   defaultScope: StiHubVisibilityScope;
   enabledModules?: StiHubMacroModule[];
   moduleAccess?: StiHubUserModuleAccess;
+  crmRole?: string;
+  erpRole?: string;
   crmPermissions?: StiHubCrmPermissions;
   erpPermissions?: StiHubErpPermissions;
+  crmItemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+  erpItemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+  itemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
   modulePermissions: Record<string, StiHubModuleAccessLevel>;
   actionGuards: StiHubActionGuards;
   updatedAt: string;
@@ -1436,11 +1443,17 @@ export interface StiHubUserRecord {
   department: string;
   jobTitle: string;
   roleId: StiHubRoleId;
+  role?: string;
+  crmRole?: string;
+  erpRole?: string;
   scope: StiHubVisibilityScope;
   enabledModules?: StiHubMacroModule[];
   moduleAccess?: StiHubUserModuleAccess;
   crmPermissions?: StiHubCrmPermissions;
   erpPermissions?: StiHubErpPermissions;
+  crmItemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+  erpItemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
+  itemPermissions?: Record<string, { view: boolean; edit: boolean; delete: boolean }>;
   active: boolean;
   mfaEnabled: boolean;
   mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";

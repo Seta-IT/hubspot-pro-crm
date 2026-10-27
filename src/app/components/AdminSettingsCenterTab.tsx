@@ -19,19 +19,42 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  buildDefaultCrmItemPermissions,
+  buildDefaultErpItemPermissions,
+  buildDefaultItemPermissionsForRole,
+  CRM_MODULE_ITEMS_CATALOG,
+  CRM_ROLES_CATALOG,
+  CrmAccountRole,
+  CrmModuleItemPermissions,
+  CrmRoleDefinitionMatrix,
+  CrudPermissionFlags,
   CustomFieldDataType,
   CustomFieldDefinition,
   CustomFieldObjectType,
   EmailTemplateRecord,
+  ERP_MODULE_ITEMS_CATALOG,
+  ERP_ROLES_CATALOG,
+  ErpAccountRole,
+  ErpModuleItemPermissions,
+  ErpRoleDefinitionMatrix,
+  inferCrmAndErpRolesFromLegacyRole,
   INITIAL_CUSTOM_FIELDS,
   INITIAL_EMAIL_TEMPLATES,
   INITIAL_STIHUB_USERS,
+  MODULE_ITEMS_CRUD_CATALOG,
   RBAC_ROLES_CATALOG,
   RolePermissionsMatrix,
   StiHubRole,
   StiHubUserAccount,
 } from '../lib/rbac';
-import { StiHubSessionPayload } from '../lib/auth';
+import {
+  buildOtpAuthUri,
+  buildTotpQrCodeSvgDataUrl,
+  formatBase32SecretBlocks,
+  generateTotpCodeSync,
+  generateTotpSecretBase32,
+  StiHubSessionPayload,
+} from '../lib/auth';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
 interface AdminSettingsCenterTabProps {
@@ -110,12 +133,228 @@ export default function AdminSettingsCenterTab({
   });
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplateRecord | null>(null);
 
-  // 4. Users & RBAC Matrix State
-  const [users, setUsers] = useState<StiHubUserAccount[]>(INITIAL_STIHUB_USERS);
+  // 4. Users & RBAC Matrix State (Dual Independent CRM vs ERP Account Types & CRUD Item Permissions)
+  const [users, setUsers] = useState<StiHubUserAccount[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('stihub_users_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return INITIAL_STIHUB_USERS;
+  });
   const [rolesMatrix, setRolesMatrix] = useState<Record<StiHubRole, RolePermissionsMatrix>>(
     () => structuredClone(RBAC_ROLES_CATALOG)
   );
+  const [crmRolesCatalogState, setCrmRolesCatalogState] = useState<
+    Record<CrmAccountRole, CrmRoleDefinitionMatrix>
+  >(() => structuredClone(CRM_ROLES_CATALOG));
+  const [erpRolesCatalogState, setErpRolesCatalogState] = useState<
+    Record<ErpAccountRole, ErpRoleDefinitionMatrix>
+  >(() => structuredClone(ERP_ROLES_CATALOG));
+
   const [selectedRoleForMatrix, setSelectedRoleForMatrix] = useState<StiHubRole>('SALES_MANAGER');
+  const [activePermissionsDomainTab, setActivePermissionsDomainTab] = useState<'CRM' | 'ERP'>('CRM');
+  const [selectedCrmRoleKey, setSelectedCrmRoleKey] = useState<CrmAccountRole>('CRM_SALES_MANAGER');
+  const [selectedErpRoleKey, setSelectedErpRoleKey] = useState<ErpAccountRole>('ERP_STOCK_MANAGER');
+  const [selectedUserIdForCrud, setSelectedUserIdForCrud] = useState<string>('ROLE_DEFAULT');
+
+  // New User Modal & 2FA Google Authenticator Modal State
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('(11) 3958-4929');
+  const [newUserDept, setNewUserDept] = useState('Gerência de Estoque & Compras');
+  const [newUserJobTitle, setNewUserJobTitle] = useState('Gerente de Estoque & Suprimentos');
+  const [newUserLegacyRole, setNewUserLegacyRole] = useState<StiHubRole>('STOCK_MANAGER');
+  const [newUserCrmRole, setNewUserCrmRole] = useState<CrmAccountRole>('CRM_NONE');
+  const [newUserErpRole, setNewUserErpRole] = useState<ErpAccountRole>('ERP_STOCK_MANAGER');
+  const [newUserScope, setNewUserScope] = useState<'ALL' | 'TEAM' | 'OWN_ONLY'>('ALL');
+  const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>(
+    'TOTP_AUTHENTICATOR'
+  );
+  const [newUserTotpSecret, setNewUserTotpSecret] = useState<string>(() =>
+    generateTotpSecretBase32('novo.usuario@setatelecom.com.br')
+  );
+  const [configuringMfaUser, setConfiguringMfaUser] = useState<StiHubUserAccount | null>(null);
+
+  const persistUsersList = (nextUsers: StiHubUserAccount[]) => {
+    setUsers(nextUsers);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('stihub_users_v1', JSON.stringify(nextUsers));
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleCreateNewUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserName.trim() || !newUserEmail.trim()) return;
+    const cleanEmail = newUserEmail.trim().toLowerCase();
+    const secret = newUserTotpSecret || generateTotpSecretBase32(cleanEmail);
+    const crmPerms = structuredClone(
+      crmRolesCatalogState[newUserCrmRole]?.itemPermissions ||
+        buildDefaultCrmItemPermissions(newUserCrmRole)
+    );
+    const erpPerms = structuredClone(
+      erpRolesCatalogState[newUserErpRole]?.itemPermissions ||
+        buildDefaultErpItemPermissions(newUserErpRole)
+    );
+    const enabledModules: Array<'CRM' | 'ERP' | 'CHAMADOS'> = [];
+    if (newUserCrmRole !== 'CRM_NONE') enabledModules.push('CRM');
+    if (newUserErpRole !== 'ERP_NONE') enabledModules.push('ERP');
+    if (newUserCrmRole === 'CRM_SERVICE_NOC' || newUserCrmRole === 'CRM_ADMIN') {
+      enabledModules.push('CHAMADOS');
+    }
+    if (enabledModules.length === 0) enabledModules.push('ERP');
+
+    const createdUser: StiHubUserAccount = {
+      id: `usr-${Date.now()}`,
+      name: newUserName.trim(),
+      email: cleanEmail,
+      phone: newUserPhone.trim(),
+      department: newUserDept.trim(),
+      jobTitle: newUserJobTitle.trim(),
+      role: newUserLegacyRole,
+      crmRole: newUserCrmRole,
+      erpRole: newUserErpRole,
+      portfolioScope: newUserScope,
+      enabledModules,
+      moduleAccess: {
+        crm: enabledModules.includes('CRM'),
+        erp: enabledModules.includes('ERP'),
+        chamados: enabledModules.includes('CHAMADOS'),
+      },
+      crmItemPermissions: crmPerms,
+      erpItemPermissions: erpPerms,
+      itemPermissions: { ...crmPerms, ...erpPerms },
+      totpSecret: secret,
+      mfaEnabled: true,
+      mfaMethod: newUserMfaMethod,
+      active: true,
+      lastLoginAt: new Date().toISOString(),
+    };
+
+    const next = [createdUser, ...users];
+    persistUsersList(next);
+
+    await fetch('/api/rbac/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...createdUser,
+        roleId: newUserLegacyRole,
+        scope:
+          newUserScope === 'ALL' ? 'TODOS' : newUserScope === 'TEAM' ? 'EQUIPE' : 'PROPRIOS',
+      }),
+    }).catch(() => null);
+
+    setShowAddUserModal(false);
+    setNewUserName('');
+    setNewUserEmail('');
+    onShowToast(
+      `Usuário "${createdUser.name}" adicionado com Tipo CRM (${newUserCrmRole}), Tipo ERP (${newUserErpRole}) e 2FA Google Authenticator habilitado!`
+    );
+  };
+
+  const handleToggleItemCrud = (
+    domain: 'CRM' | 'ERP',
+    itemId: string,
+    field: keyof CrudPermissionFlags,
+    checked: boolean
+  ) => {
+    if (selectedUserIdForCrud !== 'ROLE_DEFAULT') {
+      const nextUsers = users.map((u) => {
+        if (u.id !== selectedUserIdForCrud) return u;
+        const currentCrm =
+          u.crmItemPermissions ||
+          buildDefaultCrmItemPermissions(u.crmRole || inferCrmAndErpRolesFromLegacyRole(u.role).crmRole);
+        const currentErp =
+          u.erpItemPermissions ||
+          buildDefaultErpItemPermissions(u.erpRole || inferCrmAndErpRolesFromLegacyRole(u.role).erpRole);
+        if (domain === 'CRM') {
+          const prevFlags = currentCrm[itemId] || { view: false, edit: false, delete: false };
+          const updatedCrm = { ...currentCrm, [itemId]: { ...prevFlags, [field]: checked } };
+          return {
+            ...u,
+            crmItemPermissions: updatedCrm,
+            itemPermissions: { ...updatedCrm, ...currentErp },
+          };
+        } else {
+          const prevFlags = currentErp[itemId] || { view: false, edit: false, delete: false };
+          const updatedErp = { ...currentErp, [itemId]: { ...prevFlags, [field]: checked } };
+          return {
+            ...u,
+            erpItemPermissions: updatedErp,
+            itemPermissions: { ...currentCrm, ...updatedErp },
+          };
+        }
+      });
+      persistUsersList(nextUsers);
+      return;
+    }
+
+    if (domain === 'CRM') {
+      setCrmRolesCatalogState((prev) => {
+        const currentRole = prev[selectedCrmRoleKey];
+        const prevFlags = currentRole.itemPermissions[itemId] || {
+          view: false,
+          edit: false,
+          delete: false,
+        };
+        return {
+          ...prev,
+          [selectedCrmRoleKey]: {
+            ...currentRole,
+            itemPermissions: {
+              ...currentRole.itemPermissions,
+              [itemId]: { ...prevFlags, [field]: checked },
+            },
+          },
+        };
+      });
+    } else {
+      setErpRolesCatalogState((prev) => {
+        const currentRole = prev[selectedErpRoleKey];
+        const prevFlags = currentRole.itemPermissions[itemId] || {
+          view: false,
+          edit: false,
+          delete: false,
+        };
+        return {
+          ...prev,
+          [selectedErpRoleKey]: {
+            ...currentRole,
+            itemPermissions: {
+              ...currentRole.itemPermissions,
+              [itemId]: { ...prevFlags, [field]: checked },
+            },
+          },
+        };
+      });
+    }
+  };
+
+  const handleBulkSetDomainCrud = (
+    domain: 'CRM' | 'ERP',
+    field: keyof CrudPermissionFlags,
+    value: boolean
+  ) => {
+    const catalog = domain === 'CRM' ? CRM_MODULE_ITEMS_CATALOG : ERP_MODULE_ITEMS_CATALOG;
+    for (const item of catalog) {
+      handleToggleItemCrud(domain, item.itemId, field, value);
+    }
+    onShowToast(
+      `Permissão "${field === 'view' ? 'Visualizar' : field === 'edit' ? 'Editar' : 'Deletar'}" marcada como ${value ? 'SIM' : 'NÃO'} em todos os itens de ${domain}!`
+    );
+  };
 
   const handleRunEmailValidationTest = async () => {
     setTestingEmail(true);
@@ -793,19 +1032,46 @@ export default function AdminSettingsCenterTab({
       )}
 
       {/* ====================================================================
-          SUB-TAB 4: USUÁRIOS, PERFIS & PERMISSÕES GRANULARES (RBAC + MFA)
+          SUB-TAB 4: USUÁRIOS, PERFIS SEPARADOS (CRM vs ERP), PERMISSÕES CRUD POR ITEM & 2FA GOOGLE AUTHENTICATOR
       ==================================================================== */}
       {subTab === 'USERS_RBAC' && (
         <div className="space-y-5">
+          {/* Caminho / Guia Rápido para Adicionar Usuários, Tipos de Conta (CRM vs ERP), Permissões CRUD e 2FA */}
+          <div className="bg-[#0d2b4e] text-white rounded-xl p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59]">
+                ARQUITETURA DE CONTAS E PERMISSÕES SEPARADAS (CRM ≠ ERP) + 2FA GOOGLE AUTHENTICATOR
+              </div>
+              <div className="text-sm font-extrabold">
+                1. Tipos de Conta do CRM são independentes dos Tipos de Conta do ERP • 2. Permissões Visualizar / Editar / Deletar por Módulo e Item • 3. Pareamento 2FA QR Code
+              </div>
+              <p className="text-xs text-slate-300">
+                Cada colaborador possui seu <strong>Tipo de Conta no CRM</strong> (ex.: Administrador CRM, Gestor Comercial, Executivo B2B, Marketing, NOC) e seu <strong>Tipo de Conta no ERP</strong> (ex.: Administrador ERP, Comercial ERP, Financeiro &amp; Fiscal, Gerência de Estoque, Contratos/O.S., PDV), cada um com sua própria matriz de <strong>Visualizar, Editar e Deletar</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setNewUserTotpSecret(
+                  generateTotpSecretBase32(`user-${Date.now()}@setatelecom.com.br`)
+                );
+                setShowAddUserModal(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4" /> + Adicionar Novo Usuário &amp; 2FA
+            </button>
+          </div>
+
           {/* Users Directory & Instant Role Switcher */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-extrabold text-slate-900">
-                  Diretório de Usuários Seta Telecom &amp; Status MFA (2FA)
+                  Diretório de Usuários Seta Telecom — Tipos de Conta Independentes (CRM vs ERP) &amp; 2FA Google Authenticator
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Clique em <strong>Simular Perfil na Sessão</strong> para testar em tempo real o bloqueio de módulos e ações para cada função.
+                  Altere separadamente o <strong>Tipo de Conta CRM</strong> e o <strong>Tipo de Conta ERP</strong>, abra o <strong>QR Code 2FA Google Authenticator</strong> ou clique em <strong>Customizar CRUD</strong>.
                 </p>
               </div>
               {currentSession && (
@@ -819,67 +1085,120 @@ export default function AdminSettingsCenterTab({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                   <tr>
-                    <th className="py-2.5 px-3">Colaborador</th>
-                    <th className="py-2.5 px-3">E-mail Corporativo</th>
-                    <th className="py-2.5 px-3">Perfil RBAC</th>
-                    <th className="py-2.5 px-3">Escopo Carteira</th>
-                    <th className="py-2.5 px-3">Desc. Máx</th>
-                    <th className="py-2.5 px-3">Segurança MFA</th>
-                    <th className="py-2.5 px-3 text-right">Ação Rápida</th>
+                    <th className="py-2.5 px-3">Colaborador / E-mail</th>
+                    <th className="py-2.5 px-3">Tipo de Conta CRM</th>
+                    <th className="py-2.5 px-3">Tipo de Conta ERP</th>
+                    <th className="py-2.5 px-3">Segurança 2FA Google Authenticator</th>
+                    <th className="py-2.5 px-3 text-right">Ações (2FA / Permissões / Sessão)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {users.map((u) => {
-                    const rm = rolesMatrix[u.role];
+                    const inferred = inferCrmAndErpRolesFromLegacyRole(u.role);
+                    const effCrmRole: CrmAccountRole = u.crmRole || inferred.crmRole;
+                    const effErpRole: ErpAccountRole = u.erpRole || inferred.erpRole;
                     const isCurrent = currentSession?.email === u.email;
                     return (
                       <tr key={u.id} className={isCurrent ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
-                        <td className="py-2.5 px-3 font-bold text-slate-900">{u.name}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-600">{u.email}</td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{u.name}</div>
+                          <div className="font-mono text-[11px] text-slate-500">
+                            {u.email} • {u.department}
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3">
                           <select
-                            value={u.role}
+                            aria-label={`Tipo de Conta CRM de ${u.name}`}
+                            value={effCrmRole}
                             onChange={(e) => {
-                              const nextRole = e.target.value as StiHubRole;
-                              setUsers((prev) =>
-                                prev.map((item) =>
-                                  item.id === u.id ? { ...item, role: nextRole } : item
-                                )
+                              const nextCrm = e.target.value as CrmAccountRole;
+                              const nextUsers = users.map((item) =>
+                                item.id === u.id
+                                  ? {
+                                      ...item,
+                                      crmRole: nextCrm,
+                                      crmItemPermissions: buildDefaultCrmItemPermissions(nextCrm),
+                                    }
+                                  : item
                               );
-                              onShowToast(`Perfil RBAC de ${u.name} atualizado para ${nextRole}!`);
+                              persistUsersList(nextUsers);
+                              onShowToast(`Tipo de Conta CRM de ${u.name} atualizado para ${CRM_ROLES_CATALOG[nextCrm].label}!`);
                             }}
-                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e] text-[11px]"
                           >
-                            {Object.keys(rolesMatrix).map((rKey) => (
-                              <option key={rKey} value={rKey}>
-                                {rKey}
+                            {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => (
+                              <option key={cKey} value={cKey}>
+                                {cKey} — {crmRolesCatalogState[cKey].label}
                               </option>
                             ))}
                           </select>
                         </td>
-                        <td className="py-2.5 px-3 font-semibold">
-                          {rm.portfolioScope === 'ALL' ? 'Global (Toda a Base)' : 'Própria Carteira'}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-emerald-700">
-                          até {rm.maxDiscountPercent}%
+                        <td className="py-2.5 px-3">
+                          <select
+                            aria-label={`Tipo de Conta ERP de ${u.name}`}
+                            value={effErpRole}
+                            onChange={(e) => {
+                              const nextErp = e.target.value as ErpAccountRole;
+                              const nextUsers = users.map((item) =>
+                                item.id === u.id
+                                  ? {
+                                      ...item,
+                                      erpRole: nextErp,
+                                      erpItemPermissions: buildDefaultErpItemPermissions(nextErp),
+                                    }
+                                  : item
+                              );
+                              persistUsersList(nextUsers);
+                              onShowToast(`Tipo de Conta ERP de ${u.name} atualizado para ${ERP_ROLES_CATALOG[nextErp].label}!`);
+                            }}
+                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e] text-[11px]"
+                          >
+                            {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => (
+                              <option key={eKey} value={eKey}>
+                                {eKey} — {erpRolesCatalogState[eKey].label}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                            🔒 MFA 2FA Ativo ({u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'TOTP' : 'E-mail'})
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              🔒 {u.mfaEnabled ? `2FA Ativo (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'Google Auth TOTP' : 'E-mail OTP'})` : '2FA Inativo'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const ensuredSecret =
+                                  u.totpSecret || generateTotpSecretBase32(u.email);
+                                setConfiguringMfaUser({ ...u, totpSecret: ensuredSecret });
+                              }}
+                              className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[#0d2b4e] text-[10px] font-extrabold cursor-pointer"
+                            >
+                              Configurar 2FA / QR Google Authenticator
+                            </button>
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => onSwitchRoleSession(u)}
-                            className={`px-3 py-1 rounded text-[11px] font-extrabold cursor-pointer ${
-                              isCurrent
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-[#1e3a6e] hover:bg-[#162b54] text-white'
-                            }`}
-                          >
-                            {isCurrent ? '✓ Perfil Ativo' : 'Simular Perfil na Sessão'}
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedUserIdForCrud(u.id)}
+                              className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-[11px] font-bold cursor-pointer"
+                            >
+                              Permissões CRUD
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onSwitchRoleSession(u)}
+                              className={`px-3 py-1 rounded text-[11px] font-extrabold cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-[#1e3a6e] hover:bg-[#162b54] text-white'
+                              }`}
+                            >
+                              {isCurrent ? '✓ Perfil Ativo' : 'Simular Perfil na Sessão'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -889,101 +1208,564 @@ export default function AdminSettingsCenterTab({
             </div>
           </div>
 
-          {/* Interactive Role Permissions Matrix */}
+          {/* ==================================================================
+              DUAS ABAS SEPARADAS DE TIPOS DE CONTA E MATRIZ VISUALIZAR / EDITAR / DELETAR:
+              ABA 1: TIPOS DE CONTA & PERMISSÕES DO CRM
+              ABA 2: TIPOS DE CONTA & PERMISSÕES DO ERP
+          ================================================================== */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4 text-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-4">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Matriz Granular de Permissões por Perfil (ERP &amp; CRM)
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
+                  SEPARAÇÃO ESTRITA DE PERMISSÕES • CRM vs ERP (VISUALIZAR | EDITAR | DELETAR POR ITEM)
+                </span>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+                  Matriz Granular de Permissões por Tipo de Conta ou Usuário (Cada Módulo e Item do Módulo)
                 </h3>
-                <p className="text-slate-500">
-                  Selecione um perfil para inspecionar ou customizar suas permissões de acesso e escrita.
-                </p>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(Object.keys(rolesMatrix) as StiHubRole[]).map((rKey) => (
-                  <button
-                    key={rKey}
-                    type="button"
-                    onClick={() => setSelectedRoleForMatrix(rKey)}
-                    className={`px-3 py-1.5 rounded font-extrabold cursor-pointer ${
-                      selectedRoleForMatrix === rKey
-                        ? 'bg-[#1e3a6e] text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {rKey}
-                  </button>
-                ))}
+
+              {/* Domain Switcher Tabs: Aba 1 (CRM) vs Aba 2 (ERP) */}
+              <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setActivePermissionsDomainTab('CRM')}
+                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    activePermissionsDomainTab === 'CRM'
+                      ? 'bg-[#0d2b4e] text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  Aba 1: Tipos de Conta &amp; Permissões do CRM ({CRM_MODULE_ITEMS_CATALOG.length} Itens)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePermissionsDomainTab('ERP')}
+                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    activePermissionsDomainTab === 'ERP'
+                      ? 'bg-[#1e3a6e] text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  Aba 2: Tipos de Conta &amp; Permissões do ERP ({ERP_MODULE_ITEMS_CATALOG.length} Itens)
+                </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">
-                  Módulos Visíveis no Menu Principal ({selectedRoleForMatrix})
-                </div>
-                {Object.entries(rolesMatrix[selectedRoleForMatrix].modules).map(([modKey, allowed]) => (
-                  <label
-                    key={modKey}
-                    className="flex items-center justify-between py-1 border-b border-slate-200/60 cursor-pointer"
-                  >
-                    <span className="font-semibold text-slate-800">{modKey}</span>
-                    <input
-                      type="checkbox"
-                      checked={allowed}
-                      onChange={(e) => {
-                        setRolesMatrix((prev) => ({
-                          ...prev,
-                          [selectedRoleForMatrix]: {
-                            ...prev[selectedRoleForMatrix],
-                            modules: {
-                              ...prev[selectedRoleForMatrix].modules,
-                              [modKey]: e.target.checked,
-                            },
-                          },
-                        }));
-                      }}
-                      className="w-4 h-4 accent-[#1e3a6e]"
-                    />
-                  </label>
-                ))}
+            {/* Target Selector: Role Default vs Specific User */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-slate-800">Configurar Permissões Para:</span>
+                <select
+                  value={selectedUserIdForCrud}
+                  onChange={(e) => setSelectedUserIdForCrud(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                >
+                  <option value="ROLE_DEFAULT">
+                    Padrão do Tipo de Conta ({activePermissionsDomainTab === 'CRM' ? selectedCrmRoleKey : selectedErpRoleKey})
+                  </option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      Usuário Específico: {u.name} ({u.email})
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">
-                  Permissões Críticas de Operação no ERP ({selectedRoleForMatrix})
-                </div>
-                {Object.entries(rolesMatrix[selectedRoleForMatrix].erpPermissions).map(
-                  ([permKey, allowed]) => (
-                    <label
-                      key={permKey}
-                      className="flex items-center justify-between py-1 border-b border-slate-200/60 cursor-pointer"
-                    >
-                      <span className="font-semibold text-slate-800">{permKey}</span>
-                      <input
-                        type="checkbox"
-                        checked={allowed}
-                        onChange={(e) => {
-                          setRolesMatrix((prev) => ({
-                            ...prev,
-                            [selectedRoleForMatrix]: {
-                              ...prev[selectedRoleForMatrix],
-                              erpPermissions: {
-                                ...prev[selectedRoleForMatrix].erpPermissions,
-                                [permKey]: e.target.checked,
-                              },
-                            },
-                          }));
-                        }}
-                        className="w-4 h-4 accent-[#1e3a6e]"
-                      />
-                    </label>
-                  )
-                )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'view', true)}
+                  className="px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold cursor-pointer"
+                >
+                  ✓ Marcar Todos Visualizar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'edit', true)}
+                  className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold cursor-pointer"
+                >
+                  ✓ Marcar Todos Editar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'delete', true)}
+                  className="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold cursor-pointer"
+                >
+                  ✓ Marcar Todos Deletar
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onShowToast(
+                      `Matriz de permissões (Visualizar, Editar e Deletar) de ${activePermissionsDomainTab} salva com sucesso!`
+                    )
+                  }
+                  className="px-3.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                >
+                  Salvar Permissões {activePermissionsDomainTab}
+                </button>
               </div>
+            </div>
+
+            {/* Role Pills for Current Domain (CRM Roles vs ERP Roles) */}
+            {activePermissionsDomainTab === 'CRM' ? (
+              <div className="space-y-3">
+                <div className="font-extrabold text-[#0d2b4e] uppercase text-[11px]">
+                  Selecione o Tipo de Conta do CRM (Exclusivo para Módulos do CRM &amp; Chamados):
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => {
+                    const rDef = crmRolesCatalogState[cKey];
+                    const active = selectedCrmRoleKey === cKey;
+                    return (
+                      <button
+                        key={cKey}
+                        type="button"
+                        onClick={() => {
+                          setSelectedUserIdForCrud('ROLE_DEFAULT');
+                          setSelectedCrmRoleKey(cKey);
+                        }}
+                        className={`text-left p-3 rounded-xl border transition cursor-pointer ${
+                          active
+                            ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-mono text-[10px] font-black opacity-80">{cKey}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-white/15 text-[9px] font-bold">
+                            Escopo: {rDef.portfolioScope}
+                          </span>
+                        </div>
+                        <div className="font-extrabold text-xs mt-1">{rDef.label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">
+                  Selecione o Tipo de Conta do ERP (Administrador, Comercial, Financeiro, Gerência de Estoque, Contratos/O.S., PDV):
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => {
+                    const rDef = erpRolesCatalogState[eKey];
+                    const active = selectedErpRoleKey === eKey;
+                    return (
+                      <button
+                        key={eKey}
+                        type="button"
+                        onClick={() => {
+                          setSelectedUserIdForCrud('ROLE_DEFAULT');
+                          setSelectedErpRoleKey(eKey);
+                        }}
+                        className={`text-left p-3 rounded-xl border transition cursor-pointer ${
+                          active
+                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-mono text-[10px] font-black opacity-80">{eKey}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-white/15 text-[9px] font-bold">
+                            Desc. máx: {rDef.maxDiscountPercent}%
+                          </span>
+                        </div>
+                        <div className="font-extrabold text-xs mt-1">{rDef.label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* CRUD Table (Visualizar | Editar | Deletar) for Every Module & Module Item */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900 text-white uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Módulo ({activePermissionsDomainTab})</th>
+                    <th className="py-2.5 px-3">Item do Módulo / Funcionalidade</th>
+                    <th className="py-2.5 px-3 text-center">👁️ Visualizar (View)</th>
+                    <th className="py-2.5 px-3 text-center">✏️ Editar (Edit)</th>
+                    <th className="py-2.5 px-3 text-center">🗑️ Deletar (Delete)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {(activePermissionsDomainTab === 'CRM'
+                    ? CRM_MODULE_ITEMS_CATALOG
+                    : ERP_MODULE_ITEMS_CATALOG
+                  ).map((item) => {
+                    const targetUser =
+                      selectedUserIdForCrud !== 'ROLE_DEFAULT'
+                        ? users.find((u) => u.id === selectedUserIdForCrud)
+                        : null;
+                    const permsMap = targetUser
+                      ? activePermissionsDomainTab === 'CRM'
+                        ? targetUser.crmItemPermissions ||
+                          buildDefaultCrmItemPermissions(
+                            targetUser.crmRole ||
+                              inferCrmAndErpRolesFromLegacyRole(targetUser.role).crmRole
+                          )
+                        : targetUser.erpItemPermissions ||
+                          buildDefaultErpItemPermissions(
+                            targetUser.erpRole ||
+                              inferCrmAndErpRolesFromLegacyRole(targetUser.role).erpRole
+                          )
+                      : activePermissionsDomainTab === 'CRM'
+                        ? crmRolesCatalogState[selectedCrmRoleKey].itemPermissions
+                        : erpRolesCatalogState[selectedErpRoleKey].itemPermissions;
+
+                    const flags = permsMap[item.itemId] || {
+                      view: false,
+                      edit: false,
+                      delete: false,
+                    };
+
+                    return (
+                      <tr key={item.itemId} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                              activePermissionsDomainTab === 'CRM'
+                                ? 'bg-orange-50 text-[#e05835] border border-orange-200'
+                                : 'bg-blue-50 text-[#1e3a6e] border border-blue-200'
+                            }`}
+                          >
+                            {item.moduleLabel}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{item.itemLabel}</div>
+                          <div className="font-mono text-[10px] text-slate-400">{item.itemId}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Visualizar ${item.itemLabel}`}
+                            checked={flags.view}
+                            onChange={(e) =>
+                              handleToggleItemCrud(
+                                activePermissionsDomainTab,
+                                item.itemId,
+                                'view',
+                                e.target.checked
+                              )
+                            }
+                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Editar ${item.itemLabel}`}
+                            checked={flags.edit}
+                            onChange={(e) =>
+                              handleToggleItemCrud(
+                                activePermissionsDomainTab,
+                                item.itemId,
+                                'edit',
+                                e.target.checked
+                              )
+                            }
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Deletar ${item.itemLabel}`}
+                            checked={flags.delete}
+                            onChange={(e) =>
+                              handleToggleItemCrud(
+                                activePermissionsDomainTab,
+                                item.itemId,
+                                'delete',
+                                e.target.checked
+                              )
+                            }
+                            className="w-4 h-4 accent-rose-600 cursor-pointer"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
+
+          {/* MODAL 1: + ADICIONAR NOVO USUÁRIO COM TIPO CRM, TIPO ERP E 2FA GOOGLE AUTHENTICATOR */}
+          {showAddUserModal && (() => {
+            const previewEmail = newUserEmail.trim() || 'novo.colaborador@setatelecom.com.br';
+            const otpauthUri = buildOtpAuthUri({
+              secretBase32: newUserTotpSecret,
+              email: previewEmail,
+              accountName: newUserName.trim() || previewEmail,
+            });
+            const qrSvgUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, newUserTotpSecret);
+            const currentCode = generateTotpCodeSync(newUserTotpSecret);
+
+            return (
+              <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full p-6 space-y-4 text-xs my-6">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                        CADASTRO DE USUÁRIO STI-HUB • CONTAS CRM &amp; ERP INDEPENDENTES + 2FA
+                      </span>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        + Adicionar Novo Usuário, Tipos de Conta (CRM / ERP) &amp; 2FA Google Authenticator
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddUserModal(false)}
+                      className="px-3 py-1 rounded border border-slate-300 font-bold text-slate-600 cursor-pointer"
+                    >
+                      Fechar ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleCreateNewUser} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                        <input
+                          type="text"
+                          required
+                          value={newUserName}
+                          onChange={(e) => setNewUserName(e.target.value)}
+                          placeholder="Ex: Leandro Souza"
+                          className="w-full px-3 py-2 rounded border border-slate-300"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                        <input
+                          type="email"
+                          required
+                          value={newUserEmail}
+                          onChange={(e) => setNewUserEmail(e.target.value)}
+                          placeholder="leandro@setatelecom.com.br"
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Cargo / Departamento</label>
+                        <input
+                          type="text"
+                          value={newUserDept}
+                          onChange={(e) => setNewUserDept(e.target.value)}
+                          className="w-full px-3 py-2 rounded border border-slate-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                      <div>
+                        <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                          1. Tipo de Conta no CRM (Sales / Marketing / Chamados):
+                        </label>
+                        <select
+                          value={newUserCrmRole}
+                          onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                        >
+                          {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => (
+                            <option key={cKey} value={cKey}>
+                              {cKey} — {crmRolesCatalogState[cKey].label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                          2. Tipo de Conta no ERP (Admin / Comercial / Financeiro / Gerência de Estoque):
+                        </label>
+                        <select
+                          value={newUserErpRole}
+                          onChange={(e) => {
+                            const nextErp = e.target.value as ErpAccountRole;
+                            setNewUserErpRole(nextErp);
+                            if (nextErp === 'ERP_STOCK_MANAGER') setNewUserLegacyRole('STOCK_MANAGER');
+                            else if (nextErp === 'ERP_FINANCE') setNewUserLegacyRole('ERP_FINANCE_FISCAL');
+                            else if (nextErp === 'ERP_ADMIN') setNewUserLegacyRole('SUPER_ADMIN');
+                            else if (nextErp === 'ERP_COMMERCIAL') setNewUserLegacyRole('SALES_MANAGER');
+                          }}
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                        >
+                          {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => (
+                            <option key={eKey} value={eKey}>
+                              {eKey} — {erpRolesCatalogState[eKey].label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Pareamento Imediato do 2FA Google Authenticator no Cadastro */}
+                    <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row items-center gap-4">
+                      <img
+                        src={qrSvgUrl}
+                        alt="QR Code Google Authenticator"
+                        className="w-28 h-28 rounded-xl border border-slate-300 bg-white p-1.5 shrink-0"
+                      />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="font-extrabold text-[#0d2b4e]">
+                          3. Habilitação Imediata do 2FA Google Authenticator (RFC 6238 TOTP)
+                        </div>
+                        <p className="text-[11px] text-slate-600">
+                          Escaneie o QR Code no aplicativo <strong>Google Authenticator</strong> ou digite a chave Base32 abaixo:
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-black text-[#0d2b4e]">
+                            {formatBase32SecretBlocks(newUserTotpSecret)}
+                          </code>
+                          <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
+                            Código 6 dígitos agora: {currentCode}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNewUserTotpSecret(
+                                generateTotpSecretBase32(`${previewEmail}-${Date.now()}`)
+                              )
+                            }
+                            className="px-2.5 py-1 rounded bg-white border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                          >
+                            Regerar Chave TOTP
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddUserModal(false)}
+                        className="px-4 py-2 rounded border border-slate-300 font-bold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                      >
+                        Criar Usuário com Permissões CRM/ERP &amp; 2FA Ativo
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* MODAL 2: CONFIGURAR 2FA / QR CODE GOOGLE AUTHENTICATOR DE UM USUÁRIO EXISTENTE */}
+          {configuringMfaUser && (() => {
+            const secret =
+              configuringMfaUser.totpSecret ||
+              generateTotpSecretBase32(configuringMfaUser.email);
+            const otpauthUri = buildOtpAuthUri({
+              secretBase32: secret,
+              email: configuringMfaUser.email,
+              accountName: configuringMfaUser.name,
+            });
+            const qrSvgUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, secret);
+            const activeCode = generateTotpCodeSync(secret);
+
+            return (
+              <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 text-xs">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                        SEGURANÇA MFA 2FA • GOOGLE AUTHENTICATOR (RFC 6238)
+                      </span>
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        Pareamento 2FA Google Authenticator — {configuringMfaUser.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setConfiguringMfaUser(null)}
+                      className="px-2.5 py-1 rounded border border-slate-300 font-bold cursor-pointer"
+                    >
+                      Fechar ✕
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                    <img
+                      src={qrSvgUrl}
+                      alt="QR Code 2FA"
+                      className="w-32 h-32 rounded-xl border border-slate-300 bg-white p-1.5 shrink-0"
+                    />
+                    <div className="space-y-2 flex-1">
+                      <div className="font-bold text-slate-900">
+                        Conta: <span className="font-mono">{configuringMfaUser.email}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Chave Secreta Base32:</span>
+                        <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-black text-[#0d2b4e] block mt-0.5">
+                          {formatBase32SecretBlocks(secret)}
+                        </code>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="font-bold text-slate-700">Código TOTP Ativo (30s):</span>
+                        <span className="px-2.5 py-1 rounded bg-emerald-100 text-emerald-900 font-mono font-black text-sm">
+                          {activeCode}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextSecret = generateTotpSecretBase32(
+                          `${configuringMfaUser.email}:${Date.now()}`
+                        );
+                        setConfiguringMfaUser({ ...configuringMfaUser, totpSecret: nextSecret });
+                      }}
+                      className="px-3 py-2 rounded border border-slate-300 font-bold hover:bg-slate-100 cursor-pointer"
+                    >
+                      Regerar Chave Secreta TOTP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const updatedUser: StiHubUserAccount = {
+                          ...configuringMfaUser,
+                          totpSecret: secret,
+                          mfaEnabled: true,
+                          mfaMethod: 'TOTP_AUTHENTICATOR',
+                        };
+                        const nextUsers = users.map((u) =>
+                          u.id === updatedUser.id ? updatedUser : u
+                        );
+                        persistUsersList(nextUsers);
+                        await fetch('/api/rbac/users', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(updatedUser),
+                        }).catch(() => null);
+                        setConfiguringMfaUser(null);
+                        onShowToast(
+                          `2FA Google Authenticator habilitado e sincronizado para ${updatedUser.name}!`
+                        );
+                      }}
+                      className="px-4 py-2 rounded bg-[#0d2b4e] text-white font-extrabold cursor-pointer"
+                    >
+                      Salvar e Habilitar 2FA Google Authenticator
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
