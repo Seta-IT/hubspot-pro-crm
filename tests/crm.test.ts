@@ -2920,4 +2920,76 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       delete: false,
     });
   });
+
+  it("valida os 7 ajustes de Propostas Comerciais: sem coluna Enquadramento Fiscal, versionamento exclusivo para consulta interna, quantidade como itens (não mês), Tempo de Contrato no cabeçalho, Setup isolado do Frete, seletor de SLA na criação e Seletor de Templates funcional", async () => {
+    const rootDir = process.cwd();
+    const pageSrc = fs.readFileSync(path.join(rootDir, "src/app/proposta/[id]/page.tsx"), "utf8");
+    const modalsSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ErpEditModals.tsx"), "utf8");
+    const shareMod = await import("../src/app/lib/proposal-share");
+
+    // 1. Sem coluna Tipo & Enquadramento Fiscal na tabela da proposta A4
+    assert.equal(pageSrc.includes("<th className=\"py-2.5 px-3\">Tipo &amp; Enquadramento Fiscal</th>"), false);
+
+    // 2. Versionamento removido do documento A4 e mantido como opção de consulta futura interna (showInternalVersionsModal)
+    assert.equal(pageSrc.includes("CONTROLE DE VERSIONAMENTO E REVISÕES DA PROPOSTA"), false);
+    assert.ok(pageSrc.includes("showInternalVersionsModal"));
+    assert.ok(pageSrc.includes("Consultas Internas / Versões"));
+
+    // 3. Quantidade representa quantidade de itens (UN / SV) e nunca MÊS
+    assert.equal(shareMod.normalizeProposalItemUnit("MÊS", "PRODUCT"), "UN");
+    assert.equal(shareMod.normalizeProposalItemUnit("MESES", "PRODUCT"), "UN");
+    assert.equal(shareMod.normalizeProposalItemUnit(undefined, "PRODUCT"), "UN");
+
+    // 4. Tempo de Contrato aparece no cabeçalho da proposta
+    assert.ok(pageSrc.includes("Tempo de Contrato: {contractDurationMonths}"));
+
+    // 5. Setup isolado e nunca somado ao frete
+    const repo = createInMemoryRepository();
+    const created = repo.createProposal({
+      title: "Proposta Teste Setup Isolado do Frete",
+      companyName: "Cliente Teste Setup",
+      contractMonths: 24,
+      setupFee: 1500,
+      shippingCost: 350,
+      items: [
+        {
+          id: "it-setup-1",
+          sku: "GC-EQ-00101",
+          description: "Central PABX IP",
+          fiscalNature: "LOCACAO_BENS_MOVEIS",
+          ncmOrServiceCode: "NCM 8517.62.14",
+          quantity: 3,
+          unitPrice: 1000,
+          discountPercent: 0,
+          isRecurring: true,
+          totalMonthly: 3000,
+        },
+      ],
+    });
+    assert.equal(created.items[0].unit, "UN", "Unidade deve ser UN (itens) e não MÊS");
+    assert.equal(created.items[0].quantity, 3);
+    assert.equal(created.monthlyRecurringTotal, 3000);
+    assert.equal(created.oneTimeSetupTotal, 1500, "Setup deve permanecer R$ 1.500 isolado do frete");
+    assert.equal(created.shippingCost, 350, "Frete deve permanecer R$ 350 isolado do setup");
+    assert.equal(created.totalContractValue, 3000 * 24 + 1500 + 350);
+
+    // 6. SLA é um campo selecionável durante a criação/edição da proposta
+    assert.ok(modalsSrc.includes("SLA Contratado (Acordo de Nível de Serviço)"));
+    assert.ok(Array.isArray(shareMod.PROPOSAL_SLA_OPTIONS) && shareMod.PROPOSAL_SLA_OPTIONS.length >= 4);
+
+    // 7. Seletor de templates persiste no link compartilhado (?d=), no estado/API e altera o layout
+    const withTemplate = shareMod.computeProposalTotals({
+      ...created,
+      templateStyle: "LOCACAO_DETALHADA_SLA",
+      slaTier: "NOC_24X7_CRITICO_2H",
+    });
+    const encoded = shareMod.encodeProposalToQueryParam(withTemplate);
+    const decoded = shareMod.decodeProposalFromQueryParam(encoded);
+    assert.ok(decoded);
+    assert.equal(decoded.templateStyle, "LOCACAO_DETALHADA_SLA");
+    assert.equal(decoded.slaTier, "NOC_24X7_CRITICO_2H");
+    assert.equal(decoded.oneTimeSetupTotal, 1500);
+    assert.equal(decoded.shippingCost, 350);
+    assert.ok(pageSrc.includes("handleTemplateStyleChange"));
+  });
 });
