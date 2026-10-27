@@ -695,8 +695,10 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       paymentCondition: `${String(o.condicao_pagamento || 'Mensal')} • Validade ${String(o.validade || '7 dias')}`,
       validUntil: String(o.previsao_entrega || dataStr),
       items,
+      shippingCost: Number(o.valor_frete || 0),
+      setupFee: 0,
       monthlyRecurringTotal: totalVal,
-      oneTimeSetupTotal: Number(o.valor_frete || 0),
+      oneTimeSetupTotal: 0,
       totalContractValue: totalVal * contractMonths + Number(o.valor_frete || 0),
       commercialNotes:
         introducao.slice(0, 360) ||

@@ -4,6 +4,90 @@ import {
   ErpProposalItem,
 } from '../../db/types';
 
+export interface ProposalSlaOptionSpec {
+  id: string;
+  label: string;
+  shortLabel: string;
+  slaAvailabilityPercent: string;
+  slaResponseHours: number;
+  defaultClauseSnippet: string;
+}
+
+export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
+  {
+    id: 'NOC_24X7_ALTA_DISP_4H',
+    label: 'NOC 24x7 Alta Disponibilidade — 99,95% • Atendimento até 4h / Reposição Expressa',
+    shortLabel: 'NOC 24x7 • 99,95% (Atend. 4h)',
+    slaAvailabilityPercent: '99,95%',
+    slaResponseHours: 4,
+    defaultClauseSnippet:
+      'SLA 99,95% NOC 24x7 Seta Telecom com atendimento em até 4h e substituição expressa de hardware.',
+  },
+  {
+    id: 'NOC_24X7_CRITICO_2H',
+    label: 'NOC 24x7 Missão Crítica — 99,98% • Atendimento até 2h / Reposição 4h',
+    shortLabel: 'NOC 24x7 Crítico • 99,98% (Atend. 2h)',
+    slaAvailabilityPercent: '99,98%',
+    slaResponseHours: 2,
+    defaultClauseSnippet:
+      'SLA Missão Crítica 99,98% NOC 24x7 Seta Telecom com primeiro atendimento em até 2h e Advance Replacement em até 4h.',
+  },
+  {
+    id: 'CORPORATIVO_8X5_NBD',
+    label: 'SLA Corporativo 8x5 — 99,50% • Atendimento até 4h / Reposição NBD (Dia Útil Seguinte)',
+    shortLabel: 'Corporativo 8x5 • 99,50% (Atend. 4h / NBD)',
+    slaAvailabilityPercent: '99,50%',
+    slaResponseHours: 4,
+    defaultClauseSnippet:
+      'SLA Corporativo 8x5 (Seg-Sex 08h às 18h) com atendimento em até 4h úteis e reposição NBD (Next Business Day).',
+  },
+  {
+    id: 'PADRAO_COMERCIAL_8H',
+    label: 'SLA Padrão Comercial — 99,00% • Atendimento em até 8h úteis',
+    shortLabel: 'Padrão Comercial • 99,00% (Atend. 8h úteis)',
+    slaAvailabilityPercent: '99,00%',
+    slaResponseHours: 8,
+    defaultClauseSnippet:
+      'SLA Padrão Comercial com atendimento remoto e presencial em até 8 horas úteis.',
+  },
+  {
+    id: 'SEM_SLA_AVULSO',
+    label: 'Sem SLA Mensal — Garantia Padrão / Atendimento Avulso sob Demanda',
+    shortLabel: 'Sob Demanda (Sem SLA Mensal)',
+    slaAvailabilityPercent: 'Sob Demanda',
+    slaResponseHours: 24,
+    defaultClauseSnippet:
+      'Garantia técnica legal do fabricante/fornecedor com suporte avulso sob demanda.',
+  },
+];
+
+export function resolveProposalSlaOption(
+  prop: Partial<ErpCommercialProposal>
+): ProposalSlaOptionSpec {
+  if (prop.slaTier) {
+    const byIdOrLabel = PROPOSAL_SLA_OPTIONS.find(
+      (o) =>
+        o.id === prop.slaTier ||
+        o.label.toLowerCase() === prop.slaTier?.toLowerCase() ||
+        o.shortLabel.toLowerCase() === prop.slaTier?.toLowerCase()
+    );
+    if (byIdOrLabel) return byIdOrLabel;
+  }
+  if (prop.slaResponseHours === 2 || prop.slaAvailabilityPercent === '99,98%') {
+    return PROPOSAL_SLA_OPTIONS[1];
+  }
+  if (prop.slaAvailabilityPercent === '99,50%') {
+    return PROPOSAL_SLA_OPTIONS[2];
+  }
+  if (prop.slaResponseHours === 8 || prop.slaAvailabilityPercent === '99,00%') {
+    return PROPOSAL_SLA_OPTIONS[3];
+  }
+  if (prop.slaAvailabilityPercent === 'Sob Demanda' || prop.slaResponseHours === 24) {
+    return PROPOSAL_SLA_OPTIONS[4];
+  }
+  return PROPOSAL_SLA_OPTIONS[0];
+}
+
 export function inferProposalItemType(item: Partial<ErpProposalItem>): 'PRODUCT' | 'SERVICE' {
   if (item.itemType === 'PRODUCT' || item.itemType === 'SERVICE') {
     return item.itemType;
@@ -15,6 +99,17 @@ export function inferProposalItemType(item: Partial<ErpProposalItem>): 'PRODUCT'
     return 'SERVICE';
   }
   return 'PRODUCT';
+}
+
+export function normalizeProposalItemUnit(
+  rawUnit: string | undefined,
+  itemType: 'PRODUCT' | 'SERVICE'
+): string {
+  const upper = String(rawUnit || '').trim().toUpperCase();
+  if (!upper || upper === 'MÊS' || upper === 'MES' || upper === 'MESES') {
+    return itemType === 'SERVICE' ? 'SV' : 'UN';
+  }
+  return String(rawUnit).trim();
 }
 
 export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercialProposal {
@@ -29,7 +124,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     return {
       ...it,
       itemType,
-      unit: it.unit || (itemType === 'SERVICE' ? 'SV' : it.isRecurring !== false ? 'MÊS' : 'UN'),
+      unit: normalizeProposalItemUnit(it.unit, itemType),
       quantity: qty,
       unitPrice,
       discountPercent: discPct,
@@ -54,7 +149,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
   const recGross = items
     .filter((i) => i.isRecurring !== false)
     .reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
-  const setupGross = items
+  const setupItemsGross = items
     .filter((i) => i.isRecurring === false)
     .reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
 
@@ -62,6 +157,16 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
   const discountPercentGlobal = Math.max(0, Math.min(100, Number(next.discountPercentGlobal || 0)));
   const shippingCost = Math.max(0, Number(next.shippingCost || 0));
   const contractMonths = Math.max(1, Number(next.contractMonths || 24));
+
+  // Setup isolado do frete:
+  const explicitSetupFee =
+    next.setupFee !== undefined
+      ? Math.max(0, Number(next.setupFee || 0))
+      : setupItemsGross === 0 && Number(next.oneTimeSetupTotal || 0) > 0
+        ? Math.max(0, Number(next.oneTimeSetupTotal || 0))
+        : 0;
+
+  const rawSetupSum = setupItemsGross + explicitSetupFee;
 
   const monthlyRecurringTotal =
     recGross > 0
@@ -72,19 +177,20 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
         )
       : 0;
 
+  // Setup NUNCA é somado ao frete:
   const oneTimeSetupTotal =
     recGross > 0
-      ? Math.max(0, Math.round((setupGross + shippingCost) * 100) / 100)
+      ? Math.max(0, Math.round(rawSetupSum * 100) / 100)
       : Math.max(
           0,
           Math.round(
-            (setupGross - discountAmount - (setupGross * discountPercentGlobal) / 100 + shippingCost) *
-              100
+            (rawSetupSum - discountAmount - (rawSetupSum * discountPercentGlobal) / 100) * 100
           ) / 100
         );
 
   const totalContractValue =
-    Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal) * 100) / 100;
+    Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal + shippingCost) * 100) /
+    100;
 
   const inferredBudgetType =
     next.budgetType ||
@@ -96,8 +202,15 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           ? 'LOCACAO'
           : 'PRODUTOS');
 
+  const resolvedSla = resolveProposalSlaOption(next);
+
   return {
     ...next,
+    templateStyle: next.templateStyle || 'SETA_PREMIUM_TELECOM',
+    slaTier: next.slaTier || resolvedSla.id,
+    slaAvailabilityPercent: next.slaAvailabilityPercent || resolvedSla.slaAvailabilityPercent,
+    slaResponseHours: next.slaResponseHours ?? resolvedSla.slaResponseHours,
+    setupFee: explicitSetupFee,
     budgetType: inferredBudgetType,
     items,
     contractMonths,
@@ -118,6 +231,11 @@ export interface CompactProposalPayload {
   c: string; // code
   t: string; // title
   bt?: string; // budgetType
+  ts?: string; // templateStyle
+  sl?: string; // slaTier
+  sa?: string; // slaAvailabilityPercent
+  sr?: number; // slaResponseHours
+  sf?: number; // setupFee
   sn?: string; // storeName
   sc?: string; // salesChannel
   co?: string; // costCenter
@@ -182,6 +300,11 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       c: computed.code,
       t: computed.title,
       bt: computed.budgetType,
+      ts: computed.templateStyle || 'SETA_PREMIUM_TELECOM',
+      sl: computed.slaTier,
+      sa: computed.slaAvailabilityPercent,
+      sr: computed.slaResponseHours,
+      sf: computed.setupFee || undefined,
       sn: computed.storeName,
       sc: computed.salesChannel,
       co: computed.costCenter,
@@ -217,7 +340,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
         k: item.sku,
         d: item.description,
         ty: item.itemType,
-        un: item.unit,
+        un: normalizeProposalItemUnit(item.unit, inferProposalItemType(item)),
         fn: item.fiscalNature,
         nc: item.ncmOrServiceCode,
         q: item.quantity,
@@ -283,7 +406,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
             sku: it.k || `GC-${idx + 1}`,
             description: it.d || 'Item da Proposta',
             itemType,
-            unit: it.un || (itemType === 'SERVICE' ? 'SV' : it.r !== 0 ? 'MÊS' : 'UN'),
+            unit: normalizeProposalItemUnit(it.un, itemType),
             fiscalNature: fn,
             ncmOrServiceCode: it.nc || 'NCM 8517.62.59',
             quantity: qty,
@@ -313,6 +436,12 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       code: p.c || 'PROP-SETA',
       title: p.t,
       budgetType: (p.bt as ErpCommercialProposal['budgetType']) || undefined,
+      templateStyle:
+        (p.ts as ErpCommercialProposal['templateStyle']) || 'SETA_PREMIUM_TELECOM',
+      slaTier: p.sl || undefined,
+      slaAvailabilityPercent: p.sa || undefined,
+      slaResponseHours: p.sr !== undefined ? Number(p.sr) : undefined,
+      setupFee: p.sf !== undefined ? Number(p.sf) : undefined,
       storeName: p.sn || 'Matriz',
       salesChannel: p.sc || 'Comercial B2B / Consultivo',
       costCenter: p.co || 'Comercial Telecom & TI',

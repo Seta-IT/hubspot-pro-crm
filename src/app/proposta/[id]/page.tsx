@@ -18,6 +18,9 @@ import {
   Edit3,
   Truck,
   CreditCard,
+  History,
+  Clock,
+  X,
 } from 'lucide-react';
 import { ErpCommercialProposal, ErpProposalDigitalSignature } from '../../../db/types';
 import { formatBRL } from '../../components/ui-helpers';
@@ -27,6 +30,8 @@ import {
   decodeProposalFromQueryParam,
   encodeProposalToQueryParam,
   inferProposalItemType,
+  PROPOSAL_SLA_OPTIONS,
+  resolveProposalSlaOption,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
@@ -46,6 +51,7 @@ function PublicProposalPrintContent() {
 
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
+  const [showInternalVersionsModal, setShowInternalVersionsModal] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [approvingContract, setApprovingContract] = useState(false);
   const [convertedContractInfo, setConvertedContractInfo] = useState<{
@@ -61,13 +67,6 @@ function PublicProposalPrintContent() {
   >('ICP_BRASIL_A1');
 
   useEffect(() => {
-    const decoded = decodeProposalFromQueryParam(encodedData);
-    if (decoded) {
-      setProposal(computeProposalTotals(decoded));
-      setLoading(false);
-      return;
-    }
-
     const journal = loadDurableJournal();
     const localFound = (journal.upsertedProposals || []).find(
       (p) =>
@@ -75,6 +74,23 @@ function PublicProposalPrintContent() {
         p.code.toLowerCase() === rawId.toLowerCase() ||
         p.id.toLowerCase() === rawId.toLowerCase()
     );
+
+    const decoded = decodeProposalFromQueryParam(encodedData);
+    if (decoded) {
+      const merged = localFound
+        ? {
+            ...localFound,
+            ...decoded,
+            templateStyle: decoded.templateStyle || localFound.templateStyle || "SETA_PREMIUM_TELECOM",
+            slaTier: decoded.slaTier || localFound.slaTier,
+            setupFee: decoded.setupFee ?? localFound.setupFee,
+            versionHistory: localFound.versionHistory || decoded.versionHistory,
+          }
+        : decoded;
+      setProposal(computeProposalTotals(merged));
+      setLoading(false);
+      return;
+    }
     if (localFound) {
       setProposal(computeProposalTotals(localFound));
       setLoading(false);
@@ -148,6 +164,32 @@ function PublicProposalPrintContent() {
 
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 3500);
+  };
+
+  const handleTemplateStyleChange = async (
+    newStyle: NonNullable<ErpCommercialProposal["templateStyle"]>
+  ) => {
+    if (!proposal) return;
+    const updated = computeProposalTotals({
+      ...proposal,
+      templateStyle: newStyle,
+      updatedAt: new Date().toISOString(),
+    });
+    recordUpsertedProposal(updated);
+    setProposal(updated);
+    if (typeof window !== "undefined") {
+      const newEncoded = encodeProposalToQueryParam(updated);
+      const url = new URL(window.location.href);
+      if (newEncoded) url.searchParams.set("d", newEncoded);
+      window.history.replaceState({}, "", url.toString());
+    }
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 3000);
+    await fetch(`/api/erp/proposals/${encodeURIComponent(updated.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templateStyle: newStyle }),
+    }).catch(() => null);
   };
 
   const handleApproveAndConvertInPage = async () => {
@@ -288,6 +330,31 @@ function PublicProposalPrintContent() {
 
   const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
   const shippingCost = Number(proposal.shippingCost || 0);
+  const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
+  const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
+  const activeTemplate = proposal.templateStyle || "SETA_PREMIUM_TELECOM";
+  const resolvedSla = resolveProposalSlaOption(proposal);
+
+  const headerBgClass =
+    activeTemplate === "EXECUTIVO_CORPORATIVO"
+      ? "bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 border-b-4 border-emerald-500"
+      : activeTemplate === "LOCACAO_DETALHADA_SLA"
+        ? "bg-gradient-to-r from-indigo-950 via-[#1e3a6e] to-teal-900 border-b-4 border-teal-400"
+        : "bg-gradient-to-r from-[#1e3a6e] via-[#244682] to-[#1e3a6e] border-b-4 border-[#f26522]";
+
+  const tableHeaderBgClass =
+    activeTemplate === "EXECUTIVO_CORPORATIVO"
+      ? "bg-slate-900 text-white"
+      : activeTemplate === "LOCACAO_DETALHADA_SLA"
+        ? "bg-indigo-950 text-white"
+        : "bg-[#1e3a6e] text-white";
+
+  const totalBoxBgClass =
+    activeTemplate === "EXECUTIVO_CORPORATIVO"
+      ? "bg-slate-900 text-white border border-slate-700"
+      : activeTemplate === "LOCACAO_DETALHADA_SLA"
+        ? "bg-indigo-950 text-white border border-teal-500/40"
+        : "bg-[#1e3a6e] text-white";
 
   const locacaoTotal = proposal.items
     .filter((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
@@ -316,9 +383,6 @@ function PublicProposalPrintContent() {
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
                 {proposal.code}
-              </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-400 text-slate-950">
-                Revisão v{proposal.version || 1}.0
               </span>
               {savedNotice && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
@@ -361,15 +425,24 @@ function PublicProposalPrintContent() {
             )}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowInternalVersionsModal(true)}
+            title="Opção interna para consultas futuras de versões (não consta na proposta do cliente)"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-indigo-950/90 hover:bg-indigo-900 border border-indigo-400/40 text-amber-200 text-xs font-extrabold transition cursor-pointer"
+          >
+            <History className="w-4 h-4 text-amber-300" />
+            Consultas Internas / Versões
+          </button>
+
           <select
-            value={proposal.templateStyle || 'SETA_PREMIUM_TELECOM'}
+            value={activeTemplate}
             onChange={(e) =>
-              setProposal({
-                ...proposal,
-                templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
-              })
+              handleTemplateStyleChange(
+                e.target.value as NonNullable<ErpCommercialProposal["templateStyle"]>
+              )
             }
-            className="px-2.5 py-2 rounded-md bg-white/15 text-white text-xs font-extrabold border border-white/25 cursor-pointer"
+            className="px-2.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-extrabold border border-emerald-300 cursor-pointer"
             title="Escolher Template Visual do Documento A4"
           >
             <option value="SETA_PREMIUM_TELECOM" className="text-slate-900">
@@ -427,6 +500,105 @@ function PublicProposalPrintContent() {
             onClose={() => setIsEditing(false)}
             onSave={handleSaveEdit}
           />
+        </div>
+      )}
+
+      {/* MODAL DE CONSULTAS FUTURAS INTERNAS DE VERSIONAMENTO (HIDDEN ON PRINT) */}
+      {showInternalVersionsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-3xl w-full overflow-hidden">
+            <div className="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-300" />
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-amber-300 block">
+                    Consulta Futura Interna • Não consta na proposta do cliente
+                  </span>
+                  <h3 className="text-sm font-extrabold">
+                    Histórico Interno de Revisões ({proposal.code})
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInternalVersionsModal(false)}
+                className="text-slate-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              <div className="p-3 rounded bg-indigo-50 border border-indigo-200 text-indigo-950 flex items-center justify-between">
+                <span>
+                  O histórico de versões é mantido exclusivamente para consulta interna e não é exibido nem impresso na proposta comercial.
+                </span>
+                <span className="px-2 py-0.5 rounded bg-indigo-900 text-white font-mono font-bold">
+                  Interno: v{proposal.version || 1}.0
+                </span>
+              </div>
+              {Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0 ? (
+                <table className="w-full text-left text-[11px] border border-slate-200 rounded overflow-hidden">
+                  <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-2 px-3 w-20">Revisão</th>
+                      <th className="py-2 px-3 w-36">Data / Hora</th>
+                      <th className="py-2 px-3 w-40">Responsável</th>
+                      <th className="py-2 px-3">Alterações Internas</th>
+                      <th className="py-2 px-3 text-right w-32">MRR / Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[...proposal.versionHistory]
+                      .sort((a, b) => b.version - a.version)
+                      .map((ver) => (
+                        <tr key={`${ver.version}-${ver.savedAt}`}>
+                          <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
+                            {ver.versionLabel || `v${ver.version}.0`}
+                          </td>
+                          <td className="py-2 px-3 text-slate-600">
+                            {ver.savedAt ? new Date(ver.savedAt).toLocaleString("pt-BR") : "—"}
+                          </td>
+                          <td className="py-2 px-3 font-semibold text-slate-800">
+                            {ver.savedBy || proposal.sellerName}
+                          </td>
+                          <td className="py-2 px-3 text-slate-700">
+                            <div className="font-semibold">{ver.changeSummary}</div>
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono">
+                            <div className="font-bold text-emerald-700">
+                              {formatBRL(ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal)}/mês
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-4 text-center text-slate-500 border border-slate-200 rounded">
+                  Versão inicial registrada internamente.
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowInternalVersionsModal(false);
+                    setIsEditing(true);
+                  }}
+                  className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                >
+                  Abrir Editor &amp; Restaurar Versão
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInternalVersionsModal(false)}
+                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -554,8 +726,8 @@ function PublicProposalPrintContent() {
 
       {/* A4 DOCUMENT CONTAINER */}
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden print:shadow-none print:border-0 print:rounded-none">
-        {/* HEADER TIMBRADO SETA TELECOM / SETA | IT */}
-        <div className="bg-gradient-to-r from-[#1e3a6e] via-[#244682] to-[#1e3a6e] text-white px-8 py-6 border-b-4 border-[#f26522]">
+        {/* HEADER TIMBRADO SETA TELECOM / SETA | IT (COM TEMPO DE CONTRATO NO CABEÇALHO E SEM VERSIONAMENTO) */}
+        <div className={`${headerBgClass} text-white px-8 py-6`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               {/* OFFICIAL SETA | IT LOGO CARD */}
@@ -566,11 +738,20 @@ function PublicProposalPrintContent() {
               </div>
 
               <div>
-                <h1 className="text-lg sm:text-xl font-black tracking-tight">
-                  SETA TELECOM LTDA
-                </h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-black tracking-tight">
+                    SETA TELECOM LTDA
+                  </h1>
+                  <span className="px-2 py-0.5 rounded bg-white/15 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300">
+                    {activeTemplate === "EXECUTIVO_CORPORATIVO"
+                      ? "Modelo Executivo Corporativo B2B"
+                      : activeTemplate === "LOCACAO_DETALHADA_SLA"
+                        ? "Modelo Locação + SLA NOC & Pro-Rata"
+                        : "Modelo Seta Premium Telecom"}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-200">
-                  CNPJ: 14.806.925/0001-32 • Loja {proposal.storeName || 'Matriz'} #118887 • GestãoClick ERP-GROK
+                  CNPJ: 14.806.925/0001-32 • Loja {proposal.storeName || 'Matriz'} #118887
                 </p>
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-200 mt-1">
                   <span className="inline-flex items-center gap-1">
@@ -583,18 +764,25 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-lg px-4 py-3 text-right shrink-0">
+            <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-lg px-4 py-3 text-right shrink-0 space-y-1">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
-              <div className="text-xl font-black text-white mt-0.5">
-                {proposal.code}{' '}
-                <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-emerald-400 text-slate-950 align-middle">
-                  v{proposal.version || 1}.0
-                </span>
+              <div className="text-xl font-black text-white">
+                {proposal.code}
               </div>
-              <div className="text-[11px] text-slate-200 mt-0.5">
+              <div className="text-[11px] text-slate-200">
                 Emissão: <strong>{issueDateStr}</strong> • Validade: <strong>{validUntilStr}</strong>
+              </div>
+              <div className="pt-1 flex flex-wrap items-center justify-end gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-400 text-slate-950 text-[11px] font-black">
+                  <Calendar className="w-3 h-3" />
+                  Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/20 text-white text-[10px] font-bold">
+                  <Clock className="w-3 h-3 text-emerald-300" />
+                  {resolvedSla.shortLabel}
+                </span>
               </div>
             </div>
           </div>
@@ -654,26 +842,22 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* FAIXA EXECUTIVA DE SLA, REAJUSTE E RATEIO PROPORCIONAL (PRO-RATA DIE) */}
+          {/* FAIXA DE TEMPO DE CONTRATO, SLA CONTRATADO, REAJUSTE E TEMPLATE */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-lg bg-indigo-950 text-white text-xs">
             <div>
               <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                Template &amp; Modalidade
+                Tempo de Contrato
               </span>
-              <strong className="font-extrabold">
-                {proposal.templateStyle === 'LOCACAO_DETALHADA_SLA'
-                  ? 'Locação + SLA & Pro-Rata'
-                  : proposal.templateStyle === 'EXECUTIVO_CORPORATIVO'
-                    ? 'Executivo Corporativo B2B'
-                    : 'Seta Premium Telecom'}
+              <strong className="font-extrabold text-sm">
+                {contractDurationMonths} {contractDurationMonths === 1 ? "Mês" : "Meses"}
               </strong>
             </div>
             <div>
               <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                SLA Atendimento NOC 24x7
+                SLA Contratado
               </span>
               <strong className="font-extrabold">
-                {proposal.slaAvailabilityPercent || '99,95%'} • Resp. {proposal.slaResponseHours || 4}h
+                {resolvedSla.shortLabel}
               </strong>
             </div>
             <div>
@@ -686,13 +870,79 @@ function PublicProposalPrintContent() {
             </div>
             <div>
               <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                Flexibilidade Contratual
+                Template &amp; Modalidade
               </span>
               <strong className="font-extrabold">
-                Rateio Pro-Rata s/ Pausar Contrato
+                {activeTemplate === 'LOCACAO_DETALHADA_SLA'
+                  ? 'Locação + SLA & Pro-Rata'
+                  : activeTemplate === 'EXECUTIVO_CORPORATIVO'
+                    ? 'Executivo Corporativo B2B'
+                    : 'Seta Premium Telecom'}
               </strong>
             </div>
           </div>
+
+          {activeTemplate === "EXECUTIVO_CORPORATIVO" && (
+            <div className="p-4 rounded-lg bg-slate-900 text-white border border-slate-800 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400">
+                  Sumário Executivo para Diretoria &amp; Compras Corporativas (B2B)
+                </span>
+                <span className="text-[11px] text-slate-300">
+                  Tempo de Contrato: <strong>{contractDurationMonths} meses</strong> • SLA: <strong>{resolvedSla.shortLabel}</strong>
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded bg-slate-800 border border-slate-700">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Mensalidade (MRR)</span>
+                  <strong className="text-base font-black text-emerald-400">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong>
+                </div>
+                <div className="p-3 rounded bg-slate-800 border border-slate-700">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Setup (Isolado)</span>
+                  <strong className="text-base font-black text-amber-300">{formatBRL(isolatedSetupTotal)}</strong>
+                </div>
+                <div className="p-3 rounded bg-slate-800 border border-slate-700">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Frete (Isolado)</span>
+                  <strong className="text-base font-black text-sky-300">{formatBRL(shippingCost)}</strong>
+                </div>
+                <div className="p-3 rounded bg-emerald-950 border border-emerald-500/40">
+                  <span className="text-[10px] uppercase text-emerald-300 font-bold block">Valor Global ({contractDurationMonths}m)</span>
+                  <strong className="text-base font-black text-white">{formatBRL(proposal.totalContractValue)}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTemplate === "LOCACAO_DETALHADA_SLA" && (
+            <div className="border-2 border-teal-600/40 bg-teal-50/40 rounded-lg p-4 space-y-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-black text-teal-950 uppercase text-[11px] flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-teal-700" />
+                  Quadro de SLA NOC 24x7 Contratado &amp; Regra de Rateio Proporcional (Pro-Rata Die)
+                </div>
+                <span className="px-2 py-0.5 rounded bg-teal-700 text-white text-[10px] font-extrabold">
+                  Disponibilidade: {resolvedSla.slaAvailabilityPercent} • Resp. até {resolvedSla.slaResponseHours}h
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-white p-2.5 rounded border border-teal-200">
+                  <span className="text-[10px] font-bold uppercase text-teal-700 block">1. Acordo de Nível de Serviço</span>
+                  <strong className="text-slate-900 block mt-0.5">{resolvedSla.shortLabel}</strong>
+                  <span className="text-[11px] text-slate-600">Monitoramento proativo e suporte especializado Seta Telecom.</span>
+                </div>
+                <div className="bg-white p-2.5 rounded border border-teal-200">
+                  <span className="text-[10px] font-bold uppercase text-teal-700 block">2. Substituição Expressa</span>
+                  <strong className="text-slate-900 block mt-0.5">Advance Replacement</strong>
+                  <span className="text-[11px] text-slate-600">Reposição de equipamentos sem custo de peças durante os {contractDurationMonths} meses.</span>
+                </div>
+                <div className="bg-white p-2.5 rounded border border-teal-200">
+                  <span className="text-[10px] font-bold uppercase text-teal-700 block">3. Flexibilidade Pro-Rata Die</span>
+                  <strong className="text-slate-900 block mt-0.5">Adição / Devolução Parcial</strong>
+                  <span className="text-[11px] text-slate-600">Faturamento proporcional aos dias de uso efetivo sem interromper o contrato.</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* OBJETO E INTRODUÇÃO PERSONALIZADA */}
           <div className="border-l-4 border-[#1e3a6e] pl-4 py-1 space-y-1.5">
@@ -711,20 +961,19 @@ function PublicProposalPrintContent() {
 
           {/* TABELA DE ITENS (PRODUTOS E SERVIÇOS) */}
           <div className="border border-slate-300 rounded-lg overflow-hidden">
-            <div className="bg-[#1e3a6e] text-white px-4 py-2.5 flex items-center justify-between text-xs font-extrabold">
-              <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS TÉCNICOS</span>
+            <div className={`${tableHeaderBgClass} px-4 py-2.5 flex items-center justify-between text-xs font-extrabold`}>
+              <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] border-b border-slate-300">
                 <tr>
-                  <th className="py-2.5 px-3">Código / SKU</th>
+                  <th className="py-2.5 px-3 w-32">Código / SKU</th>
                   <th className="py-2.5 px-3">Descrição do Item / Escopo</th>
-                  <th className="py-2.5 px-3">Tipo &amp; Enquadramento Fiscal</th>
-                  <th className="py-2.5 px-2 text-center">Qtd</th>
-                  <th className="py-2.5 px-3 text-right">Vlr. Unitário</th>
-                  <th className="py-2.5 px-2 text-right">Desconto</th>
-                  <th className="py-2.5 px-3 text-right">Subtotal Líquido</th>
+                  <th className="py-2.5 px-3 text-center w-28">Quantidade</th>
+                  <th className="py-2.5 px-3 text-right w-32">Vlr. Unitário</th>
+                  <th className="py-2.5 px-2 text-right w-28">Desconto</th>
+                  <th className="py-2.5 px-3 text-right w-36">Subtotal Líquido</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -738,33 +987,14 @@ function PublicProposalPrintContent() {
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900">{item.description}</div>
                         <div className="text-[10px] text-slate-500">
-                          Classificação: {item.ncmOrServiceCode} •{' '}
+                          {isSrv ? 'Serviço Técnico' : 'Produto / Equipamento'} •{' '}
                           {item.isRecurring !== false
                             ? 'Mensal Recorrente (MRR)'
-                            : 'Taxa Única (Setup / Venda)'}
+                            : 'Cobrança Única (Setup / Venda)'}
                         </div>
                       </td>
-                      <td className="py-3 px-3">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : isSrv
-                                ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                                : 'bg-blue-50 text-blue-800 border border-blue-200'
-                          }`}
-                        >
-                          {item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
-                            ? 'Produto • Locação Pura (0% ISS — SV 31 STF)'
-                            : item.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM'
-                              ? 'Serviço • TI/Telecom (LC 116)'
-                              : item.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
-                                ? 'Serviço • Telecom SCM/SVA'
-                                : 'Produto • Equipamento / Hardware'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 text-center font-bold">
-                        {item.quantity} {item.unit || ''}
+                      <td className="py-3 px-3 text-center font-extrabold text-slate-900">
+                        {item.quantity} {item.quantity === 1 ? 'un' : 'un'}
                       </td>
                       <td className="py-3 px-3 text-right font-medium">
                         {formatBRL(item.unitPrice)}
@@ -791,8 +1021,8 @@ function PublicProposalPrintContent() {
             </table>
           </div>
 
-          {/* RESUMO DE SUBTOTAIS (PRODUTOS, SERVIÇOS, DESCONTOS, FRETE) */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3.5 text-xs">
+          {/* RESUMO DE SUBTOTAIS (SETUP ISOLADO E FRETE ISOLADO, NUNCA SOMADOS) */}
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3.5 text-xs">
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
                 Subtotal Produtos
@@ -818,11 +1048,20 @@ function PublicProposalPrintContent() {
               </strong>
             </div>
             <div>
+              <span className="text-[10px] uppercase font-bold text-amber-800 block">
+                Setup / Ativação
+              </span>
+              <strong className="text-sm font-extrabold text-amber-900">
+                {isolatedSetupTotal > 0 ? formatBRL(isolatedSetupTotal) : 'R$ 0,00'}
+              </strong>
+              <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
+            </div>
+            <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
                 Frete / Transporte
               </span>
               <strong className="text-sm font-extrabold text-slate-900">
-                {shippingCost > 0 ? formatBRL(shippingCost) : 'Cortesia / Incluso'}
+                {shippingCost > 0 ? formatBRL(shippingCost) : 'R$ 0,00'}
               </strong>
               {proposal.shippingCarrier && (
                 <span className="block text-[10px] text-slate-500 truncate">
@@ -830,12 +1069,12 @@ function PublicProposalPrintContent() {
                 </span>
               )}
             </div>
-            <div className="col-span-2 sm:col-span-1 text-right">
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                Setup Único + Frete
+            <div className="text-right">
+              <span className="text-[10px] uppercase font-bold text-emerald-700 block">
+                Mensalidade (MRR)
               </span>
-              <strong className="text-sm font-extrabold text-slate-900">
-                {formatBRL(proposal.oneTimeSetupTotal)}
+              <strong className="text-sm font-black text-emerald-800">
+                {formatBRL(proposal.monthlyRecurringTotal)}
               </strong>
             </div>
           </div>
@@ -866,21 +1105,27 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className="p-4 rounded-lg bg-[#1e3a6e] text-white flex flex-col justify-between space-y-3">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
-                  Investimento Mensal (MRR)
-                </span>
-                <div className="text-2xl font-black text-emerald-300 mt-0.5">
-                  {formatBRL(proposal.monthlyRecurringTotal)}
-                  <span className="text-xs font-normal text-slate-200">/mês</span>
-                </div>
-                {proposal.oneTimeSetupTotal > 0 && (
-                  <div className="text-[11px] text-slate-200 mt-1">
-                    + Taxa Única de Ativação/Frete:{' '}
-                    <strong>{formatBRL(proposal.oneTimeSetupTotal)}</strong>
+            <div className={`p-4 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3`}>
+              <div className="space-y-1.5">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
+                    Investimento Mensal (MRR)
+                  </span>
+                  <div className="text-2xl font-black text-emerald-300 mt-0.5">
+                    {formatBRL(proposal.monthlyRecurringTotal)}
+                    <span className="text-xs font-normal text-slate-200">/mês</span>
                   </div>
-                )}
+                </div>
+                <div className="pt-1.5 border-t border-white/15 space-y-0.5 text-[11px] text-slate-200">
+                  <div className="flex items-center justify-between">
+                    <span>Taxa de Setup (Isolada):</span>
+                    <strong className="text-white">{formatBRL(isolatedSetupTotal)}</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Frete (Isolado):</span>
+                    <strong className="text-white">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-3 border-t border-white/15">
@@ -969,65 +1214,6 @@ function PublicProposalPrintContent() {
             </div>
             <p className="text-slate-600 leading-relaxed">{proposal.technicalClauses}</p>
           </div>
-
-          {/* HISTÓRICO DE VERSÕES E REVISÕES DA PROPOSTA (AUDITORIA DE SLA, PRAZO, PAGAMENTO, VALORES E PRODUTOS) */}
-          {Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0 && (
-            <div className="border border-slate-300 rounded-lg overflow-hidden">
-              <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex items-center justify-between text-xs font-extrabold text-slate-800">
-                <span>
-                  CONTROLE DE VERSIONAMENTO E REVISÕES DA PROPOSTA ({proposal.versionHistory.length}{' '}
-                  {proposal.versionHistory.length === 1 ? 'versão registrada' : 'versões registradas'})
-                </span>
-                <span className="px-2 py-0.5 rounded bg-[#1e3a6e] text-white text-[10px] font-mono">
-                  Versão Vigente: v{proposal.version || 1}.0
-                </span>
-              </div>
-              <table className="w-full text-left text-[11px]">
-                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                  <tr>
-                    <th className="py-1.5 px-3 w-20">Versão</th>
-                    <th className="py-1.5 px-3 w-36">Data / Hora</th>
-                    <th className="py-1.5 px-3 w-40">Responsável</th>
-                    <th className="py-1.5 px-3">Alterações Registradas (SLA, Prazo, Pagamento, Valores, Produtos)</th>
-                    <th className="py-1.5 px-3 text-right w-32">MRR / Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {[...proposal.versionHistory]
-                    .sort((a, b) => b.version - a.version)
-                    .map((ver) => (
-                      <tr key={`${ver.version}-${ver.savedAt}`}>
-                        <td className="py-1.5 px-3 font-mono font-bold text-[#1e3a6e]">
-                          {ver.versionLabel || `v${ver.version}.0`}
-                        </td>
-                        <td className="py-1.5 px-3 text-slate-600">
-                          {ver.savedAt ? new Date(ver.savedAt).toLocaleString('pt-BR') : '—'}
-                        </td>
-                        <td className="py-1.5 px-3 font-semibold text-slate-800">
-                          {ver.savedBy || proposal.sellerName}
-                        </td>
-                        <td className="py-1.5 px-3 text-slate-700">
-                          <div className="font-semibold">{ver.changeSummary}</div>
-                          {Array.isArray(ver.changedFields) && ver.changedFields.length > 0 && (
-                            <div className="text-[10px] text-slate-500">
-                              Campos: {ver.changedFields.join(' • ')}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-3 text-right font-mono">
-                          <div className="font-bold text-emerald-700">
-                            {formatBRL(ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal)}/mês
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            TCV {formatBRL(ver.snapshot?.totalContractValue ?? proposal.totalContractValue)}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
 
           {/* TERMO DE ACEITE E ASSINATURAS */}
           <div className="pt-6 mt-4 border-t-2 border-slate-200">
