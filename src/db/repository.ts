@@ -2692,9 +2692,9 @@ export class CrmRepository {
     const explicitSetupFee =
       patch.setupFee !== undefined
         ? Math.max(0, Number(patch.setupFee || 0))
-        : current.setupFee !== undefined
+        : patch.items === undefined && current.setupFee !== undefined
           ? Math.max(0, Number(current.setupFee || 0))
-          : computedSetup === 0 && Number(patch.oneTimeSetupTotal ?? current.oneTimeSetupTotal ?? 0) > 0
+          : patch.items === undefined && computedSetup === 0 && Number(patch.oneTimeSetupTotal ?? current.oneTimeSetupTotal ?? 0) > 0
             ? Math.max(0, Number(patch.oneTimeSetupTotal ?? current.oneTimeSetupTotal ?? 0))
             : 0;
     const rawSetupSum = computedSetup + explicitSetupFee;

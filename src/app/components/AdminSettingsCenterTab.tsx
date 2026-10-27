@@ -1066,6 +1066,7 @@ export default function AdminSettingsCenterTab({
           </div>
 
           {/* Users Directory & Instant Role Switcher */}
+          {!selectedUserProfile && (
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -1119,96 +1120,35 @@ export default function AdminSettingsCenterTab({
                           </div>
                         </td>
                         <td className="py-2.5 px-3">
-                          <select
-                            aria-label={`Tipo de Conta CRM de ${u.name}`}
-                            value={effCrmRole}
-                            onChange={(e) => {
-                              const nextCrm = e.target.value as CrmAccountRole;
-                              const nextUsers = users.map((item) =>
-                                item.id === u.id
-                                  ? {
-                                      ...item,
-                                      crmRole: nextCrm,
-                                      crmItemPermissions: buildDefaultCrmItemPermissions(nextCrm),
-                                    }
-                                  : item
-                              );
-                              persistUsersList(nextUsers);
-                              onShowToast(`Tipo de Conta CRM de ${u.name} atualizado para ${CRM_ROLES_CATALOG[nextCrm].label}!`);
-                            }}
-                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e] text-[11px]"
-                          >
-                            {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => (
-                              <option key={cKey} value={cKey}>
-                                {cKey} — {crmRolesCatalogState[cKey].label}
-                              </option>
-                            ))}
-                          </select>
+                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#0d2b4e] border border-orange-200 text-[10px] font-bold">
+                            {crmRolesCatalogState[effCrmRole]?.label || effCrmRole}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3">
-                          <select
-                            aria-label={`Tipo de Conta ERP de ${u.name}`}
-                            value={effErpRole}
-                            onChange={(e) => {
-                              const nextErp = e.target.value as ErpAccountRole;
-                              const nextUsers = users.map((item) =>
-                                item.id === u.id
-                                  ? {
-                                      ...item,
-                                      erpRole: nextErp,
-                                      erpItemPermissions: buildDefaultErpItemPermissions(nextErp),
-                                    }
-                                  : item
-                              );
-                              persistUsersList(nextUsers);
-                              onShowToast(`Tipo de Conta ERP de ${u.name} atualizado para ${ERP_ROLES_CATALOG[nextErp].label}!`);
-                            }}
-                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e] text-[11px]"
-                          >
-                            {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => (
-                              <option key={eKey} value={eKey}>
-                                {eKey} — {erpRolesCatalogState[eKey].label}
-                              </option>
-                            ))}
-                          </select>
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-bold">
+                            {erpRolesCatalogState[effErpRole]?.label || effErpRole}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                              🔒 {u.mfaEnabled ? `2FA Ativo (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'Google Auth TOTP' : 'E-mail OTP'})` : '2FA Inativo'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const ensuredSecret =
-                                  u.totpSecret || generateTotpSecretBase32(u.email);
-                                setConfiguringMfaUser({ ...u, totpSecret: ensuredSecret });
-                              }}
-                              className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[#0d2b4e] text-[10px] font-extrabold cursor-pointer"
-                            >
-                              Configurar 2FA / QR Google Authenticator
-                            </button>
-                          </div>
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                            {u.mfaEnabled ? "2FA Ativo (" + (u.mfaMethod === "TOTP_AUTHENTICATOR" ? "Google Auth" : "E-mail") + ")" : "2FA Inativo"}
+                          </span>
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setSelectedUserIdForCrud(u.id)}
-                              className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-[11px] font-bold cursor-pointer"
+                              onClick={() => setSelectedUserProfile(u)}
+                              className="px-3 py-1 rounded bg-[#0d2b4e] text-white text-[11px] font-extrabold cursor-pointer"
                             >
-                              Permissões CRUD
+                              Abrir Perfil
                             </button>
                             <button
                               type="button"
                               onClick={() => onSwitchRoleSession(u)}
-                              className={`px-3 py-1 rounded text-[11px] font-extrabold cursor-pointer ${
-                                isCurrent
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-[#1e3a6e] hover:bg-[#162b54] text-white'
-                              }`}
+                              className="px-2.5 py-1 rounded bg-slate-100 border border-slate-300 text-slate-800 text-[11px] font-bold cursor-pointer"
                             >
-                              {isCurrent ? '✓ Perfil Ativo' : 'Simular Perfil na Sessão'}
+                              Simular
                             </button>
                           </div>
                         </td>
@@ -1220,293 +1160,7 @@ export default function AdminSettingsCenterTab({
             </div>
           </div>
 
-          {/* ==================================================================
-              DUAS ABAS SEPARADAS DE TIPOS DE CONTA E MATRIZ VISUALIZAR / EDITAR / DELETAR:
-              ABA 1: TIPOS DE CONTA & PERMISSÕES DO CRM
-              ABA 2: TIPOS DE CONTA & PERMISSÕES DO ERP
-          ================================================================== */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4 text-xs">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
-                  SEPARAÇÃO ESTRITA DE PERMISSÕES • CRM vs ERP (VISUALIZAR | EDITAR | DELETAR POR ITEM)
-                </span>
-                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                  Matriz Granular de Permissões por Tipo de Conta ou Usuário (Cada Módulo e Item do Módulo)
-                </h3>
-              </div>
-
-              {/* Domain Switcher Tabs: Aba 1 (CRM) vs Aba 2 (ERP) */}
-              <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setActivePermissionsDomainTab('CRM')}
-                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                    activePermissionsDomainTab === 'CRM'
-                      ? 'bg-[#0d2b4e] text-white shadow-xs'
-                      : 'text-slate-700 hover:text-slate-900'
-                  }`}
-                >
-                  Aba 1: Tipos de Conta &amp; Permissões do CRM ({CRM_MODULE_ITEMS_CATALOG.length} Itens)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePermissionsDomainTab('ERP')}
-                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                    activePermissionsDomainTab === 'ERP'
-                      ? 'bg-[#1e3a6e] text-white shadow-xs'
-                      : 'text-slate-700 hover:text-slate-900'
-                  }`}
-                >
-                  Aba 2: Tipos de Conta &amp; Permissões do ERP ({ERP_MODULE_ITEMS_CATALOG.length} Itens)
-                </button>
-              </div>
-            </div>
-
-            {/* Target Selector: Role Default vs Specific User */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-extrabold text-slate-800">Configurar Permissões Para:</span>
-                <select
-                  value={selectedUserIdForCrud}
-                  onChange={(e) => setSelectedUserIdForCrud(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
-                >
-                  <option value="ROLE_DEFAULT">
-                    Padrão do Tipo de Conta ({activePermissionsDomainTab === 'CRM' ? selectedCrmRoleKey : selectedErpRoleKey})
-                  </option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      Usuário Específico: {u.name} ({u.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'view', true)}
-                  className="px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold cursor-pointer"
-                >
-                  ✓ Marcar Todos Visualizar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'edit', true)}
-                  className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold cursor-pointer"
-                >
-                  ✓ Marcar Todos Editar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkSetDomainCrud(activePermissionsDomainTab, 'delete', true)}
-                  className="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold cursor-pointer"
-                >
-                  ✓ Marcar Todos Deletar
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onShowToast(
-                      `Matriz de permissões (Visualizar, Editar e Deletar) de ${activePermissionsDomainTab} salva com sucesso!`
-                    )
-                  }
-                  className="px-3.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
-                >
-                  Salvar Permissões {activePermissionsDomainTab}
-                </button>
-              </div>
-            </div>
-
-            {/* Role Pills for Current Domain (CRM Roles vs ERP Roles) */}
-            {activePermissionsDomainTab === 'CRM' ? (
-              <div className="space-y-3">
-                <div className="font-extrabold text-[#0d2b4e] uppercase text-[11px]">
-                  Selecione o Tipo de Conta do CRM (Exclusivo para Módulos do CRM &amp; Chamados):
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => {
-                    const rDef = crmRolesCatalogState[cKey];
-                    const active = selectedCrmRoleKey === cKey;
-                    return (
-                      <button
-                        key={cKey}
-                        type="button"
-                        onClick={() => {
-                          setSelectedUserIdForCrud('ROLE_DEFAULT');
-                          setSelectedCrmRoleKey(cKey);
-                        }}
-                        className={`text-left p-3 rounded-xl border transition cursor-pointer ${
-                          active
-                            ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-xs'
-                            : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-mono text-[10px] font-black opacity-80">{cKey}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-white/15 text-[9px] font-bold">
-                            Escopo: {rDef.portfolioScope}
-                          </span>
-                        </div>
-                        <div className="font-extrabold text-xs mt-1">{rDef.label}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">
-                  Selecione o Tipo de Conta do ERP (Administrador, Comercial, Financeiro, Gerência de Estoque, Contratos/O.S., PDV):
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => {
-                    const rDef = erpRolesCatalogState[eKey];
-                    const active = selectedErpRoleKey === eKey;
-                    return (
-                      <button
-                        key={eKey}
-                        type="button"
-                        onClick={() => {
-                          setSelectedUserIdForCrud('ROLE_DEFAULT');
-                          setSelectedErpRoleKey(eKey);
-                        }}
-                        className={`text-left p-3 rounded-xl border transition cursor-pointer ${
-                          active
-                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-xs'
-                            : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-mono text-[10px] font-black opacity-80">{eKey}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-white/15 text-[9px] font-bold">
-                            Desc. máx: {rDef.maxDiscountPercent}%
-                          </span>
-                        </div>
-                        <div className="font-extrabold text-xs mt-1">{rDef.label}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* CRUD Table (Visualizar | Editar | Deletar) for Every Module & Module Item */}
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-white uppercase text-[10px]">
-                  <tr>
-                    <th className="py-2.5 px-3">Módulo ({activePermissionsDomainTab})</th>
-                    <th className="py-2.5 px-3">Item do Módulo / Funcionalidade</th>
-                    <th className="py-2.5 px-3 text-center">👁️ Visualizar (View)</th>
-                    <th className="py-2.5 px-3 text-center">✏️ Editar (Edit)</th>
-                    <th className="py-2.5 px-3 text-center">🗑️ Deletar (Delete)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(activePermissionsDomainTab === 'CRM'
-                    ? CRM_MODULE_ITEMS_CATALOG
-                    : ERP_MODULE_ITEMS_CATALOG
-                  ).map((item) => {
-                    const targetUser =
-                      selectedUserIdForCrud !== 'ROLE_DEFAULT'
-                        ? users.find((u) => u.id === selectedUserIdForCrud)
-                        : null;
-                    const permsMap = targetUser
-                      ? activePermissionsDomainTab === 'CRM'
-                        ? targetUser.crmItemPermissions ||
-                          buildDefaultCrmItemPermissions(
-                            targetUser.crmRole ||
-                              inferCrmAndErpRolesFromLegacyRole(targetUser.role).crmRole
-                          )
-                        : targetUser.erpItemPermissions ||
-                          buildDefaultErpItemPermissions(
-                            targetUser.erpRole ||
-                              inferCrmAndErpRolesFromLegacyRole(targetUser.role).erpRole
-                          )
-                      : activePermissionsDomainTab === 'CRM'
-                        ? crmRolesCatalogState[selectedCrmRoleKey].itemPermissions
-                        : erpRolesCatalogState[selectedErpRoleKey].itemPermissions;
-
-                    const flags = permsMap[item.itemId] || {
-                      view: false,
-                      edit: false,
-                      delete: false,
-                    };
-
-                    return (
-                      <tr key={item.itemId} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
-                              activePermissionsDomainTab === 'CRM'
-                                ? 'bg-orange-50 text-[#e05835] border border-orange-200'
-                                : 'bg-blue-50 text-[#1e3a6e] border border-blue-200'
-                            }`}
-                          >
-                            {item.moduleLabel}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{item.itemLabel}</div>
-                          <div className="font-mono text-[10px] text-slate-400">{item.itemId}</div>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`Visualizar ${item.itemLabel}`}
-                            checked={flags.view}
-                            onChange={(e) =>
-                              handleToggleItemCrud(
-                                activePermissionsDomainTab,
-                                item.itemId,
-                                'view',
-                                e.target.checked
-                              )
-                            }
-                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`Editar ${item.itemLabel}`}
-                            checked={flags.edit}
-                            onChange={(e) =>
-                              handleToggleItemCrud(
-                                activePermissionsDomainTab,
-                                item.itemId,
-                                'edit',
-                                e.target.checked
-                              )
-                            }
-                            className="w-4 h-4 accent-blue-600 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`Deletar ${item.itemLabel}`}
-                            checked={flags.delete}
-                            onChange={(e) =>
-                              handleToggleItemCrud(
-                                activePermissionsDomainTab,
-                                item.itemId,
-                                'delete',
-                                e.target.checked
-                              )
-                            }
-                            className="w-4 h-4 accent-rose-600 cursor-pointer"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          )}
 
           {/* TELA DE CADASTRO DO USUÁRIO + TIPOS DE CONTA + PERMISSÕES (TODOS OS SISTEMAS) AO CLICAR EM UM USUÁRIO */}
           {selectedUserProfile && (() => {

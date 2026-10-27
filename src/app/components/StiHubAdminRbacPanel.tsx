@@ -648,7 +648,7 @@ export default function StiHubAdminRbacPanel({
         {[
           {
             id: 'USERS_RBAC' as const,
-            label: `Usuários (${users.length}) & Matriz RBAC (9 Perfis)`,
+            label: `Usuários (${users.length})`,
             icon: Users,
           },
           {
@@ -708,802 +708,163 @@ export default function StiHubAdminRbacPanel({
       </div>
 
       {/* ====================================================================
-          SUB-VIEW 1: USERS & GRANULAR RBAC MATRIX (9 ROLES + 22 USERS)
+          SUB-VIEW 1: CONFIGURAÇÕES > USUÁRIOS (TELA INICIAL LIMPA DE LISTAGEM)
+          Nenhuma permissão fica solta na tela inicial: ao clicar em um usuário,
+          abre a página completa de Cadastro + 2FA + Tipos de Conta + Permissões de Todos os Sistemas.
       ==================================================================== */}
-      {subView === 'USERS_RBAC' && (
-        <div className="space-y-5">
-          {/* 9 Roles Interactive Matrix */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                  MATRIZ DE PERMISSÕES POR PERFIL (ERP GESTÃOCLICK + CRM HUBSPOT)
-                </span>
-                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                  Selecione um dos 9 Perfis RBAC para inspecionar ou customizar permissões em tempo real
-                </h3>
-              </div>
-              {savingRole && (
-                <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Salvando matriz...
-                </span>
-              )}
+      {subView === 'USERS_RBAC' && !editingUser && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div>
+              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                CONFIGURAÇÕES &gt; USUÁRIOS • DIRETÓRIO DE CONTAS SETA TELECOM
+              </span>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Usuários ({filteredUsers.length} de {users.length})
+              </h3>
+              <p className="text-xs text-slate-500">
+                Clique em um usuário abaixo para abrir o cadastro completo, pareamento 2FA Google Authenticator, tipos de conta e permissões de todos os sistemas.
+              </p>
             </div>
 
-            {/* Role Selector Pills */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {roles.map((r) => {
-                const isSel = selectedRole?.id === r.id;
-                const countUsers = users.filter((u) => u.roleId === r.id).length;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelectedRoleId(r.id)}
-                    className={`text-left p-3 rounded-xl border transition cursor-pointer ${
-                      isSel
-                        ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-sm'
-                        : 'bg-slate-50 hover:bg-blue-50/50 text-slate-800 border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider opacity-80">
-                        {r.id}
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${
-                          isSel ? 'bg-[#ff7a59] text-white' : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {countUsers} usu. • {r.defaultScope}
-                      </span>
-                    </div>
-                    <div className="text-xs font-extrabold mt-1 line-clamp-1">{r.name}</div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {selectedRole && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-2">
-                {/* Left: Module Access Table */}
-                <div className="lg:col-span-7 border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between text-xs">
-                    <span className="font-extrabold">
-                      Permissões por Módulo — {selectedRole.name}
-                    </span>
-                    <span className="text-[10px] text-emerald-300 font-bold">
-                      Escopo Padrão: {selectedRole.defaultScope}
-                    </span>
-                  </div>
-                  <div className="divide-y divide-slate-200 max-h-96 overflow-y-auto text-xs">
-                    {STI_HUB_MODULES_LIST.map((mod) => {
-                      const currentLevel = selectedRole.modulePermissions[mod.key] || 'NONE';
-                      return (
-                        <div
-                          key={mod.key}
-                          className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 hover:bg-slate-50"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
-                                mod.group === 'CRM'
-                                  ? 'bg-orange-100 text-orange-800'
-                                  : 'bg-blue-100 text-blue-900'
-                              }`}
-                            >
-                              {mod.group}
-                            </span>
-                            <span className="font-bold text-slate-800">{mod.label}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {(['FULL', 'EDIT', 'VIEW', 'NONE'] as StiHubModuleAccessLevel[]).map(
-                              (lvl) => {
-                                const active = currentLevel === lvl;
-                                const tone =
-                                  lvl === 'FULL'
-                                    ? 'bg-emerald-600 text-white'
-                                    : lvl === 'EDIT'
-                                      ? 'bg-blue-600 text-white'
-                                      : lvl === 'VIEW'
-                                        ? 'bg-amber-500 text-white'
-                                        : 'bg-rose-600 text-white';
-                                return (
-                                  <button
-                                    key={lvl}
-                                    type="button"
-                                    onClick={() => handleChangeRolePermission(mod.key, lvl)}
-                                    className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer transition ${
-                                      active
-                                        ? tone
-                                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    {lvl === 'FULL'
-                                      ? 'Total'
-                                      : lvl === 'EDIT'
-                                        ? 'Editar'
-                                        : lvl === 'VIEW'
-                                          ? 'Ver'
-                                          : 'Bloq.'}
-                                  </button>
-                                );
-                              }
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Right: Action Guards Checklist */}
-                <div className="lg:col-span-5 border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between">
-                  <div>
-                    <div className="bg-[#1e3a6e] text-white px-4 py-2.5 text-xs font-extrabold">
-                      Travas Granulares de Ação Crítica (Action Guards)
-                    </div>
-                    <div className="p-3.5 space-y-2.5 text-xs">
-                      <p className="text-[11px] text-slate-500">{selectedRole.description}</p>
-                      {ACTION_GUARD_LABELS.map((g) => {
-                        const enabled = Boolean(selectedRole.actionGuards[g.key]);
-                        return (
-                          <div
-                            key={g.key}
-                            onClick={() => handleToggleRoleActionGuard(g.key)}
-                            className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 cursor-pointer transition ${
-                              enabled
-                                ? 'bg-emerald-50/70 border-emerald-200'
-                                : 'bg-slate-50 border-slate-200 opacity-75'
-                            }`}
-                          >
-                            <div>
-                              <div className="font-extrabold text-slate-900">{g.label}</div>
-                              <div className="text-[10px] text-slate-500">{g.desc}</div>
-                            </div>
-                            <span
-                              className={`px-2.5 py-1 rounded text-[10px] font-black shrink-0 ${
-                                enabled
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-slate-300 text-slate-700'
-                              }`}
-                            >
-                              {enabled ? 'PERMITIDO' : 'BLOQUEADO'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* DOIS PAINÉIS DE PERMISSÕES SEPARADOS NO IAM: PAINEL 1 (CRM / HUBSPOT) & PAINEL 2 (SETA ERP) */}
-            {selectedRole && (() => {
-              const roleCrm: StiHubCrmPermissions =
-                selectedRole.crmPermissions ||
-                buildDefaultCrmPermissionsForRole(selectedRole.id, selectedRole.defaultScope);
-              const roleErp: StiHubErpPermissions =
-                selectedRole.erpPermissions || buildDefaultErpPermissionsForRole(selectedRole.id);
-              const levels: StiHubModuleAccessLevel[] = ['FULL', 'EDIT', 'VIEW', 'NONE'];
-
-              return (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3 border-t border-slate-200">
-                  {/* PAINEL 1: PERMISSÕES CRM / HUBSPOT */}
-                  <div className="lg:col-span-6 rounded-xl border-2 border-[#0d2b4e]/20 bg-slate-50/60 overflow-hidden">
-                    <div className="bg-[#0d2b4e] text-white px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
-                          PAINEL IAM 1 DE 2 • POLÍTICAS CRM &amp; HUBSPOT (#4369067)
-                        </span>
-                        <h4 className="text-xs sm:text-sm font-extrabold">
-                          Permissões CRM / HubSpot — {selectedRole.name}
-                        </h4>
-                      </div>
-                      <span className="px-2 py-0.5 rounded bg-white/15 text-[10px] font-bold">
-                        Escopo: {roleCrm.portfolioScope}
-                      </span>
-                    </div>
-                    <div className="p-4 space-y-3 text-xs">
-                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
-                        <span className="font-bold text-slate-700">Escopo de Carteira CRM:</span>
-                        <select
-                          value={roleCrm.portfolioScope}
-                          onChange={(e) =>
-                            handleUpdateRoleDualPanels({
-                              crmPermissions: {
-                                ...roleCrm,
-                                portfolioScope: e.target.value as StiHubVisibilityScope,
-                              },
-                            })
-                          }
-                          className="px-2.5 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
-                        >
-                          <option value="TODOS">TODOS (Toda a Base B2B)</option>
-                          <option value="EQUIPE">EQUIPE (Departamento / Fila)</option>
-                          <option value="PROPRIOS">PRÓPRIOS (Apenas Carteira Própria)</option>
-                        </select>
-                      </div>
-
-                      {(
-                        [
-                          { key: 'contactsAccess', label: 'Contatos B2B (HubSpot)' },
-                          { key: 'companiesAccess', label: 'Empresas & Contas ABM' },
-                          { key: 'dealsFunnelAccess', label: 'Deals & Funil Kanban (Sales Hub)' },
-                          { key: 'ticketsServiceDeskAccess', label: 'Tickets & Chamados NOC (Service Desk)' },
-                          { key: 'marketingAutomationAccess', label: 'Marketing Hub, Forms & Workflows' },
-                        ] as const
-                      ).map((row) => (
-                        <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-800">{row.label}</span>
-                          <div className="flex items-center gap-1">
-                            {levels.map((lvl) => {
-                              const act = roleCrm[row.key] === lvl;
-                              return (
-                                <button
-                                  key={lvl}
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateRoleDualPanels({
-                                      crmPermissions: { ...roleCrm, [row.key]: lvl },
-                                    })
-                                  }
-                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
-                                    act
-                                      ? 'bg-[#0d2b4e] text-white'
-                                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                                  }`}
-                                >
-                                  {lvl}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200">
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleCrm.canExportCrmData}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                crmPermissions: { ...roleCrm, canExportCrmData: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Exportar CRM</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleCrm.canMergeCrmRecords}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                crmPermissions: { ...roleCrm, canMergeCrmRecords: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Merge Registros</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleCrm.canDeleteCrmRecords}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                crmPermissions: { ...roleCrm, canDeleteCrmRecords: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Excluir no CRM</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* PAINEL 2: PERMISSÕES ERP (SETA | IT) */}
-                  <div className="lg:col-span-6 rounded-xl border-2 border-[#1e3a6e]/20 bg-slate-50/60 overflow-hidden">
-                    <div className="bg-[#1e3a6e] text-white px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
-                          PAINEL IAM 2 DE 2 • POLÍTICAS ERP GESTÃOCLICK (#118887)
-                        </span>
-                        <h4 className="text-xs sm:text-sm font-extrabold">
-                          Permissões ERP &amp; Fiscal — {selectedRole.name}
-                        </h4>
-                      </div>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-[10px] font-bold">
-                        Alçada Desc.: {roleErp.maxDiscountPercent}%
-                      </span>
-                    </div>
-                    <div className="p-4 space-y-3 text-xs">
-                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
-                        <span className="font-bold text-slate-700">Alçada Máxima de Desconto ERP (%):</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={roleErp.maxDiscountPercent}
-                          onChange={(e) =>
-                            handleUpdateRoleDualPanels({
-                              erpPermissions: {
-                                ...roleErp,
-                                maxDiscountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                              },
-                            })
-                          }
-                          className="w-24 px-2.5 py-1 rounded border border-slate-300 bg-white font-bold text-right"
-                        />
-                      </div>
-
-                      {(
-                        [
-                          { key: 'financeBanksAccess', label: 'Financeiro, Bancos Inter/Itaú & DRE' },
-                          { key: 'fiscalIssuanceAccess', label: 'Emissão Fiscal (NF-e / NFS-e / SV 31)' },
-                          { key: 'proposalsQuotesAccess', label: 'Propostas Comerciais (#4695) & Orçamentos' },
-                          { key: 'stockOsSalesAccess', label: 'Estoque, Compras XML, O.S. & Pedidos de Venda' },
-                          { key: 'rentalContractsAccess', label: 'Contratos de Locação & Patrimônio S/N' },
-                        ] as const
-                      ).map((row) => (
-                        <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-800">{row.label}</span>
-                          <div className="flex items-center gap-1">
-                            {levels.map((lvl) => {
-                              const act = roleErp[row.key] === lvl;
-                              return (
-                                <button
-                                  key={lvl}
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateRoleDualPanels({
-                                      erpPermissions: { ...roleErp, [row.key]: lvl },
-                                    })
-                                  }
-                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
-                                    act
-                                      ? 'bg-[#1e3a6e] text-white'
-                                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                                  }`}
-                                >
-                                  {lvl}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200">
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleErp.canViewBankBalances}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                erpPermissions: { ...roleErp, canViewBankBalances: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Saldos/Bancos</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleErp.canIssueFiscalDocuments}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                erpPermissions: {
-                                  ...roleErp,
-                                  canIssueFiscalDocuments: e.target.checked,
-                                },
-                              })
-                            }
-                          />
-                          <span>Emitir NF/Fatura</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleErp.canApproveProposals}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                erpPermissions: { ...roleErp, canApproveProposals: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Aprovar Orç.</span>
-                        </label>
-                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={roleErp.canDeleteErpRecords}
-                            onChange={(e) =>
-                              handleUpdateRoleDualPanels({
-                                erpPermissions: { ...roleErp, canDeleteErpRecords: e.target.checked },
-                              })
-                            }
-                          />
-                          <span>Excluir ERP</span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* ==================================================================
-              MATRIZ DE PERMISSÕES SEPARADA (CRM ≠ ERP): VISUALIZAR | EDITAR | DELETAR PARA CADA MÓDULO E ITEM
-          ================================================================== */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
-                  TIPOS DE CONTA E PERMISSÕES INDEPENDENTES (CRM ≠ ERP) • VISUALIZAR, EDITAR E DELETAR POR ITEM
-                </span>
-                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                  Permissões Granulares (Visualizar | Editar | Deletar) por Módulo e Item do Módulo
-                </h3>
-              </div>
-              <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={searchUser}
+                onChange={(e) => setSearchUser(e.target.value)}
+                placeholder="Buscar por nome, e-mail, cargo ou departamento..."
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-64"
+              />
+              {(['ALL', 'ACTIVE', 'INACTIVE'] as const).map((f) => (
                 <button
+                  key={f}
                   type="button"
-                  onClick={() => setActiveCrudDomainTab('CRM')}
-                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                    activeCrudDomainTab === 'CRM'
-                      ? 'bg-[#0d2b4e] text-white shadow-xs'
-                      : 'text-slate-700 hover:text-slate-900'
+                  onClick={() => setUserFilter(f)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                    userFilter === f
+                      ? 'bg-[#0d2b4e] text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  Aba 1: Tipos de Conta &amp; Permissões do CRM ({CRM_MODULE_ITEMS_CATALOG.length} Itens)
+                  {f === 'ALL'
+                    ? `Todos (${users.length})`
+                    : f === 'ACTIVE'
+                      ? `Ativos (${users.filter((u) => u.active).length})`
+                      : `Desativados (${users.filter((u) => !u.active).length})`}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveCrudDomainTab('ERP')}
-                  className={`px-4 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                    activeCrudDomainTab === 'ERP'
-                      ? 'bg-[#1e3a6e] text-white shadow-xs'
-                      : 'text-slate-700 hover:text-slate-900'
-                  }`}
-                >
-                  Aba 2: Tipos de Conta &amp; Permissões do ERP ({ERP_MODULE_ITEMS_CATALOG.length} Itens)
-                </button>
-              </div>
-            </div>
-
-            {activeCrudDomainTab === 'CRM' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                {(Object.keys(crmRolesMatrixState) as CrmAccountRole[]).map((cKey) => {
-                  const rDef = crmRolesMatrixState[cKey];
-                  const active = selectedCrmRoleForCrud === cKey;
-                  return (
-                    <button
-                      key={cKey}
-                      type="button"
-                      onClick={() => setSelectedCrmRoleForCrud(cKey)}
-                      className={`text-left p-3 rounded-xl border transition cursor-pointer ${
-                        active
-                          ? 'bg-[#0d2b4e] text-white border-[#0d2b4e]'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                      }`}
-                    >
-                      <div className="text-[10px] font-mono font-black opacity-80">{cKey}</div>
-                      <div className="font-extrabold text-xs mt-0.5">{rDef.label}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                {(Object.keys(erpRolesMatrixState) as ErpAccountRole[]).map((eKey) => {
-                  const rDef = erpRolesMatrixState[eKey];
-                  const active = selectedErpRoleForCrud === eKey;
-                  return (
-                    <button
-                      key={eKey}
-                      type="button"
-                      onClick={() => setSelectedErpRoleForCrud(eKey)}
-                      className={`text-left p-3 rounded-xl border transition cursor-pointer ${
-                        active
-                          ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                      }`}
-                    >
-                      <div className="text-[10px] font-mono font-black opacity-80">{eKey}</div>
-                      <div className="font-extrabold text-xs mt-0.5">{rDef.label}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-96 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-white uppercase text-[10px] sticky top-0">
-                  <tr>
-                    <th className="py-2.5 px-3">Módulo ({activeCrudDomainTab})</th>
-                    <th className="py-2.5 px-3">Item do Módulo</th>
-                    <th className="py-2.5 px-3 text-center">Visualizar (View)</th>
-                    <th className="py-2.5 px-3 text-center">Editar (Edit)</th>
-                    <th className="py-2.5 px-3 text-center">Deletar (Delete)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(activeCrudDomainTab === 'CRM'
-                    ? CRM_MODULE_ITEMS_CATALOG
-                    : ERP_MODULE_ITEMS_CATALOG
-                  ).map((item) => {
-                    const perms =
-                      activeCrudDomainTab === 'CRM'
-                        ? crmRolesMatrixState[selectedCrmRoleForCrud].itemPermissions[item.itemId]
-                        : erpRolesMatrixState[selectedErpRoleForCrud].itemPermissions[item.itemId];
-                    const flags: CrudPermissionFlags = perms || {
-                      view: false,
-                      edit: false,
-                      delete: false,
-                    };
-                    const toggleFlag = (field: keyof CrudPermissionFlags, val: boolean) => {
-                      if (activeCrudDomainTab === 'CRM') {
-                        setCrmRolesMatrixState((prev) => ({
-                          ...prev,
-                          [selectedCrmRoleForCrud]: {
-                            ...prev[selectedCrmRoleForCrud],
-                            itemPermissions: {
-                              ...prev[selectedCrmRoleForCrud].itemPermissions,
-                              [item.itemId]: { ...flags, [field]: val },
-                            },
-                          },
-                        }));
-                      } else {
-                        setErpRolesMatrixState((prev) => ({
-                          ...prev,
-                          [selectedErpRoleForCrud]: {
-                            ...prev[selectedErpRoleForCrud],
-                            itemPermissions: {
-                              ...prev[selectedErpRoleForCrud].itemPermissions,
-                              [item.itemId]: { ...flags, [field]: val },
-                            },
-                          },
-                        }));
-                      }
-                    };
-                    return (
-                      <tr key={item.itemId} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-bold text-slate-700">{item.moduleLabel}</td>
-                        <td className="py-2 px-3">
-                          <div className="font-bold text-slate-900">{item.itemLabel}</div>
-                          <div className="font-mono text-[10px] text-slate-400">{item.itemId}</div>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={flags.view}
-                            onChange={(e) => toggleFlag('view', e.target.checked)}
-                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={flags.edit}
-                            onChange={(e) => toggleFlag('edit', e.target.checked)}
-                            className="w-4 h-4 accent-blue-600 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={flags.delete}
-                            onChange={(e) => toggleFlag('delete', e.target.checked)}
-                            className="w-4 h-4 accent-rose-600 cursor-pointer"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowNewUserModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> + Novo Usuário
+              </button>
             </div>
           </div>
 
-          {/* 22 Seta Telecom Users Table */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                  QUADRO DE COLABORADORES SINCRONIZADO • GESTÃOCLICK #118887 + HUBSPOT #4369067
-                </span>
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Usuários Cadastrados ({filteredUsers.length} de {users.length})
-                </h3>
-              </div>
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-900 text-white uppercase text-[10px]">
+                <tr>
+                  <th className="py-2.5 px-3">Colaborador / E-mail</th>
+                  <th className="py-2.5 px-3">Cargo / Departamento</th>
+                  <th className="py-2.5 px-3">Tipos de Conta (CRM &amp; ERP)</th>
+                  <th className="py-2.5 px-3">Segurança 2FA</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3 text-right">Perfil do Usuário</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredUsers.map((u) => {
+                  const isCurrentActive = activeUser?.id === u.id;
+                  const inferred = inferCrmAndErpRolesFromLegacyRole(u.roleId || "VENDEDOR_SALES");
+                  const cRole: CrmAccountRole = (u.crmRole as CrmAccountRole) || inferred.crmRole;
+                  const eRole: ErpAccountRole = (u.erpRole as ErpAccountRole) || inferred.erpRole;
 
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={searchUser}
-                  onChange={(e) => setSearchUser(e.target.value)}
-                  placeholder="Buscar por nome, e-mail, setor ou perfil..."
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-64"
-                />
-                {(['ALL', 'ACTIVE', 'INACTIVE'] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setUserFilter(f)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                      userFilter === f
-                        ? 'bg-[#0d2b4e] text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {f === 'ALL'
-                      ? `Todos (${users.length})`
-                      : f === 'ACTIVE'
-                        ? `Ativos (${users.filter((u) => u.active).length})`
-                        : `Desativados (${users.filter((u) => !u.active).length})`}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 text-white uppercase text-[10px]">
-                  <tr>
-                    <th className="py-2.5 px-3">Colaborador / E-mail</th>
-                    <th className="py-2.5 px-3">Departamento / Cargo</th>
-                    <th className="py-2.5 px-3">Perfil RBAC (ERP + CRM)</th>
-                    <th className="py-2.5 px-3">Módulos Habilitados (IAM)</th>
-                    <th className="py-2.5 px-3">Escopo de Visão</th>
-                    <th className="py-2.5 px-3">MFA 2FA (TOTP / E-mail)</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-3 text-right">Ações / Simular</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredUsers.map((u) => {
-                    const isCurrentActive = activeUser?.id === u.id;
-                    return (
-                      <tr
-                        key={u.id}
-                        onClick={() => setEditingUser(u)}
-                        className={`cursor-pointer hover:bg-blue-50/40 ${
-                          isCurrentActive ? 'bg-blue-50/60' : !u.active ? 'opacity-60 bg-slate-50/40' : ''
-                        }`}
-                      >
-                        <td className="py-2.5 px-3">
-                          <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
-                            <span>{u.name}</span>
-                            {isCurrentActive && (
-                              <span className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-black">
-                                SESSÃO ATUAL
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono">{u.email}</div>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-800">{u.jobTitle}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {u.department} • GC #{u.gestaoClickId || '—'}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                          <select
-                            aria-label={`Perfil RBAC de ${u.name}`}
-                            value={u.roleId}
-                            onChange={(e) =>
-                              handleUpdateUserInline(u, { roleId: e.target.value as StiHubRoleId })
-                            }
-                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e] text-xs"
-                          >
-                            {roles.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.id} — {r.name.slice(0, 28)}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-wrap items-center gap-1">
-                            {(['CRM', 'ERP', 'CHAMADOS'] as StiHubMacroModule[]).map((mod) => {
-                              const userMods =
-                                Array.isArray(u.enabledModules) && u.enabledModules.length > 0
-                                  ? u.enabledModules
-                                  : buildDefaultModuleAccessForRole(u.roleId, u.email).enabledModules;
-                              const isModEnabled = userMods.includes(mod);
-                              return (
-                                <button
-                                  key={mod}
-                                  type="button"
-                                  title={`Alternar acesso de ${u.name} ao módulo ${mod}`}
-                                  onClick={() => handleToggleUserModuleInline(u, mod)}
-                                  className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition ${
-                                    isModEnabled
-                                      ? mod === 'CRM'
-                                        ? 'bg-[#ff7a59] text-white'
-                                        : mod === 'ERP'
-                                          ? 'bg-[#1e3a6e] text-white'
-                                          : 'bg-purple-600 text-white'
-                                      : 'bg-slate-100 text-slate-400 border border-slate-200'
-                                  }`}
-                                >
-                                  {mod}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                          <select
-                            aria-label={`Escopo de ${u.name}`}
-                            value={u.scope}
-                            onChange={(e) =>
-                              handleUpdateUserInline(u, {
-                                scope: e.target.value as StiHubVisibilityScope,
-                              })
-                            }
-                            className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-xs"
-                          >
-                            <option value="TODOS">TODOS (Empresa)</option>
-                            <option value="EQUIPE">EQUIPE (Setor/Fila)</option>
-                            <option value="PROPRIOS">PRÓPRIOS (Carteira)</option>
-                          </select>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-                            {u.mfaEnabled ? `2FA (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'TOTP' : 'E-mail'})` : 'Desativado'}
+                  return (
+                    <tr
+                      key={u.id}
+                      onClick={() => setEditingUser(u)}
+                      className={`cursor-pointer transition hover:bg-blue-50/40 ${
+                        isCurrentActive
+                          ? 'bg-blue-50/60'
+                          : !u.active
+                            ? 'opacity-65 bg-slate-50/50'
+                            : ''
+                      }`}
+                    >
+                      <td className="py-2.5 px-3">
+                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                          <span>{u.name}</span>
+                          {isCurrentActive && (
+                            <span className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-black">
+                              SESSÃO ATUAL
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono">{u.email}</div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-800">{u.jobTitle}</div>
+                        <div className="text-[10px] text-slate-500">{u.department}</div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#0d2b4e] border border-orange-200 text-[10px] font-bold">
+                            CRM: {CRM_ROLES_CATALOG[cRole]?.label || cRole}
                           </span>
-                        </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-bold">
+                            ERP: {ERP_ROLES_CATALOG[eRole]?.label || eRole}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                          {u.mfaEnabled
+                            ? `2FA (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'Google Auth' : 'E-mail'})`
+                            : 'Desativado'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                            u.active
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-300 text-slate-700'
+                          }`}
+                        >
+                          {u.active ? 'ATIVO' : 'DESATIVADO'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="inline-flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleUpdateUserInline(u, { active: !u.active })}
-                            className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
-                              u.active
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-300 text-slate-700'
-                            }`}
+                            onClick={() => setEditingUser(u)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-extrabold cursor-pointer"
                           >
-                            {u.active ? 'ATIVO' : 'DESATIVADO'}
+                            <Edit3 className="w-3 h-3 text-[#ff7a59]" /> Abrir Perfil
                           </button>
-                        </td>
-                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center justify-end gap-1.5">
+                          {u.active && onSelectActiveUser && (
                             <button
                               type="button"
-                              onClick={() => setEditingUser(u)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] font-bold cursor-pointer"
+                              onClick={() => {
+                                onSelectActiveUser(u);
+                                onShowToast(`Sessão alternada para ${u.name}!`);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] font-bold cursor-pointer"
                             >
-                              <Edit3 className="w-3 h-3 text-[#ff7a59]" /> Editar
+                              <UserCheck className="w-3 h-3" /> Simular
                             </button>
-                            {u.active && onSelectActiveUser && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onSelectActiveUser(u);
-                                  onShowToast(
-                                    `Sessão RBAC alternada para ${u.name} (${u.roleId} • Escopo: ${u.scope})!`
-                                  );
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#0d2b4e] text-white text-[11px] font-bold cursor-pointer"
-                              >
-                                <UserCheck className="w-3 h-3" /> Assumir Perfil
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -2522,8 +1883,8 @@ export default function StiHubAdminRbacPanel({
         };
 
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl border-2 border-[#0d2b4e] shadow-2xl max-w-6xl w-full p-6 space-y-5 text-xs my-6 max-h-[94vh] overflow-y-auto">
+          <div className="w-full">
+            <div className="bg-white rounded-2xl border-2 border-[#0d2b4e] shadow-sm w-full p-6 space-y-5 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
                 <div className="flex items-center gap-3">
                   <button
