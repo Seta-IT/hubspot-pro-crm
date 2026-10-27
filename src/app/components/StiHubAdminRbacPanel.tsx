@@ -22,6 +22,9 @@ import {
   CrmEmailTemplate,
   CrmEmailTemplateCategory,
   StiHubActionGuards,
+  StiHubCrmPermissions,
+  StiHubErpPermissions,
+  StiHubMacroModule,
   StiHubModuleAccessLevel,
   StiHubRbacState,
   StiHubRoleDefinition,
@@ -29,7 +32,12 @@ import {
   StiHubUserRecord,
   StiHubVisibilityScope,
 } from '../../db/types';
-import { STI_HUB_MODULES_LIST } from '../../modules/erp/rbac-seed';
+import {
+  buildDefaultCrmPermissionsForRole,
+  buildDefaultErpPermissionsForRole,
+  buildDefaultModuleAccessForRole,
+  STI_HUB_MODULES_LIST,
+} from '../../modules/erp/rbac-seed';
 import {
   DEFAULT_CERTIFICATE_SERIES_SETTINGS,
   DEFAULT_COMPANY_EMITTER_SETTINGS,
@@ -125,6 +133,20 @@ export default function StiHubAdminRbacPanel({
   const [newUserTitle, setNewUserTitle] = useState('Executivo de Contas');
   const [newUserRole, setNewUserRole] = useState<StiHubRoleId>('VENDEDOR_SALES');
   const [newUserScope, setNewUserScope] = useState<StiHubVisibilityScope>('PROPRIOS');
+  const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
+  const [newUserModules, setNewUserModules] = useState<StiHubMacroModule[]>(['CRM', 'ERP']);
+  const [newUserCrmPerms, setNewUserCrmPerms] = useState<StiHubCrmPermissions>(() =>
+    buildDefaultCrmPermissionsForRole('VENDEDOR_SALES', 'PROPRIOS')
+  );
+  const [newUserErpPerms, setNewUserErpPerms] = useState<StiHubErpPermissions>(() =>
+    buildDefaultErpPermissionsForRole('VENDEDOR_SALES')
+  );
+  const [modalTotpPreview, setModalTotpPreview] = useState<{
+    totpSecret: string;
+    otpauthUri: string;
+    qrCodeSvgDataUrl: string;
+    currentTotpCode: string;
+  } | null>(null);
 
   // Email template creator & test dispatch state
   const [testRecipient, setTestRecipient] = useState('marcelo.mira@setatelecom.com.br');
@@ -365,9 +387,96 @@ export default function StiHubAdminRbacPanel({
     }
   };
 
+  const handleUpdateRoleDualPanels = async (patch: {
+    crmPermissions?: StiHubCrmPermissions;
+    erpPermissions?: StiHubErpPermissions;
+    enabledModules?: StiHubMacroModule[];
+  }) => {
+    if (!selectedRole) return;
+    setSavingRole(true);
+    try {
+      const res = await fetch(`/api/admin/roles/${encodeURIComponent(selectedRole.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        onShowToast(`Políticas IAM (Painel CRM / Painel ERP) atualizadas para ${selectedRole.name}!`);
+        await onRefresh();
+      }
+    } finally {
+      setSavingRole(false);
+    }
+  };
+
+  const handleToggleUserModuleInline = async (
+    user: StiHubUserRecord,
+    mod: StiHubMacroModule
+  ) => {
+    const current = Array.isArray(user.enabledModules) && user.enabledModules.length > 0
+      ? user.enabledModules
+      : buildDefaultModuleAccessForRole(user.roleId, user.email).enabledModules;
+    const exists = current.includes(mod);
+    const next = exists ? current.filter((m) => m !== mod) : [...current, mod];
+    if (next.length === 0) {
+      onShowToast('O usuário deve ter ao menos 1 módulo habilitado (CRM, ERP ou Chamados).');
+      return;
+    }
+    await handleUpdateUserInline(user, {
+      enabledModules: next,
+      moduleAccess: {
+        crm: next.includes('CRM'),
+        erp: next.includes('ERP'),
+        chamados: next.includes('CHAMADOS'),
+      },
+    });
+  };
+
+  const handleLoadUserTotpQr = async (emailOrId: string, regenerate = false) => {
+    const res = await fetch('/api/auth/setup-totp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailOrId, regenerate }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        setModalTotpPreview({
+          totpSecret: json.data.totpSecret,
+          otpauthUri: json.data.otpauthUri,
+          qrCodeSvgDataUrl: json.data.qrCodeSvgDataUrl,
+          currentTotpCode: json.data.currentTotpCode,
+        });
+        onShowToast(
+          regenerate
+            ? 'Nova chave TOTP RFC 6238 e QR Code Google Authenticator gerados!'
+            : 'QR Code Google Authenticator (RFC 6238) carregado!'
+        );
+      }
+    }
+  };
+
+  const handleDispatchTestEmailOtp = async (emailOrId: string) => {
+    const res = await fetch('/api/auth/send-email-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailOrId }),
+    });
+    const json = await res.json();
+    if (res.ok && json?.data) {
+      onShowToast(
+        `Código OTP enviado para ${json.data.email} (Protocolo ${json.data.protocol} • Código: ${json.data.devOtpPreview})!`
+      );
+    } else {
+      onShowToast(json?.error || 'Falha ao enviar OTP por e-mail.');
+    }
+  };
+
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim() || !newUserEmail.trim()) return;
+    const effectiveMods: StiHubMacroModule[] =
+      newUserModules.length > 0 ? newUserModules : ['CRM'];
     const res = await fetch('/api/admin/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -379,15 +488,29 @@ export default function StiHubAdminRbacPanel({
         jobTitle: newUserTitle.trim(),
         roleId: newUserRole,
         scope: newUserScope,
+        enabledModules: effectiveMods,
+        moduleAccess: {
+          crm: effectiveMods.includes('CRM'),
+          erp: effectiveMods.includes('ERP'),
+          chamados: effectiveMods.includes('CHAMADOS'),
+        },
+        crmPermissions: {
+          ...newUserCrmPerms,
+          portfolioScope: newUserScope,
+        },
+        erpPermissions: newUserErpPerms,
         active: true,
         mfaEnabled: true,
+        mfaMethod: newUserMfaMethod,
       }),
     });
     if (res.ok) {
       setShowNewUserModal(false);
       setNewUserName('');
       setNewUserEmail('');
-      onShowToast(`Colaborador ${newUserName} adicionado ao RBAC da Seta Telecom!`);
+      onShowToast(
+        `Colaborador ${newUserName} cadastrado com módulos [${effectiveMods.join(', ')}] e 2FA (${newUserMfaMethod})!`
+      );
       await onRefresh();
     }
   };
@@ -721,6 +844,262 @@ export default function StiHubAdminRbacPanel({
                 </div>
               </div>
             )}
+
+            {/* DOIS PAINÉIS DE PERMISSÕES SEPARADOS NO IAM: PAINEL 1 (CRM / HUBSPOT) & PAINEL 2 (SETA ERP) */}
+            {selectedRole && (() => {
+              const roleCrm: StiHubCrmPermissions =
+                selectedRole.crmPermissions ||
+                buildDefaultCrmPermissionsForRole(selectedRole.id, selectedRole.defaultScope);
+              const roleErp: StiHubErpPermissions =
+                selectedRole.erpPermissions || buildDefaultErpPermissionsForRole(selectedRole.id);
+              const levels: StiHubModuleAccessLevel[] = ['FULL', 'EDIT', 'VIEW', 'NONE'];
+
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-3 border-t border-slate-200">
+                  {/* PAINEL 1: PERMISSÕES CRM / HUBSPOT */}
+                  <div className="lg:col-span-6 rounded-xl border-2 border-[#0d2b4e]/20 bg-slate-50/60 overflow-hidden">
+                    <div className="bg-[#0d2b4e] text-white px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59] block">
+                          PAINEL IAM 1 DE 2 • POLÍTICAS CRM &amp; HUBSPOT (#4369067)
+                        </span>
+                        <h4 className="text-xs sm:text-sm font-extrabold">
+                          Permissões CRM / HubSpot — {selectedRole.name}
+                        </h4>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-white/15 text-[10px] font-bold">
+                        Escopo: {roleCrm.portfolioScope}
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-3 text-xs">
+                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                        <span className="font-bold text-slate-700">Escopo de Carteira CRM:</span>
+                        <select
+                          value={roleCrm.portfolioScope}
+                          onChange={(e) =>
+                            handleUpdateRoleDualPanels({
+                              crmPermissions: {
+                                ...roleCrm,
+                                portfolioScope: e.target.value as StiHubVisibilityScope,
+                              },
+                            })
+                          }
+                          className="px-2.5 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                        >
+                          <option value="TODOS">TODOS (Toda a Base B2B)</option>
+                          <option value="EQUIPE">EQUIPE (Departamento / Fila)</option>
+                          <option value="PROPRIOS">PRÓPRIOS (Apenas Carteira Própria)</option>
+                        </select>
+                      </div>
+
+                      {(
+                        [
+                          { key: 'contactsAccess', label: 'Contatos B2B (HubSpot)' },
+                          { key: 'companiesAccess', label: 'Empresas & Contas ABM' },
+                          { key: 'dealsFunnelAccess', label: 'Deals & Funil Kanban (Sales Hub)' },
+                          { key: 'ticketsServiceDeskAccess', label: 'Tickets & Chamados NOC (Service Desk)' },
+                          { key: 'marketingAutomationAccess', label: 'Marketing Hub, Forms & Workflows' },
+                        ] as const
+                      ).map((row) => (
+                        <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">{row.label}</span>
+                          <div className="flex items-center gap-1">
+                            {levels.map((lvl) => {
+                              const act = roleCrm[row.key] === lvl;
+                              return (
+                                <button
+                                  key={lvl}
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateRoleDualPanels({
+                                      crmPermissions: { ...roleCrm, [row.key]: lvl },
+                                    })
+                                  }
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
+                                    act
+                                      ? 'bg-[#0d2b4e] text-white'
+                                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {lvl}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200">
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleCrm.canExportCrmData}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                crmPermissions: { ...roleCrm, canExportCrmData: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Exportar CRM</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleCrm.canMergeCrmRecords}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                crmPermissions: { ...roleCrm, canMergeCrmRecords: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Merge Registros</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[11px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleCrm.canDeleteCrmRecords}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                crmPermissions: { ...roleCrm, canDeleteCrmRecords: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Excluir no CRM</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PAINEL 2: PERMISSÕES ERP (SETA | IT) */}
+                  <div className="lg:col-span-6 rounded-xl border-2 border-[#1e3a6e]/20 bg-slate-50/60 overflow-hidden">
+                    <div className="bg-[#1e3a6e] text-white px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
+                          PAINEL IAM 2 DE 2 • POLÍTICAS ERP GESTÃOCLICK (#118887)
+                        </span>
+                        <h4 className="text-xs sm:text-sm font-extrabold">
+                          Permissões ERP &amp; Fiscal — {selectedRole.name}
+                        </h4>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 text-[10px] font-bold">
+                        Alçada Desc.: {roleErp.maxDiscountPercent}%
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-3 text-xs">
+                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                        <span className="font-bold text-slate-700">Alçada Máxima de Desconto ERP (%):</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={roleErp.maxDiscountPercent}
+                          onChange={(e) =>
+                            handleUpdateRoleDualPanels({
+                              erpPermissions: {
+                                ...roleErp,
+                                maxDiscountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                              },
+                            })
+                          }
+                          className="w-24 px-2.5 py-1 rounded border border-slate-300 bg-white font-bold text-right"
+                        />
+                      </div>
+
+                      {(
+                        [
+                          { key: 'financeBanksAccess', label: 'Financeiro, Bancos Inter/Itaú & DRE' },
+                          { key: 'fiscalIssuanceAccess', label: 'Emissão Fiscal (NF-e / NFS-e / SV 31)' },
+                          { key: 'proposalsQuotesAccess', label: 'Propostas Comerciais (#4695) & Orçamentos' },
+                          { key: 'stockOsSalesAccess', label: 'Estoque, Compras XML, O.S. & Vendas/PDV' },
+                          { key: 'rentalContractsAccess', label: 'Contratos de Locação & Patrimônio S/N' },
+                        ] as const
+                      ).map((row) => (
+                        <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">{row.label}</span>
+                          <div className="flex items-center gap-1">
+                            {levels.map((lvl) => {
+                              const act = roleErp[row.key] === lvl;
+                              return (
+                                <button
+                                  key={lvl}
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateRoleDualPanels({
+                                      erpPermissions: { ...roleErp, [row.key]: lvl },
+                                    })
+                                  }
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer ${
+                                    act
+                                      ? 'bg-[#1e3a6e] text-white'
+                                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {lvl}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200">
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleErp.canViewBankBalances}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                erpPermissions: { ...roleErp, canViewBankBalances: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Saldos/Bancos</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleErp.canIssueFiscalDocuments}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                erpPermissions: {
+                                  ...roleErp,
+                                  canIssueFiscalDocuments: e.target.checked,
+                                },
+                              })
+                            }
+                          />
+                          <span>Emitir NF/Fatura</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleErp.canApproveProposals}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                erpPermissions: { ...roleErp, canApproveProposals: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Aprovar Orç.</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 p-2 rounded bg-white border border-slate-200 font-bold text-[10px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={roleErp.canDeleteErpRecords}
+                            onChange={(e) =>
+                              handleUpdateRoleDualPanels({
+                                erpPermissions: { ...roleErp, canDeleteErpRecords: e.target.checked },
+                              })
+                            }
+                          />
+                          <span>Excluir ERP</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* 22 Seta Telecom Users Table */}
@@ -771,8 +1150,9 @@ export default function StiHubAdminRbacPanel({
                     <th className="py-2.5 px-3">Colaborador / E-mail</th>
                     <th className="py-2.5 px-3">Departamento / Cargo</th>
                     <th className="py-2.5 px-3">Perfil RBAC (ERP + CRM)</th>
+                    <th className="py-2.5 px-3">Módulos Habilitados (IAM)</th>
                     <th className="py-2.5 px-3">Escopo de Visão</th>
-                    <th className="py-2.5 px-3">MFA 2FA</th>
+                    <th className="py-2.5 px-3">MFA 2FA (TOTP / E-mail)</th>
                     <th className="py-2.5 px-3">Status</th>
                     <th className="py-2.5 px-3 text-right">Ações / Simular</th>
                   </tr>
@@ -819,6 +1199,36 @@ export default function StiHubAdminRbacPanel({
                               </option>
                             ))}
                           </select>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {(['CRM', 'ERP', 'CHAMADOS'] as StiHubMacroModule[]).map((mod) => {
+                              const userMods =
+                                Array.isArray(u.enabledModules) && u.enabledModules.length > 0
+                                  ? u.enabledModules
+                                  : buildDefaultModuleAccessForRole(u.roleId, u.email).enabledModules;
+                              const isModEnabled = userMods.includes(mod);
+                              return (
+                                <button
+                                  key={mod}
+                                  type="button"
+                                  title={`Alternar acesso de ${u.name} ao módulo ${mod}`}
+                                  onClick={() => handleToggleUserModuleInline(u, mod)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition ${
+                                    isModEnabled
+                                      ? mod === 'CRM'
+                                        ? 'bg-[#ff7a59] text-white'
+                                        : mod === 'ERP'
+                                          ? 'bg-[#1e3a6e] text-white'
+                                          : 'bg-purple-600 text-white'
+                                      : 'bg-slate-100 text-slate-400 border border-slate-200'
+                                  }`}
+                                >
+                                  {mod}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3">
                           <select
@@ -1878,167 +2288,617 @@ export default function StiHubAdminRbacPanel({
         </div>
       )}
 
-      {/* Modal: Edit Existing User */}
-      {editingUser && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4 text-xs">
-            <h3 className="text-base font-extrabold text-slate-900">
-              Editar Colaborador RBAC — {editingUser.name}
-            </h3>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                await handleUpdateUserInline(editingUser, editingUser);
-                setEditingUser(null);
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
-                <input
-                  type="text"
-                  required
-                  value={editingUser.name}
-                  onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
-                <input
-                  type="email"
-                  required
-                  value={editingUser.email}
-                  onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+      {/* Modal: Edit Existing User (IAM: 2FA + Escopo Modular + Painel 1 CRM + Painel 2 ERP) */}
+      {editingUser && (() => {
+        const userMods: StiHubMacroModule[] =
+          Array.isArray(editingUser.enabledModules) && editingUser.enabledModules.length > 0
+            ? editingUser.enabledModules
+            : buildDefaultModuleAccessForRole(editingUser.roleId, editingUser.email).enabledModules;
+        const userCrm: StiHubCrmPermissions =
+          editingUser.crmPermissions ||
+          buildDefaultCrmPermissionsForRole(editingUser.roleId, editingUser.scope);
+        const userErp: StiHubErpPermissions =
+          editingUser.erpPermissions || buildDefaultErpPermissionsForRole(editingUser.roleId);
+        const setMods = (nextMods: StiHubMacroModule[]) => {
+          const safe = nextMods.length > 0 ? nextMods : (['CRM'] as StiHubMacroModule[]);
+          setEditingUser({
+            ...editingUser,
+            enabledModules: safe,
+            moduleAccess: {
+              crm: safe.includes('CRM'),
+              erp: safe.includes('ERP'),
+              chamados: safe.includes('CHAMADOS'),
+            },
+          });
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Departamento</label>
-                  <input
-                    type="text"
-                    value={editingUser.department}
-                    onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
+                  <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                    POLÍTICAS DE IAM DO COLABORADOR • 2FA + MÓDULOS + 2 PAINÉIS DE PERMISSÕES
+                  </span>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Editar Usuário IAM — {editingUser.name} ({editingUser.email})
+                  </h3>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Cargo</label>
-                  <input
-                    type="text"
-                    value={editingUser.jobTitle}
-                    onChange={(e) => setEditingUser({ ...editingUser, jobTitle: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Perfil RBAC</label>
-                  <select
-                    value={editingUser.roleId}
-                    onChange={(e) =>
-                      setEditingUser({ ...editingUser, roleId: e.target.value as StiHubRoleId })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
-                  >
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Escopo de Carteira</label>
-                  <select
-                    value={editingUser.scope}
-                    onChange={(e) =>
-                      setEditingUser({
-                        ...editingUser,
-                        scope: e.target.value as StiHubVisibilityScope,
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="TODOS">TODOS</option>
-                    <option value="EQUIPE">EQUIPE</option>
-                    <option value="PROPRIOS">PRÓPRIOS</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingUser.mfaEnabled}
-                    onChange={(e) =>
-                      setEditingUser({ ...editingUser, mfaEnabled: e.target.checked })
-                    }
-                  />
-                  <span>MFA 2FA Obrigatório Ativo</span>
-                </label>
-                <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingUser.active}
-                    onChange={(e) => setEditingUser({ ...editingUser, active: e.target.checked })}
-                  />
-                  <span>Usuário Ativo</span>
-                </label>
-              </div>
-              <div className="flex justify-end gap-2 pt-3 border-t">
                 <button
                   type="button"
-                  onClick={() => setEditingUser(null)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 font-bold cursor-pointer"
+                  onClick={() => {
+                    setEditingUser(null);
+                    setModalTotpPreview(null);
+                  }}
+                  className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
-                >
-                  Salvar Alterações
+                  Fechar
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* Modal: Create New User */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  await handleUpdateUserInline(editingUser, {
+                    ...editingUser,
+                    enabledModules: userMods,
+                    moduleAccess: {
+                      crm: userMods.includes('CRM'),
+                      erp: userMods.includes('ERP'),
+                      chamados: userMods.includes('CHAMADOS'),
+                    },
+                    crmPermissions: userCrm,
+                    erpPermissions: userErp,
+                  });
+                  setEditingUser(null);
+                  setModalTotpPreview(null);
+                }}
+                className="space-y-4"
+              >
+                {/* Bloco 1: Dados Cadastrais & Autenticação 2FA */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingUser.name}
+                      onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                    <input
+                      type="email"
+                      required
+                      value={editingUser.email}
+                      onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Departamento / Cargo</label>
+                    <input
+                      type="text"
+                      value={editingUser.jobTitle}
+                      onChange={(e) => setEditingUser({ ...editingUser, jobTitle: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Perfil Base RBAC</label>
+                    <select
+                      value={editingUser.roleId}
+                      onChange={(e) => {
+                        const nextRole = e.target.value as StiHubRoleId;
+                        const defMod = buildDefaultModuleAccessForRole(nextRole, editingUser.email);
+                        setEditingUser({
+                          ...editingUser,
+                          roleId: nextRole,
+                          enabledModules: defMod.enabledModules,
+                          moduleAccess: defMod.moduleAccess,
+                          crmPermissions: buildDefaultCrmPermissionsForRole(nextRole, editingUser.scope),
+                          erpPermissions: buildDefaultErpPermissionsForRole(nextRole),
+                        });
+                      }}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                    >
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.id} — {r.name.slice(0, 26)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Método 2FA (Google Authenticator / E-mail OTP)
+                    </label>
+                    <select
+                      value={editingUser.mfaMethod}
+                      onChange={(e) =>
+                        setEditingUser({
+                          ...editingUser,
+                          mfaMethod: e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP',
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                    >
+                      <option value="TOTP_AUTHENTICATOR">
+                        Google Authenticator (TOTP RFC 6238 • 30s)
+                      </option>
+                      <option value="EMAIL_OTP">
+                        Código OTP enviado por E-mail Corporativo
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col justify-end gap-1.5">
+                    {editingUser.mfaMethod === 'TOTP_AUTHENTICATOR' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleLoadUserTotpQr(editingUser.email, false)}
+                        className="w-full py-2 px-3 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                      >
+                        Parear Google Authenticator (QR / Base32)
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDispatchTestEmailOtp(editingUser.email)}
+                        className="w-full py-2 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold cursor-pointer"
+                      >
+                        Disparar Código OTP p/ E-mail Agora
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {modalTotpPreview && (
+                  <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-wrap items-center gap-4">
+                    <img
+                      src={modalTotpPreview.qrCodeSvgDataUrl}
+                      alt="QR Code TOTP"
+                      className="w-24 h-24 rounded-lg border border-slate-300 bg-white p-1"
+                    />
+                    <div className="flex-1 space-y-1 text-[11px]">
+                      <div className="font-extrabold text-[#0d2b4e]">
+                        Pareamento Google Authenticator RFC 6238 ({editingUser.email})
+                      </div>
+                      <div>
+                        Segredo Base32:{' '}
+                        <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                          {modalTotpPreview.totpSecret}
+                        </code>
+                        {' '}• Código Atual (30s):{' '}
+                        <strong className="font-mono text-emerald-700">
+                          {modalTotpPreview.currentTotpCode}
+                        </strong>
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-600 truncate max-w-xl">
+                        {modalTotpPreview.otpauthUri}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bloco 2: Habilitação por Módulo (CRM / ERP / Chamados) */}
+                <div className="p-4 rounded-xl bg-slate-50 border-2 border-[#0d2b4e]/15 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-[#0d2b4e] block">
+                        ESCOPO MODULAR DO USUÁRIO (ISOLAMENTO DE ROTAS &amp; APIS)
+                      </span>
+                      <div className="font-extrabold text-slate-900">
+                        Selecione quais módulos do STI-hub este colaborador está habilitado a acessar:
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setMods(['CRM'])}
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                      >
+                        Apenas CRM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMods(['ERP'])}
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                      >
+                        Apenas ERP
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMods(['CHAMADOS'])}
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                      >
+                        Apenas Chamados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMods(['CRM', 'ERP', 'CHAMADOS'])}
+                        className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-extrabold cursor-pointer"
+                      >
+                        Todos os 3 Módulos
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {(
+                      [
+                        {
+                          id: 'CRM' as const,
+                          title: 'Módulo 1: CRM (HubSpot)',
+                          desc: 'Contatos, Empresas, Funil Kanban, Marketing & Data Health',
+                        },
+                        {
+                          id: 'ERP' as const,
+                          title: 'Módulo 2: ERP (GestãoClick)',
+                          desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal & PDV',
+                        },
+                        {
+                          id: 'CHAMADOS' as const,
+                          title: 'Módulo 3: Sistema de Chamados',
+                          desc: 'Service Desk NOC N1/N2/N3, SLA Dinâmico & Atendimento',
+                        },
+                      ]
+                    ).map((m) => {
+                      const checked = userMods.includes(m.id);
+                      return (
+                        <label
+                          key={m.id}
+                          className={`p-3 rounded-xl border-2 flex items-start gap-2.5 cursor-pointer transition ${
+                            checked
+                              ? 'bg-white border-[#0d2b4e] shadow-xs'
+                              : 'bg-slate-100/70 border-slate-200 opacity-70'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...userMods, m.id]
+                                : userMods.filter((x) => x !== m.id);
+                              setMods(next);
+                            }}
+                            className="mt-0.5 w-4 h-4 accent-[#0d2b4e]"
+                          />
+                          <div>
+                            <div className="font-extrabold text-slate-900">{m.title}</div>
+                            <div className="text-[10px] text-slate-500">{m.desc}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Bloco 3: Dois Painéis Separados de Permissões do Usuário (Painel 1 CRM & Painel 2 ERP) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Painel 1: Permissões CRM / HubSpot */}
+                  <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
+                    <div className="font-extrabold text-[#0d2b4e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                      <span>Painel 1: Permissões CRM / HubSpot</span>
+                      <span className="text-[10px] text-[#ff7a59]">
+                        {userMods.includes('CRM') ? 'CRM HABILITADO' : 'CRM DESABILITADO'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-700">Escopo de Carteira:</span>
+                      <select
+                        value={editingUser.scope}
+                        onChange={(e) => {
+                          const sc = e.target.value as StiHubVisibilityScope;
+                          setEditingUser({
+                            ...editingUser,
+                            scope: sc,
+                            crmPermissions: { ...userCrm, portfolioScope: sc },
+                          });
+                        }}
+                        className="px-2 py-1 rounded border border-slate-300 bg-white font-bold"
+                      >
+                        <option value="TODOS">TODOS</option>
+                        <option value="EQUIPE">EQUIPE</option>
+                        <option value="PROPRIOS">PRÓPRIOS</option>
+                      </select>
+                    </div>
+                    {(
+                      [
+                        { key: 'contactsAccess', label: 'Contatos' },
+                        { key: 'companiesAccess', label: 'Empresas' },
+                        { key: 'dealsFunnelAccess', label: 'Deals / Funil' },
+                        { key: 'ticketsServiceDeskAccess', label: 'Tickets / Chamados' },
+                        { key: 'marketingAutomationAccess', label: 'Marketing / Automação' },
+                      ] as const
+                    ).map((f) => (
+                      <div key={f.key} className="flex items-center justify-between">
+                        <span>{f.label}:</span>
+                        <select
+                          value={userCrm[f.key]}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              crmPermissions: {
+                                ...userCrm,
+                                [f.key]: e.target.value as StiHubModuleAccessLevel,
+                              },
+                            })
+                          }
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[11px]"
+                        >
+                          <option value="FULL">FULL (Total)</option>
+                          <option value="EDIT">EDIT (Editar)</option>
+                          <option value="VIEW">VIEW (Leitura)</option>
+                          <option value="NONE">NONE (Bloqueado)</option>
+                        </select>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-3 pt-1 border-t border-slate-200">
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userCrm.canExportCrmData}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              crmPermissions: { ...userCrm, canExportCrmData: e.target.checked },
+                            })
+                          }
+                        />
+                        <span>Exportação CRM</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userCrm.canMergeCrmRecords}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              crmPermissions: { ...userCrm, canMergeCrmRecords: e.target.checked },
+                            })
+                          }
+                        />
+                        <span>Merge CRM</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userCrm.canDeleteCrmRecords}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              crmPermissions: { ...userCrm, canDeleteCrmRecords: e.target.checked },
+                            })
+                          }
+                        />
+                        <span>Exclusão CRM</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Painel 2: Permissões ERP */}
+                  <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
+                    <div className="font-extrabold text-[#1e3a6e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                      <span>Painel 2: Permissões ERP (SETA | IT)</span>
+                      <span className="text-[10px] text-emerald-700">
+                        {userMods.includes('ERP') ? 'ERP HABILITADO' : 'ERP DESABILITADO'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-700">Alçada Desconto (%):</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={userErp.maxDiscountPercent}
+                        onChange={(e) =>
+                          setEditingUser({
+                            ...editingUser,
+                            erpPermissions: {
+                              ...userErp,
+                              maxDiscountPercent: Number(e.target.value) || 0,
+                            },
+                          })
+                        }
+                        className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-bold text-right"
+                      />
+                    </div>
+                    {(
+                      [
+                        { key: 'financeBanksAccess', label: 'Financeiro / Bancos' },
+                        { key: 'fiscalIssuanceAccess', label: 'Emissão Fiscal NF-e/NFS-e' },
+                        { key: 'proposalsQuotesAccess', label: 'Propostas / Orçamentos' },
+                        { key: 'stockOsSalesAccess', label: 'Estoque / O.S. / Vendas' },
+                        { key: 'rentalContractsAccess', label: 'Contratos / Locação' },
+                      ] as const
+                    ).map((f) => (
+                      <div key={f.key} className="flex items-center justify-between">
+                        <span>{f.label}:</span>
+                        <select
+                          value={userErp[f.key]}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              erpPermissions: {
+                                ...userErp,
+                                [f.key]: e.target.value as StiHubModuleAccessLevel,
+                              },
+                            })
+                          }
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[11px]"
+                        >
+                          <option value="FULL">FULL (Total)</option>
+                          <option value="EDIT">EDIT (Editar)</option>
+                          <option value="VIEW">VIEW (Leitura)</option>
+                          <option value="NONE">NONE (Bloqueado)</option>
+                        </select>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-3 pt-1 border-t border-slate-200">
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userErp.canIssueFiscalDocuments}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              erpPermissions: {
+                                ...userErp,
+                                canIssueFiscalDocuments: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        <span>Emitir Fiscal</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userErp.canApproveProposals}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              erpPermissions: {
+                                ...userErp,
+                                canApproveProposals: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        <span>Aprovar Orç.</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={userErp.canDeleteErpRecords}
+                          onChange={(e) =>
+                            setEditingUser({
+                              ...editingUser,
+                              erpPermissions: {
+                                ...userErp,
+                                canDeleteErpRecords: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        <span>Exclusão ERP</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingUser.mfaEnabled}
+                        onChange={(e) =>
+                          setEditingUser({ ...editingUser, mfaEnabled: e.target.checked })
+                        }
+                      />
+                      <span>MFA 2FA Obrigatório Ativo</span>
+                    </label>
+                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingUser.active}
+                        onChange={(e) => setEditingUser({ ...editingUser, active: e.target.checked })}
+                      />
+                      <span>Usuário Ativo</span>
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUser(null);
+                        setModalTotpPreview(null);
+                      }}
+                      className="px-4 py-2 rounded-lg border border-slate-300 font-bold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                    >
+                      Salvar Políticas IAM do Usuário
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Create New User (IAM: 2FA + Escopo Modular + Painel 1 CRM + Painel 2 ERP) */}
       {showNewUserModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4 text-xs">
-            <h3 className="text-base font-extrabold text-slate-900">
-              + Cadastrar Novo Usuário na Matriz RBAC (Seta Telecom)
-            </h3>
-            <form onSubmit={handleCreateUserSubmit} className="space-y-3">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
-                <input
-                  type="text"
-                  required
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder="Ex: Rodrigo Santana"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
+                <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                  IAM SETA TELECOM • NOVO COLABORADOR COM ESCOPO MODULAR &amp; 2FA
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  + Cadastrar Novo Usuário na Matriz IAM (CRM, ERP &amp; Chamados)
+                </h3>
               </div>
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
-                <input
-                  type="email"
-                  required
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="rodrigo@setatelecom.com.br"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
+              <button
+                type="button"
+                onClick={() => setShowNewUserModal(false)}
+                className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUserSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newUserName}
+                    onChange={(e) => setNewUserName(e.target.value)}
+                    placeholder="Ex: Rodrigo Santana"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                  <input
+                    type="email"
+                    required
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    placeholder="rodrigo@setatelecom.com.br"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Telefone</label>
+                  <input
+                    type="text"
+                    value={newUserPhone}
+                    onChange={(e) => setNewUserPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Departamento</label>
                   <input
@@ -2057,13 +2917,18 @@ export default function StiHubAdminRbacPanel({
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Perfil RBAC</label>
+                  <label className="block font-bold text-slate-700 mb-1">Perfil RBAC Base</label>
                   <select
                     value={newUserRole}
-                    onChange={(e) => setNewUserRole(e.target.value as StiHubRoleId)}
+                    onChange={(e) => {
+                      const rId = e.target.value as StiHubRoleId;
+                      setNewUserRole(rId);
+                      const modDef = buildDefaultModuleAccessForRole(rId);
+                      setNewUserModules(modDef.enabledModules);
+                      setNewUserCrmPerms(buildDefaultCrmPermissionsForRole(rId, newUserScope));
+                      setNewUserErpPerms(buildDefaultErpPermissionsForRole(rId));
+                    }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
                   >
                     {roles.map((r) => (
@@ -2074,18 +2939,219 @@ export default function StiHubAdminRbacPanel({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Escopo</label>
+                  <label className="block font-bold text-slate-700 mb-1">Método 2FA Obrigatório</label>
                   <select
-                    value={newUserScope}
-                    onChange={(e) => setNewUserScope(e.target.value as StiHubVisibilityScope)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                    value={newUserMfaMethod}
+                    onChange={(e) =>
+                      setNewUserMfaMethod(
+                        e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'
+                      )
+                    }
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
                   >
-                    <option value="TODOS">TODOS</option>
-                    <option value="EQUIPE">EQUIPE</option>
-                    <option value="PROPRIOS">PRÓPRIOS</option>
+                    <option value="TOTP_AUTHENTICATOR">Google Authenticator (TOTP)</option>
+                    <option value="EMAIL_OTP">Código OTP por E-mail</option>
                   </select>
                 </div>
               </div>
+
+              {/* Habilitação por Módulo */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-extrabold text-slate-900">
+                    Módulos Habilitados para o Novo Usuário (Individual ou Combinado):
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewUserModules(['CRM'])}
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      Apenas CRM
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewUserModules(['ERP'])}
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      Apenas ERP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewUserModules(['CHAMADOS'])}
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      Apenas Chamados
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewUserModules(['CRM', 'ERP', 'CHAMADOS'])}
+                      className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-bold cursor-pointer"
+                    >
+                      CRM + ERP + Chamados
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(['CRM', 'ERP', 'CHAMADOS'] as StiHubMacroModule[]).map((mod) => {
+                    const checked = newUserModules.includes(mod);
+                    return (
+                      <label
+                        key={mod}
+                        className={`p-2.5 rounded-lg border flex items-center gap-2 font-bold cursor-pointer ${
+                          checked
+                            ? 'bg-white border-[#0d2b4e] text-[#0d2b4e]'
+                            : 'bg-slate-100 border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...newUserModules, mod]
+                              : newUserModules.filter((m) => m !== mod);
+                            if (next.length > 0) setNewUserModules(next);
+                          }}
+                        />
+                        <span>
+                          {mod === 'CRM'
+                            ? 'CRM (HubSpot)'
+                            : mod === 'ERP'
+                              ? 'ERP (GestãoClick)'
+                              : 'Sistema de Chamados'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dois Painéis de Permissões no Cadastro */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-xl border border-slate-200 p-3.5 space-y-2 bg-slate-50/50">
+                  <div className="font-extrabold text-[#0d2b4e] border-b border-slate-200 pb-1">
+                    Painel 1: Permissões CRM / HubSpot
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Escopo de Carteira CRM:</span>
+                    <select
+                      value={newUserScope}
+                      onChange={(e) => setNewUserScope(e.target.value as StiHubVisibilityScope)}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white font-bold"
+                    >
+                      <option value="TODOS">TODOS</option>
+                      <option value="EQUIPE">EQUIPE</option>
+                      <option value="PROPRIOS">PRÓPRIOS</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserCrmPerms.canExportCrmData}
+                        onChange={(e) =>
+                          setNewUserCrmPerms({
+                            ...newUserCrmPerms,
+                            canExportCrmData: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Exportar CRM</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserCrmPerms.canMergeCrmRecords}
+                        onChange={(e) =>
+                          setNewUserCrmPerms({
+                            ...newUserCrmPerms,
+                            canMergeCrmRecords: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Merge CRM</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserCrmPerms.canDeleteCrmRecords}
+                        onChange={(e) =>
+                          setNewUserCrmPerms({
+                            ...newUserCrmPerms,
+                            canDeleteCrmRecords: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Excluir CRM</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-3.5 space-y-2 bg-slate-50/50">
+                  <div className="font-extrabold text-[#1e3a6e] border-b border-slate-200 pb-1">
+                    Painel 2: Permissões ERP
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Alçada Desconto (%):</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newUserErpPerms.maxDiscountPercent}
+                      onChange={(e) =>
+                        setNewUserErpPerms({
+                          ...newUserErpPerms,
+                          maxDiscountPercent: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-bold text-right"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserErpPerms.canIssueFiscalDocuments}
+                        onChange={(e) =>
+                          setNewUserErpPerms({
+                            ...newUserErpPerms,
+                            canIssueFiscalDocuments: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Emitir Fiscal</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserErpPerms.canApproveProposals}
+                        onChange={(e) =>
+                          setNewUserErpPerms({
+                            ...newUserErpPerms,
+                            canApproveProposals: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Aprovar Orç.</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newUserErpPerms.canDeleteErpRecords}
+                        onChange={(e) =>
+                          setNewUserErpPerms({
+                            ...newUserErpPerms,
+                            canDeleteErpRecords: e.target.checked,
+                          })
+                        }
+                      />
+                      <span>Excluir ERP</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <button
                   type="button"
@@ -2098,7 +3164,7 @@ export default function StiHubAdminRbacPanel({
                   type="submit"
                   className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
                 >
-                  Salvar Usuário RBAC
+                  Salvar Usuário IAM
                 </button>
               </div>
             </form>

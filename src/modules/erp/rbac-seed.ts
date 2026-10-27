@@ -1,10 +1,314 @@
 import {
+  StiHubCrmPermissions,
   StiHubCustomPropertySpec,
+  StiHubErpPermissions,
+  StiHubMacroModule,
   StiHubModuleAccessLevel,
   StiHubRbacState,
   StiHubRoleDefinition,
+  StiHubRoleId,
+  StiHubSecurityAuditLogEntry,
+  StiHubUserModuleAccess,
   StiHubUserRecord,
+  StiHubVisibilityScope,
 } from '../../db/types';
+import { generateTotpSecretBase32, sha256Hex } from '../../app/lib/auth';
+
+export function buildDefaultModuleAccessForRole(
+  roleId: StiHubRoleId,
+  userEmail?: string
+): {
+  enabledModules: StiHubMacroModule[];
+  moduleAccess: StiHubUserModuleAccess;
+} {
+  const email = String(userEmail || "").toLowerCase().trim();
+  if (email === "henrique.noc@setatelecom.com.br") {
+    return {
+      enabledModules: ["CHAMADOS"],
+      moduleAccess: { crm: false, erp: false, chamados: true },
+    };
+  }
+  switch (roleId) {
+    case "SUPER_ADMIN":
+    case "DIRETORIA":
+    case "GERENTE_COMERCIAL":
+      return {
+        enabledModules: ["CRM", "ERP", "CHAMADOS"],
+        moduleAccess: { crm: true, erp: true, chamados: true },
+      };
+    case "VENDEDOR_SALES":
+      return {
+        enabledModules: ["CRM", "ERP"],
+        moduleAccess: { crm: true, erp: true, chamados: false },
+      };
+    case "ANALISTA_MARKETING":
+      return {
+        enabledModules: ["CRM"],
+        moduleAccess: { crm: true, erp: false, chamados: false },
+      };
+    case "FINANCEIRO_FATURAMENTO":
+    case "FISCAL_CONTABIL":
+    case "OPERADOR_PDV_ESTOQUE":
+      return {
+        enabledModules: ["ERP"],
+        moduleAccess: { crm: false, erp: true, chamados: false },
+      };
+    case "TECNICO_NOC_OS":
+      return {
+        enabledModules: ["CHAMADOS", "ERP"],
+        moduleAccess: { crm: false, erp: true, chamados: true },
+      };
+    default:
+      return {
+        enabledModules: ["CRM", "ERP", "CHAMADOS"],
+        moduleAccess: { crm: true, erp: true, chamados: true },
+      };
+  }
+}
+
+export function normalizeUserModuleAccess(input: {
+  enabledModules?: StiHubMacroModule[];
+  moduleAccess?: Partial<StiHubUserModuleAccess>;
+  roleId?: StiHubRoleId;
+  email?: string;
+}): {
+  enabledModules: StiHubMacroModule[];
+  moduleAccess: StiHubUserModuleAccess;
+} {
+  if (input.moduleAccess && typeof input.moduleAccess === "object") {
+    const crm = Boolean(input.moduleAccess.crm);
+    const erp = Boolean(input.moduleAccess.erp);
+    const chamados = Boolean(input.moduleAccess.chamados);
+    const enabledModules: StiHubMacroModule[] = [];
+    if (crm) enabledModules.push("CRM");
+    if (erp) enabledModules.push("ERP");
+    if (chamados) enabledModules.push("CHAMADOS");
+    if (enabledModules.length > 0) {
+      return { enabledModules, moduleAccess: { crm, erp, chamados } };
+    }
+  }
+  if (Array.isArray(input.enabledModules) && input.enabledModules.length > 0) {
+    const valid = input.enabledModules.filter(
+      (m): m is StiHubMacroModule => m === "CRM" || m === "ERP" || m === "CHAMADOS"
+    );
+    if (valid.length > 0) {
+      return {
+        enabledModules: Array.from(new Set(valid)),
+        moduleAccess: {
+          crm: valid.includes("CRM"),
+          erp: valid.includes("ERP"),
+          chamados: valid.includes("CHAMADOS"),
+        },
+      };
+    }
+  }
+  return buildDefaultModuleAccessForRole(input.roleId || "VENDEDOR_SALES", input.email);
+}
+
+export function buildDefaultCrmPermissionsForRole(
+  roleId: StiHubRoleId,
+  scopeOverride?: StiHubVisibilityScope
+): StiHubCrmPermissions {
+  switch (roleId) {
+    case "SUPER_ADMIN":
+    case "DIRETORIA":
+      return {
+        crmRole: roleId,
+        portfolioScope: scopeOverride || "TODOS",
+        contactsAccess: "FULL",
+        companiesAccess: "FULL",
+        dealsFunnelAccess: "FULL",
+        ticketsServiceDeskAccess: "FULL",
+        marketingAutomationAccess: "FULL",
+        canExportCrmData: true,
+        canMergeCrmRecords: true,
+        canDeleteCrmRecords: true,
+      };
+    case "GERENTE_COMERCIAL":
+      return {
+        crmRole: "GERENTE_COMERCIAL",
+        portfolioScope: scopeOverride || "TODOS",
+        contactsAccess: "FULL",
+        companiesAccess: "FULL",
+        dealsFunnelAccess: "FULL",
+        ticketsServiceDeskAccess: "EDIT",
+        marketingAutomationAccess: "FULL",
+        canExportCrmData: true,
+        canMergeCrmRecords: true,
+        canDeleteCrmRecords: false,
+      };
+    case "VENDEDOR_SALES":
+      return {
+        crmRole: "VENDEDOR_SALES",
+        portfolioScope: scopeOverride || "PROPRIOS",
+        contactsAccess: "EDIT",
+        companiesAccess: "EDIT",
+        dealsFunnelAccess: "EDIT",
+        ticketsServiceDeskAccess: "VIEW",
+        marketingAutomationAccess: "VIEW",
+        canExportCrmData: false,
+        canMergeCrmRecords: false,
+        canDeleteCrmRecords: false,
+      };
+    case "ANALISTA_MARKETING":
+      return {
+        crmRole: "ANALISTA_MARKETING",
+        portfolioScope: scopeOverride || "EQUIPE",
+        contactsAccess: "EDIT",
+        companiesAccess: "EDIT",
+        dealsFunnelAccess: "VIEW",
+        ticketsServiceDeskAccess: "VIEW",
+        marketingAutomationAccess: "FULL",
+        canExportCrmData: true,
+        canMergeCrmRecords: true,
+        canDeleteCrmRecords: false,
+      };
+    case "TECNICO_NOC_OS":
+      return {
+        crmRole: "TECNICO_NOC_OS",
+        portfolioScope: scopeOverride || "EQUIPE",
+        contactsAccess: "VIEW",
+        companiesAccess: "VIEW",
+        dealsFunnelAccess: "NONE",
+        ticketsServiceDeskAccess: "FULL",
+        marketingAutomationAccess: "NONE",
+        canExportCrmData: false,
+        canMergeCrmRecords: false,
+        canDeleteCrmRecords: false,
+      };
+    default:
+      return {
+        crmRole: roleId,
+        portfolioScope: scopeOverride || "PROPRIOS",
+        contactsAccess: "VIEW",
+        companiesAccess: "VIEW",
+        dealsFunnelAccess: "NONE",
+        ticketsServiceDeskAccess: "NONE",
+        marketingAutomationAccess: "NONE",
+        canExportCrmData: false,
+        canMergeCrmRecords: false,
+        canDeleteCrmRecords: false,
+      };
+  }
+}
+
+export function buildDefaultErpPermissionsForRole(roleId: StiHubRoleId): StiHubErpPermissions {
+  switch (roleId) {
+    case "SUPER_ADMIN":
+    case "DIRETORIA":
+      return {
+        erpRole: roleId,
+        financeBanksAccess: "FULL",
+        fiscalIssuanceAccess: "FULL",
+        proposalsQuotesAccess: "FULL",
+        stockOsSalesAccess: "FULL",
+        rentalContractsAccess: "FULL",
+        maxDiscountPercent: 100,
+        canViewBankBalances: true,
+        canIssueFiscalDocuments: true,
+        canApproveProposals: true,
+        canDeleteErpRecords: true,
+      };
+    case "GERENTE_COMERCIAL":
+      return {
+        erpRole: "GERENTE_COMERCIAL",
+        financeBanksAccess: "VIEW",
+        fiscalIssuanceAccess: "VIEW",
+        proposalsQuotesAccess: "FULL",
+        stockOsSalesAccess: "EDIT",
+        rentalContractsAccess: "FULL",
+        maxDiscountPercent: 25,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: false,
+        canApproveProposals: true,
+        canDeleteErpRecords: false,
+      };
+    case "VENDEDOR_SALES":
+      return {
+        erpRole: "VENDEDOR_SALES",
+        financeBanksAccess: "NONE",
+        fiscalIssuanceAccess: "NONE",
+        proposalsQuotesAccess: "EDIT",
+        stockOsSalesAccess: "VIEW",
+        rentalContractsAccess: "VIEW",
+        maxDiscountPercent: 10,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: false,
+        canApproveProposals: false,
+        canDeleteErpRecords: false,
+      };
+    case "FINANCEIRO_FATURAMENTO":
+      return {
+        erpRole: "FINANCEIRO_FATURAMENTO",
+        financeBanksAccess: "FULL",
+        fiscalIssuanceAccess: "FULL",
+        proposalsQuotesAccess: "EDIT",
+        stockOsSalesAccess: "VIEW",
+        rentalContractsAccess: "FULL",
+        maxDiscountPercent: 15,
+        canViewBankBalances: true,
+        canIssueFiscalDocuments: true,
+        canApproveProposals: true,
+        canDeleteErpRecords: false,
+      };
+    case "FISCAL_CONTABIL":
+      return {
+        erpRole: "FISCAL_CONTABIL",
+        financeBanksAccess: "VIEW",
+        fiscalIssuanceAccess: "FULL",
+        proposalsQuotesAccess: "VIEW",
+        stockOsSalesAccess: "VIEW",
+        rentalContractsAccess: "EDIT",
+        maxDiscountPercent: 0,
+        canViewBankBalances: true,
+        canIssueFiscalDocuments: true,
+        canApproveProposals: false,
+        canDeleteErpRecords: false,
+      };
+    case "TECNICO_NOC_OS":
+      return {
+        erpRole: "TECNICO_NOC_OS",
+        financeBanksAccess: "NONE",
+        fiscalIssuanceAccess: "NONE",
+        proposalsQuotesAccess: "NONE",
+        stockOsSalesAccess: "FULL",
+        rentalContractsAccess: "EDIT",
+        maxDiscountPercent: 0,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: false,
+        canApproveProposals: false,
+        canDeleteErpRecords: false,
+      };
+    case "OPERADOR_PDV_ESTOQUE":
+      return {
+        erpRole: "OPERADOR_PDV_ESTOQUE",
+        financeBanksAccess: "NONE",
+        fiscalIssuanceAccess: "EDIT",
+        proposalsQuotesAccess: "NONE",
+        stockOsSalesAccess: "FULL",
+        rentalContractsAccess: "NONE",
+        maxDiscountPercent: 5,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: true,
+        canApproveProposals: false,
+        canDeleteErpRecords: false,
+      };
+    default:
+      return {
+        erpRole: roleId,
+        financeBanksAccess: "NONE",
+        fiscalIssuanceAccess: "NONE",
+        proposalsQuotesAccess: "VIEW",
+        stockOsSalesAccess: "NONE",
+        rentalContractsAccess: "NONE",
+        maxDiscountPercent: 0,
+        canViewBankBalances: false,
+        canIssueFiscalDocuments: false,
+        canApproveProposals: false,
+        canDeleteErpRecords: false,
+      };
+  }
+}
 
 export const STI_HUB_MODULES_LIST: Array<{
   key: string;
@@ -762,9 +1066,79 @@ export function createSeedRbacState(): StiHubRbacState {
     },
   ];
 
+  const enrichedRoles: StiHubRoleDefinition[] = roles.map((r) => {
+    const modAcc = buildDefaultModuleAccessForRole(r.id);
+    return {
+      ...r,
+      enabledModules: modAcc.enabledModules,
+      moduleAccess: modAcc.moduleAccess,
+      crmPermissions: buildDefaultCrmPermissionsForRole(r.id, r.defaultScope),
+      erpPermissions: buildDefaultErpPermissionsForRole(r.id),
+    };
+  });
+
+  const enrichedUsers: StiHubUserRecord[] = users.map((u) => {
+    const modAcc = buildDefaultModuleAccessForRole(u.roleId, u.email);
+    const crmPerms = buildDefaultCrmPermissionsForRole(u.roleId, u.scope);
+    const erpPerms = buildDefaultErpPermissionsForRole(u.roleId);
+    if (u.actionGuardsOverride?.canIssueFiscalDocuments !== undefined) {
+      erpPerms.canIssueFiscalDocuments = u.actionGuardsOverride.canIssueFiscalDocuments;
+    }
+    if (u.actionGuardsOverride?.canDeleteRecords !== undefined) {
+      crmPerms.canDeleteCrmRecords = u.actionGuardsOverride.canDeleteRecords;
+      erpPerms.canDeleteErpRecords = u.actionGuardsOverride.canDeleteRecords;
+    }
+    return {
+      ...u,
+      enabledModules: modAcc.enabledModules,
+      moduleAccess: modAcc.moduleAccess,
+      crmPermissions: crmPerms,
+      erpPermissions: erpPerms,
+      totpSecret: generateTotpSecretBase32(u.email),
+      totpConfiguredAt: u.mfaEnabled ? u.createdAt : null,
+    };
+  });
+
+  const genesisHash = "0000000000000000000000000000000000000000000000000000000000000000";
+  const audit1Hash = sha256Hex(`${genesisHash}|AUDIT-001|marcelo.mira@setatelecom.com.br|IAM_RBAC_INITIALIZED`);
+  const audit2Hash = sha256Hex(`${audit1Hash}|AUDIT-002|marcelo.mira@setatelecom.com.br|MFA_RFC6238_ENFORCED`);
+  const initialAuditLogs: StiHubSecurityAuditLogEntry[] = [
+    {
+      id: "AUDIT-002",
+      timestamp: nowIso,
+      actorEmail: "marcelo.mira@setatelecom.com.br",
+      actorName: "Marcelo Lopes Mira",
+      actorRole: "SUPER_ADMIN",
+      action: "MFA_2FA_POLICY_ENFORCED",
+      module: "AUTH_MFA",
+      resource: "/api/auth/*",
+      status: "SUCCESS",
+      ipAddress: "189.112.44.18",
+      details: "Política obrigatória de 2FA (Google Authenticator RFC 6238 TOTP + E-mail OTP) e assinatura HMAC-SHA256 de sessão ativada.",
+      prevHashSha256: audit1Hash,
+      integrityHashSha256: audit2Hash,
+    },
+    {
+      id: "AUDIT-001",
+      timestamp: nowIso,
+      actorEmail: "marcelo.mira@setatelecom.com.br",
+      actorName: "Marcelo Lopes Mira",
+      actorRole: "SUPER_ADMIN",
+      action: "IAM_DUAL_PANEL_SEEDED",
+      module: "IAM_RBAC",
+      resource: "/api/admin/rbac",
+      status: "SUCCESS",
+      ipAddress: "189.112.44.18",
+      details: "Matriz IAM com 2 painéis separados (Permissões CRM/HubSpot + Permissões ERP) e escopo modular (CRM, ERP, Chamados) inicializada.",
+      prevHashSha256: genesisHash,
+      integrityHashSha256: audit1Hash,
+    },
+  ];
+
   return {
-    roles,
-    users,
+    roles: enrichedRoles,
+    users: enrichedUsers,
+    auditLogs: initialAuditLogs,
     securityConfig: {
       enforceMfaOnAllLogins: true,
       sessionTtlHours: 24,

@@ -2355,16 +2355,23 @@ export function GenericRecordEditModal({
   title,
   initialValues,
   fields,
+  readOnly = false,
   onClose,
   onSave,
+  onDelete,
 }: {
   title: string;
   initialValues: Record<string, unknown>;
   fields: GenericFieldSpec[];
+  readOnly?: boolean;
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initialValues }));
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnly));
+  const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
+  const [deleting, setDeleting] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -2404,15 +2411,28 @@ export function GenericRecordEditModal({
         <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Edit3 className="w-4 h-4 text-emerald-300" />
-            <h3 className="text-sm font-extrabold">{title}</h3>
+            <h3 className="text-sm font-extrabold">
+              {isReadOnly ? title.replace(/^Editar/i, 'Consultar') : title}
+            </h3>
           </div>
-          <button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isReadOnly && (
+              <button
+                type="button"
+                onClick={() => setIsReadOnly(false)}
+                className="px-2.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+              >
+                Habilitar Edição
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-3 text-xs max-h-[82vh] overflow-y-auto">
-          <div className={isWide ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
+          <fieldset disabled={isReadOnly} className={isWide ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
             {fields.map((f) => {
               const isFullSpan =
                 f.type === 'textarea' ||
@@ -2497,20 +2517,72 @@ export function GenericRecordEditModal({
                 </div>
               );
             })}
-          </div>
+          </fieldset>
 
           {errorMsg && (
             <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs">
               {errorMsg}
             </div>
           )}
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
-              Cancelar
-            </button>
-            <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-              {saving ? 'Salvando...' : 'Salvar Registro'}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
+            <div>
+              {!isReadOnly && onDelete && (
+                !confirmDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="px-3 py-1.5 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                  >
+                    Excluir Registro
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 p-1.5 rounded bg-rose-50 border border-rose-300">
+                    <span className="font-extrabold text-rose-800">Confirmar exclusão?</span>
+                    <button
+                      type="button"
+                      disabled={deleting}
+                      onClick={async () => {
+                        setDeleting(true);
+                        try {
+                          await onDelete();
+                          onClose();
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                    >
+                      {deleting ? 'Excluindo...' : 'Sim, Excluir'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="px-2 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                    >
+                      Não
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
+                {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
+              </button>
+              {isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnly(false)}
+                  className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                >
+                  Editar Registro
+                </button>
+              ) : (
+                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                  {saving ? 'Salvando...' : 'Salvar Registro'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

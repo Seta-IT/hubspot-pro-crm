@@ -1000,6 +1000,17 @@ export default function HubSpotProCrmApp() {
         .slice(0, 8)
     : [];
 
+  const userEnabledModules = activeRbacUser?.enabledModules || [
+    'CRM',
+    'ERP',
+    'CHAMADOS',
+  ];
+  const userModuleAccess = activeRbacUser?.moduleAccess || {
+    crm: userEnabledModules.includes('CRM'),
+    erp: userEnabledModules.includes('ERP'),
+    chamados: userEnabledModules.includes('CHAMADOS'),
+  };
+
   const isCrmActive =
     activeModule === 'OVERVIEW_AI' ||
     activeModule === 'DEALS_KANBAN' ||
@@ -1008,6 +1019,30 @@ export default function HubSpotProCrmApp() {
     activeModule === 'AUTOMATIONS' ||
     activeModule === 'DATA_HEALTH' ||
     activeModule === 'ADMIN_RBAC';
+
+  useEffect(() => {
+    if (!activeRbacUser) return;
+    if (activeModule === 'ADMIN_RBAC') return;
+    if (isCrmActive && !userModuleAccess.crm) {
+      if (userModuleAccess.erp) {
+        setActiveModule('ERP_GESTAOCLICK');
+      } else if (userModuleAccess.chamados) {
+        setActiveModule('SERVICE_DESK');
+      }
+    } else if (activeModule === 'ERP_GESTAOCLICK' && !userModuleAccess.erp) {
+      if (userModuleAccess.crm) {
+        setActiveModule('DEALS_KANBAN');
+      } else if (userModuleAccess.chamados) {
+        setActiveModule('SERVICE_DESK');
+      }
+    } else if (activeModule === 'SERVICE_DESK' && !userModuleAccess.chamados) {
+      if (userModuleAccess.crm) {
+        setActiveModule('DEALS_KANBAN');
+      } else if (userModuleAccess.erp) {
+        setActiveModule('ERP_GESTAOCLICK');
+      }
+    }
+  }, [activeRbacUser, activeModule, isCrmActive, userModuleAccess.crm, userModuleAccess.erp, userModuleAccess.chamados]);
 
   const macroNavItems: Array<{
     id: string;
@@ -1023,27 +1058,57 @@ export default function HubSpotProCrmApp() {
       label: 'CRM',
       shortLabel: 'CRM',
       icon: Kanban,
-      badge: `${deals.length} Deals | ${contacts.length} Contatos`,
+      badge: userModuleAccess.crm
+        ? `${deals.length} Deals | ${contacts.length} Contatos`
+        : 'Bloqueado IAM',
       isActive: isCrmActive,
-      onClick: () => setActiveModule(lastCrmSubModule || 'DEALS_KANBAN'),
+      onClick: () => {
+        if (!userModuleAccess.crm) {
+          showToast(
+            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo CRM habilitado.`
+          );
+          return;
+        }
+        setActiveModule(lastCrmSubModule || 'DEALS_KANBAN');
+      },
     },
     {
       id: 'ERP',
       label: 'ERP',
       shortLabel: 'ERP',
       icon: Receipt,
-      badge: erpData ? `${erpData.rentalContracts.length} Contratos` : undefined,
+      badge: userModuleAccess.erp
+        ? erpData
+          ? `${erpData.rentalContracts.length} Contratos`
+          : undefined
+        : 'Bloqueado IAM',
       isActive: activeModule === 'ERP_GESTAOCLICK',
-      onClick: () => setActiveModule('ERP_GESTAOCLICK'),
+      onClick: () => {
+        if (!userModuleAccess.erp) {
+          showToast(
+            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo ERP habilitado.`
+          );
+          return;
+        }
+        setActiveModule('ERP_GESTAOCLICK');
+      },
     },
     {
       id: 'SERVICE_DESK',
       label: 'Chamados',
       shortLabel: 'Chamados',
       icon: Ticket,
-      badge: ticketKpis.openCount,
+      badge: userModuleAccess.chamados ? ticketKpis.openCount : 'Bloqueado IAM',
       isActive: activeModule === 'SERVICE_DESK',
-      onClick: () => setActiveModule('SERVICE_DESK'),
+      onClick: () => {
+        if (!userModuleAccess.chamados) {
+          showToast(
+            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo de Chamados habilitado.`
+          );
+          return;
+        }
+        setActiveModule('SERVICE_DESK');
+      },
     },
   ];
 

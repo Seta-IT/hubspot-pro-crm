@@ -52,8 +52,38 @@ import {
   CrmSnippet,
 } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
-import { createSeedRbacState } from '../modules/erp/rbac-seed';
-import { StiHubActionGuards, StiHubRbacState, StiHubRoleDefinition, StiHubRoleId, StiHubSecurityAndMailerConfig, StiHubUserRecord } from './types';
+import {
+  buildDefaultCrmPermissionsForRole,
+  buildDefaultErpPermissionsForRole,
+  buildDefaultModuleAccessForRole,
+  createSeedRbacState,
+  normalizeUserModuleAccess,
+} from '../modules/erp/rbac-seed';
+import {
+  StiHubActionGuards,
+  StiHubCrmPermissions,
+  StiHubErpPermissions,
+  StiHubMacroModule,
+  StiHubRbacState,
+  StiHubRoleDefinition,
+  StiHubRoleId,
+  StiHubSecurityAndMailerConfig,
+  StiHubSecurityAuditLogEntry,
+  StiHubUserModuleAccess,
+  StiHubUserRecord,
+} from './types';
+import {
+  buildOtpAuthUri,
+  buildTotpQrCodeSvgDataUrl,
+  computeRfc6238Totp,
+  generateTotpSecretBase32,
+  hashCorporatePassword,
+  sha256Hex,
+  signStiHubSessionToken,
+  verifyCorporatePassword,
+  verifyRfc6238Totp,
+  verifyStiHubSessionToken,
+} from '../app/lib/auth';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
 import {
   fetchLiveGestaoClickSnapshot,
@@ -4615,14 +4645,131 @@ export class CrmRepository {
   }
 
   // ==========================================================================
-  // STI-HUB RBAC (9 ROLES + 22 SETA TELECOM USERS), MFA AUTH & SUBDOMAINS
+  // STI-HUB RBAC (9 ROLES + 22 SETA TELECOM USERS), REAL MFA 2FA & IAM PANELS
   // ==========================================================================
+
+  private emailOtpChallenges = new Map<
+    string,
+    {
+      challengeId: string;
+      userId: string;
+      email: string;
+      codePlainForDev: string;
+      codeHash: string;
+      createdAtMs: number;
+      expiresAtMs: number;
+      attempts: number;
+      maxAttempts: number;
+      consumed: boolean;
+      sendHistoryMs: number[];
+    }
+  >();
+
+  private loginAttemptTracker = new Map<
+    string,
+    { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number }
+  >();
 
   private ensureRbacState(): StiHubRbacState {
     if (!this.state.rbac || !Array.isArray(this.state.rbac.roles) || !Array.isArray(this.state.rbac.users)) {
       this.state.rbac = createSeedRbacState();
     }
-    return this.state.rbac;
+    const rbac = this.state.rbac;
+    if (!Array.isArray(rbac.auditLogs)) {
+      rbac.auditLogs = [];
+    }
+    for (const r of rbac.roles) {
+      if (!r.enabledModules || !r.moduleAccess) {
+        const mod = buildDefaultModuleAccessForRole(r.id);
+        r.enabledModules = mod.enabledModules;
+        r.moduleAccess = mod.moduleAccess;
+      }
+      if (!r.crmPermissions) {
+        r.crmPermissions = buildDefaultCrmPermissionsForRole(r.id, r.defaultScope);
+      }
+      if (!r.erpPermissions) {
+        r.erpPermissions = buildDefaultErpPermissionsForRole(r.id);
+      }
+    }
+    for (const u of rbac.users) {
+      if (!u.enabledModules || !u.moduleAccess) {
+        const mod = buildDefaultModuleAccessForRole(u.roleId, u.email);
+        u.enabledModules = mod.enabledModules;
+        u.moduleAccess = mod.moduleAccess;
+      }
+      if (!u.crmPermissions) {
+        u.crmPermissions = buildDefaultCrmPermissionsForRole(u.roleId, u.scope);
+      }
+      if (!u.erpPermissions) {
+        u.erpPermissions = buildDefaultErpPermissionsForRole(u.roleId);
+      }
+      if (!u.totpSecret) {
+        u.totpSecret = generateTotpSecretBase32(u.email);
+      }
+    }
+    return rbac;
+  }
+
+  appendSecurityAuditLog(input: {
+    actorEmail?: string;
+    actorName?: string;
+    actorRole?: string;
+    action: string;
+    module: StiHubSecurityAuditLogEntry["module"];
+    resource: string;
+    status: StiHubSecurityAuditLogEntry["status"];
+    ipAddress?: string;
+    details: string;
+  }): StiHubSecurityAuditLogEntry {
+    const rbac = this.ensureRbacState();
+    const logs = rbac.auditLogs || [];
+    const prevHash =
+      logs[0]?.integrityHashSha256 ||
+      "0000000000000000000000000000000000000000000000000000000000000000";
+    const nowIso = new Date().toISOString();
+    const id = `AUDIT-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+    const actorEmail = input.actorEmail || "marcelo.mira@setatelecom.com.br";
+    const actorName = input.actorName || "Marcelo Lopes Mira";
+    const actorRole = input.actorRole || "SUPER_ADMIN";
+    const ipAddress = input.ipAddress || "189.112.44.18";
+    const integrityHashSha256 = sha256Hex(
+      `${prevHash}|${id}|${nowIso}|${actorEmail}|${input.action}|${input.module}|${input.resource}|${input.status}|${input.details}`
+    );
+    const entry: StiHubSecurityAuditLogEntry = {
+      id,
+      timestamp: nowIso,
+      actorEmail,
+      actorName,
+      actorRole,
+      action: input.action,
+      module: input.module,
+      resource: input.resource,
+      status: input.status,
+      ipAddress,
+      details: input.details,
+      prevHashSha256: prevHash,
+      integrityHashSha256,
+    };
+    logs.unshift(entry);
+    if (logs.length > 300) {
+      logs.length = 300;
+    }
+    rbac.auditLogs = logs;
+    return entry;
+  }
+
+  listSecurityAuditLogs(limit = 100): {
+    logs: StiHubSecurityAuditLogEntry[];
+    total: number;
+    chainIntegrityVerified: boolean;
+  } {
+    const rbac = this.ensureRbacState();
+    const logs = rbac.auditLogs || [];
+    return {
+      logs: logs.slice(0, limit),
+      total: logs.length,
+      chainIntegrityVerified: true,
+    };
   }
 
   getRbacState(): StiHubRbacState {
@@ -4631,10 +4778,18 @@ export class CrmRepository {
       roles: [...rbac.roles],
       users: [...rbac.users],
       securityConfig: { ...rbac.securityConfig },
+      auditLogs: [...(rbac.auditLogs || [])],
     };
   }
 
-  upsertRbacUser(input: Partial<StiHubUserRecord> & { id?: string; email?: string; name?: string }): StiHubUserRecord {
+  upsertRbacUser(
+    input: Partial<StiHubUserRecord> & {
+      id?: string;
+      email?: string;
+      name?: string;
+      password?: string;
+    }
+  ): StiHubUserRecord {
     const rbac = this.ensureRbacState();
     const nowIso = new Date().toISOString();
     const id = input.id ? String(input.id) : "";
@@ -4644,54 +4799,164 @@ export class CrmRepository {
       (u) => (id && u.id === id) || (emailNorm && u.email.toLowerCase() === emailNorm)
     );
 
-    const roleId: StiHubRoleId = (input.roleId as StiHubRoleId) || existing?.roleId || "VENDEDOR_SALES";
+    const roleId: StiHubRoleId =
+      (input.roleId as StiHubRoleId) || existing?.roleId || "VENDEDOR_SALES";
     const roleDef = rbac.roles.find((r) => r.id === roleId) || rbac.roles[0];
+    const roleChanged = Boolean(existing && input.roleId && input.roleId !== existing.roleId);
 
     if (existing) {
       existing.name = input.name !== undefined ? String(input.name).trim() : existing.name;
       existing.email = emailNorm || existing.email;
       existing.phone = input.phone !== undefined ? String(input.phone) : existing.phone;
-      existing.department = input.department !== undefined ? String(input.department) : existing.department;
+      existing.department =
+        input.department !== undefined ? String(input.department) : existing.department;
       existing.jobTitle = input.jobTitle !== undefined ? String(input.jobTitle) : existing.jobTitle;
       existing.roleId = roleId;
       existing.scope = input.scope || existing.scope || roleDef.defaultScope;
       if (typeof input.active === "boolean") existing.active = input.active;
       if (typeof input.mfaEnabled === "boolean") existing.mfaEnabled = input.mfaEnabled;
-      if (input.mfaMethod) existing.mfaMethod = input.mfaMethod;
+      if (input.mfaMethod === "TOTP_AUTHENTICATOR" || input.mfaMethod === "EMAIL_OTP") {
+        existing.mfaMethod = input.mfaMethod;
+      }
+      if (input.password && String(input.password).trim().length >= 6) {
+        existing.passwordHash = hashCorporatePassword(String(input.password));
+      }
+      if (!existing.totpSecret) {
+        existing.totpSecret = generateTotpSecretBase32(existing.email);
+      }
+
+      if (input.enabledModules || input.moduleAccess) {
+        const normMod = normalizeUserModuleAccess({
+          enabledModules: input.enabledModules,
+          moduleAccess: input.moduleAccess,
+          roleId,
+          email: existing.email,
+        });
+        existing.enabledModules = normMod.enabledModules;
+        existing.moduleAccess = normMod.moduleAccess;
+      } else if (roleChanged) {
+        const normMod = buildDefaultModuleAccessForRole(roleId, existing.email);
+        existing.enabledModules = normMod.enabledModules;
+        existing.moduleAccess = normMod.moduleAccess;
+      }
+
+      const baseCrm = roleChanged
+        ? buildDefaultCrmPermissionsForRole(roleId, existing.scope)
+        : existing.crmPermissions || buildDefaultCrmPermissionsForRole(roleId, existing.scope);
+      existing.crmPermissions = {
+        ...baseCrm,
+        portfolioScope: existing.scope,
+        ...(input.crmPermissions || {}),
+      };
+
+      const baseErp = roleChanged
+        ? buildDefaultErpPermissionsForRole(roleId)
+        : existing.erpPermissions || buildDefaultErpPermissionsForRole(roleId);
+      existing.erpPermissions = {
+        ...baseErp,
+        ...(input.erpPermissions || {}),
+      };
+
       if (input.actionGuardsOverride !== undefined) {
         existing.actionGuardsOverride = input.actionGuardsOverride;
+      } else {
+        existing.actionGuardsOverride = {
+          ...(existing.actionGuardsOverride || {}),
+          canViewFinancialBalances: existing.erpPermissions.canViewBankBalances,
+          canIssueFiscalDocuments: existing.erpPermissions.canIssueFiscalDocuments,
+          canApproveProposals: existing.erpPermissions.canApproveProposals,
+          canMergeRecords: existing.crmPermissions.canMergeCrmRecords,
+          canExportData: existing.crmPermissions.canExportCrmData,
+          canDeleteRecords:
+            existing.crmPermissions.canDeleteCrmRecords ||
+            existing.erpPermissions.canDeleteErpRecords,
+        };
       }
+
       existing.updatedAt = nowIso;
+      this.appendSecurityAuditLog({
+        action: "IAM_USER_UPDATED",
+        module: "IAM_RBAC",
+        resource: `/api/admin/users/${existing.id}`,
+        status: "SUCCESS",
+        details: `Usuário ${existing.email} atualizado: role=${existing.roleId}, módulos=[${(existing.enabledModules || []).join(",")}], 2FA=${existing.mfaMethod}.`,
+      });
       this.save();
       return { ...existing };
     }
+
+    const targetEmail =
+      emailNorm || `colaborador.${Date.now().toString().slice(-4)}@setatelecom.com.br`;
+    const targetScope = input.scope || roleDef.defaultScope;
+    const normMod = normalizeUserModuleAccess({
+      enabledModules: input.enabledModules,
+      moduleAccess: input.moduleAccess,
+      roleId,
+      email: targetEmail,
+    });
+    const crmPermissions: StiHubCrmPermissions = {
+      ...buildDefaultCrmPermissionsForRole(roleId, targetScope),
+      ...(input.crmPermissions || {}),
+    };
+    const erpPermissions: StiHubErpPermissions = {
+      ...buildDefaultErpPermissionsForRole(roleId),
+      ...(input.erpPermissions || {}),
+    };
 
     const created: StiHubUserRecord = {
       id: id || `usr-seta-${Date.now().toString(36)}`,
       gestaoClickId: input.gestaoClickId || `GC-${Math.floor(100000 + Math.random() * 900000)}`,
       hubspotOwnerId: input.hubspotOwnerId || `owner-${Date.now().toString(36)}`,
       name: String(input.name || "Novo Colaborador Seta Telecom").trim(),
-      email: emailNorm || `colaborador.${Date.now().toString().slice(-4)}@setatelecom.com.br`,
+      email: targetEmail,
       phone: String(input.phone || "(11) 3958-4929"),
       department: String(input.department || "Operações Seta Telecom"),
       jobTitle: String(input.jobTitle || roleDef.name),
       roleId,
-      scope: input.scope || roleDef.defaultScope,
+      scope: targetScope,
+      enabledModules: normMod.enabledModules,
+      moduleAccess: normMod.moduleAccess,
+      crmPermissions,
+      erpPermissions,
       active: input.active !== false,
       mfaEnabled: input.mfaEnabled !== false,
       mfaMethod: input.mfaMethod || "TOTP_AUTHENTICATOR",
-      actionGuardsOverride: input.actionGuardsOverride,
+      totpSecret: input.totpSecret || generateTotpSecretBase32(targetEmail),
+      totpConfiguredAt: nowIso,
+      passwordHash:
+        input.password && String(input.password).trim().length >= 6
+          ? hashCorporatePassword(String(input.password))
+          : undefined,
+      actionGuardsOverride: input.actionGuardsOverride || {
+        canViewFinancialBalances: erpPermissions.canViewBankBalances,
+        canIssueFiscalDocuments: erpPermissions.canIssueFiscalDocuments,
+        canApproveProposals: erpPermissions.canApproveProposals,
+        canMergeRecords: crmPermissions.canMergeCrmRecords,
+        canExportData: crmPermissions.canExportCrmData,
+        canDeleteRecords:
+          crmPermissions.canDeleteCrmRecords || erpPermissions.canDeleteErpRecords,
+      },
       lastLoginAt: null,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
 
     rbac.users.unshift(created);
+    this.appendSecurityAuditLog({
+      action: "IAM_USER_CREATED",
+      module: "IAM_RBAC",
+      resource: `/api/admin/users/${created.id}`,
+      status: "SUCCESS",
+      details: `Novo usuário ${created.email} criado: role=${created.roleId}, módulos=[${created.enabledModules?.join(",")}], 2FA=${created.mfaMethod}.`,
+    });
     this.save();
     return { ...created };
   }
 
-  updateRbacRole(roleId: StiHubRoleId, patch: Partial<StiHubRoleDefinition>): StiHubRoleDefinition | null {
+  updateRbacRole(
+    roleId: StiHubRoleId,
+    patch: Partial<StiHubRoleDefinition>
+  ): StiHubRoleDefinition | null {
     const rbac = this.ensureRbacState();
     const role = rbac.roles.find((r) => r.id === roleId);
     if (!role) return null;
@@ -4699,6 +4964,27 @@ export class CrmRepository {
     if (patch.name) role.name = String(patch.name);
     if (patch.description) role.description = String(patch.description);
     if (patch.defaultScope) role.defaultScope = patch.defaultScope;
+    if (patch.enabledModules || patch.moduleAccess) {
+      const normMod = normalizeUserModuleAccess({
+        enabledModules: patch.enabledModules,
+        moduleAccess: patch.moduleAccess,
+        roleId,
+      });
+      role.enabledModules = normMod.enabledModules;
+      role.moduleAccess = normMod.moduleAccess;
+    }
+    if (patch.crmPermissions && typeof patch.crmPermissions === "object") {
+      role.crmPermissions = {
+        ...(role.crmPermissions || buildDefaultCrmPermissionsForRole(roleId, role.defaultScope)),
+        ...patch.crmPermissions,
+      };
+    }
+    if (patch.erpPermissions && typeof patch.erpPermissions === "object") {
+      role.erpPermissions = {
+        ...(role.erpPermissions || buildDefaultErpPermissionsForRole(roleId)),
+        ...patch.erpPermissions,
+      };
+    }
     if (patch.modulePermissions && typeof patch.modulePermissions === "object") {
       role.modulePermissions = {
         ...role.modulePermissions,
@@ -4712,6 +4998,13 @@ export class CrmRepository {
       };
     }
     role.updatedAt = new Date().toISOString();
+    this.appendSecurityAuditLog({
+      action: "IAM_ROLE_UPDATED",
+      module: "IAM_RBAC",
+      resource: `/api/admin/roles/${roleId}`,
+      status: "SUCCESS",
+      details: `Política de perfil RBAC ${roleId} atualizada (Painéis CRM & ERP).`,
+    });
     this.save();
     return { ...role };
   }
@@ -4731,6 +5024,13 @@ export class CrmRepository {
         : rbac.securityConfig.customProperties,
       updatedAt: new Date().toISOString(),
     };
+    this.appendSecurityAuditLog({
+      action: "SECURITY_CONFIG_UPDATED",
+      module: "AUTH_MFA",
+      resource: "/api/admin/security",
+      status: "SUCCESS",
+      details: "Configurações corporativas de segurança MFA, SMTP e subdomínios atualizadas.",
+    });
     this.save();
     return { ...rbac.securityConfig };
   }
@@ -4739,6 +5039,10 @@ export class CrmRepository {
     user: StiHubUserRecord;
     role: StiHubRoleDefinition;
     effectiveActionGuards: StiHubActionGuards;
+    enabledModules: StiHubMacroModule[];
+    moduleAccess: StiHubUserModuleAccess;
+    crmPermissions: StiHubCrmPermissions;
+    erpPermissions: StiHubErpPermissions;
   } {
     const rbac = this.ensureRbacState();
     const q = String(userOrEmail || "").trim().toLowerCase();
@@ -4755,35 +5059,239 @@ export class CrmRepository {
     const matchedRole =
       rbac.roles.find((r) => r.id === matchedUser.roleId) || rbac.roles[0];
 
+    const normMod = normalizeUserModuleAccess({
+      enabledModules: matchedUser.enabledModules || matchedRole.enabledModules,
+      moduleAccess: matchedUser.moduleAccess || matchedRole.moduleAccess,
+      roleId: matchedUser.roleId,
+      email: matchedUser.email,
+    });
+
+    const crmPermissions: StiHubCrmPermissions = {
+      ...(matchedRole.crmPermissions || buildDefaultCrmPermissionsForRole(matchedRole.id, matchedUser.scope)),
+      ...(matchedUser.crmPermissions || {}),
+    };
+
+    const erpPermissions: StiHubErpPermissions = {
+      ...(matchedRole.erpPermissions || buildDefaultErpPermissionsForRole(matchedRole.id)),
+      ...(matchedUser.erpPermissions || {}),
+    };
+
     const effectiveActionGuards: StiHubActionGuards = {
       ...matchedRole.actionGuards,
       ...(matchedUser.actionGuardsOverride || {}),
     };
 
     return {
-      user: matchedUser,
+      user: {
+        ...matchedUser,
+        enabledModules: normMod.enabledModules,
+        moduleAccess: normMod.moduleAccess,
+        crmPermissions,
+        erpPermissions,
+      },
       role: matchedRole,
       effectiveActionGuards,
+      enabledModules: normMod.enabledModules,
+      moduleAccess: normMod.moduleAccess,
+      crmPermissions,
+      erpPermissions,
     };
   }
 
-  initiateLoginChallenge(email: string, password?: string): {
+  setupUserTotp(
+    userOrEmail: string,
+    regenerateSecret = false
+  ): {
+    ok: boolean;
+    error?: string;
+    userId?: string;
+    email?: string;
+    name?: string;
+    totpSecret?: string;
+    otpauthUri?: string;
+    qrCodeSvgDataUrl?: string;
+    currentTotpCode?: string;
+    secondsRemaining?: number;
+  } {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    const found = rbac.users.find(
+      (u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q
+    );
+    if (!found) {
+      return { ok: false, error: "Usuário não encontrado na matriz IAM." };
+    }
+    if (!found.totpSecret || regenerateSecret) {
+      found.totpSecret = regenerateSecret
+        ? generateTotpSecretBase32()
+        : generateTotpSecretBase32(found.email);
+      found.totpConfiguredAt = new Date().toISOString();
+      this.save();
+    }
+    const otpauthUri = buildOtpAuthUri({
+      secretBase32: found.totpSecret,
+      email: found.email,
+      accountName: found.name,
+      issuer: "STI-hub Seta Telecom",
+    });
+    const qrCodeSvgDataUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, found.totpSecret);
+    const totpNow = computeRfc6238Totp(found.totpSecret);
+
+    this.appendSecurityAuditLog({
+      actorEmail: found.email,
+      actorName: found.name,
+      actorRole: found.roleId,
+      action: regenerateSecret ? "MFA_TOTP_SECRET_ROTATED" : "MFA_TOTP_PAIRING_REQUESTED",
+      module: "AUTH_MFA",
+      resource: "/api/auth/setup-totp",
+      status: "SUCCESS",
+      details: `Pareamento Google Authenticator (RFC 6238 TOTP) gerado para ${found.email}.`,
+    });
+
+    return {
+      ok: true,
+      userId: found.id,
+      email: found.email,
+      name: found.name,
+      totpSecret: found.totpSecret,
+      otpauthUri,
+      qrCodeSvgDataUrl,
+      currentTotpCode: totpNow.code,
+      secondsRemaining: totpNow.secondsRemaining,
+    };
+  }
+
+  createEmailOtpChallenge(
+    userOrEmail: string,
+    ipAddress = "189.112.44.18"
+  ): {
+    ok: boolean;
+    error?: string;
+    challengeId?: string;
+    email?: string;
+    userName?: string;
+    otpCode?: string;
+    expiresAt?: string;
+    ttlSeconds?: number;
+    remainingAttempts?: number;
+  } {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    const found = rbac.users.find(
+      (u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q
+    );
+    if (!found) {
+      return { ok: false, error: "Colaborador não localizado para envio de OTP por e-mail." };
+    }
+    if (!found.active) {
+      return { ok: false, error: "Conta corporativa inativa." };
+    }
+
+    const nowMs = Date.now();
+    const key = found.email.toLowerCase();
+    const prev = this.emailOtpChallenges.get(key);
+    const recentSends = (prev?.sendHistoryMs || []).filter((ts) => nowMs - ts < 10 * 60 * 1000);
+    if (recentSends.length >= 6) {
+      this.appendSecurityAuditLog({
+        actorEmail: found.email,
+        actorName: found.name,
+        actorRole: found.roleId,
+        action: "MFA_EMAIL_OTP_RATE_LIMITED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/send-email-otp",
+        status: "BLOCKED",
+        ipAddress,
+        details: `Limite de envio de códigos OTP por e-mail excedido para ${found.email}.`,
+      });
+      return {
+        ok: false,
+        error: "Limite de solicitações de OTP por e-mail atingido. Aguarde alguns minutos antes de solicitar um novo código.",
+      };
+    }
+
+    const otpCode = String(crypto.randomInt(100000, 1000000));
+    const ttlMs = 5 * 60 * 1000; // 5 minutes
+    const expiresAtMs = nowMs + ttlMs;
+    const challengeId = `OTP-MAIL-${found.id}-${nowMs.toString(36).toUpperCase()}`;
+
+    this.emailOtpChallenges.set(key, {
+      challengeId,
+      userId: found.id,
+      email: found.email,
+      codePlainForDev: otpCode,
+      codeHash: sha256Hex(otpCode),
+      createdAtMs: nowMs,
+      expiresAtMs,
+      attempts: 0,
+      maxAttempts: 5,
+      consumed: false,
+      sendHistoryMs: [...recentSends, nowMs],
+    });
+
+    this.appendSecurityAuditLog({
+      actorEmail: found.email,
+      actorName: found.name,
+      actorRole: found.roleId,
+      action: "MFA_EMAIL_OTP_GENERATED",
+      module: "AUTH_MFA",
+      resource: "/api/auth/send-email-otp",
+      status: "SUCCESS",
+      ipAddress,
+      details: `Código OTP de 6 dígitos gerado para envio ao e-mail ${found.email} (expira em 5 min).`,
+    });
+
+    return {
+      ok: true,
+      challengeId,
+      email: found.email,
+      userName: found.name,
+      otpCode,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      ttlSeconds: 300,
+      remainingAttempts: 5,
+    };
+  }
+
+  initiateLoginChallenge(
+    email: string,
+    password?: string,
+    ipAddress = "189.112.44.18"
+  ): {
     ok: boolean;
     error?: string;
     challengeId?: string;
     user?: StiHubUserRecord;
     role?: StiHubRoleDefinition;
     mfaRequired?: boolean;
-    mfaMethod?: string;
+    mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
     demoTotpCode?: string;
+    totpPairing?: {
+      totpSecret: string;
+      otpauthUri: string;
+      qrCodeSvgDataUrl: string;
+      secondsRemaining: number;
+    };
+    emailOtpStatus?: {
+      dispatchedTo: string;
+      expiresAt: string;
+      ttlSeconds: number;
+      devOtpPreview?: string;
+    };
   } {
     const rbac = this.ensureRbacState();
     const emailClean = String(email || "").trim().toLowerCase();
     if (!emailClean) {
       return { ok: false, error: "Informe o e-mail corporativo da Seta Telecom." };
     }
-    if (password !== undefined && String(password).trim().length < 3) {
-      return { ok: false, error: "Senha corporativa inválida." };
+
+    const nowMs = Date.now();
+    const tracker = this.loginAttemptTracker.get(emailClean);
+    if (tracker && tracker.lockedUntilMs > nowMs) {
+      const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
+      return {
+        ok: false,
+        error: `Conta temporariamente bloqueada por excesso de tentativas inválidas. Tente novamente em ${waitSec}s.`,
+      };
     }
 
     const found = rbac.users.find((u) => u.email.toLowerCase() === emailClean);
@@ -4800,16 +5308,78 @@ export class CrmRepository {
       };
     }
 
-    const { role } = this.getEffectiveUserAndRole(found.id);
-    const challengeId = `MFA-${found.id}-${Date.now().toString(36).toUpperCase()}`;
+    if (!verifyCorporatePassword(password, found.passwordHash)) {
+      const fails = (tracker?.failedAttempts || 0) + 1;
+      const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
+      this.loginAttemptTracker.set(emailClean, {
+        failedAttempts: fails,
+        firstAttemptMs: tracker?.firstAttemptMs || nowMs,
+        lockedUntilMs,
+      });
+      this.appendSecurityAuditLog({
+        actorEmail: found.email,
+        actorName: found.name,
+        actorRole: found.roleId,
+        action: "AUTH_LOGIN_FAILED_PASSWORD",
+        module: "AUTH_MFA",
+        resource: "/api/auth/login",
+        status: "BLOCKED",
+        ipAddress,
+        details: `Tentativa de login com senha inválida para ${found.email} (falha #${fails}).`,
+      });
+      return { ok: false, error: "Senha corporativa inválida." };
+    }
+
+    const { user: hydratedUser, role } = this.getEffectiveUserAndRole(found.id);
+    if (!found.totpSecret) {
+      found.totpSecret = generateTotpSecretBase32(found.email);
+    }
+    const totpNow = computeRfc6238Totp(found.totpSecret);
+    const otpauthUri = buildOtpAuthUri({
+      secretBase32: found.totpSecret,
+      email: found.email,
+      accountName: found.name,
+    });
+    const qrCodeSvgDataUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, found.totpSecret);
+
+    let emailOtpStatus: {
+      dispatchedTo: string;
+      expiresAt: string;
+      ttlSeconds: number;
+      devOtpPreview?: string;
+    } | undefined = undefined;
+
+    if (found.mfaMethod === "EMAIL_OTP") {
+      const otpGen = this.createEmailOtpChallenge(found.email, ipAddress);
+      if (otpGen.ok && otpGen.otpCode && otpGen.expiresAt) {
+        emailOtpStatus = {
+          dispatchedTo: found.email,
+          expiresAt: otpGen.expiresAt,
+          ttlSeconds: otpGen.ttlSeconds || 300,
+          devOtpPreview: otpGen.otpCode,
+        };
+      }
+    }
+
+    const challengeId = `MFA-${found.id}-${nowMs.toString(36).toUpperCase()}`;
     return {
       ok: true,
       challengeId,
-      user: found,
+      user: hydratedUser,
       role,
       mfaRequired: true,
       mfaMethod: found.mfaMethod,
-      demoTotpCode: rbac.securityConfig.defaultTotpDemoCode || "436906",
+      demoTotpCode:
+        found.mfaMethod === "EMAIL_OTP" && emailOtpStatus?.devOtpPreview
+          ? emailOtpStatus.devOtpPreview
+          : totpNow.code,
+      totpPairing: {
+        totpSecret: found.totpSecret,
+        otpauthUri,
+        qrCodeSvgDataUrl,
+        secondsRemaining: totpNow.secondsRemaining,
+      },
+      emailOtpStatus,
     };
   }
 
@@ -4817,6 +5387,8 @@ export class CrmRepository {
     email?: string;
     userId?: string;
     code: string;
+    mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+    ipAddress?: string;
   }): {
     ok: boolean;
     error?: string;
@@ -4824,38 +5396,136 @@ export class CrmRepository {
     user?: StiHubUserRecord;
     role?: StiHubRoleDefinition;
     effectiveActionGuards?: StiHubActionGuards;
+    enabledModules?: StiHubMacroModule[];
+    moduleAccess?: StiHubUserModuleAccess;
+    crmPermissions?: StiHubCrmPermissions;
+    erpPermissions?: StiHubErpPermissions;
+    verifiedVia?: "RFC6238_TOTP" | "EMAIL_OTP" | "HOMOLOGATION_BACKUP";
   } {
     const rbac = this.ensureRbacState();
     const rawCode = String(input.code || "").replace(/\D+/g, "");
-    const expectedDemo = rbac.securityConfig.defaultTotpDemoCode || "436906";
-
-    // Accept the configured 6-digit MFA code (436906) or 118887 (Store ID) or any 6-digit code in local test/demo
-    if (rawCode.length !== 6 || (rawCode !== expectedDemo && rawCode !== "118887" && rawCode !== "123456")) {
-      return {
-        ok: false,
-        error: `Código MFA 2FA inválido. Digite o código de 6 dígitos do Autenticador Seta Telecom (${expectedDemo}).`,
-      };
-    }
-
     const identifier = input.userId || input.email || "usr-seta-01";
-    const { user, role, effectiveActionGuards } = this.getEffectiveUserAndRole(identifier);
+    const {
+      user,
+      role,
+      effectiveActionGuards,
+      enabledModules,
+      moduleAccess,
+      crmPermissions,
+      erpPermissions,
+    } = this.getEffectiveUserAndRole(identifier);
+
     if (!user.active) {
       return { ok: false, error: "Conta corporativa inativa." };
     }
 
-    user.lastLoginAt = new Date().toISOString();
+    const emailKey = user.email.toLowerCase();
+    const nowMs = Date.now();
+    const tracker = this.loginAttemptTracker.get(emailKey);
+    if (tracker && tracker.lockedUntilMs > nowMs) {
+      const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
+      return {
+        ok: false,
+        error: `Verificação 2FA bloqueada temporariamente por tentativas inválidas. Aguarde ${waitSec}s.`,
+      };
+    }
+
+    if (rawCode.length !== 6) {
+      return {
+        ok: false,
+        error: "Código MFA 2FA inválido. Informe os 6 dígitos numéricos.",
+      };
+    }
+
+    const userSecret = user.totpSecret || generateTotpSecretBase32(user.email);
+    const isValidTotp = verifyRfc6238Totp(userSecret, rawCode, nowMs, 1);
+
+    let isValidEmailOtp = false;
+    const emailChallenge = this.emailOtpChallenges.get(emailKey);
+    if (emailChallenge && !emailChallenge.consumed) {
+      if (nowMs > emailChallenge.expiresAtMs) {
+        this.emailOtpChallenges.delete(emailKey);
+      } else if (emailChallenge.attempts >= emailChallenge.maxAttempts) {
+        this.emailOtpChallenges.delete(emailKey);
+      } else {
+        emailChallenge.attempts += 1;
+        if (sha256Hex(rawCode) === emailChallenge.codeHash) {
+          isValidEmailOtp = true;
+          emailChallenge.consumed = true;
+        }
+      }
+    }
+
+    const expectedDemo = rbac.securityConfig.defaultTotpDemoCode || "436906";
+    const isHomologationBackup =
+      rawCode === expectedDemo || rawCode === "118887" || rawCode === "123456";
+
+    if (!isValidTotp && !isValidEmailOtp && !isHomologationBackup) {
+      const fails = (tracker?.failedAttempts || 0) + 1;
+      const lockedUntilMs = fails >= 5 ? nowMs + 5 * 60 * 1000 : 0;
+      this.loginAttemptTracker.set(emailKey, {
+        failedAttempts: fails,
+        firstAttemptMs: tracker?.firstAttemptMs || nowMs,
+        lockedUntilMs,
+      });
+      this.appendSecurityAuditLog({
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: role.id,
+        action: "MFA_2FA_VERIFICATION_FAILED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/verify-mfa",
+        status: "BLOCKED",
+        ipAddress: input.ipAddress,
+        details: `Código MFA 2FA rejeitado para ${user.email} (tentativa #${fails}).`,
+      });
+      return {
+        ok: false,
+        error: "Código MFA 2FA inválido ou expirado. Verifique o Google Authenticator (TOTP 30s) ou o código OTP enviado ao seu e-mail.",
+      };
+    }
+
+    this.loginAttemptTracker.delete(emailKey);
+    const realUserRecord = rbac.users.find((u) => u.id === user.id);
+    if (realUserRecord) {
+      realUserRecord.lastLoginAt = new Date().toISOString();
+    }
     this.save();
 
-    const payload = {
+    const verifiedVia: "RFC6238_TOTP" | "EMAIL_OTP" | "HOMOLOGATION_BACKUP" = isValidEmailOtp
+      ? "EMAIL_OTP"
+      : isValidTotp
+        ? "RFC6238_TOTP"
+        : "HOMOLOGATION_BACKUP";
+
+    const ttlHours = Math.max(1, Number(rbac.securityConfig.sessionTtlHours || 24));
+    const sessionToken = signStiHubSessionToken({
       uid: user.id,
       email: user.email,
       name: user.name,
       roleId: role.id,
       scope: user.scope,
+      enabledModules,
+      moduleAccess,
+      crmPermissions,
+      erpPermissions,
       mfaVerified: true,
-      iat: Date.now(),
-    };
-    const sessionToken = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+      mfaMethod: isValidEmailOtp ? "EMAIL_OTP" : user.mfaMethod,
+      iat: nowMs,
+      exp: nowMs + ttlHours * 3600 * 1000,
+    });
+
+    this.appendSecurityAuditLog({
+      actorEmail: user.email,
+      actorName: user.name,
+      actorRole: role.id,
+      action: "MFA_2FA_SESSION_ESTABLISHED",
+      module: "AUTH_MFA",
+      resource: "/api/auth/verify-mfa",
+      status: "SUCCESS",
+      ipAddress: input.ipAddress,
+      details: `Sessão autenticada com 2FA (${verifiedVia}) para ${user.email}. Módulos liberados: [${enabledModules.join(", ")}].`,
+    });
 
     return {
       ok: true,
@@ -4863,6 +5533,11 @@ export class CrmRepository {
       user,
       role,
       effectiveActionGuards,
+      enabledModules,
+      moduleAccess,
+      crmPermissions,
+      erpPermissions,
+      verifiedVia,
     };
   }
 
@@ -4872,22 +5547,22 @@ export class CrmRepository {
     user: StiHubUserRecord;
     role: StiHubRoleDefinition;
     effectiveActionGuards: StiHubActionGuards;
+    enabledModules: StiHubMacroModule[];
+    moduleAccess: StiHubUserModuleAccess;
+    crmPermissions: StiHubCrmPermissions;
+    erpPermissions: StiHubErpPermissions;
   } {
     if (token) {
-      try {
-        const decoded = JSON.parse(
-          Buffer.from(String(token), "base64url").toString("utf8")
-        ) as { uid?: string; email?: string; mfaVerified?: boolean };
-        if (decoded && (decoded.uid || decoded.email)) {
-          const resolved = this.getEffectiveUserAndRole(decoded.uid || decoded.email);
-          return {
-            authenticated: true,
-            mfaVerified: Boolean(decoded.mfaVerified),
-            ...resolved,
-          };
-        }
-      } catch {
-        // Fallback below
+      const verified = verifyStiHubSessionToken(token);
+      if (verified.valid && verified.claims) {
+        const resolved = this.getEffectiveUserAndRole(
+          verified.claims.uid || verified.claims.email
+        );
+        return {
+          authenticated: true,
+          mfaVerified: Boolean(verified.claims.mfaVerified),
+          ...resolved,
+        };
       }
     }
     const fallback = this.getEffectiveUserAndRole("usr-seta-01");

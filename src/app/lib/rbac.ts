@@ -12,6 +12,18 @@ export type StiHubRole =
   | 'SUPPORT_NOC_OS'
   | 'PDV_STOCK_OPERATOR';
 
+export interface CrmHubSpotPanelPermissions {
+  portfolioScope: 'ALL' | 'TEAM' | 'OWN_ONLY';
+  manageContacts: boolean;
+  manageCompanies: boolean;
+  manageDealsFunnel: boolean;
+  manageTicketsServiceDesk: boolean;
+  manageMarketingAndWorkflows: boolean;
+  exportCrmData: boolean;
+  mergeCrmDuplicates: boolean;
+  deleteCrmRecords: boolean;
+}
+
 export interface RolePermissionsMatrix {
   role: StiHubRole;
   label: string;
@@ -19,6 +31,9 @@ export interface RolePermissionsMatrix {
   description: string;
   portfolioScope: 'ALL' | 'OWN_ONLY';
   maxDiscountPercent: number;
+  enabledModules?: Array<'CRM' | 'ERP' | 'CHAMADOS'>;
+  moduleAccess?: { crm: boolean; erp: boolean; chamados: boolean };
+  crmPermissions?: CrmHubSpotPanelPermissions;
   modules: {
     OVERVIEW_AI: boolean;
     DEALS_KANBAN: boolean; // Sales Hub
@@ -272,6 +287,9 @@ export interface StiHubUserAccount {
   phone: string;
   hubspotOwnerId?: string;
   gestaoClickUserId?: string;
+  enabledModules?: Array<'CRM' | 'ERP' | 'CHAMADOS'>;
+  moduleAccess?: { crm: boolean; erp: boolean; chamados: boolean };
+  totpSecret?: string;
   mfaEnabled: boolean;
   mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
   active: boolean;

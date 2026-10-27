@@ -14,7 +14,10 @@ export async function forwardToCrmRouter(
     query[k] = v;
   });
 
-  const sessionCookie = req.cookies.get('stihub_session')?.value;
+  const sessionCookie =
+    req.cookies.get('stihub_session')?.value ||
+    req.headers.get('x-stihub-session') ||
+    undefined;
   if (sessionCookie && !query._sessionToken) {
     query._sessionToken = sessionCookie;
   }
@@ -39,6 +42,9 @@ export async function forwardToCrmRouter(
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
     Pragma: 'no-cache',
     Expires: '0',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...(res.headers || {}),
   };
 

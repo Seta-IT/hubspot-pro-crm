@@ -40,6 +40,7 @@ import {
   TrendingUp,
   AlertTriangle,
   History,
+  Pencil,
 } from 'lucide-react';
 import {
   Company,
@@ -315,7 +316,9 @@ export default function ErpGestaoClickTab({
     title: string;
     initialValues: Record<string, unknown>;
     fields: GenericFieldSpec[];
+    readOnly?: boolean;
     onSave: (values: Record<string, unknown>) => Promise<void>;
+    onDelete?: () => Promise<void>;
   } | null>(null);
   const [hideBalances, setHideBalances] = useState(false);
   const [cadastrosSubTab, setCadastrosSubTab] = useState<
@@ -364,6 +367,7 @@ export default function ErpGestaoClickTab({
   const [editingCustomerModal, setEditingCustomerModal] = useState<{
     company: Partial<Company> | null;
     isNew: boolean;
+    readOnly?: boolean;
   } | null>(null);
   const [editingProductModal, setEditingProductModal] = useState<{
     item: Partial<ErpCatalogItem>;
@@ -976,12 +980,24 @@ export default function ErpGestaoClickTab({
     collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
     title: string,
     initialValues: Record<string, unknown>,
-    fields: GenericFieldSpec[]
+    fields: GenericFieldSpec[],
+    options?: { readOnly?: boolean; deleteId?: string; deleteLabel?: string }
   ) => {
     setGenericModal({
       title,
       initialValues,
       fields,
+      readOnly: options?.readOnly,
+      onDelete: options?.deleteId
+        ? async () => {
+            await handleDeleteCollectionRecord(
+              collection,
+              options.deleteId!,
+              options.deleteLabel || title
+            );
+            setGenericModal(null);
+          }
+        : undefined,
       onSave: async (values) => {
         const payload = { ...initialValues, ...values };
         const res = await fetch(`/api/erp/records/${collection}`, {
@@ -3869,13 +3885,30 @@ export default function ErpGestaoClickTab({
                   {cadastrosSubTab === 'CLIENTES' && (() => {
                     const selComp = companies.find((c) => c.id === selectedCadastroId) || companies[0];
                     return selComp ? (
-                      <button
-                        type="button"
-                        onClick={() => setEditingCustomerModal({ company: selComp, isNew: false })}
-                        className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
-                      >
-                        Editar / Abrir Cadastro ({selComp.name.slice(0, 22)})
-                      </button>
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          title={`Consultar / Visualizar Cadastro (${selComp.name})`}
+                          aria-label="Consultar Cadastro Selecionado"
+                          onClick={() =>
+                            setEditingCustomerModal({ company: selComp, isNew: false, readOnly: true })
+                          }
+                          className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 shadow-2xs cursor-pointer"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title={`Editar Cadastro (${selComp.name})`}
+                          aria-label="Editar Cadastro Selecionado"
+                          onClick={() =>
+                            setEditingCustomerModal({ company: selComp, isNew: false, readOnly: false })
+                          }
+                          className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white shadow-2xs cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                        </button>
+                      </div>
                     ) : null;
                   })()}
                   {cadastrosSubTab === 'CLIENTES' && (
@@ -4033,15 +4066,30 @@ export default function ErpGestaoClickTab({
                               </td>
                               <td className="py-2.5 px-3 text-slate-600">{phone}</td>
                               <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  title="Abrir Ficha Completa do Cliente (Padrão GestãoClick + Consulta Receita Federal)"
-                                  onClick={() => setEditingCustomerModal({ company: c, isNew: false })}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-bold transition shadow-2xs cursor-pointer"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5 text-[#ff7a59]" />
-                                  <span>Editar / Abrir Cadastro</span>
-                                </button>
+                                <div className="inline-flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    title="Consultar / Visualizar Cadastro"
+                                    aria-label="Consultar Cadastro"
+                                    onClick={() =>
+                                      setEditingCustomerModal({ company: c, isNew: false, readOnly: true })
+                                    }
+                                    className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition shadow-2xs cursor-pointer"
+                                  >
+                                    <Search className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Editar Cadastro"
+                                    aria-label="Editar Cadastro"
+                                    onClick={() =>
+                                      setEditingCustomerModal({ company: c, isNew: false, readOnly: false })
+                                    }
+                                    className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition shadow-2xs cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -4074,28 +4122,53 @@ export default function ErpGestaoClickTab({
                         <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
                         <td className="py-2 px-3">{sup.phone}</td>
                         <td className="py-2 px-3">{sup.email}</td>
-                        <td className="py-2 px-3 text-right space-x-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openCollectionEditor('suppliers', `Editar Fornecedor — ${sup.name}`, sup as unknown as Record<string, unknown>, [
-                                { key: 'name', label: 'Nome / Razão Social' },
-                                { key: 'cnpj', label: 'CNPJ' },
-                                { key: 'phone', label: 'Telefone' },
-                                { key: 'email', label: 'E-mail' },
-                              ])
-                            }
-                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                          >
-                            ✏️ Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCollectionRecord('suppliers', sup.id, sup.name)}
-                            className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                          >
-                            🗑️
-                          </button>
+                        <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              title="Consultar / Visualizar Cadastro"
+                              aria-label="Consultar Cadastro"
+                              onClick={() =>
+                                openCollectionEditor(
+                                  'suppliers',
+                                  `Consultar Fornecedor — ${sup.name}`,
+                                  sup as unknown as Record<string, unknown>,
+                                  [
+                                    { key: 'name', label: 'Nome / Razão Social' },
+                                    { key: 'cnpj', label: 'CNPJ' },
+                                    { key: 'phone', label: 'Telefone' },
+                                    { key: 'email', label: 'E-mail' },
+                                  ],
+                                  { readOnly: true, deleteId: sup.id, deleteLabel: sup.name }
+                                )
+                              }
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                            >
+                              <Search className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Editar Cadastro"
+                              aria-label="Editar Cadastro"
+                              onClick={() =>
+                                openCollectionEditor(
+                                  'suppliers',
+                                  `Editar Fornecedor — ${sup.name}`,
+                                  sup as unknown as Record<string, unknown>,
+                                  [
+                                    { key: 'name', label: 'Nome / Razão Social' },
+                                    { key: 'cnpj', label: 'CNPJ' },
+                                    { key: 'phone', label: 'Telefone' },
+                                    { key: 'email', label: 'E-mail' },
+                                  ],
+                                  { readOnly: false, deleteId: sup.id, deleteLabel: sup.name }
+                                )
+                              }
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -4126,28 +4199,53 @@ export default function ErpGestaoClickTab({
                         <td className="py-2 px-3">{emp.role}</td>
                         <td className="py-2 px-3">{emp.email}</td>
                         <td className="py-2 px-3">{emp.phone}</td>
-                        <td className="py-2 px-3 text-right space-x-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openCollectionEditor('employees', `Editar Funcionário — ${emp.name}`, emp as unknown as Record<string, unknown>, [
-                                { key: 'name', label: 'Nome Completo' },
-                                { key: 'role', label: 'Cargo / Função' },
-                                { key: 'email', label: 'E-mail' },
-                                { key: 'phone', label: 'Telefone' },
-                              ])
-                            }
-                            className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                          >
-                            ✏️ Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCollectionRecord('employees', emp.id, emp.name)}
-                            className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                          >
-                            🗑️
-                          </button>
+                        <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              title="Consultar / Visualizar Cadastro"
+                              aria-label="Consultar Cadastro"
+                              onClick={() =>
+                                openCollectionEditor(
+                                  'employees',
+                                  `Consultar Funcionário — ${emp.name}`,
+                                  emp as unknown as Record<string, unknown>,
+                                  [
+                                    { key: 'name', label: 'Nome Completo' },
+                                    { key: 'role', label: 'Cargo / Função' },
+                                    { key: 'email', label: 'E-mail' },
+                                    { key: 'phone', label: 'Telefone' },
+                                  ],
+                                  { readOnly: true, deleteId: emp.id, deleteLabel: emp.name }
+                                )
+                              }
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                            >
+                              <Search className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Editar Cadastro"
+                              aria-label="Editar Cadastro"
+                              onClick={() =>
+                                openCollectionEditor(
+                                  'employees',
+                                  `Editar Funcionário — ${emp.name}`,
+                                  emp as unknown as Record<string, unknown>,
+                                  [
+                                    { key: 'name', label: 'Nome Completo' },
+                                    { key: 'role', label: 'Cargo / Função' },
+                                    { key: 'email', label: 'E-mail' },
+                                    { key: 'phone', label: 'Telefone' },
+                                  ],
+                                  { readOnly: false, deleteId: emp.id, deleteLabel: emp.name }
+                                )
+                              }
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -4198,30 +4296,57 @@ export default function ErpGestaoClickTab({
                           <td className="py-2 px-3">{trp.modalFrete || 'Rodoviário / Aéreo B2B (ANTT)'}</td>
                           <td className="py-2 px-3">{trp.cityState || 'São Paulo/SP'}</td>
                           <td className="py-2 px-3">{trp.phone || trp.email}</td>
-                          <td className="py-2 px-3 text-right space-x-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openCollectionEditor('suppliers', `Editar Transportadora — ${trp.name}`, { ...trp, supplierType: 'TRANSPORTADORA' } as unknown as Record<string, unknown>, [
-                                  { key: 'name', label: 'Razão Social / Transportadora' },
-                                  { key: 'cnpj', label: 'CNPJ' },
-                                  { key: 'modalFrete', label: 'Modal / Registro ANTT' },
-                                  { key: 'cityState', label: 'Cidade / UF' },
-                                  { key: 'phone', label: 'Telefone' },
-                                  { key: 'email', label: 'E-mail' },
-                                ])
-                              }
-                              className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
-                            >
-                              ✏️ Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCollectionRecord('suppliers', trp.id, trp.name)}
-                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
-                            >
-                              🗑️
-                            </button>
+                          <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                title="Consultar / Visualizar Cadastro"
+                                aria-label="Consultar Cadastro"
+                                onClick={() =>
+                                  openCollectionEditor(
+                                    'suppliers',
+                                    `Consultar Transportadora — ${trp.name}`,
+                                    { ...trp, supplierType: 'TRANSPORTADORA' } as unknown as Record<string, unknown>,
+                                    [
+                                      { key: 'name', label: 'Razão Social / Transportadora' },
+                                      { key: 'cnpj', label: 'CNPJ' },
+                                      { key: 'modalFrete', label: 'Modal / Registro ANTT' },
+                                      { key: 'cityState', label: 'Cidade / UF' },
+                                      { key: 'phone', label: 'Telefone' },
+                                      { key: 'email', label: 'E-mail' },
+                                    ],
+                                    { readOnly: true, deleteId: trp.id, deleteLabel: trp.name }
+                                  )
+                                }
+                                className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                              >
+                                <Search className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Editar Cadastro"
+                                aria-label="Editar Cadastro"
+                                onClick={() =>
+                                  openCollectionEditor(
+                                    'suppliers',
+                                    `Editar Transportadora — ${trp.name}`,
+                                    { ...trp, supplierType: 'TRANSPORTADORA' } as unknown as Record<string, unknown>,
+                                    [
+                                      { key: 'name', label: 'Razão Social / Transportadora' },
+                                      { key: 'cnpj', label: 'CNPJ' },
+                                      { key: 'modalFrete', label: 'Modal / Registro ANTT' },
+                                      { key: 'cityState', label: 'Cidade / UF' },
+                                      { key: 'phone', label: 'Telefone' },
+                                      { key: 'email', label: 'E-mail' },
+                                    ],
+                                    { readOnly: false, deleteId: trp.id, deleteLabel: trp.name }
+                                  )
+                                }
+                                className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -5215,8 +5340,10 @@ export default function ErpGestaoClickTab({
           title={genericModal.title}
           initialValues={genericModal.initialValues}
           fields={genericModal.fields}
+          readOnly={genericModal.readOnly}
           onClose={() => setGenericModal(null)}
           onSave={genericModal.onSave}
+          onDelete={genericModal.onDelete}
         />
       )}
 
@@ -5224,6 +5351,7 @@ export default function ErpGestaoClickTab({
         <GestaoClickCompanyModal
           company={editingCustomerModal.company}
           isNew={editingCustomerModal.isNew}
+          readOnly={editingCustomerModal.readOnly}
           onClose={() => setEditingCustomerModal(null)}
           onSave={async (payload) => {
             const compId = editingCustomerModal.company?.id;

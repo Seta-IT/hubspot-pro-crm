@@ -197,6 +197,7 @@ export default function ContactsCompaniesTab({
 
   const [showNewCompanyModal, setShowNewCompanyModal] = useState(false);
   const [gestaoClickModalCompany, setGestaoClickModalCompany] = useState<EnrichedCompanyItem | null>(null);
+  const [gestaoClickModalMode, setGestaoClickModalMode] = useState<'VIEW' | 'EDIT'>('EDIT');
   const [compName, setCompName] = useState('');
   const [compDomain, setCompDomain] = useState('');
   const [compCnpj, setCompCnpj] = useState('');
@@ -1074,28 +1075,30 @@ export default function ContactsCompaniesTab({
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleSelectContact(contact.id, true)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-[11px] transition"
+                            title="Consultar / Visualizar Cadastro"
+                            aria-label="Consultar Cadastro"
+                            onClick={() => handleSelectContact(contact.id, false)}
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
                           >
-                            <Pencil className="w-3 h-3" />
-                            ✏️ Editar
+                            <Search className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Editar Cadastro"
+                            aria-label="Editar Cadastro"
+                            onClick={() => handleSelectContact(contact.id, true)}
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
                           </button>
                           <button
                             type="button"
                             disabled={isEnriching}
                             onClick={() => handleSingleEnrich(contact.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition disabled:opacity-50 cursor-pointer"
                           >
                             <Sparkles className="w-3 h-3" />
                             {isEnriching ? '...' : 'Enriquecer'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSelectContact(contact.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition"
-                          >
-                            Ficha 360°
-                            <ArrowUpRight className="w-3 h-3" />
                           </button>
                         </div>
                       </td>
@@ -1114,7 +1117,10 @@ export default function ContactsCompaniesTab({
           {filteredCompanies.map((company) => (
             <div
               key={company.id}
-              onClick={() => setGestaoClickModalCompany(company)}
+              onClick={() => {
+                setGestaoClickModalMode('VIEW');
+                setGestaoClickModalCompany(company);
+              }}
               className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-[#ff7a59] transition flex flex-col justify-between gap-4 cursor-pointer group"
             >
               <div className="space-y-3">
@@ -1189,11 +1195,27 @@ export default function ContactsCompaniesTab({
                 <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={() => setGestaoClickModalCompany(company)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-xs transition cursor-pointer"
+                    title="Consultar / Visualizar Cadastro"
+                    aria-label="Consultar Cadastro"
+                    onClick={() => {
+                      setGestaoClickModalMode('VIEW');
+                      setGestaoClickModalCompany(company);
+                    }}
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Editar Cadastro"
+                    aria-label="Editar Cadastro"
+                    onClick={() => {
+                      setGestaoClickModalMode('EDIT');
+                      setGestaoClickModalCompany(company);
+                    }}
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
                   >
                     <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
-                    Editar / Abrir Cadastro
                   </button>
                   <button
                     type="button"
@@ -1880,7 +1902,8 @@ export default function ContactsCompaniesTab({
 
       {(showNewCompanyModal || gestaoClickModalCompany) && (
         <GestaoClickCompanyModal
-          mode={gestaoClickModalCompany ? 'EDIT' : 'CREATE'}
+          mode={gestaoClickModalCompany ? gestaoClickModalMode : 'CREATE'}
+          readOnly={Boolean(gestaoClickModalCompany && gestaoClickModalMode === 'VIEW')}
           initialCompany={gestaoClickModalCompany}
           onClose={() => {
             setShowNewCompanyModal(false);

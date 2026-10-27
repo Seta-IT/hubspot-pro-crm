@@ -1973,4 +1973,25 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     });
     assert.equal(badLookupRes.status, 400);
   });
+
+  it('substitui o botão textual "Editar / Abrir Cadastro" por ícone de Lupa (Consultar Cadastro) e ícone de Lápis (Editar Cadastro) sem botão deletar nas listagens', () => {
+    const rootDir = process.cwd();
+    const ccSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ContactsCompaniesTab.tsx'), 'utf8');
+    const erpSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    const modalSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/GestaoClickCompanyModal.tsx'), 'utf8');
+
+    // Nenhum botão "Editar / Abrir Cadastro" residual
+    assert.equal(ccSrc.includes('Editar / Abrir Cadastro'), false);
+    assert.equal(erpSrc.includes('Editar / Abrir Cadastro'), false);
+
+    // Presença dos botões de Lupa (Consultar Cadastro) e Lápis (Editar Cadastro)
+    assert.ok(ccSrc.includes('aria-label="Consultar Cadastro"'));
+    assert.ok(ccSrc.includes('aria-label="Editar Cadastro"'));
+    assert.ok(erpSrc.includes('aria-label="Consultar Cadastro"'));
+    assert.ok(erpSrc.includes('aria-label="Editar Cadastro"'));
+
+    // Suporte a readOnly (modo Consulta) com botão Habilitar Edição no modal
+    assert.ok(modalSrc.includes('isReadOnly'));
+    assert.ok(modalSrc.includes('Habilitar Edição'));
+  });
 });

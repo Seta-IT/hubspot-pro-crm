@@ -13,6 +13,7 @@ import {
   X,
   AlertTriangle,
   ShieldCheck,
+  Pencil,
 } from 'lucide-react';
 import { Company } from '../../db/types';
 import {
@@ -51,7 +52,8 @@ interface GestaoClickCompanyModalProps {
   company?: Partial<Company> | null;
   initialCompany?: Partial<Company> | null;
   isNew?: boolean;
-  mode?: 'CREATE' | 'EDIT';
+  mode?: 'CREATE' | 'EDIT' | 'VIEW';
+  readOnly?: boolean;
   canDelete?: boolean;
   onClose: () => void;
   onSave: (payload: any, secondArg?: any) => Promise<void>;
@@ -63,6 +65,7 @@ export default function GestaoClickCompanyModal({
   initialCompany,
   isNew: isNewProp,
   mode,
+  readOnly: readOnlyProp = false,
   canDelete = true,
   onClose,
   onSave,
@@ -70,6 +73,9 @@ export default function GestaoClickCompanyModal({
 }: GestaoClickCompanyModalProps) {
   const company = companyProp !== undefined ? companyProp : (initialCompany ?? null);
   const isNew = isNewProp !== undefined ? isNewProp : mode === 'CREATE' || !company?.id;
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(
+    Boolean(readOnlyProp || mode === 'VIEW')
+  );
   const cp = (company?.customProperties || {}) as Record<string, unknown>;
   const firstAddr =
     !isNew && Array.isArray(cp.addresses) && cp.addresses[0]
@@ -459,17 +465,31 @@ export default function GestaoClickCompanyModal({
               <h2 className="text-sm sm:text-base font-extrabold">
                 {isNew
                   ? 'Novo Cadastro de Cliente / Empresa (Em Branco)'
-                  : `Editar Cadastro de Cliente / Empresa — ${legalName}`}
+                  : isReadOnly
+                    ? `Consultar Cadastro de Cliente / Empresa — ${legalName}`
+                    : `Editar Cadastro de Cliente / Empresa — ${legalName}`}
               </h2>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-300 hover:text-white cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isReadOnly && !isNew && (
+              <button
+                type="button"
+                onClick={() => setIsReadOnly(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Habilitar Edição</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-300 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-3 sm:p-5 space-y-4 text-xs max-h-[86vh] overflow-y-auto">
@@ -507,6 +527,7 @@ export default function GestaoClickCompanyModal({
             </div>
           )}
 
+          <fieldset disabled={isReadOnly} className="space-y-4">
           {/* BLOCO 1: DADOS GERAIS & FISCAIS */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
@@ -1176,10 +1197,12 @@ export default function GestaoClickCompanyModal({
             </div>
           </div>
 
+          </fieldset>
+
           {/* RODAPÉ COM ZONA DE SEGURANÇA */}
           <div className="sticky bottom-0 z-20 bg-white rounded-md border border-slate-200 p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
             <div>
-              {!isNew && company?.id && onDelete && canDelete && (
+              {!isNew && !isReadOnly && company?.id && onDelete && canDelete && (
                 <>
                   {!showDeleteConfirmStep ? (
                     <button
@@ -1230,26 +1253,37 @@ export default function GestaoClickCompanyModal({
                 onClick={onClose}
                 className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
-                Cancelar
+                {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
               </button>
-              <button
-                type="submit"
-                disabled={saving || !docFeedback.isValid || !legalName.trim()}
-                title={
-                  !docFeedback.isValid
-                    ? docFeedback.message
-                    : !legalName.trim()
-                      ? 'Preencha a Razão Social / Nome Completo'
-                      : 'Salvar Cadastro'
-                }
-                className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {saving
-                  ? 'Salvando Cadastro...'
-                  : isNew
-                    ? 'Cadastrar Cliente / Empresa'
-                    : 'Salvar Alterações do Cadastro'}
-              </button>
+              {isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnly(false)}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Editar Cadastro</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={saving || !docFeedback.isValid || !legalName.trim()}
+                  title={
+                    !docFeedback.isValid
+                      ? docFeedback.message
+                      : !legalName.trim()
+                        ? 'Preencha a Razão Social / Nome Completo'
+                        : 'Salvar Cadastro'
+                  }
+                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving
+                    ? 'Salvando Cadastro...'
+                    : isNew
+                      ? 'Cadastrar Cliente / Empresa'
+                      : 'Salvar Alterações do Cadastro'}
+                </button>
+              )}
             </div>
           </div>
         </form>
