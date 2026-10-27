@@ -1994,4 +1994,27 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(modalSrc.includes('isReadOnly'));
     assert.ok(modalSrc.includes('Habilitar Edição'));
   });
+
+  it('garante que Adicionar Proposta / Novo Orçamento inicia com todos os campos de cliente, A/C, título, itens e valores em branco (sem dados pré-preenchidos)', () => {
+    const rootDir = process.cwd();
+    const erpSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    const modalsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpEditModals.tsx'), 'utf8');
+
+    // Extrai o corpo de openFullNewProposalModal
+    const fnStart = erpSrc.indexOf('const openFullNewProposalModal =');
+    const fnSlice = erpSrc.slice(fnStart, fnStart + 1800);
+
+    // Deve iniciar com campos de cliente, título, careOf e itens vazios
+    assert.ok(fnSlice.includes("title: ''"), 'title deve iniciar vazio em openFullNewProposalModal');
+    assert.ok(fnSlice.includes('companyId: null'), 'companyId deve iniciar null');
+    assert.ok(fnSlice.includes("companyName: ''"), 'companyName deve iniciar vazio');
+    assert.ok(fnSlice.includes("companyCnpj: ''"), 'companyCnpj deve iniciar vazio');
+    assert.ok(fnSlice.includes("careOf: ''"), 'careOf (Aos cuidados de) deve iniciar vazio');
+    assert.ok(fnSlice.includes('items: []'), 'items deve iniciar como array vazio []');
+    assert.ok(fnSlice.includes('totalContractValue: 0'), 'totalContractValue deve iniciar zerado');
+
+    // Ao adicionar linha em branco no ProposalEditModal sem selecionar SKU, não deve injetar item pré-preenchido
+    assert.ok(modalsSrc.includes("sku: found?.gestaoClickCode || ''"));
+    assert.ok(modalsSrc.includes("description: found?.name || ''"));
+  });
 });

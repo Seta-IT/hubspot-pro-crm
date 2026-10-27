@@ -394,23 +394,21 @@ export default function ErpGestaoClickTab({
   } | null>(null);
 
   const [propTitle, setPropTitle] = useState("");
-  const [propCompanyId, setPropCompanyId] = useState(companies[0]?.id || "");
+  const [propCompanyId, setPropCompanyId] = useState("");
   const [propCustomCompanyName, setPropCustomCompanyName] = useState("");
   const [propCustomCnpj, setPropCustomCnpj] = useState("");
   const [propCustomContactName, setPropCustomContactName] = useState("");
-  const [propContactId] = useState(contacts[0]?.id || "");
-  const [propDealId, setPropDealId] = useState(deals[0]?.id || "");
+  const [propContactId] = useState("");
+  const [propDealId, setPropDealId] = useState("");
   const [propSeller, setPropSeller] = useState("Marcelo Lopes Mira");
   const [propMonths, setPropMonths] = useState("24");
   const [propReadjustmentIndex, setPropReadjustmentIndex] = useState<"IPCA" | "IGP-M" | "FIXO" | "IST_ANATEL" | "IST_ANATEL">("IPCA");
   const [propModality, setPropModality] = useState<"RENTAL" | "SERVICE" | "HYBRID">("RENTAL");
   const [propSerialNumber, setPropSerialNumber] = useState("");
-  const [propPaymentCondition, setPropPaymentCondition] = useState(
-    "Boleto / PIX Corporativo — Vencimento todo dia 10"
-  );
-  const [propSku, setPropSku] = useState("GC-EQ-00101");
-  const [propQty, setPropQty] = useState("2");
-  const [propUnitPrice, setPropUnitPrice] = useState("2850");
+  const [propPaymentCondition, setPropPaymentCondition] = useState("");
+  const [propSku, setPropSku] = useState("");
+  const [propQty, setPropQty] = useState("1");
+  const [propUnitPrice, setPropUnitPrice] = useState("");
   const [propExtraItems, setPropExtraItems] = useState<
     Array<{
       sku: string;
@@ -443,24 +441,20 @@ export default function ErpGestaoClickTab({
           Math.max(850, Math.round(prefillProposalFromDeal.value / m));
         setPropQty("1");
         setPropUnitPrice(String(mrr));
+        setShowNewProposalModal(true);
+      } else {
+        openFullNewProposalModal("LOCACAO");
       }
-      setShowNewProposalModal(true);
     }
   }, [autoOpenNewProposalTrigger, prefillProposalFromDeal]);
 
   const [invDocType, setInvDocType] = useState<ErpFiscalDocumentType>("FATURA_LOCACAO");
   const [invCfop, setInvCfop] = useState<string>("N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)");
-  const [invCompanyName, setInvCompanyName] = useState(
-    companies[0]?.name || "Nu Pagamentos S.A. (Nubank)"
-  );
-  const [invCompanyCnpj, setInvCompanyCnpj] = useState(
-    companies[0]?.cnpj || "18.236.120/0001-58"
-  );
-  const [invGrossAmount, setInvGrossAmount] = useState("12000");
-  const [invCompetence, setInvCompetence] = useState("10/2026");
-  const [invDescription, setInvDescription] = useState(
-    "Locação Mensal de Equipamentos Telecom & PABX IP (Dispensa de ISS — Súmula Vinculante 31 STF)"
-  );
+  const [invCompanyName, setInvCompanyName] = useState("");
+  const [invCompanyCnpj, setInvCompanyCnpj] = useState("");
+  const [invGrossAmount, setInvGrossAmount] = useState("");
+  const [invCompetence, setInvCompetence] = useState(new Date().toISOString().slice(0, 7).split("-").reverse().join("/"));
+  const [invDescription, setInvDescription] = useState("");
 
   if (!erpData) {
     return (
@@ -834,31 +828,22 @@ export default function ErpGestaoClickTab({
 
   const openNewInvoiceWithPreset = (docType: ErpFiscalDocumentType, customCfop?: string) => {
     setInvDocType(docType);
+    setInvCompanyName("");
+    setInvCompanyCnpj("");
+    setInvGrossAmount("");
+    setInvDescription("");
     if (docType === "FATURA_LOCACAO") {
       setInvCfop(customCfop || "N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)");
-      setInvGrossAmount("12000");
-      setInvDescription("Locação Mensal de Equipamentos Telecom & PABX IP (Dispensa de ISS — Súmula Vinculante 31 STF)");
     } else if (docType === "NFSE_SERVICO") {
       setInvCfop(customCfop || "5.933 — Prestação de serviço tributado pelo ISSQN");
-      setInvGrossAmount("4500");
-      setInvDescription("Serviço Técnico de Instalação, Homologação e Suporte NOC 24x7 (LC 116/03 Item 01.07)");
     } else if (docType === "NFE_REMESSA_LOCACAO") {
       setInvCfop(customCfop || "5.908 — Remessa de bem por conta de contrato de locação");
-      setInvGrossAmount("37800");
-      setInvDescription("Remessa em Locação de Ativos Telecom Seta (Não incidência ICMS/IPI/PIS/COFINS)");
     } else if (docType === "NFE_VENDA_PRODUTO") {
       setInvCfop(customCfop || "5.102 — Venda de mercadoria adquirida ou recebida de terceiros");
-      setInvGrossAmount("6640");
-      setInvDescription("Venda de Equipamentos de Telefonia IP, Terminais Gigabit PoE & Headsets Corporativos");
     } else if (docType === "NFCE_CONSUMIDOR") {
       setInvCfop(customCfop || "5.102 — Venda de mercadoria a consumidor final (PDV / Balcão)");
-      setInvCompanyName("CONSUMIDOR FINAL BALCÃO — MATRIZ SETA TELECOM (#118887)");
-      setInvGrossAmount("1480");
-      setInvDescription("Venda Presencial Balcão: Kit Headsets USB Noise-Cancelling & Patch Cords Cat6");
     } else {
       setInvCfop(customCfop || "5.303 — Prestação de serviço de comunicação Multimídia (SCM Anatel)");
-      setInvGrossAmount("3900");
-      setInvDescription("Link Dedicado Fibra Óptica Full-Duplex + Tronco SIP Corporativo (NFCom Mod. 62)");
     }
     setShowNewInvoiceModal(true);
   };
@@ -1058,64 +1043,30 @@ export default function ErpGestaoClickTab({
     const endDate = new Date(Date.now() + 24 * 30 * 86400000).toISOString().slice(0, 10);
     const nextNum = 100 + rentalContracts.length + 1;
     const prefix = modality === "SERVICO" ? "SRV" : modality === "ASSINATURA" ? "SCM" : modality === "HIBRIDO" ? "HIB" : "LOC";
-    const defaultTitle =
-      modality === "SERVICO"
-        ? "Contrato de Prestação de Serviços Técnicos & Suporte NOC 24x7 (LC 116 01.07)"
-        : modality === "ASSINATURA"
-          ? "Contrato de Assinatura Link Dedicado Fibra & Tronco SIP (SCM Anatel)"
-          : modality === "HIBRIDO"
-            ? "Contrato Híbrido: Locação de Parque Telecom + Engenharia NOC"
-            : "Contrato de Locação de Infraestrutura Telecom & SD-WAN";
-    const defaultPrice = modality === "SERVICO" ? 2800 : modality === "ASSINATURA" ? 3900 : 4500;
 
     setEditingContract({
       id: `ctr-${Date.now()}`,
       contractNumber: `${prefix}-2026-${nextNum}`,
-      title: defaultTitle,
+      title: "",
       modality,
-      companyId: companies[0]?.id || null,
-      companyName: companies[0]?.name || "Empresa Locatária B2B",
-      companyCnpj: companies[0]?.cnpj || "18.236.120/0001-58",
+      companyId: null,
+      companyName: "",
+      companyCnpj: "",
       contactId: null,
       dealId: null,
       proposalId: null,
-      monthlyValue: defaultPrice,
+      monthlyValue: 0,
       dueDay: 10,
       startDate,
       endDate,
       contractMonths: 24,
       readjustmentIndex: "IPCA",
       status: "ATIVO",
-      remessaNfeNumber: `000.420.${rentalContracts.length + 1}`,
+      remessaNfeNumber: "",
       remessaCfop: "5.908",
-      legalBasisNote:
-        modality === "SERVICO"
-          ? "Prestação de serviços técnicos especializados de TI/Telecom (LC 116/2003 Item 01.07) com retenções federais IRRF/CSRF."
-          : modality === "ASSINATURA"
-            ? "Serviço de Comunicação Multimídia (SCM Anatel) — Faturamento via NFCom Modelo 62 (CFOP 5.303)."
-            : "Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).",
-      lastBilledCompetence: "10/2026",
-      equipments: [
-        {
-          id: `eq-${Date.now()}`,
-          skuGestaoClick: modality === "SERVICO" ? "GC-SV-00201" : modality === "ASSINATURA" ? "GC-TL-00301" : "GC-EQ-00101",
-          description:
-            modality === "SERVICO"
-              ? "Suporte NOC 24x7 & Manutenção Preventiva de Parque IP"
-              : modality === "ASSINATURA"
-                ? "Link Dedicado Fibra 1 Gbps + CPE Router Gerenciado"
-                : "Central PABX IP Seta Cloud Appliance High-Availability",
-          serialNumber: `SN-SETA-${Math.floor(10000 + Math.random() * 90000)}`,
-          assetTag: `PAT-SETA-00${nextNum}`,
-          assetStatus: "EM_CLIENTE",
-          ncm: "8517.62.14",
-          quantity: 1,
-          unitMonthlyRent: defaultPrice,
-          assetValueBrl: modality === "SERVICO" ? 0 : defaultPrice * 6,
-          remessaCfop: "5.908",
-          remessaNfeKey: "35261018456789000190550010004200011000420009",
-        },
-      ],
+      legalBasisNote: "",
+      lastBilledCompetence: new Date().toISOString().slice(0, 7).split("-").reverse().join("/"),
+      equipments: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -1132,102 +1083,48 @@ export default function ErpGestaoClickTab({
         : activeSubId === 'ORC_PRODUTOS'
           ? 'PRODUTOS'
           : 'LOCACAO');
-    const comp = companies[0];
-    const cont = contacts.find((c) => c.companyId === comp?.id) || contacts[0];
     const nextNum = proposals.length + 1;
-    const defaultServiceItem: ErpProposalItem = {
-      id: `pi-srv-${Date.now()}`,
-      sku: 'GC-SV-00201',
-      description: 'Serviço Técnico de Instalação, Homologação e Suporte NOC 24x7',
-      itemType: 'SERVICE',
-      unit: 'SV',
-      fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
-      ncmOrServiceCode: 'LC 116/03 Item 01.07',
-      quantity: 1,
-      unitPrice: 1800,
-      discountPercent: 0,
-      discountAmount: 0,
-      subtotal: 1800,
-      isRecurring: true,
-      totalMonthly: 1800,
-    };
-    const defaultProductItem: ErpProposalItem = {
-      id: `pi-prd-${Date.now()}`,
-      sku: 'GC-EQ-00101',
-      description: 'Locação Central PABX IP Seta Cloud Appliance High-Availability',
-      itemType: 'PRODUCT',
-      unit: inferredType === 'PRODUTOS' ? 'UN' : 'MÊS',
-      fiscalNature: inferredType === 'PRODUTOS' ? 'VENDA_EQUIPAMENTO' : 'LOCACAO_BENS_MOVEIS',
-      ncmOrServiceCode: 'NCM 8517.62.14 (0% ISS — SV 31 STF)',
-      quantity: 1,
-      unitPrice: 2850,
-      discountPercent: 0,
-      discountAmount: 0,
-      subtotal: 2850,
-      isRecurring: inferredType !== 'PRODUTOS',
-      totalMonthly: 2850,
-    };
 
-    const items =
-      inferredType === 'SERVICOS'
-        ? [defaultServiceItem]
-        : inferredType === 'CONJUNTO'
-          ? [defaultProductItem, defaultServiceItem]
-          : [defaultProductItem];
-
+    // Nova Proposta / Novo Orçamento inicia 100% em branco (sem cliente, sem A/C, sem itens ou valores pré-preenchidos)
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
       code: `PROP-2026-00${nextNum}`,
-      title:
-        inferredType === 'SERVICOS'
-          ? `Orçamento de Serviços Técnicos TI/Telecom — ${comp?.name || 'Cliente B2B'}`
-          : inferredType === 'PRODUTOS'
-            ? `Orçamento de Equipamentos & Hardware — ${comp?.name || 'Cliente B2B'}`
-            : `Proposta de Locação & Conectividade — ${comp?.name || 'Cliente B2B'}`,
+      title: '',
       budgetType: inferredType,
       storeName: gestaoClickConfig.storeName || 'Matriz',
-      salesChannel: 'Comercial B2B / Consultivo',
-      costCenter:
-        inferredType === 'SERVICOS'
-          ? 'Projetos & Engenharia'
-          : inferredType === 'LOCACAO'
-            ? 'Locação de Ativos'
-            : 'Comercial Telecom & TI',
+      salesChannel: '',
+      costCenter: '',
       proposalDate: new Date().toISOString().slice(0, 10),
-      deliveryForecast: 'Imediato (até 48h úteis após aceite)',
-      careOf: cont ? `${cont.firstName} ${cont.lastName}`.trim() : 'Decisor Comercial',
-      introductionText:
-        'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
+      deliveryForecast: '',
+      careOf: '',
+      introductionText: '',
       internalNotes: '',
       shippingCost: 0,
-      shippingCarrier: 'Frota Própria Seta Telecom',
-      deliveryAddress: comp?.city ? `${comp.name} — ${comp.city}/${comp.state || 'SP'}` : '',
+      shippingCarrier: '',
+      deliveryAddress: '',
       discountAmount: 0,
       discountPercentGlobal: 0,
-      companyId: comp?.id || null,
-      companyName: comp?.name || 'Empresa Cliente B2B',
-      companyCnpj: comp?.cnpj || '18.236.120/0001-58',
-      contactId: cont?.id || null,
-      contactName: cont ? `${cont.firstName} ${cont.lastName}`.trim() : 'Decisor Comercial',
-      contactEmail: cont?.email || undefined,
-      dealId: deals[0]?.id || null,
-      sellerName: 'Marcelo Lopes Mira',
-      status: 'ENVIADA',
+      companyId: null,
+      companyName: '',
+      companyCnpj: '',
+      contactId: null,
+      contactName: '',
+      contactEmail: undefined,
+      dealId: null,
+      sellerName: '',
+      status: 'RASCUNHO',
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
       readjustmentIndex: 'IPCA',
       contractMonths: 24,
-      paymentCondition: 'Boleto / PIX Corporativo — Vencimento todo dia 10',
+      paymentCondition: '',
       validUntil: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
-      items,
-      monthlyRecurringTotal: items.filter((i) => i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
-      oneTimeSetupTotal: items.filter((i) => !i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
-      totalContractValue:
-        items.filter((i) => i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0) * 24 +
-        items.filter((i) => !i.isRecurring).reduce((s, i) => s + i.totalMonthly, 0),
-      commercialNotes:
-        'Faturamento mensal mediante Fatura/Recibo de Locação de Bens Móveis (dispensa legal de ISS conforme LC 116/2003 e Súmula Vinculante 31 do STF). Equipamentos enviados com NF-e de Remessa CFOP 5.908.',
-      technicalClauses:
-        'SLA 99,95% Seta Telecom com substituição expressa de hardware (Advance Replacement em até 4h na Grande SP). Vigência contratual de 24 meses.',
+      items: [],
+      installments: [],
+      monthlyRecurringTotal: 0,
+      oneTimeSetupTotal: 0,
+      totalContractValue: 0,
+      commercialNotes: '',
+      technicalClauses: '',
       convertedContractId: null,
       convertedInvoiceId: null,
       createdAt: new Date().toISOString(),
@@ -2813,18 +2710,18 @@ export default function ErpGestaoClickTab({
                   id: `po-${Date.now()}`,
                   code: String(38 + purchaseOrders.length),
                   nfeNumber: `000.010.${100 + purchaseOrders.length}`,
-                  supplierName: suppliers[0]?.legalName || "AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.",
-                  supplierCnpj: suppliers[0]?.cnpj || "68.993.641/0008-02",
+                  supplierName: "",
+                  supplierCnpj: "",
                   cfopEntrada: "1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)",
-                  fiscalNature: "CAPEX Ativo Imobilizado p/ Locação (NCM 8517.62.59)",
-                  itemsSummary: "Lote Terminais IP Gigabit Yealink + Appliance Firewall SD-WAN",
-                  costCenter: "CC-201 • CAPEX Ativos para Locação",
+                  fiscalNature: "",
+                  itemsSummary: "",
+                  costCenter: "",
                   issueDate: new Date().toLocaleDateString("pt-BR"),
-                  status: "Confirmada",
-                  icmsCreditAmount: 2160,
-                  pisCofinsCreditAmount: 438,
-                  totalAmount: 12000,
-                  nfeAccessKey: "3526 1068 9936 4100 0802 5500 1000 0101 0010 0101 0099",
+                  status: "Em cotação",
+                  icmsCreditAmount: 0,
+                  pisCofinsCreditAmount: 0,
+                  totalAmount: 0,
+                  nfeAccessKey: "",
                 },
                 purchaseOrderEditorFields
               )
@@ -4464,11 +4361,11 @@ export default function ErpGestaoClickTab({
                         {
                           id: `oc-${Date.now()}`,
                           code: String(37 + purchaseOrders.length),
-                          supplierName: suppliers[0]?.name || 'AGIS EQUIPAMENTOS E SERVICOS DE INFORMATICA LTDA.',
+                          supplierName: '',
                           issueDate: new Date().toLocaleDateString('pt-BR'),
-                          status: 'Confirmada',
-                          nfeNumber: String(9800 + purchaseOrders.length),
-                          totalAmount: 12400,
+                          status: 'Em cotação',
+                          nfeNumber: '',
+                          totalAmount: 0,
                         },
                         [
                           { key: 'code', label: 'Nº da Cotação / OC' },
@@ -4511,16 +4408,16 @@ export default function ErpGestaoClickTab({
                           setGenericModal({
                             title: 'Novo Item no Catálogo (SKU, CFOP, Locação & Setup/Venda)',
                             initialValues: {
-                              gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
+                              gestaoClickCode: '',
                               name: '',
                               category: activeSubId === 'ITENS_SERVICOS' ? 'SERVICO_TECNICO_LC116' : 'EQUIPAMENTO_LOCACAO',
                               fiscalNature: activeSubId === 'ITENS_SERVICOS' ? 'SERVICO_TECNICO_TI_TELECOM' : 'LOCACAO_BENS_MOVEIS',
-                              ncmOrLc116: activeSubId === 'ITENS_SERVICOS' ? 'LC 116/03 Item 01.07' : 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
+                              ncmOrLc116: '',
                               cfopDefault: activeSubId === 'ITENS_SERVICOS' ? '5.933' : '5.908',
-                              stockAvailable: 10,
+                              stockAvailable: 0,
                               stockRentedInClients: 0,
-                              monthlyRentalPrice: 1500,
-                              saleOrSetupPrice: 8500,
+                              monthlyRentalPrice: 0,
+                              saleOrSetupPrice: 0,
                             },
                             fields: CATALOG_ITEM_EDITOR_FIELDS,
                             onSave: async (vals) => {
@@ -4766,13 +4663,13 @@ export default function ErpGestaoClickTab({
                               {
                                 id: `dev-${Date.now()}`,
                                 code: `DEV-${2937 + salesOrders.length}`,
-                                companyName: companies[0]?.name || 'Cliente Seta Telecom',
-                                sellerName: 'Marcelo Mira',
+                                companyName: '',
+                                sellerName: '',
                                 date: new Date().toLocaleDateString('pt-BR'),
                                 status: 'Devolvida / Estornada',
                                 saleType: 'DEVOLUCAO',
-                                itemsSummary: 'Devolução comercial com retorno de equipamento ao estoque',
-                                totalAmount: 1850,
+                                itemsSummary: '',
+                                totalAmount: 0,
                               },
                               [
                                 { key: 'code', label: 'Código da Devolução' },
@@ -4798,13 +4695,13 @@ export default function ErpGestaoClickTab({
                               {
                                 id: `vnd-${Date.now()}`,
                                 code: String(2937 + salesOrders.length),
-                                companyName: companies[0]?.name || 'Cliente Seta Telecom',
-                                sellerName: 'Marcelo Mira',
+                                companyName: '',
+                                sellerName: '',
                                 date: new Date().toLocaleDateString('pt-BR'),
-                                status: 'Concretizada',
+                                status: 'Em aberto',
                                 saleType: activeSubId === 'VENDAS_SERVICOS' ? 'SERVICO' : 'PRODUTO',
-                                itemsSummary: activeSubId === 'VENDAS_SERVICOS' ? 'Serviço Técnico de Instalação e Suporte NOC (LC 116)' : 'Equipamentos de Telecomunicações & Terminais IP',
-                                totalAmount: 5800,
+                                itemsSummary: '',
+                                totalAmount: 0,
                               },
                               [
                                 { key: 'code', label: 'Código da Venda' },
@@ -4974,18 +4871,18 @@ export default function ErpGestaoClickTab({
                           {
                             id: `os-${Date.now()}`,
                             code: String(1519 + serviceOrders.length),
-                            companyName: companies[0]?.name || 'Cliente Seta Telecom',
-                            sellerName: 'Marcelo Mira',
-                            technicianName: 'Michelle da Rocha',
-                            equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
-                            serialNumber: `SN-SETA-${88200 + serviceOrders.length}`,
+                            companyName: '',
+                            sellerName: '',
+                            technicianName: '',
+                            equipmentName: '',
+                            serialNumber: '',
                             priority: 'NORMAL',
                             entryDate: new Date().toLocaleDateString('pt-BR'),
-                            exitDate: '—',
-                            status: 'Em andamento',
-                            totalAmount: 2450,
-                            description: 'Manutenção e vistoria de equipamentos telecom',
-                            technicalReport: 'Diagnóstico técnico NOC e testes de bancada em execução.',
+                            exitDate: '',
+                            status: 'Aberta',
+                            totalAmount: 0,
+                            description: '',
+                            technicalReport: '',
                           },
                           osEditorFields
                         )
@@ -6017,6 +5914,7 @@ export default function ErpGestaoClickTab({
                     onChange={(e) => setPropCompanyId(e.target.value)}
                     className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2] bg-white"
                   >
+                    <option value="">-- Selecione um cliente cadastrado --</option>
                     {companies.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name} {c.cnpj ? `(${c.cnpj})` : ''}
@@ -6087,6 +5985,7 @@ export default function ErpGestaoClickTab({
                     }}
                     className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2] bg-white"
                   >
+                    <option value="">-- Selecione um produto/serviço do catálogo --</option>
                     {catalog.map((c) => (
                       <option key={c.id} value={c.gestaoClickCode}>
                         {c.gestaoClickCode} — {c.name}

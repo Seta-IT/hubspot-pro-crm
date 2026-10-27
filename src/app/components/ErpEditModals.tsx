@@ -122,13 +122,14 @@ export function ProposalEditModal({
     .filter(({ item }) => inferProposalItemType(item) === 'SERVICE');
 
   const handleAddProductFromCatalog = () => {
-    const found =
-      catalog.find((c) => c.gestaoClickCode === selectedProductSku) || catalogProducts[0];
+    const found = selectedProductSku
+      ? catalog.find((c) => c.gestaoClickCode === selectedProductSku)
+      : undefined;
+    const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
     const newItem: ErpProposalItem = {
       id: `item-prd-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      sku: found?.gestaoClickCode || `GC-EQ-00${draft.items.length + 101}`,
-      description:
-        found?.name || 'Locação Equipamento Telecom / Switch / Appliance Seta',
+      sku: found?.gestaoClickCode || '',
+      description: found?.name || '',
       itemType: 'PRODUCT',
       unit: draft.budgetType === 'PRODUTOS' ? 'UN' : 'MÊS',
       fiscalNature:
@@ -137,24 +138,25 @@ export function ProposalEditModal({
           : 'LOCACAO_BENS_MOVEIS',
       ncmOrServiceCode: found?.ncmOrLc116 || 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
       quantity: 1,
-      unitPrice: found?.monthlyRentalPrice || 1850,
+      unitPrice: price,
       discountPercent: 0,
       discountAmount: 0,
-      subtotal: found?.monthlyRentalPrice || 1850,
+      subtotal: price,
       isRecurring: draft.budgetType !== 'PRODUTOS',
-      totalMonthly: found?.monthlyRentalPrice || 1850,
+      totalMonthly: price,
     };
     updateDraft({ items: [...draft.items, newItem] });
   };
 
   const handleAddServiceFromCatalog = () => {
-    const found =
-      catalog.find((c) => c.gestaoClickCode === selectedServiceSku) || catalogServices[0];
+    const found = selectedServiceSku
+      ? catalog.find((c) => c.gestaoClickCode === selectedServiceSku)
+      : undefined;
+    const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
     const newItem: ErpProposalItem = {
       id: `item-srv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      sku: found?.gestaoClickCode || `GC-SV-00${serviceItemsWithIdx.length + 201}`,
-      description:
-        found?.name || 'Serviço Técnico de Instalação, Homologação e Suporte NOC 24x7',
+      sku: found?.gestaoClickCode || '',
+      description: found?.name || '',
       itemType: 'SERVICE',
       unit: 'SV',
       fiscalNature:
@@ -163,12 +165,12 @@ export function ProposalEditModal({
           : 'SERVICO_TECNICO_TI_TELECOM',
       ncmOrServiceCode: found?.ncmOrLc116 || 'LC 116/03 Item 01.07',
       quantity: 1,
-      unitPrice: found?.monthlyRentalPrice || 1500,
+      unitPrice: price,
       discountPercent: 0,
       discountAmount: 0,
-      subtotal: found?.monthlyRentalPrice || 1500,
+      subtotal: price,
       isRecurring: true,
-      totalMonthly: found?.monthlyRentalPrice || 1500,
+      totalMonthly: price,
     };
     updateDraft({ items: [...draft.items, newItem] });
   };

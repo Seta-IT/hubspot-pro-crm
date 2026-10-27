@@ -292,8 +292,8 @@ export default function DealsKanbanTab({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [emailModalPayload, setEmailModalPayload] = useState<ClientEmailInitialPayload | null>(null);
   const [newTitle, setNewTitle] = useState('');
-  const [newValue, setNewValue] = useState('150000');
-  const [newMrr, setNewMrr] = useState('6250');
+  const [newValue, setNewValue] = useState('');
+  const [newMrr, setNewMrr] = useState('');
   const [newContractMonths, setNewContractMonths] = useState('24');
   const [newPriority, setNewPriority] = useState<DealPriority>('ALTA');
   const [newDealType, setNewDealType] = useState<DealBusinessType>('NEW_BUSINESS');
@@ -307,6 +307,12 @@ export default function DealsKanbanTab({
   const openCreateDealModal = (initialStageId?: string) => {
     const targetStageId = initialStageId || stages[0]?.id || 'stage-discovery';
     setNewStageId(targetStageId);
+    setNewTitle('');
+    setNewValue('');
+    setNewMrr('');
+    setNewContactId('');
+    setNewCompanyId('');
+    setNewCloseDate('');
     const defaultType: DealBusinessType =
       activePipeline?.id === 'pipeline-locacao-equipamentos'
         ? 'LOCACAO_RECORRENTE'

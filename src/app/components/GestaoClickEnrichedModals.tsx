@@ -1311,14 +1311,10 @@ export function GestaoClickProductEditModal({
   );
   const [unitOfMeasure, setUnitOfMeasure] = useState<string>(item.unitOfMeasure || 'Unidade');
   const [nfeReferences, setNfeReferences] = useState<string[]>(() => {
-    if (Array.isArray(item.nfeReferences) && item.nfeReferences.length > 0) {
+    if (!isNew && Array.isArray(item.nfeReferences) && item.nfeReferences.length > 0) {
       return item.nfeReferences;
     }
-    return [
-      `${item.gestaoClickCode || 'KIT1000-ETQTERM-TMT'} - ${
-        item.name || '1000 Etiquetas Termicas 10x15 / 100x150 Em Resma Serrilhada'
-      }`,
-    ];
+    return [];
   });
   const [newNfeRefInput, setNewNfeRefInput] = useState<string>('');
 
