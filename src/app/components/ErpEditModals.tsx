@@ -47,7 +47,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { computeProposalTotals, inferProposalItemType } from '../lib/proposal-share';
+import { computeProposalTotals, inferProposalItemType, PROPOSAL_SLA_OPTIONS, resolveProposalSlaOption } from '../lib/proposal-share';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -79,7 +79,7 @@ export function ProposalEditModal({
     computeProposalTotals(structuredClone(proposal))
   );
   const [saving, setSaving] = useState(false);
-  const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(!isNew);
+  const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(false);
   const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
@@ -506,7 +506,7 @@ export function ProposalEditModal({
       sku: found?.gestaoClickCode || '',
       description: found?.name || '',
       itemType: 'PRODUCT',
-      unit: draft.budgetType === 'PRODUTOS' ? 'UN' : 'MÊS',
+      unit: 'UN',
       fiscalNature:
         found?.fiscalNature === 'VENDA_EQUIPAMENTO'
           ? 'VENDA_EQUIPAMENTO'
@@ -556,7 +556,7 @@ export function ProposalEditModal({
     const baseTotal =
       draft.totalContractValue > 0
         ? draft.totalContractValue
-        : draft.monthlyRecurringTotal + draft.oneTimeSetupTotal;
+        : draft.monthlyRecurringTotal + draft.oneTimeSetupTotal + (draft.shippingCost || 0);
 
     const baseDate = firstDueDate ? new Date(`${firstDueDate}T12:00:00`) : new Date();
     const validBaseDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
@@ -1032,7 +1032,7 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Prazo (Meses)
+                    Tempo de Contrato (Meses) *
                   </label>
                   <input
                     type="number"
@@ -1043,6 +1043,69 @@ export function ProposalEditModal({
                       updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-[#1e3a6e]"
+                  />
+                </div>
+              </div>
+
+              {/* LINHA DE SLA CONTRATADO, TEMPO DE CONTRATO E TAXA DE SETUP ISOLADA */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
+                <div className="sm:col-span-6">
+                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+                    SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={resolveProposalSlaOption(draft).id}
+                    onChange={(e) => {
+                      const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
+                      updateDraft({
+                        slaTier: opt.id,
+                        slaAvailabilityPercent: opt.slaAvailabilityPercent,
+                        slaResponseHours: opt.slaResponseHours,
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-extrabold text-[#1e3a6e]"
+                  >
+                    {PROPOSAL_SLA_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+                    Vigência / Tempo de Contrato
+                  </label>
+                  <select
+                    value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
+                    onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                  >
+                    <option value="1">Avulso / 1 mês</option>
+                    <option value="6">6 meses</option>
+                    <option value="12">12 meses</option>
+                    <option value="24">24 meses</option>
+                    <option value="36">36 meses</option>
+                    <option value="48">48 meses</option>
+                    <option value="60">60 meses</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+                    Taxa de Setup / Ativação (R$)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={draft.setupFee ?? 0}
+                    onChange={(e) =>
+                      updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
+                    }
+                    placeholder="0,00 (Isolado do Frete)"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-extrabold text-slate-900"
                   />
                 </div>
               </div>
@@ -1145,10 +1208,8 @@ export function ProposalEditModal({
                       <tr>
                         <th className="py-2 px-2 w-28">SKU</th>
                         <th className="py-2 px-2">Produto / Equipamento</th>
-                        <th className="py-2 px-2 w-36">NCM</th>
-                        <th className="py-2 px-2 w-40">Natureza Fiscal</th>
-                        <th className="py-2 px-2 w-24">Recorrência</th>
-                        <th className="py-2 px-2 w-16 text-center">Qtd</th>
+                        <th className="py-2 px-2 w-28">Recorrência</th>
+                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
                         <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
                         <th className="py-2 px-2 w-20 text-right">Desc. %</th>
                         <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
@@ -1183,41 +1244,7 @@ export function ProposalEditModal({
                               className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
                             />
                           </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              value={item.ncmOrServiceCode}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], ncmOrServiceCode: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-[11px]"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <select
-                              value={item.fiscalNature}
-                              onChange={(e) => {
-                                const fn = e.target.value as ErpFiscalNature;
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  itemType: 'PRODUCT',
-                                  fiscalNature: fn,
-                                  ncmOrServiceCode:
-                                    fn === 'LOCACAO_BENS_MOVEIS'
-                                      ? 'NCM 8517.62.59 (0% ISS — SV 31 STF)'
-                                      : 'NCM 8517.62.59 (Venda CFOP 5.102)',
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
-                            >
-                              <option value="LOCACAO_BENS_MOVEIS">Locação Pura (0% ISS SV 31)</option>
-                              <option value="VENDA_EQUIPAMENTO">Venda de Equipamento</option>
-                            </select>
-                          </td>
+
                           <td className="py-2 px-2">
                             <select
                               value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
@@ -1227,7 +1254,7 @@ export function ProposalEditModal({
                                 copy[idx] = {
                                   ...copy[idx],
                                   isRecurring: isRec,
-                                  unit: isRec ? 'MÊS' : 'UN',
+                                  unit: 'UN',
                                 };
                                 updateDraft({ items: copy });
                               }}
@@ -1396,10 +1423,8 @@ export function ProposalEditModal({
                       <tr>
                         <th className="py-2 px-2 w-28">Código</th>
                         <th className="py-2 px-2">Serviço / Escopo Técnico</th>
-                        <th className="py-2 px-2 w-36">Código LC 116</th>
-                        <th className="py-2 px-2 w-40">Natureza Fiscal</th>
-                        <th className="py-2 px-2 w-24">Recorrência</th>
-                        <th className="py-2 px-2 w-16 text-center">Qtd/Hr</th>
+                        <th className="py-2 px-2 w-28">Recorrência</th>
+                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
                         <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
                         <th className="py-2 px-2 w-20 text-right">Desc. %</th>
                         <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
@@ -1434,42 +1459,7 @@ export function ProposalEditModal({
                               className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
                             />
                           </td>
-                          <td className="py-2 px-2">
-                            <select
-                              value={item.ncmOrServiceCode}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], ncmOrServiceCode: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
-                            >
-                              <option value="LC 116/03 Item 01.07">01.07 — Suporte Técnico TI/PABX</option>
-                              <option value="LC 116/03 Item 01.03">01.03 — Processamento/Cloud</option>
-                              <option value="LC 116/03 Item 14.01">14.01 — Manutenção Equipamentos</option>
-                              <option value="LC 116/03 Item 21.01">21.01 — Telecom / SCM / SVA</option>
-                              <option value={item.ncmOrServiceCode}>{item.ncmOrServiceCode}</option>
-                            </select>
-                          </td>
-                          <td className="py-2 px-2">
-                            <select
-                              value={item.fiscalNature}
-                              onChange={(e) => {
-                                const fn = e.target.value as ErpFiscalNature;
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  itemType: 'SERVICE',
-                                  fiscalNature: fn,
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
-                            >
-                              <option value="SERVICO_TECNICO_TI_TELECOM">Serviço TI/Telecom (NFS-e)</option>
-                              <option value="SERVICO_COMUNICACAO_SCM_SVA">Comunicação SCM/SVA (NFCom)</option>
-                            </select>
-                          </td>
+
                           <td className="py-2 px-2">
                             <select
                               value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
@@ -1479,7 +1469,7 @@ export function ProposalEditModal({
                                 copy[idx] = {
                                   ...copy[idx],
                                   isRecurring: isRec,
-                                  unit: isRec ? 'MÊS' : 'HR',
+                                  unit: isRec ? 'SV' : 'HR',
                                 };
                                 updateDraft({ items: copy });
                               }}
@@ -1684,7 +1674,7 @@ export function ProposalEditModal({
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-7 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+              <div className="grid grid-cols-2 sm:grid-cols-8 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
                     Subtotal Produtos
@@ -1744,10 +1734,18 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Frete (+)
+                    Setup Único (Isolado)
+                  </span>
+                  <strong className="text-xs font-extrabold text-amber-800">
+                    {formatBRL(draft.oneTimeSetupTotal || 0)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                    Frete (Isolado)
                   </span>
                   <strong className="text-xs font-bold text-slate-800">
-                    + {formatBRL(draft.shippingCost || 0)}
+                    {formatBRL(draft.shippingCost || 0)}
                   </strong>
                 </div>
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
@@ -2018,7 +2016,7 @@ export function ProposalEditModal({
                 <History className="w-4 h-4 text-emerald-300" />
                 <div>
                   <div className="text-sm font-extrabold flex items-center gap-2">
-                    <span>7. Versionamento Automático &amp; Histórico de Revisões da Proposta</span>
+                    <span>7. Consulta Futura Interna — Histórico de Versões (Não consta na proposta do cliente)</span>
                     <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black">
                       Versão Ativa: v{draft.version || 1}.0
                     </span>
@@ -2271,8 +2269,9 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  MRR Mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup/Frete:{' '}
-                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong>
+                  MRR Mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
+                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
+                  <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
                 <strong className="text-base font-black text-[#1e3a6e]">
                   Valor Global ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}

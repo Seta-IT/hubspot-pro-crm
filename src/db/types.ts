@@ -553,6 +553,11 @@ export interface ErpProposalVersionSnapshot {
   deliveryForecast?: string;
   shippingCarrier?: string;
   shippingCost?: number;
+  setupFee?: number;
+  templateStyle?: "SETA_PREMIUM_TELECOM" | "EXECUTIVO_CORPORATIVO" | "LOCACAO_DETALHADA_SLA";
+  slaTier?: string;
+  slaResponseHours?: number;
+  slaAvailabilityPercent?: string;
   deliveryAddress?: string;
   discountAmount?: number;
   discountPercentGlobal?: number;
@@ -609,6 +614,8 @@ export interface ErpCommercialProposal {
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
   templateStyle?: 'SETA_PREMIUM_TELECOM' | 'EXECUTIVO_CORPORATIVO' | 'LOCACAO_DETALHADA_SLA';
+  setupFee?: number;
+  slaTier?: string;
   slaResponseHours?: number;
   slaAvailabilityPercent?: string;
   deliveryDays?: number;

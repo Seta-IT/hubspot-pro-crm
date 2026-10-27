@@ -961,6 +961,70 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.ok(emittedImp.importMetadata.sebraeTxtContent.includes('N10h|1|900|3|'));
     assert.ok(emittedImp.importMetadata.sefazXmlContent.includes('<ICMSSN900>'));
     assert.ok(emittedImp.importMetadata.sefazXmlContent.includes('<nDI>26/1998012-3</nDI>'));
+
+    // 7. Importar arquivo .TXT (Sebrae 4.01) e .XML (SEFAZ 4.00) via POST /api/erp/nfe-importacao/parse-file para preencher todas as abas e emitir
+    const parseTxtRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/nfe-importacao/parse-file',
+      body: {
+        filename: 'NE000007.txt',
+        content: emittedImp.importMetadata.sebraeTxtContent,
+      },
+    });
+    assert.equal(parseTxtRes.status, 200);
+    const parsedTxtDraft = (parseTxtRes.body as {
+      data: {
+        sourceFormat: string;
+        nNF: string;
+        crt: string;
+        di: { nDI: string };
+        rawItems: Array<{ cProd: string; cfop: string; uCom: string }>;
+        computedMeta: { totals: { vNF: number; vBC_ICMS: number } };
+      };
+    }).data;
+    assert.equal(parsedTxtDraft.sourceFormat, 'SEBRAE_TXT_401');
+    assert.equal(parsedTxtDraft.nNF, '15');
+    assert.equal(parsedTxtDraft.crt, '1');
+    assert.equal(parsedTxtDraft.di.nDI, '26/1998012-3');
+    assert.equal(parsedTxtDraft.rawItems.length, 1);
+    assert.equal(parsedTxtDraft.rawItems[0].cfop, '3.551');
+    assert.equal(parsedTxtDraft.rawItems[0].uCom, 'UN');
+
+    const parseXmlRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/nfe-importacao/parse-file',
+      body: {
+        filename: 'NFE_IMP_15_SEFAZ_400.xml',
+        content: emittedImp.importMetadata.sefazXmlContent,
+      },
+    });
+    assert.equal(parseXmlRes.status, 200);
+    const parsedXmlDraft = (parseXmlRes.body as {
+      data: {
+        sourceFormat: string;
+        nNF: string;
+        crt: string;
+        di: { nDI: string; exporterName: string };
+        rawItems: Array<{ cProd: string; cfop: string }>;
+      };
+    }).data;
+    assert.equal(parsedXmlDraft.sourceFormat, 'SEFAZ_XML_400');
+    assert.equal(parsedXmlDraft.nNF, '15');
+    assert.equal(parsedXmlDraft.crt, '1');
+    assert.equal(parsedXmlDraft.di.nDI, '26/1998012-3');
+    assert.equal(parsedXmlDraft.di.exporterName, 'FORTINET, INC.');
+    assert.equal(parsedXmlDraft.rawItems[0].cfop, '3.551');
+
+    // Bloqueio de segurança contra XXE (<!DOCTYPE / <!ENTITY)
+    const xxeRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/nfe-importacao/parse-file',
+      body: {
+        filename: 'malicious.xml',
+        content: '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><nfeProc>&xxe;</nfeProc>',
+      },
+    });
+    assert.equal(xxeRes.status, 400);
   });
 });
 

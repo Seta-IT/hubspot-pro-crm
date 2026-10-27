@@ -659,30 +659,37 @@ export function analyzeAndFixSebraeTxt(
     if (record === 'I') {
       itemsCount += 1;
       let parts = fixed.split('|');
-      if (parts.includes('UN.')) {
-        parts = parts.map((p) => (p === 'UN.' ? 'UN' : p));
-        fixed = parts.join('|');
-        findings.push({
-          severity: 'warning',
-          category: 'layout',
-          record: 'I',
-          message:
-            'Unidade "UN." normalizada para "UN" no registro I (evita rejeição de unidade comercial no Emissor Sebrae 4.01). O restante do registro é preservado.',
-          autoFix: true,
-        });
-      }
-
-      parts = fixed.split('|');
-      const idx3102 = parts.indexOf('3102');
-      if (idx3102 === 7) {
+      const importCfops = ['3101', '3102', '3551', '3949'];
+      const cfopAt7 = importCfops.find((cf) => parts[7] === cf);
+      if (cfopAt7) {
         parts.splice(7, 0, '');
         fixed = parts.join('|');
         findings.push({
           severity: 'error',
           category: 'layout',
           record: 'I',
+          message: `Campo vazio inserido antes do CFOP ${cfopAt7} (posição 7 -> 8) para realinhar o registro I ao schema Sebrae 4.01 sem alterar o CFOP.`,
+          autoFix: true,
+        });
+      }
+
+      parts = fixed.split('|');
+      // Normalize "UN." -> "UN" only in unit columns (8, 9, 13, 14) to never mutate product descriptions
+      let unitFixed = false;
+      for (const unitCol of [8, 9, 13, 14]) {
+        if (parts[unitCol] === 'UN.') {
+          parts[unitCol] = 'UN';
+          unitFixed = true;
+        }
+      }
+      if (unitFixed) {
+        fixed = parts.join('|');
+        findings.push({
+          severity: 'warning',
+          category: 'layout',
+          record: 'I',
           message:
-            'Campo vazio inserido antes do CFOP 3102 (posição 7 -> 8) para realinhar o registro I ao schema Sebrae 4.01 sem alterar o CFOP.',
+            'Unidade "UN." normalizada para "UN" nas colunas uCom/uTrib do registro I (evita rejeição de unidade comercial no Emissor Sebrae 4.01). Descrição e valores preservados.',
           autoFix: true,
         });
       }
@@ -800,3 +807,663 @@ export const SEBRAE_REFERENCE_CASES: Record<
     ].join('\n'),
   },
 };
+
+export interface SebraeImportDraftPayload {
+  sourceFormat: 'SEBRAE_TXT_401' | 'SEFAZ_XML_400' | 'SISCOMEX_DI_XML';
+  filename: string;
+  serie: string;
+  nNF: string;
+  natOp: string;
+  crt: '1' | '2' | '3';
+  finNFe: '1' | '2';
+  indFinal: '0' | '1';
+  indPres: '0' | '9';
+  indIntermed: '0' | '1';
+  di: ErpImportDeclarationInfo;
+  rawItems: RawImportItemDraft[];
+  computedMeta: ErpImportNfeMetadata;
+  findings: SebraeTxtFinding[];
+  correctedTxt: string;
+  summaryText: string;
+}
+
+function extractXmlTag(xml: string, tag: string): string | null {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? m[1].trim() : null;
+}
+
+function extractAllXmlBlocks(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+  const results: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(xml)) !== null) {
+    results.push(match[1]);
+  }
+  return results;
+}
+
+function normalizeImportCfop(rawCfop: string | undefined | null): '3.101' | '3.102' | '3.551' | '3.949' {
+  const digits = String(rawCfop || '3102').replace(/\D/g, '');
+  if (digits === '3101') return '3.101';
+  if (digits === '3551') return '3.551';
+  if (digits === '3949') return '3.949';
+  return '3.102';
+}
+
+function formatDiNumber(rawDi: string): string {
+  const clean = rawDi.trim();
+  if (clean.includes('/')) return clean;
+  const digits = clean.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 9)}-${digits.slice(9)}`;
+  }
+  return clean || '26/1849201-4';
+}
+
+// ============================================================================
+// Parser Universal de Arquivo .TXT (Sebrae 4.01) ou .XML (NF-e 4.00 / DI Siscomex)
+// Converte o arquivo enviado pelo usuário em um rascunho completo pronto para
+// revisão nas 6 abas e emissão imediata da NF-e de Entrada de Importação!
+// ============================================================================
+export function parseImportFileToSebraeDraft(
+  rawContent: string,
+  filename = 'arquivo_importacao.txt',
+  emitter?: {
+    emitterName?: string;
+    emitterCnpj?: string;
+    emitterIe?: string;
+    emitterUf?: string;
+  }
+): SebraeImportDraftPayload {
+  const trimmed = String(rawContent || '').trim();
+  if (!trimmed) {
+    throw new Error('O conteúdo do arquivo enviado está vazio.');
+  }
+
+  // Proteção de Segurança contra XXE (XML External Entity Injection)
+  if (/<!DOCTYPE/i.test(trimmed) || /<!ENTITY/i.test(trimmed)) {
+    throw new Error(
+      'Arquivo XML bloqueado pelo Firewall de Segurança: declarações <!DOCTYPE ou <!ENTITY (XXE) não são permitidas.'
+    );
+  }
+
+  const isXml = trimmed.startsWith('<') || filename.toLowerCase().endsWith('.xml');
+
+  if (isXml) {
+    return parseXmlToSebraeDraft(trimmed, filename, emitter);
+  }
+  return parseTxtToSebraeDraft(trimmed, filename, emitter);
+}
+
+function parseTxtToSebraeDraft(
+  rawTxt: string,
+  filename: string,
+  emitter?: {
+    emitterName?: string;
+    emitterCnpj?: string;
+    emitterIe?: string;
+    emitterUf?: string;
+  }
+): SebraeImportDraftPayload {
+  // 1. Executa primeiro o corretor e Firewall Fiscal do SetaIT/app-nfe-importacao
+  const analysis = analyzeAndFixSebraeTxt(rawTxt, filename);
+  const lines = analysis.correctedTxt
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  let serie = '1';
+  let nNF = analysis.noteNumber || '12';
+  let natOp = 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO';
+  let crt: '1' | '2' | '3' =
+    analysis.crt === '1' || analysis.crt === '2' || analysis.crt === '3' ? analysis.crt : '1';
+  let finNFe: '1' | '2' = '1';
+  let indFinal: '0' | '1' = '0';
+  let indPres: '0' | '9' = '0';
+  let indIntermed: '0' | '1' = '0';
+
+  const di: ErpImportDeclarationInfo = {
+    nDI: '26/1849201-4',
+    dDI: '2026-10-18',
+    xLocDesemb: 'PORTO DE SANTOS - ALFANDEGA RFB',
+    UFDesemb: 'SP',
+    dDesemb: '2026-10-21',
+    tpViaTransp: '1',
+    vAFRMM: 0,
+    tpIntermedio: '1',
+    cExportador: 'EXPORTADOR-EXT',
+    currency: 'USD',
+    exchangeRatePtax: 1.0, // TXT já traz valores convertidos em BRL (R$); PTAX=1 preserva valores exatos do TXT
+    fobTotalForeign: 0,
+    freteInternacionalBrl: 0,
+    seguroInternacionalBrl: 0,
+    taxaSiscomexTotalBrl: 0,
+    outrasDespesasAduaneirasBrl: 0,
+    somarTributosEmVOutroSimples: true,
+    exporterIdEstrangeiro: 'EXT-ID-001',
+    exporterName: 'EXPORTADOR ESTRANGEIRO (IMPORTADO VIA TXT SEBRAE 4.01)',
+    exporterAddress: 'ENDERECO NO EXTERIOR',
+    exporterCountryCodeBacen: '1600',
+    exporterCountryName: 'CHINA, REPUBLICA POPULAR',
+    additions: [],
+  };
+
+  const rawItems: RawImportItemDraft[] = [];
+  let currentItem: RawImportItemDraft | null = null;
+  let totalFreteFromItems = 0;
+  let totalSegFromItems = 0;
+  let totalAfrmmFromItems = 0;
+  let totalDespAduFromP = 0;
+
+  for (const line of lines) {
+    const parts = line.split('|');
+    const rec = parts[0];
+
+    if (rec === 'B') {
+      if (parts[3]) natOp = parts[3];
+      if (parts[5]) serie = parts[5];
+      if (parts[6]) nNF = parts[6];
+      if (parts[16] === '1' || parts[16] === '2') finNFe = parts[16];
+      if (parts[17] === '0' || parts[17] === '1') indFinal = parts[17];
+      if (parts[18] === '0' || parts[18] === '9') indPres = parts[18];
+      if (parts[19] === '0' || parts[19] === '1') indIntermed = parts[19];
+    } else if (rec === 'C') {
+      const nonEmpty = parts.filter((p) => p !== '');
+      const last = nonEmpty[nonEmpty.length - 1];
+      if (last === '1' || last === '2' || last === '3') crt = last;
+    } else if (rec === 'E') {
+      if (parts[1]) di.exporterName = parts[1];
+    } else if (rec === 'E03a' || rec === 'E02') {
+      if (parts[1]) di.exporterIdEstrangeiro = parts[1];
+    } else if (rec === 'E05') {
+      const lgr = [parts[1], parts[2], parts[4]].filter(Boolean).join(', ');
+      if (lgr) di.exporterAddress = lgr;
+      if (parts[9]) di.exporterCountryCodeBacen = parts[9];
+      if (parts[10]) di.exporterCountryName = parts[10];
+    } else if (rec === 'I') {
+      if (currentItem) rawItems.push(currentItem);
+      // Detecta posição do CFOP (4 dígitos iniciados por 3)
+      const cfopIdx = parts.findIndex((p, i) => i >= 5 && /^3\d{3}$/.test(p));
+      const cProd = parts[1] || `ITEM-${rawItems.length + 1}`;
+      const cEAN = parts[2] || 'SEM GTIN';
+      // Descrição pode estar em parts[3] ou parts[4] dependendo do gerador legado
+      const xProd =
+        (parts[4] && !/^\d{8}$/.test(parts[4]) ? parts[4] : parts[3]) ||
+        `MERCADORIA IMPORTADA #${rawItems.length + 1}`;
+      const ncmCandidate =
+        parts.find((p, i) => i >= 3 && i <= 7 && /^\d{8}$/.test(p)) || '85176259';
+      const cfopRaw = cfopIdx >= 0 ? parts[cfopIdx] : '3102';
+      const uCom = (cfopIdx >= 0 ? parts[cfopIdx + 1] : parts[8]) || 'UN';
+      const qCom = Math.max(0.0001, Number((cfopIdx >= 0 ? parts[cfopIdx + 2] : parts[9]) || 1));
+      const vUnCom = Math.max(0, Number((cfopIdx >= 0 ? parts[cfopIdx + 3] : parts[10]) || 100));
+      const vFreteItem = Number(parts[16] || 0);
+      const vSegItem = Number(parts[17] || 0);
+      totalFreteFromItems += vFreteItem;
+      totalSegFromItems += vSegItem;
+
+      currentItem = {
+        id: `txt-item-${rawItems.length + 1}`,
+        cProd,
+        cEAN,
+        xProd,
+        ncm: ncmCandidate,
+        cfop: normalizeImportCfop(cfopRaw),
+        uCom: uCom.replace(/\.$/, '') || 'UN',
+        qCom,
+        fobUnitForeign: vUnCom,
+        orig: '1',
+        csosn: '900',
+        cstIpi: '49',
+        cstPisCofins: '70',
+        iiRatePercent: 12,
+        ipiRatePercent: 5,
+        pisRatePercent: 2.1,
+        cofinsRatePercent: 9.65,
+        icmsRatePercent: 18,
+        icmsReductionPercent: 0,
+        nAdicao: String(rawItems.length + 1),
+        nSeqAdic: '1',
+        cFabricante: di.cExportador,
+      };
+    } else if (rec === 'I18') {
+      if (parts[1]) di.nDI = formatDiNumber(parts[1]);
+      if (parts[2]) di.dDI = parts[2];
+      if (parts[3]) di.xLocDesemb = parts[3];
+      if (parts[4]) di.UFDesemb = parts[4];
+      if (parts[5]) di.dDesemb = parts[5];
+      if (parts[6]) {
+        di.tpViaTransp = parts[6] as ErpImportDeclarationInfo['tpViaTransp'];
+      }
+      const afrmmVal = Number(parts[7] || 0);
+      totalAfrmmFromItems += afrmmVal;
+      if (parts[8] === '1' || parts[8] === '2' || parts[8] === '3') {
+        di.tpIntermedio = parts[8];
+      }
+      if (parts[11]) {
+        di.cExportador = parts[11];
+        if (currentItem) currentItem.cFabricante = parts[11];
+      }
+    } else if (rec === 'I25' && currentItem) {
+      if (parts[1]) currentItem.nAdicao = parts[1];
+      if (parts[2]) currentItem.nSeqAdic = parts[2];
+      if (parts[3]) currentItem.cFabricante = parts[3];
+      di.additions.push({
+        nAdicao: currentItem.nAdicao,
+        nSeqAdic: currentItem.nSeqAdic,
+        cFabricante: currentItem.cFabricante,
+        vDescDI: Number(parts[4] || 0),
+      });
+    } else if (rec === 'N10h' && currentItem) {
+      if (parts[1] === '1' || parts[1] === '2' || parts[1] === '6' || parts[1] === '7') {
+        currentItem.orig = parts[1];
+      }
+      if (parts[2] === '900' || parts[2] === '101' || parts[2] === '102' || parts[2] === '400') {
+        currentItem.csosn = parts[2];
+      }
+      if (parts[5] !== undefined && parts[5] !== '') {
+        currentItem.icmsReductionPercent = Number(parts[5] || 0);
+      }
+      if (parts[6] !== undefined && parts[6] !== '') {
+        currentItem.icmsRatePercent = Number(parts[6] || 18);
+      }
+    } else if (rec === 'O07' && currentItem) {
+      if (parts[1] === '49' || parts[1] === '99' || parts[1] === '00' || parts[1] === '01') {
+        currentItem.cstIpi = parts[1];
+      }
+    } else if (rec === 'O10' && currentItem) {
+      if (parts[2] !== undefined && parts[2] !== '') {
+        currentItem.ipiRatePercent = Number(parts[2] || 0);
+      }
+    } else if (rec === 'P' && currentItem) {
+      const vBC = Number(parts[1] || 0);
+      const vDespAdu = Number(parts[2] || 0);
+      const vII = Number(parts[3] || 0);
+      totalDespAduFromP += vDespAdu;
+      if (vBC > 0 && vII >= 0) {
+        currentItem.iiRatePercent = round2((vII / vBC) * 100);
+      }
+    } else if (rec === 'Q05' && currentItem) {
+      if (parts[1] === '70' || parts[1] === '98' || parts[1] === '99' || parts[1] === '50') {
+        currentItem.cstPisCofins = parts[1];
+      }
+    } else if (rec === 'Q07' && currentItem) {
+      if (parts[2] !== undefined && parts[2] !== '') {
+        currentItem.pisRatePercent = Number(parts[2] || 2.1);
+      }
+    } else if (rec === 'S07' && currentItem) {
+      if (parts[2] !== undefined && parts[2] !== '') {
+        currentItem.cofinsRatePercent = Number(parts[2] || 9.65);
+      }
+    } else if (rec === 'W02') {
+      if (!totalFreteFromItems && Number(parts[10] || 0) > 0) {
+        totalFreteFromItems = Number(parts[10]);
+      }
+      if (!totalSegFromItems && Number(parts[11] || 0) > 0) {
+        totalSegFromItems = Number(parts[11]);
+      }
+    }
+  }
+
+  if (currentItem) rawItems.push(currentItem);
+  if (rawItems.length === 0) {
+    throw new Error(
+      'Nenhum item de produto (Registro I) foi encontrado no arquivo TXT enviado.'
+    );
+  }
+
+  di.freteInternacionalBrl = round2(totalFreteFromItems);
+  di.seguroInternacionalBrl = round2(totalSegFromItems);
+  di.vAFRMM = round2(totalAfrmmFromItems);
+  if (totalDespAduFromP > 0) {
+    di.taxaSiscomexTotalBrl = round2(Math.min(214.5, totalDespAduFromP));
+    di.outrasDespesasAduaneirasBrl = round2(Math.max(0, totalDespAduFromP - di.taxaSiscomexTotalBrl));
+  }
+  di.fobTotalForeign = round2(
+    rawItems.reduce((s, it) => s + it.qCom * it.fobUnitForeign, 0)
+  );
+  if (di.additions.length === 0) {
+    di.additions = rawItems.map((it) => ({
+      nAdicao: it.nAdicao,
+      nSeqAdic: it.nSeqAdic,
+      cFabricante: it.cFabricante,
+      vDescDI: 0,
+    }));
+  }
+
+  const computedMeta = calculateSebraeImportNfe({
+    serie,
+    nNF,
+    natOp,
+    crt,
+    finNFe,
+    indFinal,
+    indPres,
+    indIntermed,
+    di,
+    rawItems,
+    emitterName: emitter?.emitterName,
+    emitterCnpj: emitter?.emitterCnpj,
+    emitterIe: emitter?.emitterIe,
+    emitterUf: emitter?.emitterUf,
+  });
+
+  const autoFixesCount = analysis.findings.filter((f) => f.autoFix).length;
+  const summaryText = `Arquivo TXT Sebrae 4.01 "${filename}" importado com sucesso: NF-e #${nNF} | DI ${di.nDI} | ${rawItems.length} item(ns) | Total vNF R$ ${fmt2(computedMeta.totals.vNF)} | BC ICMS Por Dentro R$ ${fmt2(computedMeta.totals.vBC_ICMS)} (${autoFixesCount} correção(ões) estrutural(is) aplicada(s) pelo Firewall Fiscal).`;
+
+  return {
+    sourceFormat: 'SEBRAE_TXT_401',
+    filename,
+    serie,
+    nNF,
+    natOp,
+    crt,
+    finNFe,
+    indFinal,
+    indPres,
+    indIntermed,
+    di,
+    rawItems,
+    computedMeta,
+    findings: analysis.findings,
+    correctedTxt: computedMeta.sebraeTxtContent || analysis.correctedTxt,
+    summaryText,
+  };
+}
+
+function parseXmlToSebraeDraft(
+  rawXml: string,
+  filename: string,
+  emitter?: {
+    emitterName?: string;
+    emitterCnpj?: string;
+    emitterIe?: string;
+    emitterUf?: string;
+  }
+): SebraeImportDraftPayload {
+  const findings: SebraeTxtFinding[] = [];
+  const isSiscomexDiOnly =
+    /<DeclaracaoImportacao/i.test(rawXml) && !/<infNFe/i.test(rawXml) && !/<det/i.test(rawXml);
+
+  const ideBlock = extractXmlTag(rawXml, 'ide') || '';
+  const emitBlock = extractXmlTag(rawXml, 'emit') || '';
+  const destBlock = extractXmlTag(rawXml, 'dest') || '';
+  const serie = extractXmlTag(ideBlock, 'serie') || '1';
+  const nNF = extractXmlTag(ideBlock, 'nNF') || '16';
+  const natOp =
+    extractXmlTag(ideBlock, 'natOp') ||
+    'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO';
+  const rawCrt = extractXmlTag(emitBlock, 'CRT') || '1';
+  const crt: '1' | '2' | '3' =
+    rawCrt === '1' || rawCrt === '2' || rawCrt === '3' ? rawCrt : '1';
+  const finNFe: '1' | '2' = extractXmlTag(ideBlock, 'finNFe') === '2' ? '2' : '1';
+  const indFinal: '0' | '1' = extractXmlTag(ideBlock, 'indFinal') === '1' ? '1' : '0';
+  const indPres: '0' | '9' = extractXmlTag(ideBlock, 'indPres') === '9' ? '9' : '0';
+  const indIntermed: '0' | '1' = extractXmlTag(ideBlock, 'indIntermed') === '1' ? '1' : '0';
+
+  findings.push({
+    severity: 'info',
+    category: 'fiscal',
+    record: 'XML',
+    message: `Arquivo XML (${isSiscomexDiOnly ? 'DI Siscomex' : 'SEFAZ NF-e 4.00'}) validado contra XXE. CRT=${crt} (${crt === '1' ? 'Simples Nacional' : 'Outro'}) preservado pelo Firewall Fiscal.`,
+    autoFix: false,
+  });
+
+  const firstDiBlock =
+    extractXmlTag(rawXml, 'DI') || extractXmlTag(rawXml, 'DeclaracaoImportacao') || '';
+  const enderDestBlock = extractXmlTag(destBlock, 'enderDest') || '';
+
+  const nDI = formatDiNumber(
+    extractXmlTag(firstDiBlock, 'nDI') ||
+      extractXmlTag(firstDiBlock, 'numeroDI') ||
+      '26/1849201-4'
+  );
+  const dDI =
+    extractXmlTag(firstDiBlock, 'dDI') ||
+    extractXmlTag(firstDiBlock, 'dataRegistro') ||
+    '2026-10-18';
+  const xLocDesemb =
+    extractXmlTag(firstDiBlock, 'xLocDesemb') ||
+    extractXmlTag(firstDiBlock, 'urfDespachoNome') ||
+    'PORTO DE SANTOS - ALFANDEGA RFB';
+  const UFDesemb =
+    extractXmlTag(firstDiBlock, 'UFDesemb') ||
+    extractXmlTag(firstDiBlock, 'urfDespachoUf') ||
+    'SP';
+  const dDesemb =
+    extractXmlTag(firstDiBlock, 'dDesemb') ||
+    extractXmlTag(firstDiBlock, 'dataDesembaraco') ||
+    dDI;
+  const tpViaTransp = (extractXmlTag(firstDiBlock, 'tpViaTransp') ||
+    extractXmlTag(firstDiBlock, 'viaTransporteCodigo') ||
+    '1') as ErpImportDeclarationInfo['tpViaTransp'];
+  const tpIntermedio = (extractXmlTag(firstDiBlock, 'tpIntermedio') || '1') as '1' | '2' | '3';
+  const cExportador =
+    extractXmlTag(firstDiBlock, 'cExportador') ||
+    extractXmlTag(destBlock, 'idEstrangeiro') ||
+    'EXPORTADOR-EXT';
+
+  const detBlocks = extractAllXmlBlocks(rawXml, 'det');
+  const adicaoBlocks =
+    detBlocks.length === 0 ? extractAllXmlBlocks(rawXml, 'adicao') : [];
+
+  let totalFrete = 0;
+  let totalSeg = 0;
+  let totalAfrmm = 0;
+  let totalDespAdu = 0;
+
+  const rawItems: RawImportItemDraft[] = [];
+
+  if (detBlocks.length > 0) {
+    detBlocks.forEach((det, idx) => {
+      const prod = extractXmlTag(det, 'prod') || det;
+      const imposto = extractXmlTag(det, 'imposto') || det;
+      const diBlock = extractXmlTag(prod, 'DI') || firstDiBlock;
+      const adiBlock = extractXmlTag(diBlock, 'adi') || '';
+      const icmsBlock =
+        extractXmlTag(imposto, 'ICMSSN900') ||
+        extractXmlTag(imposto, 'ICMS00') ||
+        extractXmlTag(imposto, 'ICMS') ||
+        '';
+      const ipiBlock = extractXmlTag(imposto, 'IPITrib') || extractXmlTag(imposto, 'IPI') || '';
+      const iiBlock = extractXmlTag(imposto, 'II') || '';
+      const pisBlock =
+        extractXmlTag(imposto, 'PISOutr') ||
+        extractXmlTag(imposto, 'PISAliq') ||
+        extractXmlTag(imposto, 'PIS') ||
+        '';
+      const cofinsBlock =
+        extractXmlTag(imposto, 'COFINSOutr') ||
+        extractXmlTag(imposto, 'COFINSAliq') ||
+        extractXmlTag(imposto, 'COFINS') ||
+        '';
+
+      const cProd = extractXmlTag(prod, 'cProd') || `XML-ITEM-${idx + 1}`;
+      const cEAN = extractXmlTag(prod, 'cEAN') || 'SEM GTIN';
+      const xProd = extractXmlTag(prod, 'xProd') || `MERCADORIA IMPORTADA #${idx + 1}`;
+      const ncm = (extractXmlTag(prod, 'NCM') || '85176259').replace(/\D/g, '');
+      const cfop = normalizeImportCfop(extractXmlTag(prod, 'CFOP') || '3102');
+      const rawUnit = extractXmlTag(prod, 'uCom') || 'UN';
+      const uCom = rawUnit.replace(/\.$/, '') || 'UN';
+      if (rawUnit === 'UN.') {
+        findings.push({
+          severity: 'warning',
+          category: 'layout',
+          record: `det[${idx + 1}]`,
+          message: 'Unidade "UN." normalizada para "UN" ao importar o item XML.',
+          autoFix: true,
+        });
+      }
+      const qCom = Math.max(0.0001, Number(extractXmlTag(prod, 'qCom') || 1));
+      const vUnCom = Math.max(0, Number(extractXmlTag(prod, 'vUnCom') || 100));
+      const vFrete = Number(extractXmlTag(prod, 'vFrete') || 0);
+      const vSeg = Number(extractXmlTag(prod, 'vSeg') || 0);
+      const vAFRMM = Number(extractXmlTag(diBlock, 'vAFRMM') || 0);
+      const vBC_II = Number(extractXmlTag(iiBlock, 'vBC') || qCom * vUnCom + vFrete + vSeg);
+      const vDespAdu = Number(extractXmlTag(iiBlock, 'vDespAdu') || 0);
+      const vII = Number(extractXmlTag(iiBlock, 'vII') || 0);
+      const iiRate = vBC_II > 0 ? round2((vII / vBC_II) * 100) : 12;
+
+      totalFrete += vFrete;
+      totalSeg += vSeg;
+      totalAfrmm += vAFRMM;
+      totalDespAdu += vDespAdu;
+
+      const csosnRaw = extractXmlTag(icmsBlock, 'CSOSN') || '900';
+      if (!extractXmlTag(icmsBlock, 'CSOSN') && extractXmlTag(icmsBlock, 'CST')) {
+        findings.push({
+          severity: 'info',
+          category: 'fiscal',
+          record: `det[${idx + 1}].ICMS`,
+          message: `XML continha CST=${extractXmlTag(icmsBlock, 'CST')}; enquadrado com CSOSN 900 para emissão no Simples Nacional (Sebrae 4.01).`,
+          autoFix: false,
+        });
+      }
+
+      rawItems.push({
+        id: `xml-item-${idx + 1}`,
+        cProd,
+        cEAN,
+        xProd,
+        ncm,
+        cfop,
+        uCom,
+        qCom,
+        fobUnitForeign: vUnCom,
+        orig: (extractXmlTag(icmsBlock, 'orig') as '1') || '1',
+        csosn: (csosnRaw as '900') || '900',
+        cstIpi: (extractXmlTag(ipiBlock, 'CST') as '49') || '49',
+        cstPisCofins: (extractXmlTag(pisBlock, 'CST') as '70') || '70',
+        iiRatePercent: iiRate,
+        ipiRatePercent: Number(extractXmlTag(ipiBlock, 'pIPI') || 5),
+        pisRatePercent: Number(extractXmlTag(pisBlock, 'pPIS') || 2.1),
+        cofinsRatePercent: Number(extractXmlTag(cofinsBlock, 'pCOFINS') || 9.65),
+        icmsRatePercent: Number(extractXmlTag(icmsBlock, 'pICMS') || 18),
+        icmsReductionPercent: Number(extractXmlTag(icmsBlock, 'pRedBC') || 0),
+        nAdicao: extractXmlTag(adiBlock, 'nAdicao') || String(idx + 1),
+        nSeqAdic: extractXmlTag(adiBlock, 'nSeqAdic') || '1',
+        cFabricante: extractXmlTag(adiBlock, 'cFabricante') || cExportador,
+      });
+    });
+  } else if (adicaoBlocks.length > 0) {
+    adicaoBlocks.forEach((adi, idx) => {
+      const ncm = (extractXmlTag(adi, 'ncm') || extractXmlTag(adi, 'codigoMercadoria') || '85176259').replace(/\D/g, '');
+      const xProd = extractXmlTag(adi, 'descricaoMercadoria') || `EQUIPAMENTO IMPORTADO DI ${nDI} ADICAO ${idx + 1}`;
+      const qCom = Math.max(1, Number(extractXmlTag(adi, 'quantidade') || 1));
+      const vUn = Math.max(100, Number(extractXmlTag(adi, 'valorUnitario') || 1000));
+      rawItems.push({
+        id: `di-xml-item-${idx + 1}`,
+        cProd: `DI-ITEM-0${idx + 1}`,
+        cEAN: 'SEM GTIN',
+        xProd,
+        ncm,
+        cfop: '3.102',
+        uCom: 'UN',
+        qCom,
+        fobUnitForeign: vUn,
+        orig: '1',
+        csosn: '900',
+        cstIpi: '49',
+        cstPisCofins: '70',
+        iiRatePercent: Number(extractXmlTag(adi, 'aliquotaII') || 12),
+        ipiRatePercent: Number(extractXmlTag(adi, 'aliquotaIPI') || 5),
+        pisRatePercent: Number(extractXmlTag(adi, 'aliquotaPIS') || 2.1),
+        cofinsRatePercent: Number(extractXmlTag(adi, 'aliquotaCOFINS') || 9.65),
+        icmsRatePercent: 18,
+        icmsReductionPercent: 0,
+        nAdicao: extractXmlTag(adi, 'numeroAdicao') || String(idx + 1),
+        nSeqAdic: '1',
+        cFabricante: extractXmlTag(adi, 'fabricanteNome') || cExportador,
+      });
+    });
+  } else {
+    throw new Error('Nenhum item (<det> ou <adicao>) encontrado no XML enviado.');
+  }
+
+  const icmsTotBlock = extractXmlTag(rawXml, 'ICMSTot') || '';
+  if (!totalFrete && Number(extractXmlTag(icmsTotBlock, 'vFrete') || 0) > 0) {
+    totalFrete = Number(extractXmlTag(icmsTotBlock, 'vFrete'));
+  }
+  if (!totalSeg && Number(extractXmlTag(icmsTotBlock, 'vSeg') || 0) > 0) {
+    totalSeg = Number(extractXmlTag(icmsTotBlock, 'vSeg'));
+  }
+
+  const di: ErpImportDeclarationInfo = {
+    nDI,
+    dDI,
+    xLocDesemb,
+    UFDesemb,
+    dDesemb,
+    tpViaTransp,
+    vAFRMM: round2(totalAfrmm),
+    tpIntermedio,
+    cExportador,
+    currency: 'USD',
+    exchangeRatePtax: 1.0, // Valores no XML NF-e já estão convertidos em BRL
+    fobTotalForeign: round2(rawItems.reduce((s, i) => s + i.qCom * i.fobUnitForeign, 0)),
+    freteInternacionalBrl: round2(totalFrete),
+    seguroInternacionalBrl: round2(totalSeg),
+    taxaSiscomexTotalBrl: round2(Math.min(214.5, totalDespAdu)),
+    outrasDespesasAduaneirasBrl: round2(Math.max(0, totalDespAdu - Math.min(214.5, totalDespAdu))),
+    somarTributosEmVOutroSimples: true,
+    exporterIdEstrangeiro: extractXmlTag(destBlock, 'idEstrangeiro') || cExportador,
+    exporterName:
+      extractXmlTag(destBlock, 'xNome') ||
+      extractXmlTag(firstDiBlock, 'exportadorNome') ||
+      'EXPORTADOR ESTRANGEIRO',
+    exporterAddress: extractXmlTag(enderDestBlock, 'xLgr') || 'EXTERIOR',
+    exporterCountryCodeBacen: extractXmlTag(enderDestBlock, 'cPais') || '1600',
+    exporterCountryName: extractXmlTag(enderDestBlock, 'xPais') || 'CHINA, REPUBLICA POPULAR',
+    additions: rawItems.map((it) => ({
+      nAdicao: it.nAdicao,
+      nSeqAdic: it.nSeqAdic,
+      cFabricante: it.cFabricante,
+      vDescDI: 0,
+    })),
+  };
+
+  const computedMeta = calculateSebraeImportNfe({
+    serie,
+    nNF,
+    natOp,
+    crt,
+    finNFe,
+    indFinal,
+    indPres,
+    indIntermed,
+    di,
+    rawItems,
+    emitterName: emitter?.emitterName,
+    emitterCnpj: emitter?.emitterCnpj,
+    emitterIe: emitter?.emitterIe,
+    emitterUf: emitter?.emitterUf,
+  });
+
+  findings.push({
+    severity: 'info',
+    category: 'sefaz',
+    record: 'W02',
+    message: `Cálculo ICMS Por Dentro validado: BC ICMS R$ ${fmt2(computedMeta.totals.vBC_ICMS)} | ICMS R$ ${fmt2(computedMeta.totals.vICMS)} | Total NF-e (vNF) R$ ${fmt2(computedMeta.totals.vNF)}.`,
+    autoFix: false,
+  });
+
+  const summaryText = `Arquivo XML "${filename}" importado e convertido para todas as abas do Emissor Sebrae 4.01: NF-e #${nNF} | DI ${di.nDI} | Exportador ${di.exporterName} | ${rawItems.length} item(ns) | Total vNF R$ ${fmt2(computedMeta.totals.vNF)}.`;
+
+  return {
+    sourceFormat: isSiscomexDiOnly ? 'SISCOMEX_DI_XML' : 'SEFAZ_XML_400',
+    filename,
+    serie,
+    nNF,
+    natOp,
+    crt,
+    finNFe,
+    indFinal,
+    indPres,
+    indIntermed,
+    di,
+    rawItems,
+    computedMeta,
+    findings,
+    correctedTxt: computedMeta.sebraeTxtContent || '',
+    summaryText,
+  };
+}

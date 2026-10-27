@@ -37,6 +37,7 @@ import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
   analyzeAndFixSebraeTxt,
   calculateSebraeImportNfe,
+  parseImportFileToSebraeDraft,
   RawImportItemDraft,
 } from '../modules/erp/sebrae-nfe-import-engine';
 import { ErpImportDeclarationInfo } from '../db/types';
@@ -2884,6 +2885,32 @@ export class CrmApiRouter {
         }
         const analysis = analyzeAndFixSebraeTxt(rawTxt, filename);
         return { status: 200, body: { data: analysis } };
+      }
+
+      if (cleanPath === '/api/erp/nfe-importacao/parse-file' && method === 'POST') {
+        const rawContent = String(body.content || body.txt || body.xml || '');
+        const filename = String(body.filename || body.fileName || 'NFE_IMPORTACAO_SEBRAE_401.txt');
+        if (!rawContent.trim()) {
+          return { status: 400, body: { error: 'Envie o conteúdo do arquivo .TXT ou .XML para importação.' } };
+        }
+        try {
+          const erp = this.repo.getErpOverview();
+          const cfg = erp.gestaoClickConfig;
+          const draft = parseImportFileToSebraeDraft(rawContent, filename, {
+            emitterName: cfg.companyLegalName,
+            emitterCnpj: cfg.companyCnpj,
+            emitterIe: cfg.stateRegistration,
+            emitterUf: 'SP',
+          });
+          return { status: 200, body: { data: draft } };
+        } catch (err) {
+          return {
+            status: 400,
+            body: {
+              error: err instanceof Error ? err.message : 'Falha ao processar arquivo .TXT/.XML de importação.',
+            },
+          };
+        }
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/emit' && method === 'POST') {

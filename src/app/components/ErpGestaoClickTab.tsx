@@ -94,6 +94,7 @@ import {
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
+import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
@@ -314,6 +315,7 @@ export default function ErpGestaoClickTab({
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
+  const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("SETA_PREMIUM_TELECOM");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -1244,6 +1246,11 @@ export default function ErpGestaoClickTab({
       sellerName: '',
       status: 'RASCUNHO',
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
+      templateStyle: defaultProposalTemplateStyle,
+      slaTier: 'NOC_24X7_ALTA_DISP_4H',
+      slaAvailabilityPercent: '99,95%',
+      slaResponseHours: 4,
+      setupFee: 0,
       readjustmentIndex: 'IPCA',
       contractMonths: 24,
       paymentCondition: '',
@@ -1585,71 +1592,179 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <h3 className="text-sm font-extrabold text-slate-900">
-                📄 Modelos de Introdução, Cláusulas Seta Telecom &amp; Impressão A4
-              </h3>
-              <p className="text-xs text-slate-500">
-                Clique em qualquer template abaixo para abrir imediatamente um novo orçamento pré-configurado.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  📄 Seletor de Template Padrão A4 &amp; Modelos de Proposta
+                </h3>
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">
+                  Padrão Ativo: {defaultProposalTemplateStyle}
+                </span>
+              </div>
+              <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                <label className="block font-extrabold text-slate-800">
+                  Escolher Template Visual Padrão para Propostas (PDF A4):
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(
+                    [
+                      { id: "SETA_PREMIUM_TELECOM", label: "Seta Premium Telecom" },
+                      { id: "EXECUTIVO_CORPORATIVO", label: "Executivo Corporativo B2B" },
+                      { id: "LOCACAO_DETALHADA_SLA", label: "Locação + SLA & Pro-Rata" },
+                    ] as const
+                  ).map((tpl) => {
+                    const isActive = defaultProposalTemplateStyle === tpl.id;
+                    return (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => {
+                          setDefaultProposalTemplateStyle(tpl.id);
+                          if (typeof window !== "undefined") {
+                            try {
+                              window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
+                            } catch {
+                              // ignore
+                            }
+                          }
+                          onShowToast(`Template padrão alterado para: ${tpl.label}`);
+                        }}
+                        className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition ${
+                          isActive
+                            ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {isActive ? `✓ ${tpl.label}` : tpl.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="space-y-2.5 text-xs">
                 <div className="p-3 rounded border border-emerald-200 bg-emerald-50/50 space-y-1.5">
                   <div className="font-extrabold text-emerald-950">
-                    Template 1: Locação Pura de Bens Móveis (0% ISS — Súmula Vinculante 31 STF)
+                    Template 1: Locação de Ativos Telecom + SLA NOC &amp; Rateio Pro-Rata
                   </div>
                   <p className="text-[11px] text-emerald-900">
-                    Faturamento mediante Fatura de Locação (dispensa legal de ISSQN conforme LC 116/03) + NF-e de Remessa CFOP 5.908.
+                    Configura automaticamente o layout <strong>Locação + SLA &amp; Pro-Rata</strong>, vigência de 24 meses e SLA NOC 24x7 (99,95%).
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFullNewProposalModal('LOCACAO', {
-                        title: 'Proposta de Locação de Infraestrutura PABX IP & SD-WAN (SV 31 STF)',
-                      })
-                    }
-                    className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
-                  >
-                    + Usar Template de Locação Pura
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDefaultProposalTemplateStyle("LOCACAO_DETALHADA_SLA");
+                        openFullNewProposalModal("LOCACAO", {
+                          title: "Proposta de Locação de Infraestrutura PABX IP & SD-WAN",
+                          templateStyle: "LOCACAO_DETALHADA_SLA",
+                          slaTier: "NOC_24X7_ALTA_DISP_4H",
+                          slaAvailabilityPercent: "99,95%",
+                          slaResponseHours: 4,
+                          contractMonths: 24,
+                          introductionText:
+                            "Apresentamos nossa proposta comercial de locação de equipamentos e conectividade com suporte NOC 24x7.",
+                          commercialNotes:
+                            "Faturamento mensal conforme condições comerciais acordadas. Taxa de setup e frete discriminados isoladamente.",
+                          technicalClauses:
+                            "SLA 99,95% NOC 24x7 com atendimento em até 4h e substituição expressa de equipamentos.",
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      + Usar e Editar Template 1 (Locação + SLA)
+                    </button>
+                    <a
+                      href="/proposta/prop-seta-001"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
+                    >
+                      👁️ Ver Exemplo A4
+                    </a>
+                  </div>
                 </div>
 
                 <div className="p-3 rounded border border-indigo-200 bg-indigo-50/50 space-y-1.5">
                   <div className="font-extrabold text-indigo-950">
-                    Template 2: Serviços Técnicos TI / Telecom &amp; Suporte NOC 24x7 (LC 116 Item 01.07)
+                    Template 2: Serviços Técnicos TI / Telecom &amp; Suporte NOC 24x7 (Seta Premium)
                   </div>
                   <p className="text-[11px] text-indigo-900">
-                    Prestação de serviços especializados de instalação, homologação e monitoramento com emissão de NFS-e.
+                    Configura o layout <strong>Seta Premium Telecom</strong>, vigência de 12 meses e SLA Missão Crítica 24x7 (Atend. 2h).
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFullNewProposalModal('SERVICOS', {
-                        title: 'Proposta de Serviços Técnicos de Engenharia & Suporte NOC 24x7',
-                      })
-                    }
-                    className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
-                  >
-                    + Usar Template de Serviços LC 116
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDefaultProposalTemplateStyle("SETA_PREMIUM_TELECOM");
+                        openFullNewProposalModal("SERVICOS", {
+                          title: "Proposta de Serviços Técnicos de Engenharia & Suporte NOC 24x7",
+                          templateStyle: "SETA_PREMIUM_TELECOM",
+                          slaTier: "NOC_24X7_CRITICO_2H",
+                          slaAvailabilityPercent: "99,98%",
+                          slaResponseHours: 2,
+                          contractMonths: 12,
+                          introductionText:
+                            "Apresentamos nossa proposta técnica para prestação de serviços especializados de engenharia Telecom, implantação e suporte NOC 24x7.",
+                          commercialNotes:
+                            "Condições comerciais válidas pelo período indicado no cabeçalho, com taxa de setup isolada do frete.",
+                          technicalClauses:
+                            "SLA Missão Crítica 99,98% com atendimento inicial em até 2h pelo NOC Seta Telecom.",
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      + Usar e Editar Template 2 (Serviços NOC)
+                    </button>
+                    <a
+                      href="/proposta/prop-gc-4695"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
+                    >
+                      👁️ Ver Exemplo A4
+                    </a>
+                  </div>
                 </div>
 
                 <div className="p-3 rounded border border-amber-200 bg-amber-50/50 space-y-1.5">
                   <div className="font-extrabold text-amber-950">
-                    Template 3: Orçamento Conjunto (Hardware + Instalação + Parcelamento)
+                    Template 3: Executivo Corporativo B2B (Hardware + Setup Isolado + Serviços)
                   </div>
                   <p className="text-[11px] text-amber-900">
-                    Combina equipamentos do catálogo (786 produtos) e serviços técnicos (39 serviços) com cronograma de parcelas no PDF A4.
+                    Configura o layout <strong>Executivo Corporativo B2B</strong> com Sumário Executivo para Diretoria, vigência de 36 meses e SLA Corporativo.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFullNewProposalModal('CONJUNTO', {
-                        title: 'Proposta Conjunta: Fornecimento de Equipamentos + Implantação Técnica',
-                      })
-                    }
-                    className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
-                  >
-                    + Usar Template Conjunto (Produtos + Serviços)
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDefaultProposalTemplateStyle("EXECUTIVO_CORPORATIVO");
+                        openFullNewProposalModal("CONJUNTO", {
+                          title: "Proposta Executiva: Fornecimento de Equipamentos + Implantação Técnica",
+                          templateStyle: "EXECUTIVO_CORPORATIVO",
+                          slaTier: "CORPORATIVO_8X5_NBD",
+                          slaAvailabilityPercent: "99,50%",
+                          slaResponseHours: 4,
+                          contractMonths: 36,
+                          introductionText:
+                            "Proposta executiva estruturada para fornecimento integrado de equipamentos, ativação técnica (setup isolado) e suporte continuado.",
+                          commercialNotes:
+                            "Investimento mensal (MRR), taxa única de setup e frete apresentados de forma 100% isolada e transparente.",
+                          technicalClauses:
+                            "SLA Corporativo com atendimento em até 4h e reposição expressa de ativos.",
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      + Usar e Editar Template 3 (Executivo B2B)
+                    </button>
+                    <a
+                      href="/proposta/prop-seta-002"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded border border-amber-600 bg-white text-amber-900 text-[11px] font-bold"
+                    >
+                      👁️ Ver Exemplo A4
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1778,6 +1893,11 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3 text-right text-[11px]">
                           <div>Prod: {formatBRL(prdSub)}</div>
                           <div>Serv: {formatBRL(srvSub)}</div>
+                          {(prop.oneTimeSetupTotal || 0) > 0 && (
+                            <div className="text-amber-700 font-semibold">
+                              Setup: {formatBRL(prop.oneTimeSetupTotal || 0)}
+                            </div>
+                          )}
                           {(prop.shippingCost || 0) > 0 && (
                             <div className="text-slate-500">
                               Frete: {formatBRL(prop.shippingCost || 0)}
@@ -2032,8 +2152,7 @@ export default function ErpGestaoClickTab({
                         <th className="py-2 px-3">SKU</th>
                         <th className="py-2 px-3">Item / Equipamento / Serviço</th>
                         <th className="py-2 px-3">Tipo</th>
-                        <th className="py-2 px-3">Natureza Fiscal</th>
-                        <th className="py-2 px-3 text-right">Qtd</th>
+                        <th className="py-2 px-3 text-right">Quantidade</th>
                         <th className="py-2 px-3 text-right">Unitário</th>
                         <th className="py-2 px-3 text-right">Desc.</th>
                         <th className="py-2 px-3 text-right">Subtotal Líquido</th>
@@ -2060,18 +2179,7 @@ export default function ErpGestaoClickTab({
                                 {isSrv ? 'Serviço' : 'Produto'}
                               </span>
                             </td>
-                            <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                {item.fiscalNature === 'LOCACAO_BENS_MOVEIS'
-                                  ? 'Locação Pura (0% ISS - SV 31 STF)'
-                                  : item.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
-                                    ? 'Telecom SCM / Assinatura (Mod. 62)'
-                                    : item.fiscalNature === 'VENDA_EQUIPAMENTO'
-                                      ? 'Venda Equipamento (CFOP 5.102)'
-                                      : 'Serviço Técnico (LC 116 01.07)'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 text-right">{item.quantity}</td>
+                            <td className="py-2 px-3 text-right font-bold">{item.quantity} un</td>
                             <td className="py-2 px-3 text-right">{formatBRL(item.unitPrice)}</td>
                             <td className="py-2 px-3 text-right text-rose-600">
                               {(item.discountPercent || 0) > 0
@@ -3016,6 +3124,11 @@ export default function ErpGestaoClickTab({
           label: "NFCom TELECOM (MOD. 62 • CFOP 5.303 SCM)",
           className: "bg-cyan-100 text-cyan-900 border border-cyan-300",
         };
+      case "NFE_IMPORTACAO":
+        return {
+          label: "NF-e IMPORTAÇÃO SIMPLES NACIONAL (SEBRAE 4.01 • CSOSN 900)",
+          className: "bg-teal-100 text-teal-950 border border-teal-300",
+        };
       default:
         return {
           label: "NF-e RETORNO DE LOCAÇÃO (CFOP 5.909 / 6.909)",
@@ -3029,6 +3142,7 @@ export default function ErpGestaoClickTab({
       activeSubId === "FIS_PRODUTOS" ||
       activeSubId === "FIS_SERVICOS" ||
       activeSubId === "FIS_CONSUMIDOR" ||
+      activeSubId === "FIS_IMPORTACAO" ||
       activeSubId === "FIS_COMPRAS" ||
       activeSubId === "FIS_AUXILIARES"
         ? activeSubId
@@ -3041,6 +3155,7 @@ export default function ErpGestaoClickTab({
       ["NFSE_SERVICO", "FATURA_LOCACAO"].includes(i.documentType)
     ).length;
     const countConsumidor = invoices.filter((i) => i.documentType === "NFCE_CONSUMIDOR").length;
+    const countImportacao = invoices.filter((i) => i.documentType === "NFE_IMPORTACAO").length;
 
     let filteredInvoices = invoices;
     if (effectiveFiscalTab === "FIS_PRODUTOS") {
@@ -3130,6 +3245,13 @@ export default function ErpGestaoClickTab({
               </button>
               <button
                 type="button"
+                onClick={() => setActiveSubId("FIS_IMPORTACAO")}
+                className="px-3.5 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-extrabold cursor-pointer"
+              >
+                + NF-e Importação (Sebrae 4.0)
+              </button>
+              <button
+                type="button"
                 onClick={() => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO")}
                 className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
               >
@@ -3144,6 +3266,7 @@ export default function ErpGestaoClickTab({
               { id: "FIS_PRODUTOS", label: `Notas de Produtos (${countProdutos})` },
               { id: "FIS_SERVICOS", label: `Notas de Serviços & Faturas Locação (${countServicos})` },
               { id: "FIS_CONSUMIDOR", label: `Notas do Consumidor NFC-e (${countConsumidor})` },
+              { id: "FIS_IMPORTACAO", label: `NF-e Importação Sebrae 4.0 (${countImportacao})` },
               { id: "FIS_COMPRAS", label: `Notas de Compras / Entrada (${purchaseOrders.length})` },
               { id: "FIS_AUXILIARES", label: "Opções Auxiliares & Tabelas CFOP/ISS" },
             ].map((tabItem) => (
@@ -3316,6 +3439,22 @@ export default function ErpGestaoClickTab({
               + Emitir NFC-e Consumidor (Mod. 65)
             </button>
           </div>
+        )}
+
+        {/* SUB-ABA: NF-E DE IMPORTAÇÃO (SIMPLES NACIONAL — EMISSOR SEBRAE 4.01 & FIREWALL FISCAL) */}
+        {effectiveFiscalTab === "FIS_IMPORTACAO" && (
+          <SebraeImportNfeWorkspace
+            config={gestaoClickConfig}
+            importInvoices={invoices.filter((i) => i.documentType === "NFE_IMPORTACAO")}
+            onInvoiceCreated={async (created) => {
+              recordUpsertedInvoice(created);
+              await onRefresh();
+            }}
+            onPrintInvoice={(inv) => setSelectedInvoiceForPrint(inv)}
+            onEditInvoice={(inv) => setEditingInvoice(inv)}
+            onDeleteInvoice={handleDeleteInvoice}
+            onShowToast={onShowToast}
+          />
         )}
 
         {/* SUB-ABA 4: NOTAS DE COMPRAS / ENTRADA */}
@@ -3541,6 +3680,7 @@ export default function ErpGestaoClickTab({
 
         {/* LISTA DE DOCUMENTOS FISCAIS (PARA FIS_PRODUTOS, FIS_SERVICOS, FIS_CONSUMIDOR, FIS_TODOS) */}
         {effectiveFiscalTab !== "FIS_COMPRAS" &&
+          effectiveFiscalTab !== "FIS_IMPORTACAO" &&
           effectiveFiscalTab !== "FIS_AUXILIARES" &&
           filteredInvoices.map((inv) => {
             const tb = inv.taxBreakdown;
@@ -5975,7 +6115,9 @@ export default function ErpGestaoClickTab({
                             ? 'DANFE NFC-e — NOTA FISCAL DE CONSUMIDOR ELETRÔNICA (MOD. 65)'
                             : selectedInvoiceForPrint.documentType === 'NFCOM_TELECOM'
                               ? 'NFCom MODELO 62 — SERVIÇOS DE COMUNICAÇÃO MULTIMÍDIA (SCM)'
-                              : 'DANFE — NF-e DE REMESSA EM LOCAÇÃO (MOD. 55 • CFOP 5.908)'}
+                              : selectedInvoiceForPrint.documentType === 'NFE_IMPORTACAO'
+                                ? 'DANFE — NF-e DE ENTRADA DE IMPORTAÇÃO (SEBRAE 4.01 • SIMPLES NACIONAL CSOSN 900)'
+                                : 'DANFE — NF-e DE REMESSA EM LOCAÇÃO (MOD. 55 • CFOP 5.908)'}
                   </div>
                   <div className="text-lg font-black text-[#33475b]">
                     Nº {selectedInvoiceForPrint.documentNumber}

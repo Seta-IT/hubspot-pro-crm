@@ -131,6 +131,11 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     deliveryForecast: p.deliveryForecast || '',
     shippingCarrier: p.shippingCarrier || '',
     shippingCost: Number(p.shippingCost || 0),
+    setupFee: Number(p.setupFee || 0),
+    templateStyle: p.templateStyle || 'SETA_PREMIUM_TELECOM',
+    slaTier: p.slaTier,
+    slaResponseHours: p.slaResponseHours,
+    slaAvailabilityPercent: p.slaAvailabilityPercent,
     deliveryAddress: p.deliveryAddress || '',
     discountAmount: Number(p.discountAmount || 0),
     discountPercentGlobal: Number(p.discountPercentGlobal || 0),
@@ -155,6 +160,7 @@ export function computeProposalChangedFields(
 
   if (
     (prev.technicalClauses || '').trim() !== (next.technicalClauses || '').trim() ||
+    prev.slaTier !== next.slaTier ||
     prev.slaResponseHours !== next.slaResponseHours ||
     prev.slaAvailabilityPercent !== next.slaAvailabilityPercent
   ) {
@@ -2457,7 +2463,7 @@ export class CrmRepository {
       return {
         ...it,
         itemType,
-        unit: it.unit || (itemType === 'SERVICE' ? 'SV' : it.isRecurring !== false ? 'MÊS' : 'UN'),
+        unit: (!it.unit || ['MÊS', 'MES', 'MESES'].includes(String(it.unit).trim().toUpperCase())) ? (itemType === 'SERVICE' ? 'SV' : 'UN') : it.unit,
         quantity: qty,
         unitPrice,
         discountPercent: discPct,
@@ -2490,24 +2496,33 @@ export class CrmRepository {
       recSum > 0
         ? Math.max(0, Math.round((recSum - discountAmount - (recSum * discountPercentGlobal) / 100) * 100) / 100)
         : 0;
+    const explicitSetupFee =
+      input.setupFee !== undefined
+        ? Math.max(0, Number(input.setupFee || 0))
+        : setupSum === 0 && input.oneTimeSetupTotal !== undefined
+          ? Math.max(0, Number(input.oneTimeSetupTotal || 0))
+          : 0;
+    const rawSetupSum = setupSum + explicitSetupFee;
     const computedSetup =
       recSum > 0
-        ? Math.max(0, Math.round((setupSum + shippingCost) * 100) / 100)
+        ? Math.max(0, Math.round(rawSetupSum * 100) / 100)
         : Math.max(
             0,
             Math.round(
-              (setupSum - discountAmount - (setupSum * discountPercentGlobal) / 100 + shippingCost) * 100
+              (rawSetupSum - discountAmount - (rawSetupSum * discountPercentGlobal) / 100) * 100
             ) / 100
           );
 
     const monthlyRecurringTotal =
       input.monthlyRecurringTotal !== undefined ? Number(input.monthlyRecurringTotal) : computedMrr;
     const oneTimeSetupTotal =
-      input.oneTimeSetupTotal !== undefined ? Number(input.oneTimeSetupTotal) : computedSetup;
+      input.oneTimeSetupTotal !== undefined && input.setupFee === undefined
+        ? Number(input.oneTimeSetupTotal)
+        : computedSetup;
     const totalContractValue =
       input.totalContractValue !== undefined
         ? Number(input.totalContractValue)
-        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal) * 100) / 100;
+        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal + shippingCost) * 100) / 100;
 
     const inferredBudgetType =
       input.budgetType ||
@@ -2538,6 +2553,11 @@ export class CrmRepository {
         input.introductionText ||
         'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
       internalNotes: input.internalNotes || '',
+      setupFee: explicitSetupFee,
+      templateStyle: input.templateStyle || 'SETA_PREMIUM_TELECOM',
+      slaTier: input.slaTier || 'NOC_24X7_ALTA_DISP_4H',
+      slaAvailabilityPercent: input.slaAvailabilityPercent || '99,95%',
+      slaResponseHours: input.slaResponseHours ?? 4,
       shippingCost,
       shippingCarrier: input.shippingCarrier || 'Frota Própria Seta Telecom',
       deliveryAddress: input.deliveryAddress || '',
@@ -2627,6 +2647,7 @@ export class CrmRepository {
       return {
         ...it,
         itemType,
+        unit: (!it.unit || ['MÊS', 'MES', 'MESES'].includes(String(it.unit).trim().toUpperCase())) ? (itemType === 'SERVICE' ? 'SV' : 'UN') : it.unit,
         quantity: qty,
         unitPrice,
         discountPercent: discPct,
@@ -2668,21 +2689,34 @@ export class CrmRepository {
               ) / 100
             )
           : 0;
+    const explicitSetupFee =
+      patch.setupFee !== undefined
+        ? Math.max(0, Number(patch.setupFee || 0))
+        : current.setupFee !== undefined
+          ? Math.max(0, Number(current.setupFee || 0))
+          : computedSetup === 0 && Number(patch.oneTimeSetupTotal ?? current.oneTimeSetupTotal ?? 0) > 0
+            ? Math.max(0, Number(patch.oneTimeSetupTotal ?? current.oneTimeSetupTotal ?? 0))
+            : 0;
+    const rawSetupSum = computedSetup + explicitSetupFee;
     const oneTimeSetupTotal =
-      patch.oneTimeSetupTotal !== undefined && patch.items === undefined
+      patch.oneTimeSetupTotal !== undefined && patch.items === undefined && patch.setupFee === undefined
         ? Number(patch.oneTimeSetupTotal)
         : computedMonthly > 0
-          ? Math.max(0, Math.round((computedSetup + shippingCost) * 100) / 100)
+          ? Math.max(0, Math.round(rawSetupSum * 100) / 100)
           : Math.max(
               0,
               Math.round(
-                (computedSetup - discountAmount - (computedSetup * discountPercentGlobal) / 100 + shippingCost) * 100
+                (rawSetupSum - discountAmount - (rawSetupSum * discountPercentGlobal) / 100) * 100
               ) / 100
             );
     const totalContractValue =
-      patch.totalContractValue !== undefined && patch.items === undefined && patch.contractMonths === undefined
+      patch.totalContractValue !== undefined &&
+      patch.items === undefined &&
+      patch.contractMonths === undefined &&
+      patch.setupFee === undefined &&
+      patch.shippingCost === undefined
         ? Number(patch.totalContractValue)
-        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal) * 100) / 100;
+        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal + shippingCost) * 100) / 100;
 
     const candidate: ErpCommercialProposal = {
       ...current,
@@ -2703,6 +2737,7 @@ export class CrmRepository {
       contractMonths,
       discountAmount,
       discountPercentGlobal,
+      setupFee: explicitSetupFee,
       shippingCost,
       productsSubtotal,
       servicesSubtotal,
