@@ -297,25 +297,31 @@ export default function ServiceDeskTab({
     new Set([...SETA_NOC_QUEUES, ...tickets.map((t) => t.assignee).filter(Boolean)])
   );
 
+  const normTicketStr = (v: unknown) =>
+    String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   const filteredTickets = tickets.filter((t) => {
     const liveSla = computeLiveSlaCountdown(t, nowMs);
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
     if (slaFilter !== 'ALL' && liveSla.slaStatus !== slaFilter) return false;
-    if (queueFilter !== 'ALL' && t.assignee !== queueFilter) return false;
-    if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchKey = t.key.toLowerCase().includes(q);
-      const matchSub = t.subject.toLowerCase().includes(q);
-      const matchComp = t.company?.name.toLowerCase().includes(q);
-      const matchSerial = (t.equipmentSerial || '').toLowerCase().includes(q);
-      const matchQueue = (t.assignee || '').toLowerCase().includes(q);
-      const matchCont = `${t.contact?.firstName || ''} ${t.contact?.lastName || ''}`
-        .toLowerCase()
-        .includes(q);
-      if (!matchKey && !matchSub && !matchComp && !matchCont && !matchSerial && !matchQueue) {
+    if (queueFilter !== 'ALL') {
+      const qNorm = normTicketStr(queueFilter);
+      const aNorm = normTicketStr(t.assignee);
+      if (aNorm !== qNorm && !aNorm.includes(qNorm) && !qNorm.includes(aNorm)) {
         return false;
       }
+    }
+    if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
+    if (searchQuery.trim()) {
+      const q = normTicketStr(searchQuery);
+      const hay = normTicketStr(
+        `${t.key} ${t.subject} ${t.company?.name || ''} ${t.company?.cnpj || ''} ${t.equipmentSerial || ''} ${t.assignee || ''} ${t.contact?.firstName || ''} ${t.contact?.lastName || ''}`
+      );
+      if (!hay.includes(q)) return false;
     }
     return true;
   });

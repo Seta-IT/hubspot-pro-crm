@@ -1171,6 +1171,7 @@ export default function HubSpotProCrmApp() {
           <GlobalHeaderSearch
             contacts={contacts}
             companies={companies}
+            suppliers={erpData?.suppliers || []}
             deals={deals}
             proposals={erpData?.proposals || []}
             catalog={erpData?.catalog || []}

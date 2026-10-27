@@ -380,6 +380,11 @@ export default function ErpGestaoClickTab({
     isNew: boolean;
   } | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
+  const [customerStatusFilter, setCustomerStatusFilter] = useState<string>("TODOS");
+  const [contractsSearchQuery, setContractsSearchQuery] = useState<string>("");
+  const [contractsStatusFilter, setContractsStatusFilter] = useState<string>("TODOS");
+  const [invoicesSearchQuery, setInvoicesSearchQuery] = useState<string>("");
+  const [invoicesStatusFilter, setInvoicesStatusFilter] = useState<string>("TODOS");
   const [syncingGc, setSyncingGc] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -1231,20 +1236,30 @@ export default function ErpGestaoClickTab({
           ? proposals.filter(hasServiceItem)
           : proposals;
 
+    const normErp = (v: unknown) =>
+      String(v ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
     const filteredProposals = tabFiltered.filter((p) => {
-      if (proposalsStatusFilter !== 'TODOS' && p.status !== proposalsStatusFilter) {
-        return false;
+      if (proposalsStatusFilter !== 'TODOS') {
+        const isConv = p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId);
+        if (proposalsStatusFilter === 'CONVERTIDA_CONTRATO') {
+          if (!isConv) return false;
+        } else if (p.status !== proposalsStatusFilter) {
+          return false;
+        }
       }
       if (!proposalsSearch.trim()) return true;
-      const q = proposalsSearch.toLowerCase();
-      return (
-        p.code.toLowerCase().includes(q) ||
-        p.title.toLowerCase().includes(q) ||
-        p.companyName.toLowerCase().includes(q) ||
-        (p.companyCnpj || '').toLowerCase().includes(q) ||
-        (p.sellerName || '').toLowerCase().includes(q) ||
-        (p.contactName || '').toLowerCase().includes(q)
+      const q = normErp(proposalsSearch);
+      const qDigits = proposalsSearch.replace(/\D+/g, '');
+      const hay = normErp(
+        `${p.code} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
       );
+      const digitsHay = `${p.code} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
+      return hay.includes(q) || (qDigits.length >= 2 && digitsHay.includes(qDigits));
     });
 
     const getStatusBadge = (p: ErpCommercialProposal) => {
@@ -2010,7 +2025,7 @@ export default function ErpGestaoClickTab({
       );
     });
 
-    const displayedContracts =
+    const baseTabContracts =
       effectiveTab === "CTR_LOCACOES"
         ? locacoesList
         : effectiveTab === "CTR_SERVICOS"
@@ -2018,6 +2033,33 @@ export default function ErpGestaoClickTab({
           : effectiveTab === "CTR_ASSINATURAS"
             ? assinaturasList
             : rentalContracts;
+
+    const displayedContracts = baseTabContracts.filter((ctr) => {
+      if (contractsStatusFilter !== "TODOS") {
+        if (contractsStatusFilter === "VENCENDO") {
+          const vInfo = computeContractValidityInfo(ctr.endDate, ctr.status);
+          if (!vInfo.isWarning && ctr.status !== "RENOVACAO_PROXIMA") return false;
+        } else if (ctr.status !== contractsStatusFilter) {
+          return false;
+        }
+      }
+      if (!contractsSearchQuery.trim()) return true;
+      const q = contractsSearchQuery
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+      const qDigits = contractsSearchQuery.replace(/\D+/g, "");
+      const eqText = ctr.equipments
+        .map((e) => `${e.skuGestaoClick} ${e.description} ${e.serialNumber}`)
+        .join(" ");
+      const hay = `${ctr.contractNumber} ${ctr.title} ${ctr.companyName} ${ctr.companyCnpj || ""} ${ctr.readjustmentIndex} ${eqText}`
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      const cnpjDigits = `${ctr.contractNumber} ${ctr.companyCnpj || ""}`.replace(/\D+/g, "");
+      return hay.includes(q) || (qDigits.length >= 2 && cnpjDigits.includes(qDigits));
+    });
 
     const allAllocatedAssets = rentalContracts.flatMap((ctr) =>
       ctr.equipments.map((eq, eqIdx) => ({
@@ -2406,8 +2448,29 @@ export default function ErpGestaoClickTab({
           <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
             <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="font-extrabold text-[#0d2b4e]">
-                Listagem de Contratos ({displayedContracts.length}) — Clique na Lupa para Consultar ou no Lápis para Editar (Renovação de Vigência, Faturamento, Reajuste e S/N estão organizados em abas dentro do contrato)
+                Listagem de Contratos ({displayedContracts.length}) — Clique na Lupa para Consultar ou no Lápis para Editar
               </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={contractsSearchQuery}
+                  onChange={(e) => setContractsSearchQuery(e.target.value)}
+                  placeholder="Buscar por contrato, cliente, CNPJ ou S/N..."
+                  className="px-3 py-1.5 rounded border border-slate-300 bg-white text-xs w-64"
+                />
+                <select
+                  aria-label="Filtrar Contratos por Situação"
+                  value={contractsStatusFilter}
+                  onChange={(e) => setContractsStatusFilter(e.target.value)}
+                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                >
+                  <option value="TODOS">Situação: Todos</option>
+                  <option value="ATIVO">Ativos</option>
+                  <option value="EM_IMPLANTACAO">Em Implantação</option>
+                  <option value="VENCENDO">Renovação Próxima / Vencendo</option>
+                  <option value="ENCERRADO">Encerrados</option>
+                </select>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[880px] text-left text-xs">
@@ -3778,14 +3841,25 @@ export default function ErpGestaoClickTab({
                         Consulta integrada: <strong>Receita Federal (RFB)</strong> &amp; <strong>Serasa Experian Score</strong>
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
                         value={customerSearchQuery}
                         onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                        placeholder="Buscar por nome ou CNPJ..."
+                        placeholder="Buscar por nome, razão social, CNPJ ou cidade..."
                         className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
                       />
+                      <select
+                        aria-label="Filtrar Clientes por Situação"
+                        value={customerStatusFilter}
+                        onChange={(e) => setCustomerStatusFilter(e.target.value)}
+                        className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                      >
+                        <option value="TODOS">Situação: Todos</option>
+                        <option value="ATIVO">Ativos / Em dia</option>
+                        <option value="NOVO">Novos</option>
+                        <option value="INATIVO">Inativos</option>
+                      </select>
                     </div>
                   </div>
 
@@ -3803,11 +3877,32 @@ export default function ErpGestaoClickTab({
                     <tbody className="divide-y">
                       {companies
                         .filter((c) => {
+                          const cp = (c.customProperties || {}) as Record<string, unknown>;
+                          const sit = String(
+                            cp.situation || (c.completenessScore >= 95 ? 'Em dia' : 'Novo')
+                          ).toLowerCase();
+                          if (customerStatusFilter === 'ATIVO') {
+                            if (!sit.includes('ativo') && !sit.includes('dia')) return false;
+                          } else if (customerStatusFilter === 'NOVO') {
+                            if (!sit.includes('novo')) return false;
+                          } else if (customerStatusFilter === 'INATIVO') {
+                            if (!sit.includes('inativo') && !sit.includes('bloq')) return false;
+                          }
                           if (!customerSearchQuery.trim()) return true;
-                          const q = customerSearchQuery.toLowerCase();
+                          const q = customerSearchQuery
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .toLowerCase()
+                            .trim();
+                          const qDigits = customerSearchQuery.replace(/\D+/g, '');
+                          const hay = `${c.name} ${cp.tradeName || ''} ${c.cnpj || ''} ${c.city || ''} ${c.state || ''}`
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .toLowerCase();
+                          const cnpjDigits = String(c.cnpj || '').replace(/\D+/g, '');
                           return (
-                            c.name.toLowerCase().includes(q) ||
-                            (c.cnpj || '').toLowerCase().includes(q)
+                            hay.includes(q) ||
+                            (qDigits.length >= 2 && cnpjDigits.includes(qDigits))
                           );
                         })
                         .map((c) => {

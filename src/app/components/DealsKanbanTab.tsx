@@ -467,10 +467,25 @@ export default function DealsKanbanTab({
     ])
   );
 
+  const normDealStr = (v: unknown) =>
+    String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   const filteredDeals = pipelineDeals.filter((d) => {
     if (filterRottingOnly && !d.isRotting) return false;
-    if (filterOwner !== 'ALL' && (d.ownerName || 'Marcelo Lopes Mira') !== filterOwner) {
-      return false;
+    if (filterOwner !== 'ALL') {
+      const dealOwner = normDealStr(d.ownerName || 'Marcelo Lopes Mira');
+      const targetOwner = normDealStr(filterOwner);
+      if (
+        dealOwner !== targetOwner &&
+        !(targetOwner.includes('marcelo') && dealOwner.includes('marcelo')) &&
+        !(targetOwner.includes('evelyn') && dealOwner.includes('evelyn'))
+      ) {
+        return false;
+      }
     }
     if (filterPriority !== 'ALL') {
       const effectivePriority =
@@ -478,13 +493,15 @@ export default function DealsKanbanTab({
       if (effectivePriority !== filterPriority) return false;
     }
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = d.title.toLowerCase().includes(q);
-      const matchComp = d.company?.name?.toLowerCase().includes(q);
-      const matchCont =
-        d.contact &&
-        `${d.contact.firstName} ${d.contact.lastName}`.toLowerCase().includes(q);
-      return Boolean(matchTitle || matchComp || matchCont);
+      const q = normDealStr(searchQuery);
+      const qDigits = searchQuery.replace(/\D+/g, '');
+      const hay = normDealStr(
+        `${d.title} ${d.company?.name || ''} ${d.company?.cnpj || ''} ${d.contact?.firstName || ''} ${d.contact?.lastName || ''} ${d.ownerName || ''}`
+      );
+      const cnpjDigits = String(d.company?.cnpj || '').replace(/\D+/g, '');
+      return Boolean(
+        hay.includes(q) || (qDigits.length >= 2 && cnpjDigits.includes(qDigits))
+      );
     }
     return true;
   });

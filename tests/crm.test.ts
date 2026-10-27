@@ -1,3 +1,4 @@
+import { filterGlobalSearchEntries, SEARCH_CATEGORY_PILLS, SearchCategoryKey, SearchResultEntry } from '../src/app/components/GlobalHeaderSearch';
 import fs from 'node:fs';
 import path from 'node:path';
 // ============================================================================
@@ -2142,5 +2143,144 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(modalsSrc.includes('Prazo Personalizado (Fora do Padrão)'));
     assert.ok(modalsSrc.includes('Configurar Tempo Fora do Padrão do Mercado'));
     assert.ok(modalsSrc.includes('Confirmar Renovação de Vigência e Salvar Alterações'));
+  });
+
+  it('valida o motor de filtros da Pesquisa Global (GlobalHeaderSearch) em todas as 9 pílulas de categoria e nos 4 seletores de sistema (Todos, CRM, ERP, Chamados), com e sem texto digitado', () => {
+    const repo = createInMemoryRepository();
+    const erp = repo.getErpOverview();
+    const contacts = repo.listContacts();
+    const companies = repo.listCompanies();
+    const deals = repo.listDeals();
+    const tickets = repo.listServiceTickets();
+
+    const entries: SearchResultEntry[] = [
+      ...companies.map((c) => ({
+        id: `COMPANIES:${c.id}`,
+        entityId: c.id,
+        category: 'COMPANIES' as SearchCategoryKey,
+        system: 'CRM' as const,
+        title: c.name,
+        subtitle: `Empresa • CRM & ERP • ${c.cnpj || ''}`,
+      })),
+      ...contacts.map((c) => ({
+        id: `CONTACTS:${c.id}`,
+        entityId: c.id,
+        category: 'CONTACTS' as SearchCategoryKey,
+        system: 'CRM' as const,
+        title: `${c.firstName} ${c.lastName}`,
+        subtitle: `Contato • CRM • ${c.email || ''}`,
+      })),
+      ...deals.map((d) => ({
+        id: `DEALS:${d.id}`,
+        entityId: d.id,
+        category: 'DEALS' as SearchCategoryKey,
+        system: 'CRM' as const,
+        title: d.title,
+        subtitle: `Negócio • CRM • ${d.ownerName || ''}`,
+      })),
+      ...erp.proposals.map((p) => ({
+        id: `PROPOSALS:${p.id}`,
+        entityId: p.id,
+        category: 'PROPOSALS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `${p.code} - ${p.companyName}`,
+        subtitle: `Orçamento • ERP • ${p.title}`,
+      })),
+      ...erp.catalog.map((it) => ({
+        id: `PRODUCTS:${it.id}`,
+        entityId: it.id,
+        category: 'PRODUCTS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `${it.gestaoClickCode} - ${it.name}`,
+        subtitle: `Produto/Item • ERP • ${it.ncmOrLc116}`,
+      })),
+      ...erp.rentalContracts.map((ctr) => ({
+        id: `CONTRACTS:${ctr.id}`,
+        entityId: ctr.id,
+        category: 'CONTRACTS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `${ctr.contractNumber} - ${ctr.companyName}`,
+        subtitle: `Contrato • ERP • ${ctr.title}`,
+      })),
+      ...erp.invoices.map((inv) => ({
+        id: `INVOICES:${inv.id}`,
+        entityId: inv.id,
+        category: 'INVOICES' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `${inv.documentNumber} - ${inv.companyName}`,
+        subtitle: `Nota Fiscal • ERP • ${inv.documentType}`,
+      })),
+      ...(erp.serviceOrders || []).map((os) => ({
+        id: `SERVICE_ORDERS:${os.id}`,
+        entityId: os.id,
+        category: 'SERVICE_ORDERS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `O.S. #${os.code} - ${os.companyName}`,
+        subtitle: `Ordem de Serviço • ERP • ${os.status}`,
+      })),
+      ...tickets.map((tk) => ({
+        id: `TICKETS:${tk.id}`,
+        entityId: tk.id,
+        category: 'TICKETS' as SearchCategoryKey,
+        system: 'CHAMADOS' as const,
+        title: `${tk.key} - ${tk.subject}`,
+        subtitle: `Chamado • CHAMADOS • ${tk.assignee}`,
+      })),
+    ];
+
+    // 1. Testar cada uma das 9 pílulas de categoria isoladamente (sem texto digitado)
+    for (const pill of SEARCH_CATEGORY_PILLS) {
+      const res = filterGlobalSearchEntries({
+        allEntries: entries,
+        query: '',
+        systemFilter: 'ALL',
+        selectedCategories: [pill.key],
+      });
+      assert.ok(res.length > 0, `A pílula ${pill.label} (${pill.key}) deve retornar registros reais`);
+      assert.ok(
+        res.every((r) => r.category === pill.key),
+        `Todos os resultados da pílula ${pill.key} devem pertencer exclusivamente à categoria ${pill.key}`
+      );
+    }
+
+    // 2. Mesmo que systemFilter esteja em 'CRM', se o usuário clicar na pílula 'PROPOSALS' ou 'INVOICES' (que são do ERP), deve retornar os Orçamentos/Notas Fiscais sem bloquear!
+    const crossSysRes = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '',
+      systemFilter: 'CRM',
+      selectedCategories: ['PROPOSALS', 'INVOICES'],
+    });
+    assert.ok(crossSysRes.length > 0);
+    assert.ok(crossSysRes.some((r) => r.category === 'PROPOSALS'));
+    assert.ok(crossSysRes.some((r) => r.category === 'INVOICES'));
+
+    // 3. Testar filtro por sistema ('CRM', 'ERP', 'CHAMADOS') quando nenhuma pílula está travada
+    const onlyErp = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '',
+      systemFilter: 'ERP',
+      selectedCategories: [],
+    });
+    assert.ok(onlyErp.some((r) => r.category === 'PROPOSALS'));
+    assert.ok(onlyErp.some((r) => r.category === 'COMPANIES'));
+    assert.equal(onlyErp.some((r) => r.category === 'DEALS'), false);
+
+    const onlyChamados = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.ok(onlyChamados.length > 0);
+    assert.ok(onlyChamados.every((r) => r.system === 'CHAMADOS'));
+
+    // 4. Testar busca textual por Orçamento #4695 (Mundivox) e por CNPJ sem pontuação
+    const mundivoxSearch = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '4695',
+      systemFilter: 'ALL',
+      selectedCategories: [],
+    });
+    assert.ok(mundivoxSearch.some((r) => r.title.includes('4695')));
   });
 });

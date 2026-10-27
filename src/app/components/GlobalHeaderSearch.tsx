@@ -24,6 +24,7 @@ import {
   ErpFiscalInvoice,
   ErpRentalContract,
   ErpServiceOrder,
+  ErpSupplierRecord,
   ServiceTicket,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
@@ -54,6 +55,7 @@ export interface SearchResultEntry {
 interface GlobalHeaderSearchProps {
   contacts: Contact[];
   companies: Company[];
+  suppliers?: ErpSupplierRecord[];
   deals: Deal[];
   proposals: ErpCommercialProposal[];
   catalog: ErpCatalogItem[];
@@ -77,7 +79,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Contatos',
     system: 'CRM',
     avatarBg: 'bg-blue-600',
-    pillActiveCls: 'bg-blue-50 text-blue-800 border-blue-400',
+    pillActiveCls: 'bg-blue-50 text-blue-900 border-blue-500 ring-1 ring-blue-500/30',
     icon: User,
   },
   {
@@ -85,7 +87,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Empresas / Clientes',
     system: 'CRM',
     avatarBg: 'bg-orange-600',
-    pillActiveCls: 'bg-orange-50 text-orange-800 border-orange-400',
+    pillActiveCls: 'bg-orange-50 text-orange-900 border-orange-500 ring-1 ring-orange-500/30',
     icon: Building2,
   },
   {
@@ -93,7 +95,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Negócios',
     system: 'CRM',
     avatarBg: 'bg-emerald-600',
-    pillActiveCls: 'bg-emerald-50 text-emerald-800 border-emerald-400',
+    pillActiveCls: 'bg-emerald-50 text-emerald-900 border-emerald-500 ring-1 ring-emerald-500/30',
     icon: Briefcase,
   },
   {
@@ -101,7 +103,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Orçamentos / Propostas',
     system: 'ERP',
     avatarBg: 'bg-indigo-600',
-    pillActiveCls: 'bg-indigo-50 text-indigo-800 border-indigo-400',
+    pillActiveCls: 'bg-indigo-50 text-indigo-900 border-indigo-500 ring-1 ring-indigo-500/30',
     icon: FileText,
   },
   {
@@ -109,7 +111,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Produtos / Itens',
     system: 'ERP',
     avatarBg: 'bg-purple-600',
-    pillActiveCls: 'bg-purple-50 text-purple-800 border-purple-400',
+    pillActiveCls: 'bg-purple-50 text-purple-900 border-purple-500 ring-1 ring-purple-500/30',
     icon: Package,
   },
   {
@@ -117,7 +119,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Contratos',
     system: 'ERP',
     avatarBg: 'bg-teal-600',
-    pillActiveCls: 'bg-teal-50 text-teal-800 border-teal-400',
+    pillActiveCls: 'bg-teal-50 text-teal-900 border-teal-500 ring-1 ring-teal-500/30',
     icon: FileSignature,
   },
   {
@@ -125,7 +127,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Notas Fiscais',
     system: 'ERP',
     avatarBg: 'bg-cyan-600',
-    pillActiveCls: 'bg-cyan-50 text-cyan-800 border-cyan-400',
+    pillActiveCls: 'bg-cyan-50 text-cyan-900 border-cyan-500 ring-1 ring-cyan-500/30',
     icon: Receipt,
   },
   {
@@ -133,7 +135,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Ordens de Serviço',
     system: 'ERP',
     avatarBg: 'bg-amber-600',
-    pillActiveCls: 'bg-amber-50 text-amber-800 border-amber-400',
+    pillActiveCls: 'bg-amber-50 text-amber-900 border-amber-500 ring-1 ring-amber-500/30',
     icon: Wrench,
   },
   {
@@ -141,14 +143,14 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     label: 'Chamados / Tickets',
     system: 'CHAMADOS',
     avatarBg: 'bg-rose-600',
-    pillActiveCls: 'bg-rose-50 text-rose-800 border-rose-400',
+    pillActiveCls: 'bg-rose-50 text-rose-900 border-rose-500 ring-1 ring-rose-500/30',
     icon: Headphones,
   },
 ];
 
 const RECENT_STORAGE_KEY = 'stihub_global_recent_searches_v1';
 
-function normalizeText(v: unknown): string {
+export function normalizeSearchText(v: unknown): string {
   return String(v ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -156,9 +158,50 @@ function normalizeText(v: unknown): string {
     .trim();
 }
 
+export function entryBelongsToSystem(
+  entry: SearchResultEntry,
+  sys: SearchSystemFilter
+): boolean {
+  if (sys === 'ALL') return true;
+  if (entry.category === 'COMPANIES') {
+    return sys === 'CRM' || sys === 'ERP';
+  }
+  return entry.system === sys;
+}
+
+export function filterGlobalSearchEntries(params: {
+  allEntries: SearchResultEntry[];
+  query: string;
+  systemFilter: SearchSystemFilter;
+  selectedCategories: SearchCategoryKey[];
+}): SearchResultEntry[] {
+  const { allEntries, query, systemFilter, selectedCategories } = params;
+  const q = normalizeSearchText(query);
+  const qDigits = query.replace(/\D+/g, '');
+
+  return allEntries.filter((entry) => {
+    // When specific category pills are selected, filter by those categories first
+    if (selectedCategories.length > 0) {
+      if (!selectedCategories.includes(entry.category)) {
+        return false;
+      }
+    } else if (systemFilter !== 'ALL') {
+      if (!entryBelongsToSystem(entry, systemFilter)) {
+        return false;
+      }
+    }
+
+    if (!q) return true;
+    const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
+    const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
+    return hay.includes(q) || (qDigits.length >= 2 && hayDigits.includes(qDigits));
+  });
+}
+
 export default function GlobalHeaderSearch({
   contacts,
   companies,
+  suppliers = [],
   deals,
   proposals,
   catalog,
@@ -171,11 +214,8 @@ export default function GlobalHeaderSearch({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [systemFilter, setSystemFilter] = useState<SearchSystemFilter>('ALL');
-  const [selectedCategories, setSelectedCategories] = useState<SearchCategoryKey[]>([
-    'CONTACTS',
-    'COMPANIES',
-    'DEALS',
-  ]);
+  // Inicia sem travar categorias para que todos os 9 módulos (CRM, ERP e Chamados) apareçam na busca imediatamente
+  const [selectedCategories, setSelectedCategories] = useState<SearchCategoryKey[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
 
@@ -219,10 +259,38 @@ export default function GlobalHeaderSearch({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
+  // Smart System Filter handler: selecting a system clears conflicting category pills
+  const handleSelectSystemFilter = (sys: SearchSystemFilter) => {
+    setSystemFilter(sys);
+    if (sys !== 'ALL') {
+      setSelectedCategories((prev) =>
+        prev.filter((catKey) => {
+          if (catKey === 'COMPANIES') return sys === 'CRM' || sys === 'ERP';
+          const pill = SEARCH_CATEGORY_PILLS.find((p) => p.key === catKey);
+          return pill ? pill.system === sys : true;
+        })
+      );
+    }
+    setActiveIndex(0);
+  };
+
+  // Smart Category Pill toggle: if user clicks a category pill outside current systemFilter, auto-expand systemFilter to 'ALL' so results are never empty!
   const toggleCategory = (cat: SearchCategoryKey) => {
-    setSelectedCategories((prev) =>
-      prev.includes(cat) ? prev.filter((k) => k !== cat) : [...prev, cat]
-    );
+    const pill = SEARCH_CATEGORY_PILLS.find((p) => p.key === cat);
+    setSelectedCategories((prev) => {
+      const isRemoving = prev.includes(cat);
+      const next = isRemoving ? prev.filter((k) => k !== cat) : [...prev, cat];
+      if (!isRemoving && pill && systemFilter !== 'ALL') {
+        const compatible =
+          cat === 'COMPANIES'
+            ? systemFilter === 'CRM' || systemFilter === 'ERP'
+            : pill.system === systemFilter;
+        if (!compatible) {
+          setSystemFilter('ALL');
+        }
+      }
+      return next;
+    });
     setActiveIndex(0);
   };
 
@@ -237,7 +305,7 @@ export default function GlobalHeaderSearch({
     const entries: SearchResultEntry[] = [];
     const compMap = new Map(companies.map((c) => [c.id, c]));
 
-    // 1. Companies / Clientes (CRM & ERP)
+    // 1. Companies / Clientes (CRM & ERP) + Suppliers
     for (const comp of companies) {
       entries.push({
         id: `COMPANIES:${comp.id}`,
@@ -245,8 +313,19 @@ export default function GlobalHeaderSearch({
         category: 'COMPANIES',
         system: 'CRM',
         title: comp.name,
-        subtitle: `Empresa • CRM/ERP${comp.cnpj ? ` • CNPJ ${comp.cnpj}` : ''}${comp.city ? ` • ${comp.city}` : ''}`,
+        subtitle: `Empresa / Cliente • CRM & ERP${comp.cnpj ? ` • CNPJ ${comp.cnpj}` : ''}${comp.city ? ` • ${comp.city}` : ''}`,
         rawRecord: comp,
+      });
+    }
+    for (const sup of suppliers) {
+      entries.push({
+        id: `COMPANIES:sup-${sup.id}`,
+        entityId: sup.id,
+        category: 'COMPANIES',
+        system: 'ERP',
+        title: sup.name,
+        subtitle: `Fornecedor • ERP${sup.cnpj ? ` • CNPJ ${sup.cnpj}` : ''}${sup.phone ? ` • ${sup.phone}` : ''}`,
+        rawRecord: sup,
       });
     }
 
@@ -360,6 +439,7 @@ export default function GlobalHeaderSearch({
     return entries;
   }, [
     companies,
+    suppliers,
     contacts,
     deals,
     proposals,
@@ -370,37 +450,76 @@ export default function GlobalHeaderSearch({
     tickets,
   ]);
 
-  const filteredEntries = useMemo(() => {
-    const q = normalizeText(query);
+  const categoryCounts = useMemo(() => {
+    const counts: Record<SearchCategoryKey, number> = {
+      CONTACTS: 0,
+      COMPANIES: 0,
+      DEALS: 0,
+      PROPOSALS: 0,
+      PRODUCTS: 0,
+      CONTRACTS: 0,
+      INVOICES: 0,
+      SERVICE_ORDERS: 0,
+      TICKETS: 0,
+    };
+    const q = normalizeSearchText(query);
     const qDigits = query.replace(/\D+/g, '');
-
-    const pool = allIndexedEntries.filter((entry) => {
-      if (systemFilter !== 'ALL') {
-        if (systemFilter === 'ERP' && entry.category === 'COMPANIES') {
-          // Companies/Clientes belong to both CRM and ERP
-        } else if (entry.system !== systemFilter) {
-          return false;
+    for (const entry of allIndexedEntries) {
+      if (q) {
+        const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
+        const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
+        if (!hay.includes(q) && !(qDigits.length >= 2 && hayDigits.includes(qDigits))) {
+          continue;
         }
       }
-      if (selectedCategories.length > 0 && !selectedCategories.includes(entry.category)) {
-        return false;
-      }
-      if (!q) return true;
-      const hay = normalizeText(`${entry.title} ${entry.subtitle}`);
-      const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
-      return hay.includes(q) || (qDigits.length >= 2 && hayDigits.includes(qDigits));
-    });
+      counts[entry.category] = (counts[entry.category] || 0) + 1;
+    }
+    return counts;
+  }, [allIndexedEntries, query]);
 
-    if (!q && recentIds.length > 0) {
+  const matchingPool = useMemo(
+    () =>
+      filterGlobalSearchEntries({
+        allEntries: allIndexedEntries,
+        query,
+        systemFilter,
+        selectedCategories,
+      }),
+    [allIndexedEntries, query, systemFilter, selectedCategories]
+  );
+
+  const filteredEntries = useMemo(() => {
+    const hasFilter = selectedCategories.length > 0 || systemFilter !== 'ALL';
+    if (!query.trim() && !hasFilter) {
+      // When no query and no filters are active, show recently selected + diverse sample across CRM, ERP & Chamados
       const recentMatched = recentIds
-        .map((id) => pool.find((e) => e.id === id))
+        .map((id) => matchingPool.find((e) => e.id === id))
         .filter((e): e is SearchResultEntry => Boolean(e));
-      const rest = pool.filter((e) => !recentIds.includes(e.id));
-      return [...recentMatched, ...rest].slice(0, 10);
+
+      const diversePicks: SearchResultEntry[] = [];
+      const seenIds = new Set(recentMatched.map((r) => r.id));
+      for (const cat of [
+        'COMPANIES',
+        'CONTACTS',
+        'DEALS',
+        'PROPOSALS',
+        'PRODUCTS',
+        'CONTRACTS',
+        'INVOICES',
+        'SERVICE_ORDERS',
+        'TICKETS',
+      ] as SearchCategoryKey[]) {
+        const found = matchingPool.filter((e) => e.category === cat && !seenIds.has(e.id)).slice(0, 2);
+        for (const f of found) {
+          seenIds.add(f.id);
+          diversePicks.push(f);
+        }
+      }
+      return [...recentMatched, ...diversePicks].slice(0, 14);
     }
 
-    return pool.slice(0, 12);
-  }, [allIndexedEntries, query, systemFilter, selectedCategories, recentIds]);
+    return matchingPool.slice(0, 20);
+  }, [matchingPool, query, systemFilter, selectedCategories, recentIds]);
 
   const handleChooseEntry = (entry: SearchResultEntry) => {
     const updatedRecents = [entry.id, ...recentIds.filter((id) => id !== entry.id)].slice(0, 8);
@@ -459,6 +578,7 @@ export default function GlobalHeaderSearch({
           {query && (
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setQuery('');
                 inputRef.current?.focus();
@@ -476,7 +596,15 @@ export default function GlobalHeaderSearch({
 
       {/* HUBSPOT-STYLE GLOBAL SEARCH POPOVER */}
       {open && (
-        <div className="absolute left-0 right-0 sm:w-[660px] sm:-left-12 mt-2 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 overflow-hidden text-[#33475b]">
+        <div
+          onMouseDown={(e) => {
+            // Keep input focused when clicking inside popover filters
+            if ((e.target as HTMLElement).tagName !== 'INPUT') {
+              e.preventDefault();
+            }
+          }}
+          className="absolute left-0 right-0 sm:w-[680px] sm:-left-12 mt-2 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 overflow-hidden text-[#33475b]"
+        >
           {/* 1. HEADER + SYSTEM FILTER & CATEGORY PILLS */}
           <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -502,10 +630,7 @@ export default function GlobalHeaderSearch({
                     <button
                       key={sys.id}
                       type="button"
-                      onClick={() => {
-                        setSystemFilter(sys.id);
-                        setActiveIndex(0);
-                      }}
+                      onClick={() => handleSelectSystemFilter(sys.id)}
                       className={`px-2.5 py-1 rounded-md font-extrabold transition cursor-pointer ${
                         isAct
                           ? 'bg-[#213343] text-white shadow-2xs'
@@ -524,6 +649,7 @@ export default function GlobalHeaderSearch({
               {SEARCH_CATEGORY_PILLS.map((pill) => {
                 const Icon = pill.icon;
                 const active = selectedCategories.includes(pill.key);
+                const count = categoryCounts[pill.key] ?? 0;
                 return (
                   <button
                     key={pill.key}
@@ -537,6 +663,7 @@ export default function GlobalHeaderSearch({
                   >
                     <Icon className="w-3.5 h-3.5" />
                     <span>{pill.label}</span>
+                    <span className="text-[10px] opacity-75">({count})</span>
                   </button>
                 );
               })}
@@ -556,17 +683,21 @@ export default function GlobalHeaderSearch({
             </div>
           </div>
 
-          {/* 2. RESULTS LIST ("Resultados selecionados recentemente" ou Resultados da Busca) */}
+          {/* 2. RESULTS LIST ("Resultados selecionados recentemente" ou "Resultados filtrados") */}
           <div className="max-h-96 overflow-y-auto">
             <div className="px-4 py-2 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-600">
               <span>
-                {query.trim()
-                  ? `Resultados encontrados (${filteredEntries.length})`
+                {query.trim() || activeFiltersCount > 0
+                  ? `Resultados filtrados (${matchingPool.length} encontrado${matchingPool.length === 1 ? '' : 's'})`
                   : 'Resultados selecionados recentemente'}
               </span>
-              {systemFilter !== 'ALL' && (
-                <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-extrabold">
-                  Escopo: {systemFilter}
+              {activeFiltersCount > 0 && (
+                <span className="px-2 py-0.5 rounded bg-teal-50 text-[#0f766e] border border-teal-200 text-[10px] font-extrabold">
+                  {selectedCategories.length > 0
+                    ? selectedCategories
+                        .map((c) => SEARCH_CATEGORY_PILLS.find((p) => p.key === c)?.label)
+                        .join(', ')
+                    : `Sistema: ${systemFilter}`}
                 </span>
               )}
             </div>
@@ -574,7 +705,7 @@ export default function GlobalHeaderSearch({
             {filteredEntries.length === 0 ? (
               <div className="p-8 text-center space-y-2 text-xs text-slate-500">
                 <div className="font-bold text-slate-700">
-                  Nenhum registro encontrado para &ldquo;{query}&rdquo; nos filtros selecionados.
+                  Nenhum registro encontrado{query ? ` para "${query}"` : ''} nos filtros selecionados.
                 </div>
                 {activeFiltersCount > 0 && (
                   <button
