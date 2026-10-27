@@ -977,10 +977,12 @@ export default function ErpGestaoClickTab({
     setEditingProposal(null);
     setIsCreatingProposalModal(false);
     setActiveSection('ORCAMENTOS');
+    const verNum = saved.version || 1;
+    const revCount = Array.isArray(saved.versionHistory) ? saved.versionHistory.length : 1;
     onShowToast(
       isNew
-        ? `Orçamento ${saved.code} criado com sucesso e Link PDF A4 gerado!`
-        : `Orçamento ${saved.code} atualizado com sucesso e Link PDF regenerado!`
+        ? `Orçamento ${saved.code} criado na Versão v${verNum}.0 e Link PDF A4 gerado!`
+        : `Orçamento ${saved.code} salvo na Versão v${verNum}.0 (${revCount} revisão(ões) registradas no histórico)!`
     );
     await onRefresh();
   };
@@ -1731,9 +1733,15 @@ export default function ErpGestaoClickTab({
                             setIsCreatingProposalModal(false);
                             setEditingProposal(prop);
                           }}
-                          className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e] underline"
+                          className="py-2.5 px-3"
                         >
-                          {prop.code}
+                          <div className="font-mono font-bold text-[#1e3a6e] underline">{prop.code}</div>
+                          <span
+                            title={`Versão v${prop.version || 1}.0 • ${(prop.versionHistory || []).length || 1} revisão(ões) salva(s) no histórico`}
+                            className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono text-[10px] font-extrabold"
+                          >
+                            v{prop.version || 1}.0 ({(prop.versionHistory || []).length || 1} rev.)
+                          </span>
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="font-bold text-slate-900">{prop.companyName}</div>
@@ -3007,6 +3015,11 @@ export default function ErpGestaoClickTab({
         return {
           label: "NFCom TELECOM (MOD. 62 • CFOP 5.303 SCM)",
           className: "bg-cyan-100 text-cyan-900 border border-cyan-300",
+        };
+      default:
+        return {
+          label: "NF-e RETORNO DE LOCAÇÃO (CFOP 5.909 / 6.909)",
+          className: "bg-slate-100 text-slate-900 border border-slate-300",
         };
     }
   };

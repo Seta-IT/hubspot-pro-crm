@@ -104,7 +104,7 @@
 
 ---
 
-### Pilar 3 — Propostas e vendas (`2.077 Orçamentos • 295 Vendas` + Orçamento `#4695` + `/proposta/[id]` com Assinatura ICP-Brasil / Gov.br)
+### Pilar 3 — Propostas e vendas (`2.077 Orçamentos • 295 Vendas` + Orçamento `#4695` + Versionamento Automático `v1.0, v2.0...` + `/proposta/[id]` com Assinatura ICP-Brasil / Gov.br)
 - **Status Geral:** **100% Concluído**
 - **Componentes & Arquivos:**
   - `src/app/components/ErpGestaoClickTab.tsx` (Seções `ORCAMENTOS` e `VENDAS`)
@@ -113,11 +113,12 @@
   - `src/app/lib/proposal-share.ts`
 - **Rotas de API:**
   - `GET / POST /api/erp/proposals`
-  - `GET / PATCH / PUT / DELETE /api/erp/proposals/:id`
+  - `GET / PATCH / PUT / DELETE /api/erp/proposals/:id` (Incrementa automaticamente `version` e grava `ErpProposalVersionEntry` com `changedFields` e `snapshot` completo a cada alteração de SLA, Tempo de Contrato, Forma de Pagamento, Valores ou Produtos/Serviços)
+  - `GET /api/erp/proposals/:id/versions` & `POST /api/erp/proposals/:id/restore-version` (Consulta e restauração de qualquer versão anterior)
   - `POST /api/erp/proposals/:id/approve` (Registra **Assinatura Eletrônica ICP-Brasil A1/A3 ou Gov.br** com Nome do Signatário, CPF, Cargo, Hash SHA-256 e Carimbo de Tempo ACT/ITI, convertendo em Contrato de Locação + Fatura)
   - `GET / POST / PATCH / DELETE /api/erp/records/salesOrders`
 - **Entregas Concluídas:**
-  - Editor de 9 blocos fiel ao Orçamento `#4695` do GestãoClick (Mundivox `SL-44-SEC-K9`).
+  - Editor de 9 blocos fiel ao Orçamento `#4695` do GestãoClick (Mundivox `SL-44-SEC-K9`), com busca autocomplete de clientes (`+ Adicionar novo` inline com consulta Receita Federal) e **Versionamento Automático Completo (`version` + `versionHistory`)** auditando toda alteração de SLA, Tempo de Contrato, Forma de Pagamento, Valores e Produtos/Serviços, com inspeção e restauração em 1 clique.
   - Rota pública `/proposta/[id]` acessível sem login para visualização/impressão A4 (`?print=1`) e **Assinatura Eletrônica Qualificada ICP-Brasil / Gov.br** com selo de autenticidade SHA-256 no rodapé A4.
   - Gestão de Pedidos de Venda de Produtos, Serviços e Devoluções/Estornos (`VENDAS_DEVOLUCOES`).
 

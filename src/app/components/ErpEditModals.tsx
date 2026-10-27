@@ -19,6 +19,9 @@ import {
   Building2,
   CheckCircle2,
   AlertTriangle,
+  History,
+  RotateCcw,
+  Eye,
 } from 'lucide-react';
 import {
   Company,
@@ -26,6 +29,7 @@ import {
   Deal,
   ErpCatalogItem,
   ErpCommercialProposal,
+  ErpProposalVersionEntry,
   ErpFiscalDocumentType,
   ErpFiscalInvoice,
   ErpFiscalNature,
@@ -75,6 +79,106 @@ export function ProposalEditModal({
     computeProposalTotals(structuredClone(proposal))
   );
   const [saving, setSaving] = useState(false);
+  const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(!isNew);
+  const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
+  const [versionChangeNote, setVersionChangeNote] = useState<string>('');
+  const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
+
+  const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
+    if (Array.isArray(draft.versionHistory) && draft.versionHistory.length > 0) {
+      return [...draft.versionHistory].sort((a, b) => b.version - a.version);
+    }
+    return [
+      {
+        version: draft.version || 1,
+        versionLabel: `v${draft.version || 1}.0`,
+        savedAt: draft.updatedAt || draft.createdAt || new Date().toISOString(),
+        savedBy: draft.sellerName || 'Marcelo Lopes Mira',
+        changedFields: ['Emissão Inicial da Proposta'],
+        changeSummary: `Versão inicial da Proposta Comercial #${draft.code || 'Nova'}`,
+        snapshot: {
+          title: draft.title || '',
+          status: draft.status || 'ENVIADA',
+          budgetType: draft.budgetType,
+          companyId: draft.companyId ?? null,
+          companyName: draft.companyName || '',
+          companyCnpj: draft.companyCnpj || '',
+          contactId: draft.contactId ?? null,
+          contactName: draft.contactName || '',
+          careOf: draft.careOf || draft.contactName || '',
+          contactEmail: draft.contactEmail,
+          sellerName: draft.sellerName || 'Marcelo Lopes Mira',
+          contractMonths: Number(draft.contractMonths || 24),
+          readjustmentIndex: draft.readjustmentIndex || 'IPCA',
+          paymentCondition: draft.paymentCondition || '',
+          validUntil: draft.validUntil || '',
+          deliveryForecast: draft.deliveryForecast || '',
+          shippingCarrier: draft.shippingCarrier || '',
+          shippingCost: Number(draft.shippingCost || 0),
+          deliveryAddress: draft.deliveryAddress || '',
+          discountAmount: Number(draft.discountAmount || 0),
+          discountPercentGlobal: Number(draft.discountPercentGlobal || 0),
+          productsSubtotal: Number(draft.productsSubtotal || 0),
+          servicesSubtotal: Number(draft.servicesSubtotal || 0),
+          monthlyRecurringTotal: Number(draft.monthlyRecurringTotal || 0),
+          oneTimeSetupTotal: Number(draft.oneTimeSetupTotal || 0),
+          totalContractValue: Number(draft.totalContractValue || 0),
+          commercialNotes: draft.commercialNotes || '',
+          technicalClauses: draft.technicalClauses || '',
+          internalNotes: draft.internalNotes || '',
+          installments: Array.isArray(draft.installments) ? draft.installments : [],
+          items: Array.isArray(draft.items) ? draft.items : [],
+        },
+      },
+    ];
+  }, [draft]);
+
+  const handleLoadVersionSnapshotIntoForm = async (entry: ErpProposalVersionEntry) => {
+    setRestoringVersionNum(entry.version);
+    try {
+      const s = entry.snapshot;
+      setClientSearchInput(s.companyName || '');
+      updateDraft({
+        title: s.title,
+        status: s.status,
+        budgetType: s.budgetType || draft.budgetType,
+        companyId: s.companyId,
+        companyName: s.companyName,
+        companyCnpj: s.companyCnpj,
+        contactId: s.contactId,
+        contactName: s.contactName,
+        careOf: s.careOf || s.contactName,
+        contactEmail: s.contactEmail,
+        sellerName: s.sellerName,
+        contractMonths: s.contractMonths,
+        readjustmentIndex: s.readjustmentIndex || 'IPCA',
+        paymentCondition: s.paymentCondition,
+        validUntil: s.validUntil,
+        deliveryForecast: s.deliveryForecast,
+        shippingCarrier: s.shippingCarrier,
+        shippingCost: s.shippingCost ?? 0,
+        deliveryAddress: s.deliveryAddress,
+        discountAmount: s.discountAmount ?? 0,
+        discountPercentGlobal: s.discountPercentGlobal ?? 0,
+        productsSubtotal: s.productsSubtotal,
+        servicesSubtotal: s.servicesSubtotal,
+        monthlyRecurringTotal: s.monthlyRecurringTotal,
+        oneTimeSetupTotal: s.oneTimeSetupTotal,
+        totalContractValue: s.totalContractValue,
+        commercialNotes: s.commercialNotes,
+        technicalClauses: s.technicalClauses,
+        internalNotes: s.internalNotes,
+        installments: Array.isArray(s.installments) ? structuredClone(s.installments) : [],
+        items: Array.isArray(s.items) ? structuredClone(s.items) : [],
+      });
+      setVersionChangeNote(`Restaurado a partir da revisão ${entry.versionLabel}`);
+      onShowToast?.(
+        `Dados da ${entry.versionLabel} carregados no formulário! Clique em "Salvar Alterações" para gravar a nova revisão.`
+      );
+    } finally {
+      setRestoringVersionNum(null);
+    }
+  };
 
   // GestãoClick Client Autocomplete & Inline Quick Customer Registration States
   const [localCreatedCompanies, setLocalCreatedCompanies] = useState<Company[]>([]);
@@ -507,6 +611,9 @@ export function ProposalEditModal({
     try {
       const computed = computeProposalTotals({
         ...draft,
+        ...(versionChangeNote.trim()
+          ? ({ versionChangeSummary: versionChangeNote.trim() } as unknown as Partial<ErpCommercialProposal>)
+          : {}),
         updatedAt: new Date().toISOString(),
       });
       await onSave(computed);
@@ -558,6 +665,22 @@ export function ProposalEditModal({
                     ? 'Orçamento Conjunto (Produtos + Serviços)'
                     : 'Locação Pura & Conectividade (MRR)'}
             </span>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
+              Versão Atual: v{draft.version || 1}.0 ({versionHistoryList.length}{' '}
+              {versionHistoryList.length === 1 ? 'revisão' : 'revisões'})
+            </span>
+            {!isNew && (
+              <button
+                type="button"
+                onClick={() => setShowVersionHistoryPanel((v) => !v)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold shadow-2xs cursor-pointer"
+              >
+                <History className="w-3.5 h-3.5 text-amber-300" />
+                <span>
+                  {showVersionHistoryPanel ? 'Ocultar Histórico de Versões' : `Histórico de Versões (${versionHistoryList.length})`}
+                </span>
+              </button>
+            )}
           </div>
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <span>🏠 Início</span>
@@ -1885,6 +2008,241 @@ export function ProposalEditModal({
                   className="w-full px-3 py-2 rounded border border-amber-300 bg-amber-50/30"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* BLOCO 7: VERSIONAMENTO AUTOMÁTICO COMPLETO & HISTÓRICO DE REVISÕES DA PROPOSTA */}
+          <div className="bg-white rounded-md border border-indigo-200 shadow-2xs overflow-hidden">
+            <div className="px-5 py-3 bg-indigo-950 text-white flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-emerald-300" />
+                <div>
+                  <div className="text-sm font-extrabold flex items-center gap-2">
+                    <span>7. Versionamento Automático &amp; Histórico de Revisões da Proposta</span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black">
+                      Versão Ativa: v{draft.version || 1}.0
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-300">
+                    Toda alteração de SLA, Tempo de Contrato, Forma de Pagamento, Valores ou Produtos/Serviços gera automaticamente uma nova versão auditável com snapshot completo.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVersionHistoryPanel((v) => !v)}
+                className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+              >
+                {showVersionHistoryPanel ? 'Recolher Histórico ▲' : `Expandir Revisões (${versionHistoryList.length}) ▼`}
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center bg-slate-50 p-3 rounded border border-slate-200">
+                <div className="sm:col-span-4">
+                  <span className="block text-[11px] font-extrabold text-slate-800">
+                    Nota / Motivo desta Revisão (Opcional)
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    Se deixado em branco, o sistema detecta e descreve automaticamente todos os campos alterados (SLA, Prazo, Pagamento, Valores, Produtos).
+                  </span>
+                </div>
+                <div className="sm:col-span-8">
+                  <input
+                    type="text"
+                    value={versionChangeNote}
+                    onChange={(e) => setVersionChangeNote(e.target.value)}
+                    placeholder="Ex.: Ajuste de SLA para 4h, prazo alterado de 12m para 24m e desconto comercial aprovado..."
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-xs font-semibold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {showVersionHistoryPanel && (
+                <div className="space-y-2.5">
+                  <div className="text-[11px] font-extrabold uppercase text-slate-600 flex items-center justify-between">
+                    <span>Linha do Tempo de Versões Salvas ({versionHistoryList.length})</span>
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      Clique em &quot;Inspecionar&quot; para ver os itens/SLA ou em &quot;Carregar / Restaurar Versão&quot; para reverter
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {versionHistoryList.map((ver, idx) => {
+                      const isCurrentVer = idx === 0;
+                      const isExpanded = expandedVersionNumber === ver.version;
+                      const snap = ver.snapshot;
+                      const savedDateFormatted = ver.savedAt
+                        ? new Date(ver.savedAt).toLocaleString('pt-BR')
+                        : '—';
+
+                      return (
+                        <div
+                          key={`${ver.version}-${ver.savedAt}`}
+                          className={`rounded-md border p-3.5 transition ${
+                            isCurrentVer
+                              ? 'border-emerald-300 bg-emerald-50/40'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`px-2.5 py-0.5 rounded font-mono text-xs font-black ${
+                                  isCurrentVer
+                                    ? 'bg-emerald-700 text-white'
+                                    : 'bg-[#1e3a6e] text-white'
+                                }`}
+                              >
+                                {ver.versionLabel || `v${ver.version}.0`}
+                              </span>
+                              {isCurrentVer && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-extrabold">
+                                  VERSÃO ATUAL
+                                </span>
+                              )}
+                              <span className="text-xs font-bold text-slate-800">
+                                {ver.changeSummary}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              <span>
+                                Salvo em <strong>{savedDateFormatted}</strong> por{' '}
+                                <strong>{ver.savedBy || 'Marcelo Lopes Mira'}</strong>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedVersionNumber(isExpanded ? null : ver.version)
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-bold cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-[#1e3a6e]" />
+                                <span>{isExpanded ? 'Ocultar Detalhes' : 'Inspecionar Versão'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={restoringVersionNum === ver.version}
+                                onClick={() => handleLoadVersionSnapshotIntoForm(ver)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                              >
+                                <RotateCcw className="w-3 h-3 text-emerald-300" />
+                                <span>Carregar / Restaurar esta Versão</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* TAGS DOS CAMPOS ALTERADOS NESTA REVISÃO */}
+                          {Array.isArray(ver.changedFields) && ver.changedFields.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                Campos Registrados:
+                              </span>
+                              {ver.changedFields.map((cf, cfIdx) => (
+                                <span
+                                  key={cfIdx}
+                                  className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-bold"
+                                >
+                                  {cf}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* RESUMO DOS PARÂMETROS COMERCIAIS DO SNAPSHOT */}
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2.5 pt-2 border-t border-slate-200/80 text-[11px]">
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">Prazo Contratual:</span>
+                              <strong className="text-slate-900">{snap.contractMonths} meses ({snap.readjustmentIndex || 'IPCA'})</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">Forma de Pagamento:</span>
+                              <strong className="text-slate-900 truncate block" title={snap.paymentCondition}>
+                                {snap.paymentCondition || '—'}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">Produtos / Serviços:</span>
+                              <strong className="text-slate-900">
+                                {(snap.items || []).length} item(ns)
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">Mensalidade (MRR):</span>
+                              <strong className="text-emerald-700">
+                                {formatBRL(snap.monthlyRecurringTotal || 0)}/mês
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px]">Valor Global (TCV):</span>
+                              <strong className="text-[#1e3a6e]">
+                                {formatBRL(snap.totalContractValue || 0)}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {/* PAINEL EXPANDIDO COM DETALHES COMPLETOS DO SNAPSHOT (ITENS + SLA + OBSERVAÇÕES) */}
+                          {isExpanded && (
+                            <div className="mt-3 p-3 rounded bg-slate-50 border border-slate-200 space-y-2.5 text-[11px]">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <span className="font-bold text-slate-700 block">
+                                    Cláusulas Técnicas &amp; SLA na {ver.versionLabel}:
+                                  </span>
+                                  <p className="text-slate-600 bg-white p-2 rounded border border-slate-200 mt-0.5">
+                                    {snap.technicalClauses || '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-700 block">
+                                    Observações Comerciais / Fiscais na {ver.versionLabel}:
+                                  </span>
+                                  <p className="text-slate-600 bg-white p-2 rounded border border-slate-200 mt-0.5">
+                                    {snap.commercialNotes || '—'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div>
+                                <span className="font-bold text-slate-700 block mb-1">
+                                  Itens do Orçamento na {ver.versionLabel} ({(snap.items || []).length}):
+                                </span>
+                                <div className="overflow-x-auto border border-slate-200 rounded bg-white">
+                                  <table className="w-full text-left text-[11px]">
+                                    <thead className="bg-slate-100 text-slate-600 text-[10px] uppercase border-b">
+                                      <tr>
+                                        <th className="py-1.5 px-2">SKU</th>
+                                        <th className="py-1.5 px-2">Descrição</th>
+                                        <th className="py-1.5 px-2 text-center">Qtd</th>
+                                        <th className="py-1.5 px-2 text-right">Unitário</th>
+                                        <th className="py-1.5 px-2 text-right">Subtotal</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {(snap.items || []).map((it, itIdx) => (
+                                        <tr key={it.id || itIdx}>
+                                          <td className="py-1.5 px-2 font-mono font-bold">{it.sku}</td>
+                                          <td className="py-1.5 px-2">{it.description}</td>
+                                          <td className="py-1.5 px-2 text-center">{it.quantity}</td>
+                                          <td className="py-1.5 px-2 text-right">{formatBRL(it.unitPrice)}</td>
+                                          <td className="py-1.5 px-2 text-right font-bold">
+                                            {formatBRL(it.subtotal ?? it.totalMonthly)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

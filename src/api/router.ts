@@ -2538,6 +2538,46 @@ export class CrmApiRouter {
         return { status: 200, body: { data: res } };
       }
 
+      const restorePropVerMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/restore-version$/);
+      if (restorePropVerMatch && method === 'POST') {
+        const propId = decodeURIComponent(restorePropVerMatch[1]);
+        const targetVersion = Number(body.targetVersion ?? body.version ?? 1);
+        const restored = this.repo.restoreProposalVersion(
+          propId,
+          targetVersion,
+          typeof body.restoredBy === 'string' ? body.restoredBy : undefined
+        );
+        if (!restored) {
+          return {
+            status: 404,
+            body: { error: 'Proposta comercial ou versão solicitada não encontrada.' },
+          };
+        }
+        return { status: 200, body: { data: restored } };
+      }
+
+      const propVersionsMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/versions$/);
+      if (propVersionsMatch && method === 'GET') {
+        const propId = decodeURIComponent(propVersionsMatch[1]);
+        const found = this.repo
+          .listProposals()
+          .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        if (!found) {
+          return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
+        return {
+          status: 200,
+          body: {
+            data: {
+              proposalId: found.id,
+              code: found.code,
+              currentVersion: found.version || 1,
+              versionHistory: found.versionHistory || [],
+            },
+          },
+        };
+      }
+
       const proposalIdMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)$/);
       if (proposalIdMatch) {
         const propId = decodeURIComponent(proposalIdMatch[1]);

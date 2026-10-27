@@ -82,10 +82,15 @@ function PublicProposalPrintContent() {
     }
 
     let active = true;
-    fetch('/api/erp/proposals')
+    fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
       .then((r) => r.json())
       .then((json) => {
         if (!active) return;
+        if (json?.data && !Array.isArray(json.data)) {
+          setProposal(computeProposalTotals(json.data as ErpCommercialProposal));
+          setLoading(false);
+          return;
+        }
         const list: ErpCommercialProposal[] = Array.isArray(json?.data) ? json.data : [];
         const match =
           list.find(
@@ -311,6 +316,9 @@ function PublicProposalPrintContent() {
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
                 {proposal.code}
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-400 text-slate-950">
+                Revisão v{proposal.version || 1}.0
               </span>
               {savedNotice && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
@@ -579,7 +587,12 @@ function PublicProposalPrintContent() {
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
-              <div className="text-xl font-black text-white mt-0.5">{proposal.code}</div>
+              <div className="text-xl font-black text-white mt-0.5">
+                {proposal.code}{' '}
+                <span className="text-xs font-extrabold px-2 py-0.5 rounded bg-emerald-400 text-slate-950 align-middle">
+                  v{proposal.version || 1}.0
+                </span>
+              </div>
               <div className="text-[11px] text-slate-200 mt-0.5">
                 Emissão: <strong>{issueDateStr}</strong> • Validade: <strong>{validUntilStr}</strong>
               </div>
@@ -956,6 +969,65 @@ function PublicProposalPrintContent() {
             </div>
             <p className="text-slate-600 leading-relaxed">{proposal.technicalClauses}</p>
           </div>
+
+          {/* HISTÓRICO DE VERSÕES E REVISÕES DA PROPOSTA (AUDITORIA DE SLA, PRAZO, PAGAMENTO, VALORES E PRODUTOS) */}
+          {Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0 && (
+            <div className="border border-slate-300 rounded-lg overflow-hidden">
+              <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex items-center justify-between text-xs font-extrabold text-slate-800">
+                <span>
+                  CONTROLE DE VERSIONAMENTO E REVISÕES DA PROPOSTA ({proposal.versionHistory.length}{' '}
+                  {proposal.versionHistory.length === 1 ? 'versão registrada' : 'versões registradas'})
+                </span>
+                <span className="px-2 py-0.5 rounded bg-[#1e3a6e] text-white text-[10px] font-mono">
+                  Versão Vigente: v{proposal.version || 1}.0
+                </span>
+              </div>
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
+                  <tr>
+                    <th className="py-1.5 px-3 w-20">Versão</th>
+                    <th className="py-1.5 px-3 w-36">Data / Hora</th>
+                    <th className="py-1.5 px-3 w-40">Responsável</th>
+                    <th className="py-1.5 px-3">Alterações Registradas (SLA, Prazo, Pagamento, Valores, Produtos)</th>
+                    <th className="py-1.5 px-3 text-right w-32">MRR / Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[...proposal.versionHistory]
+                    .sort((a, b) => b.version - a.version)
+                    .map((ver) => (
+                      <tr key={`${ver.version}-${ver.savedAt}`}>
+                        <td className="py-1.5 px-3 font-mono font-bold text-[#1e3a6e]">
+                          {ver.versionLabel || `v${ver.version}.0`}
+                        </td>
+                        <td className="py-1.5 px-3 text-slate-600">
+                          {ver.savedAt ? new Date(ver.savedAt).toLocaleString('pt-BR') : '—'}
+                        </td>
+                        <td className="py-1.5 px-3 font-semibold text-slate-800">
+                          {ver.savedBy || proposal.sellerName}
+                        </td>
+                        <td className="py-1.5 px-3 text-slate-700">
+                          <div className="font-semibold">{ver.changeSummary}</div>
+                          {Array.isArray(ver.changedFields) && ver.changedFields.length > 0 && (
+                            <div className="text-[10px] text-slate-500">
+                              Campos: {ver.changedFields.join(' • ')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-3 text-right font-mono">
+                          <div className="font-bold text-emerald-700">
+                            {formatBRL(ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal)}/mês
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            TCV {formatBRL(ver.snapshot?.totalContractValue ?? proposal.totalContractValue)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* TERMO DE ACEITE E ASSINATURAS */}
           <div className="pt-6 mt-4 border-t-2 border-slate-200">

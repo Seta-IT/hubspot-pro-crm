@@ -734,7 +734,121 @@ export type ErpFiscalDocumentType =
   | 'NFE_REMESSA_LOCACAO'
   | 'NFE_VENDA_PRODUTO'
   | 'NFCE_CONSUMIDOR'
-  | 'NFCOM_TELECOM';
+  | 'NFCOM_TELECOM'
+  | 'NFE_IMPORTACAO';
+
+export interface ErpImportDeclarationAddition {
+  nAdicao: string;
+  nSeqAdic: string;
+  cFabricante: string;
+  vDescDI: number;
+  nDraw?: string;
+}
+
+export interface ErpImportDeclarationInfo {
+  nDI: string;
+  dDI: string;
+  xLocDesemb: string;
+  UFDesemb: string;
+  dDesemb: string;
+  tpViaTransp: "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12";
+  vAFRMM: number;
+  tpIntermedio: "1" | "2" | "3";
+  cExportador: string;
+  currency: "USD" | "EUR" | "CNY";
+  exchangeRatePtax: number;
+  fobTotalForeign: number;
+  freteInternacionalBrl: number;
+  seguroInternacionalBrl: number;
+  taxaSiscomexTotalBrl: number;
+  outrasDespesasAduaneirasBrl: number;
+  somarTributosEmVOutroSimples: boolean;
+  exporterIdEstrangeiro: string;
+  exporterName: string;
+  exporterAddress: string;
+  exporterCountryCodeBacen: string;
+  exporterCountryName: string;
+  additions: ErpImportDeclarationAddition[];
+}
+
+export interface ErpImportNfeItem {
+  id: string;
+  nItem: number;
+  cProd: string;
+  cEAN: string;
+  xProd: string;
+  ncm: string;
+  cfop: "3.101" | "3.102" | "3.551" | "3.949";
+  uCom: string;
+  qCom: number;
+  fobUnitForeign: number;
+  vUnComBrl: number;
+  vProdBrl: number;
+  vFreteShareBrl: number;
+  vSegShareBrl: number;
+  valorAduaneiroBrl: number;
+  orig: "1" | "2" | "6" | "7";
+  csosn: "900" | "101" | "102" | "400";
+  cstIpi: "49" | "99" | "00" | "01";
+  cstPisCofins: "70" | "98" | "99" | "50";
+  iiRatePercent: number;
+  iiAmountBrl: number;
+  ipiRatePercent: number;
+  ipiAmountBrl: number;
+  pisRatePercent: number;
+  pisAmountBrl: number;
+  cofinsRatePercent: number;
+  cofinsAmountBrl: number;
+  siscomexShareBrl: number;
+  afrmmShareBrl: number;
+  despAduaneirasShareBrl: number;
+  icmsRatePercent: number;
+  icmsReductionPercent: number;
+  icmsBaseCalculoPorDentroBrl: number;
+  icmsAmountBrl: number;
+  vOutroItemBrl: number;
+  totalItemNfeBrl: number;
+  nAdicao: string;
+  nSeqAdic: string;
+  cFabricante: string;
+}
+
+export interface ErpImportNfeMetadata {
+  sebraeVersion: string;
+  crt: "1" | "2" | "3";
+  natOp: string;
+  serie: string;
+  nNF: string;
+  tpNF: "0";
+  idDest: "3";
+  finNFe: "1" | "2";
+  indFinal: "0" | "1";
+  indPres: "0" | "9";
+  indIntermed: "0" | "1";
+  di: ErpImportDeclarationInfo;
+  items: ErpImportNfeItem[];
+  totals: {
+    vProd: number;
+    vFrete: number;
+    vSeg: number;
+    vAduaneiro: number;
+    vII: number;
+    vIPI: number;
+    vPIS: number;
+    vCOFINS: number;
+    vSiscomex: number;
+    vAFRMM: number;
+    vDespAduaneiras: number;
+    vBC_ICMS: number;
+    vICMS: number;
+    vOutro: number;
+    vNF: number;
+    vTotTrib: number;
+  };
+  infCpl: string;
+  sebraeTxtContent?: string;
+  sefazXmlContent?: string;
+}
 
 export interface ErpTaxBreakdown {
   taxRegime: ErpTaxRegime;
@@ -794,6 +908,7 @@ export interface ErpFiscalInvoice {
     totalValue: number;
   }>;
   taxBreakdown: ErpTaxBreakdown;
+  importMetadata?: ErpImportNfeMetadata;
   createdAt: string;
   updatedAt: string;
 }

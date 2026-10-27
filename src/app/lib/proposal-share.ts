@@ -114,6 +114,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
 
 export interface CompactProposalPayload {
   i: string; // id
+  v?: number; // version
   c: string; // code
   t: string; // title
   bt?: string; // budgetType
@@ -177,6 +178,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
     const computed = computeProposalTotals(prop);
     const compact: CompactProposalPayload = {
       i: computed.id,
+      v: computed.version || 1,
       c: computed.code,
       t: computed.title,
       bt: computed.budgetType,
@@ -307,6 +309,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
 
     return computeProposalTotals({
       id: p.i || 'prop-shared',
+      version: p.v ? Number(p.v) : 1,
       code: p.c || 'PROP-SETA',
       title: p.t,
       budgetType: (p.bt as ErpCommercialProposal['budgetType']) || undefined,

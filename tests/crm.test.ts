@@ -1,3 +1,5 @@
+import { isPublicStiHubPath, evaluateStiHubRouteProtection, classifyRouteRequiredModule } from '../src/middleware';
+import { resolveStiHubSigningSecret, signStiHubSessionToken, verifyStiHubSessionToken } from '../src/app/lib/auth';
 import { filterGlobalSearchEntries, SEARCH_CATEGORY_PILLS, SearchCategoryKey, SearchResultEntry } from '../src/app/components/GlobalHeaderSearch';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2388,5 +2390,222 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const ghsSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/components/GlobalHeaderSearch.tsx'), 'utf8');
     assert.ok(ghsSrc.includes('multiSelectMode'));
     assert.ok(ghsSrc.includes('Abrir aba de'));
+  });
+  it('versiona propostas comerciais automaticamente a cada alteração (SLA, Tempo de Contrato, Forma de Pagamento, Valores e Produtos/Serviços) e permite restaurar versões anteriores', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Cria proposta comercial inicial -> deve nascer na v1.0 com snapshot inicial
+    const createRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      body: {
+        title: 'Proposta Locação PABX IP & Gateway SIP — Cliente Teste',
+        companyName: 'DIGISYSTEM SERVICOS ESPECIALIZADOS LTDA',
+        companyCnpj: '01.936.069/0001-94',
+        contractMonths: 12,
+        paymentCondition: 'Boleto 15 DDL',
+        technicalClauses: 'SLA 8h úteis com substituição NBD.',
+        items: [
+          {
+            id: 'it-v1-1',
+            sku: 'GC-EQ-00101',
+            description: 'Central PABX IP Seta Cloud Appliance HA',
+            itemType: 'PRODUCT',
+            fiscalNature: 'LOCACAO_BENS_MOVEIS',
+            ncmOrServiceCode: 'NCM 8517.62.14',
+            quantity: 1,
+            unitPrice: 2000,
+            discountPercent: 0,
+            isRecurring: true,
+            totalMonthly: 2000,
+          },
+        ],
+      },
+    });
+    assert.equal(createRes.status, 201);
+    type VersionedPropTestPayload = {
+      data: {
+        id: string;
+        version: number;
+        contractMonths: number;
+        monthlyRecurringTotal: number;
+        totalContractValue: number;
+        versionHistory: Array<{
+          version: number;
+          versionLabel: string;
+          changedFields: string[];
+          snapshot: { contractMonths: number; monthlyRecurringTotal: number; paymentCondition: string; technicalClauses: string };
+        }>;
+      };
+    };
+    const createdProp = (createRes.body as VersionedPropTestPayload).data;
+
+    assert.equal(createdProp.version, 1);
+    assert.equal(createdProp.versionHistory.length, 1);
+    assert.equal(createdProp.versionHistory[0].versionLabel, 'v1.0');
+    assert.equal(createdProp.versionHistory[0].snapshot.contractMonths, 12);
+    assert.equal(createdProp.versionHistory[0].snapshot.monthlyRecurringTotal, 2000);
+
+    // 2. Edita SLA, Tempo de Contrato (12m -> 24m), Forma de Pagamento, Produtos e Valores -> deve gerar v2.0 preservando v1.0
+    const updateRes = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/erp/proposals/${encodeURIComponent(createdProp.id)}`,
+      body: {
+        contractMonths: 24,
+        paymentCondition: 'PIX Corporativo — Vencimento dia 10',
+        technicalClauses: 'SLA 99,95% Crítico 24x7 com atendimento em até 2h e Advance Replacement.',
+        items: [
+          {
+            id: 'it-v1-1',
+            sku: 'GC-EQ-00101',
+            description: 'Central PABX IP Seta Cloud Appliance HA',
+            itemType: 'PRODUCT',
+            fiscalNature: 'LOCACAO_BENS_MOVEIS',
+            ncmOrServiceCode: 'NCM 8517.62.14',
+            quantity: 2,
+            unitPrice: 2000,
+            discountPercent: 0,
+            isRecurring: true,
+            totalMonthly: 4000,
+          },
+          {
+            id: 'it-v2-2',
+            sku: 'GC-SV-00201',
+            description: 'Suporte Técnico NOC 24x7',
+            itemType: 'SERVICE',
+            fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+            ncmOrServiceCode: 'LC 116 01.07',
+            quantity: 1,
+            unitPrice: 1200,
+            discountPercent: 0,
+            isRecurring: true,
+            totalMonthly: 1200,
+          },
+        ],
+      },
+    });
+    assert.equal(updateRes.status, 200);
+    const updatedProp = (updateRes.body as VersionedPropTestPayload).data;
+
+    assert.equal(updatedProp.version, 2);
+    assert.equal(updatedProp.versionHistory.length, 2);
+    const v1Entry = updatedProp.versionHistory.find((v) => v.version === 1)!;
+    const v2Entry = updatedProp.versionHistory.find((v) => v.version === 2)!;
+    assert.equal(v1Entry.snapshot.contractMonths, 12, 'Snapshot da v1 deve permanecer intacto (12 meses)');
+    assert.equal(v1Entry.snapshot.monthlyRecurringTotal, 2000, 'Snapshot da v1 deve permanecer intacto (R$ 2.000/mês)');
+    assert.equal(v2Entry.versionLabel, 'v2.0');
+    assert.equal(v2Entry.snapshot.contractMonths, 24);
+    assert.equal(v2Entry.snapshot.monthlyRecurringTotal, 5200);
+    assert.ok(v2Entry.changedFields.some((f) => f.includes('SLA / Cláusulas Técnicas')));
+    assert.ok(v2Entry.changedFields.some((f) => f.includes('Tempo de Contrato')));
+    assert.ok(v2Entry.changedFields.some((f) => f.includes('Forma de Pagamento')));
+    assert.ok(v2Entry.changedFields.some((f) => f.includes('Produtos / Serviços')));
+    assert.ok(v2Entry.changedFields.some((f) => f.includes('Valores')));
+
+    // 3. Restaura a versão 1 via POST /api/erp/proposals/:id/restore-version -> deve gerar v3.0 com os dados da v1.0
+    const restoreRes = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${encodeURIComponent(createdProp.id)}/restore-version`,
+      body: {
+        targetVersion: 1,
+        restoredBy: 'Marcelo Lopes Mira',
+      },
+    });
+    assert.equal(restoreRes.status, 200);
+    const restoredProp = (restoreRes.body as VersionedPropTestPayload).data;
+    assert.equal(restoredProp.version, 3);
+    assert.equal(restoredProp.versionHistory.length, 3);
+    assert.equal(restoredProp.contractMonths, 12);
+    assert.equal(restoredProp.monthlyRecurringTotal, 2000);
+  });
+  it('endurece isPublicStiHubPath, evaluateStiHubRouteProtection e resolveStiHubSigningSecret (bloqueia GET /api/erp/proposals raiz e /api/erp/daily-sync sem login, preserva /api/erp/proposals/:id e /approve, e elimina segredo estático previsível)', () => {
+    // 1. Listagem raiz de propostas (/api/erp/proposals) NÃO é pública
+    assert.equal(isPublicStiHubPath('/api/erp/proposals', 'GET'), false);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/', 'GET'), false);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals', 'POST'), false);
+
+    // 2. Rotas individuais de proposta específica (/api/erp/proposals/:id e /approve) permanecem públicas para o cliente externo
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-123', 'GET'), true);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-123/approve', 'POST'), true);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-123', 'DELETE'), false);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-123/versions', 'GET'), false);
+
+    // 3. Sincronização diária (/api/erp/daily-sync) NÃO é pública
+    assert.equal(isPublicStiHubPath('/api/erp/daily-sync', 'POST'), false);
+    assert.equal(isPublicStiHubPath('/api/erp/daily-sync', 'GET'), false);
+    assert.equal(classifyRouteRequiredModule('/api/erp/daily-sync'), 'ERP');
+    assert.equal(classifyRouteRequiredModule('/api/erp/proposals'), 'ERP');
+
+    // 4. evaluateStiHubRouteProtection bloqueia /api/erp/proposals e /api/erp/daily-sync sem sessão MFA válida (401)
+    const blockedProposalsList = evaluateStiHubRouteProtection({
+      pathname: '/api/erp/proposals',
+      method: 'GET',
+      sessionToken: null,
+      enforceStrictLock: true,
+    });
+    assert.equal(blockedProposalsList.allowed, false);
+    assert.equal(blockedProposalsList.isPublicRoute, false);
+    assert.equal(blockedProposalsList.statusCode, 401);
+
+    const blockedDailySync = evaluateStiHubRouteProtection({
+      pathname: '/api/erp/daily-sync',
+      method: 'POST',
+      sessionToken: null,
+      enforceStrictLock: true,
+    });
+    assert.equal(blockedDailySync.allowed, false);
+    assert.equal(blockedDailySync.isPublicRoute, false);
+    assert.equal(blockedDailySync.statusCode, 401);
+
+    const allowedSingleProposal = evaluateStiHubRouteProtection({
+      pathname: '/api/erp/proposals/prop-123',
+      method: 'GET',
+      sessionToken: null,
+      enforceStrictLock: true,
+    });
+    assert.equal(allowedSingleProposal.allowed, true);
+    assert.equal(allowedSingleProposal.isPublicRoute, true);
+    assert.equal(allowedSingleProposal.statusCode, 200);
+
+    // 5. Segredo de assinatura HMAC-SHA256 não contém string estática previsível no código-fonte e respeita STI_HUB_SESSION_SECRET
+    const authSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/lib/auth.ts'), 'utf8');
+    assert.equal(
+      authSrc.includes('stihub-seta-telecom-14806925000132-hmac-sha256-secret-key-2026'),
+      false,
+      'Segredo estático previsível deve ter sido eliminado de src/app/lib/auth.ts'
+    );
+    const derivedSecret = resolveStiHubSigningSecret();
+    assert.ok(derivedSecret.length >= 32);
+
+    const prevEnvSecret = process.env.STI_HUB_SESSION_SECRET;
+    try {
+      process.env.STI_HUB_SESSION_SECRET = 'custom-env-secret-for-test-minimum-32-chars-2026';
+      assert.equal(resolveStiHubSigningSecret(), 'custom-env-secret-for-test-minimum-32-chars-2026');
+      const token = signStiHubSessionToken({
+        uid: 'usr-seta-01',
+        email: 'marcelo.mira@setatelecom.com.br',
+        name: 'Marcelo Lopes Mira',
+        roleId: 'SUPER_ADMIN',
+        scope: 'TODOS',
+        enabledModules: ['CRM', 'ERP', 'CHAMADOS'],
+        moduleAccess: { crm: true, erp: true, chamados: true },
+        mfaVerified: true,
+        mfaMethod: 'TOTP_AUTHENTICATOR',
+        iat: Date.now(),
+        exp: Date.now() + 60000,
+      });
+      const verifiedOk = verifyStiHubSessionToken(token);
+      assert.equal(verifiedOk.valid, true);
+      const verifiedWrongSecret = verifyStiHubSessionToken(token, 'wrong-secret-key-0000000000000000');
+      assert.equal(verifiedWrongSecret.valid, false);
+      assert.equal(verifiedWrongSecret.reason, 'INVALID_HMAC_SIGNATURE');
+    } finally {
+      if (prevEnvSecret === undefined) {
+        delete process.env.STI_HUB_SESSION_SECRET;
+      } else {
+        process.env.STI_HUB_SESSION_SECRET = prevEnvSecret;
+      }
+    }
   });
 });
