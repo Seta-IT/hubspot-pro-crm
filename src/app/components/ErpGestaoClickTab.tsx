@@ -1231,13 +1231,7 @@ export default function ErpGestaoClickTab({
     presetBudgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO',
     templateOverrides?: Partial<ErpCommercialProposal>
   ) => {
-    const inferredType =
-      presetBudgetType ||
-      (activeSubId === 'ORC_SERVICOS'
-        ? 'SERVICOS'
-        : activeSubId === 'ORC_PRODUTOS'
-          ? 'PRODUTOS'
-          : 'LOCACAO');
+    const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : 'LOCACAO');
     const nextNum = proposals.length + 1;
 
     const draftNew: ErpCommercialProposal = {

@@ -2196,7 +2196,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
 
     // Extrai o corpo de openFullNewProposalModal
     const fnStart = erpSrc.indexOf('const openFullNewProposalModal =');
-    const fnSlice = erpSrc.slice(fnStart, fnStart + 1800);
+    const fnSlice = erpSrc.slice(fnStart, fnStart + 2400);
 
     // Deve iniciar com campos de cliente, título, careOf e itens vazios
     assert.ok(fnSlice.includes("title: ''"), 'title deve iniciar vazio em openFullNewProposalModal');
@@ -3067,5 +3067,103 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(loginPageSrc.includes("ETAPA 2 DE 2"), false, "Não deve exibir texto técnico ETAPA 2 DE 2");
     assert.ok(loginPageSrc.includes("<span>{loading ? 'Entrando...' : 'Login'}</span>"), "Botão da Etapa 1 deve chamar-se Login");
     assert.ok(loginPageSrc.includes("Aplicativo Autenticador") && loginPageSrc.includes("Código por E-mail"), "Deve exibir as duas opções claras de 2FA");
+  });
+
+  it("aplica os 8 ajustes de limpeza da Proposta Comercial (SLA droplist sem 4h padrão, e-mail/WhatsApp do vendedor, remoção de campos fixos, Valor Mensal, Setup opcional e validação de Assinatura Digital)", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const rootDir = process.cwd();
+    const pageSrc = fs.readFileSync(path.join(rootDir, "src/app/proposta/[id]/page.tsx"), "utf8");
+    const modalsSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ErpEditModals.tsx"), "utf8");
+    const shareMod = await import("../src/app/lib/proposal-share");
+
+    // 1. SLA não força "NOC 24x7 • 99,95% (Atend. 4h)" e usa droplist
+    assert.equal(pageSrc.includes("NOC 24x7 • 99,95% (Atend. 4h)"), false);
+    const defaultSla = shareMod.resolveProposalSlaOption({});
+    assert.equal(defaultSla.id, "SEM_SLA_ESPECIFICO");
+    assert.equal(defaultSla.shortLabel, "");
+    const legacySla = shareMod.resolveProposalSlaOption({ slaTier: "NOC_24X7_ALTA_DISP_4H" });
+    assert.equal(legacySla.id, "SEM_SLA_ESPECIFICO");
+
+    // 2. Removidos CNPJ: 14.806.925/0001-32 • Loja Matriz #118887 e comercial@setatelecom.com.br; usa e-mail e WhatsApp do vendedor
+    assert.equal(pageSrc.includes("14.806.925/0001-32"), false);
+    assert.equal(pageSrc.includes("118887"), false);
+    assert.equal(pageSrc.includes("comercial@setatelecom.com.br"), false);
+    assert.ok(pageSrc.includes("sellerContact.email") && pageSrc.includes("sellerContact.phone"));
+    const sellerInfo = shareMod.resolveProposalSellerContact({ sellerName: "Marcelo Mira" });
+    assert.equal(sellerInfo.email, "marcelo.mira@setatelecom.com.br");
+    assert.ok(sellerInfo.phone.length > 0);
+
+    // 3, 4 e 5. Removidos Centro de Custo / Unidade, Cliente Recorrente • Centro de Custo: VENDAS, Índice de Reajuste Anual, Diretoria & Compras Corporativas (B2B), Objeto da Proposta Comercial e contador de itens recorrentes
+    assert.equal(pageSrc.includes("Centro de Custo / Unidade"), false);
+    assert.equal(pageSrc.includes("Cliente Recorrente"), false);
+    assert.equal(pageSrc.includes("Centro de Custo: VENDAS"), false);
+    assert.equal(pageSrc.includes("Índice de Reajuste Anual"), false);
+    assert.equal(pageSrc.includes("Diretoria & Compras Corporativas"), false);
+    assert.equal(pageSrc.includes("Diretoria &amp; Compras Corporativas"), false);
+    assert.equal(pageSrc.includes("Objeto da Proposta Comercial"), false);
+    assert.equal(pageSrc.includes("item(ns) recorrente(s)"), false);
+    assert.equal(
+      shareMod.cleanProposalPaymentCondition("À vista • Vencimento 16/11/2026 • Canal: Cliente Recorrente • Centro de Custo: VENDAS"),
+      "À vista • Vencimento 16/11/2026"
+    );
+
+    // 6. Setup / Ativação só aparece quando selecionado (hasSetupSelected)
+    assert.ok(pageSrc.includes("hasSetupSelected && ("));
+    assert.ok(modalsSrc.includes("Incluir Setup / Ativação (R$)"));
+
+    // 7. Alterado de Investimento Mensal (MRR) para Valor Mensal
+    assert.equal(pageSrc.includes("Investimento Mensal (MRR)"), false);
+    assert.ok(pageSrc.includes("Valor Mensal"));
+
+    // 8. Validação completa do processo de Assinatura Digital (inclusive para proposta compartilhada via ?d=)
+    const approveRes = await router.dispatch({
+      method: "POST",
+      path: "/api/erp/proposals/prop-shared-custom-99/approve",
+      body: {
+        signerName: "Roberto Carlos Diretor",
+        signerCpf: "123.456.789-01",
+        signerRole: "Diretor Executivo",
+        modality: "ICP_BRASIL_A1",
+        proposal: {
+          id: "prop-shared-custom-99",
+          code: "PROP-CUSTOM-99",
+          title: "Proposta Comercial Customizada Teste Assinatura",
+          companyName: "Empresa Assinante S.A.",
+          companyCnpj: "18.236.120/0001-58",
+          sellerName: "Marcelo Lopes Mira",
+          sellerEmail: "marcelo.mira@setatelecom.com.br",
+          sellerPhone: "(11) 99999-4929",
+          contractMonths: 24,
+          monthlyRecurringTotal: 4500,
+          items: [
+            {
+              id: "it-sig-1",
+              sku: "SL-44-SEC-K9",
+              description: "Licença Telecom",
+              fiscalNature: "LOCACAO_BENS_MOVEIS",
+              ncmOrServiceCode: "NCM 8517.62.59",
+              quantity: 1,
+              unitPrice: 4500,
+              discountPercent: 0,
+              isRecurring: true,
+              totalMonthly: 4500,
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(approveRes.status, 200);
+    const approvedData = (approveRes.body as {
+      data: {
+        proposal: { status: string; digitalSignature: { signerName: string; signatureHashSha256: string; timestampToken: string } };
+        contract: { contractNumber: string };
+      };
+    }).data;
+    assert.equal(approvedData.proposal.status, "CONVERTIDA_CONTRATO");
+    assert.equal(approvedData.proposal.digitalSignature.signerName, "Roberto Carlos Diretor");
+    assert.equal(approvedData.proposal.digitalSignature.signatureHashSha256.length, 64);
+    assert.ok(approvedData.proposal.digitalSignature.timestampToken.startsWith("ACT-ITI-"));
+    assert.ok(approvedData.contract.contractNumber.startsWith("LOC-"));
   });
 });

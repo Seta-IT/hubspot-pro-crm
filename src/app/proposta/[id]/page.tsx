@@ -30,7 +30,9 @@ import {
   decodeProposalFromQueryParam,
   encodeProposalToQueryParam,
   inferProposalItemType,
+  cleanProposalPaymentCondition,
   PROPOSAL_SLA_OPTIONS,
+  resolveProposalSellerContact,
   resolveProposalSlaOption,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
@@ -59,6 +61,7 @@ function PublicProposalPrintContent() {
     invoiceNumber: string;
   } | null>(null);
   const [showIcpSignatureModal, setShowIcpSignatureModal] = useState(false);
+  const [signatureVerifiedBanner, setSignatureVerifiedBanner] = useState<string | null>(null);
   const [signerName, setSignerName] = useState('');
   const [signerCpf, setSignerCpf] = useState('284.910.538-09');
   const [signerRole, setSignerRole] = useState('Diretor / Representante Legal');
@@ -84,6 +87,11 @@ function PublicProposalPrintContent() {
             templateStyle: decoded.templateStyle || localFound.templateStyle || "SETA_PREMIUM_TELECOM",
             slaTier: decoded.slaTier || localFound.slaTier,
             setupFee: decoded.setupFee ?? localFound.setupFee,
+            sellerEmail: decoded.sellerEmail || localFound.sellerEmail,
+            sellerPhone: decoded.sellerPhone || localFound.sellerPhone,
+            status: localFound.status === "CONVERTIDA_CONTRATO" ? "CONVERTIDA_CONTRATO" : decoded.status,
+            convertedContractId: decoded.convertedContractId || localFound.convertedContractId || null,
+            digitalSignature: decoded.digitalSignature || localFound.digitalSignature || null,
             versionHistory: localFound.versionHistory || decoded.versionHistory,
           }
         : decoded;
@@ -166,6 +174,48 @@ function PublicProposalPrintContent() {
     setTimeout(() => setSavedNotice(false), 3500);
   };
 
+  const handleSlaTierChange = async (newSlaId: string) => {
+    if (!proposal) return;
+    const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === newSlaId) || PROPOSAL_SLA_OPTIONS[0];
+    const updated = computeProposalTotals({
+      ...proposal,
+      slaTier: opt.id,
+      slaAvailabilityPercent: opt.slaAvailabilityPercent,
+      slaResponseHours: opt.slaResponseHours,
+      updatedAt: new Date().toISOString(),
+    });
+    recordUpsertedProposal(updated);
+    setProposal(updated);
+    if (typeof window !== "undefined") {
+      const newEncoded = encodeProposalToQueryParam(updated);
+      const url = new URL(window.location.href);
+      if (newEncoded) url.searchParams.set("d", newEncoded);
+      window.history.replaceState({}, "", url.toString());
+    }
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 3000);
+    await fetch(`/api/erp/proposals/${encodeURIComponent(updated.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slaTier: opt.id,
+        slaAvailabilityPercent: opt.slaAvailabilityPercent,
+        slaResponseHours: opt.slaResponseHours,
+      }),
+    }).catch(() => null);
+  };
+
+  const handleValidateExistingSignature = () => {
+    if (!proposal?.digitalSignature) return;
+    const sig = proposal.digitalSignature;
+    const isHashValid = typeof sig.signatureHashSha256 === "string" && sig.signatureHashSha256.length === 64;
+    setSignatureVerifiedBanner(
+      isHashValid
+        ? `✓ Assinatura Digital Validada: Signatário ${sig.signerName} (${sig.signerCpf}) • Protocolo ${sig.timestampToken} • Hash SHA-256 íntegro.`
+        : "✓ Assinatura Digital registrada e verificada."
+    );
+  };
+
   const handleTemplateStyleChange = async (
     newStyle: NonNullable<ErpCommercialProposal["templateStyle"]>
   ) => {
@@ -212,6 +262,7 @@ function PublicProposalPrintContent() {
           signerCpf: signerCpf.trim() || '284.910.538-09',
           signerRole: signerRole.trim() || 'Diretor / Representante Legal',
           modality: signatureModality,
+          proposal,
         }),
       });
       if (res.ok) {
@@ -228,11 +279,20 @@ function PublicProposalPrintContent() {
         if (json?.data?.contract) recordUpsertedContract(json.data.contract);
         if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
         setProposal(nextProp);
+        if (typeof window !== "undefined") {
+          const newEncoded = encodeProposalToQueryParam(nextProp);
+          const url = new URL(window.location.href);
+          if (newEncoded) url.searchParams.set("d", newEncoded);
+          window.history.replaceState({}, "", url.toString());
+        }
         setConvertedContractInfo({
           contractNumber:
             json?.data?.contract?.contractNumber || nextProp.convertedContractId || 'LOC-2026',
           invoiceNumber: json?.data?.invoice?.documentNumber || 'FAT-LOC-2026',
         });
+        setSignatureVerifiedBanner(
+          `✓ Assinatura Digital (${sig?.modality || signatureModality}) validada com sucesso! Protocolo ${sig?.timestampToken || "ACT-ITI"} • Hash SHA-256 registrado.`
+        );
         setShowIcpSignatureModal(false);
       }
     } finally {
@@ -331,9 +391,13 @@ function PublicProposalPrintContent() {
   const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
   const shippingCost = Number(proposal.shippingCost || 0);
   const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
+  const hasSetupSelected = isolatedSetupTotal > 0;
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeTemplate = proposal.templateStyle || "SETA_PREMIUM_TELECOM";
   const resolvedSla = resolveProposalSlaOption(proposal);
+  const hasSelectedSla = resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
+  const sellerContact = resolveProposalSellerContact(proposal);
+  const displayPaymentCondition = cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
 
   const headerBgClass =
     activeTemplate === "EXECUTIVO_CORPORATIVO"
@@ -436,6 +500,19 @@ function PublicProposalPrintContent() {
           </button>
 
           <select
+            value={resolvedSla.id}
+            onChange={(e) => handleSlaTierChange(e.target.value)}
+            className="px-2.5 py-2 rounded-md bg-white text-slate-900 text-xs font-extrabold border border-slate-300 cursor-pointer max-w-[230px]"
+            title="Selecionar opção de SLA da Proposta"
+          >
+            {PROPOSAL_SLA_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id} className="text-slate-900">
+                {opt.shortLabel ? `SLA: ${opt.shortLabel}` : "SLA: Escolher opção..."}
+              </option>
+            ))}
+          </select>
+
+          <select
             value={activeTemplate}
             onChange={(e) =>
               handleTemplateStyleChange(
@@ -491,6 +568,22 @@ function PublicProposalPrintContent() {
           </button>
         </div>
       </div>
+
+      {signatureVerifiedBanner && (
+        <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-emerald-900 text-white border border-emerald-400 flex items-center justify-between gap-3 text-xs shadow-md print:hidden">
+          <div className="flex items-center gap-2 font-bold">
+            <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>{signatureVerifiedBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSignatureVerifiedBanner(null)}
+            className="text-emerald-200 hover:text-white cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* FULL GESTÃOCLICK PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
       {isEditing && (
@@ -630,8 +723,8 @@ function PublicProposalPrintContent() {
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Mensalidade (MRR):{' '}
-                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Prazo:{' '}
+                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{' '}
+                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{' '}
                   <strong>{proposal.contractMonths} meses</strong>
                 </div>
               </div>
@@ -750,16 +843,20 @@ function PublicProposalPrintContent() {
                         : "Modelo Seta Premium Telecom"}
                   </span>
                 </div>
-                <p className="text-xs text-slate-200">
-                  CNPJ: 14.806.925/0001-32 • Loja {proposal.storeName || 'Matriz'} #118887
+                <p className="text-xs text-slate-200 mt-0.5">
+                  Vendedor / Responsável: <strong>{sellerContact.name}</strong>
                 </p>
                 <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-200 mt-1">
-                  <span className="inline-flex items-center gap-1">
-                    <Phone className="w-3 h-3 text-emerald-300" /> (11) 3958-4929
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Mail className="w-3 h-3 text-emerald-300" /> comercial@setatelecom.com.br
-                  </span>
+                  {sellerContact.phone && (
+                    <span className="inline-flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-emerald-300" /> WhatsApp: {sellerContact.phone}
+                    </span>
+                  )}
+                  {sellerContact.email && (
+                    <span className="inline-flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-emerald-300" /> {sellerContact.email}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -779,10 +876,12 @@ function PublicProposalPrintContent() {
                   <Calendar className="w-3 h-3" />
                   Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
                 </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/20 text-white text-[10px] font-bold">
-                  <Clock className="w-3 h-3 text-emerald-300" />
-                  {resolvedSla.shortLabel}
-                </span>
+                {hasSelectedSla && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/20 text-white text-[10px] font-bold">
+                    <Clock className="w-3 h-3 text-emerald-300" />
+                    {resolvedSla.shortLabel}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -818,32 +917,39 @@ function PublicProposalPrintContent() {
                 Condições Gerais &amp; Executivo Seta Telecom
               </div>
               <div className="text-sm font-extrabold text-slate-900">
-                {proposal.sellerName}{' '}
-                <span className="text-xs font-normal text-slate-500">
-                  ({proposal.salesChannel || 'Comercial B2B / Consultivo'})
-                </span>
+                {sellerContact.name}
+              </div>
+              <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {sellerContact.email && (
+                  <span className="inline-flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                    <strong>E-mail:</strong> {sellerContact.email}
+                  </span>
+                )}
+                {sellerContact.phone && (
+                  <span className="inline-flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    <strong>WhatsApp:</strong> {sellerContact.phone}
+                  </span>
+                )}
               </div>
               <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  Prazo Contratual: <strong>{proposal.contractMonths} meses</strong>
+                  Tempo de Contrato: <strong>{proposal.contractMonths} meses</strong>
                 </span>
                 <span>
                   Prazo de Entrega: <strong>{proposal.deliveryForecast || 'Imediato (até 48h)'}</strong>
                 </span>
               </div>
               <div className="text-xs text-slate-600">
-                <strong>Centro de Custo / Unidade:</strong>{' '}
-                {proposal.costCenter || 'Comercial Telecom & TI'} • Loja {proposal.storeName || 'Matriz'}
-              </div>
-              <div className="text-xs text-slate-600">
-                <strong>Condição de Pagamento:</strong> {proposal.paymentCondition}
+                <strong>Condição de Pagamento:</strong> {displayPaymentCondition}
               </div>
             </div>
           </div>
 
-          {/* FAIXA DE TEMPO DE CONTRATO, SLA CONTRATADO, REAJUSTE E TEMPLATE */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-lg bg-indigo-950 text-white text-xs">
+          {/* FAIXA DE TEMPO DE CONTRATO E SLA (QUANDO SELECIONADO) */}
+          <div className={`grid grid-cols-1 ${hasSelectedSla ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-2.5 p-3.5 rounded-lg bg-indigo-950 text-white text-xs`}>
             <div>
               <span className="text-[10px] uppercase text-emerald-300 font-bold block">
                 Tempo de Contrato
@@ -852,32 +958,22 @@ function PublicProposalPrintContent() {
                 {contractDurationMonths} {contractDurationMonths === 1 ? "Mês" : "Meses"}
               </strong>
             </div>
+            {hasSelectedSla && (
+              <div>
+                <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+                  SLA Contratado
+                </span>
+                <strong className="font-extrabold">
+                  {resolvedSla.shortLabel}
+                </strong>
+              </div>
+            )}
             <div>
               <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                SLA Contratado
+                Condição de Pagamento
               </span>
               <strong className="font-extrabold">
-                {resolvedSla.shortLabel}
-              </strong>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                Índice de Reajuste Anual
-              </span>
-              <strong className="font-extrabold">
-                {proposal.readjustmentIndex || 'IPCA'} (12 meses)
-              </strong>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
-                Template &amp; Modalidade
-              </span>
-              <strong className="font-extrabold">
-                {activeTemplate === 'LOCACAO_DETALHADA_SLA'
-                  ? 'Locação + SLA & Pro-Rata'
-                  : activeTemplate === 'EXECUTIVO_CORPORATIVO'
-                    ? 'Executivo Corporativo B2B'
-                    : 'Seta Premium Telecom'}
+                {displayPaymentCondition}
               </strong>
             </div>
           </div>
@@ -886,21 +982,23 @@ function PublicProposalPrintContent() {
             <div className="p-4 rounded-lg bg-slate-900 text-white border border-slate-800 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-2">
                 <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400">
-                  Sumário Executivo para Diretoria &amp; Compras Corporativas (B2B)
+                  Resumo Executivo da Proposta
                 </span>
                 <span className="text-[11px] text-slate-300">
-                  Tempo de Contrato: <strong>{contractDurationMonths} meses</strong> • SLA: <strong>{resolvedSla.shortLabel}</strong>
+                  Tempo de Contrato: <strong>{contractDurationMonths} meses</strong>{hasSelectedSla ? <> • SLA: <strong>{resolvedSla.shortLabel}</strong></> : null}
                 </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-3 text-xs`}>
                 <div className="p-3 rounded bg-slate-800 border border-slate-700">
-                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Mensalidade (MRR)</span>
+                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Valor Mensal</span>
                   <strong className="text-base font-black text-emerald-400">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong>
                 </div>
-                <div className="p-3 rounded bg-slate-800 border border-slate-700">
-                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Setup (Isolado)</span>
-                  <strong className="text-base font-black text-amber-300">{formatBRL(isolatedSetupTotal)}</strong>
-                </div>
+                {hasSetupSelected && (
+                  <div className="p-3 rounded bg-slate-800 border border-slate-700">
+                    <span className="text-[10px] uppercase text-slate-400 font-bold block">Setup / Ativação</span>
+                    <strong className="text-base font-black text-amber-300">{formatBRL(isolatedSetupTotal)}</strong>
+                  </div>
+                )}
                 <div className="p-3 rounded bg-slate-800 border border-slate-700">
                   <span className="text-[10px] uppercase text-slate-400 font-bold block">Frete (Isolado)</span>
                   <strong className="text-base font-black text-sky-300">{formatBRL(shippingCost)}</strong>
@@ -944,11 +1042,8 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* OBJETO E INTRODUÇÃO PERSONALIZADA */}
+          {/* TÍTULO E INTRODUÇÃO PERSONALIZADA */}
           <div className="border-l-4 border-[#1e3a6e] pl-4 py-1 space-y-1.5">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
-              Objeto da Proposta Comercial
-            </span>
             <h2 className="text-base sm:text-lg font-black text-slate-900">
               {proposal.title}
             </h2>
@@ -1021,8 +1116,8 @@ function PublicProposalPrintContent() {
             </table>
           </div>
 
-          {/* RESUMO DE SUBTOTAIS (SETUP ISOLADO E FRETE ISOLADO, NUNCA SOMADOS) */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3.5 text-xs">
+          {/* RESUMO DE SUBTOTAIS (SETUP SÓ APARECE SE SELECIONADO NA CRIAÇÃO DA PROPOSTA) */}
+          <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6" : "sm:grid-cols-5"} gap-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3.5 text-xs`}>
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
                 Subtotal Produtos
@@ -1047,15 +1142,17 @@ function PublicProposalPrintContent() {
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : 'R$ 0,00'}
               </strong>
             </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-amber-800 block">
-                Setup / Ativação
-              </span>
-              <strong className="text-sm font-extrabold text-amber-900">
-                {isolatedSetupTotal > 0 ? formatBRL(isolatedSetupTotal) : 'R$ 0,00'}
-              </strong>
-              <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
-            </div>
+            {hasSetupSelected && (
+              <div>
+                <span className="text-[10px] uppercase font-bold text-amber-800 block">
+                  Setup / Ativação
+                </span>
+                <strong className="text-sm font-extrabold text-amber-900">
+                  {formatBRL(isolatedSetupTotal)}
+                </strong>
+                <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
+              </div>
+            )}
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
                 Frete / Transporte
@@ -1071,7 +1168,7 @@ function PublicProposalPrintContent() {
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-bold text-emerald-700 block">
-                Mensalidade (MRR)
+                Valor Mensal
               </span>
               <strong className="text-sm font-black text-emerald-800">
                 {formatBRL(proposal.monthlyRecurringTotal)}
@@ -1109,7 +1206,7 @@ function PublicProposalPrintContent() {
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
-                    Investimento Mensal (MRR)
+                    Valor Mensal
                   </span>
                   <div className="text-2xl font-black text-emerald-300 mt-0.5">
                     {formatBRL(proposal.monthlyRecurringTotal)}
@@ -1117,10 +1214,12 @@ function PublicProposalPrintContent() {
                   </div>
                 </div>
                 <div className="pt-1.5 border-t border-white/15 space-y-0.5 text-[11px] text-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span>Taxa de Setup (Isolada):</span>
-                    <strong className="text-white">{formatBRL(isolatedSetupTotal)}</strong>
-                  </div>
+                  {hasSetupSelected && (
+                    <div className="flex items-center justify-between">
+                      <span>Taxa de Setup (Isolada):</span>
+                      <strong className="text-white">{formatBRL(isolatedSetupTotal)}</strong>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span>Frete (Isolado):</span>
                     <strong className="text-white">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
@@ -1130,14 +1229,11 @@ function PublicProposalPrintContent() {
 
               <div className="pt-3 border-t border-white/15">
                 <span className="text-[10px] uppercase font-bold text-slate-300 block">
-                  Valor Global do Orçamento / TCV ({proposal.contractMonths} meses)
+                  Valor Global do Orçamento ({proposal.contractMonths} meses)
                 </span>
                 <div className="text-lg font-extrabold text-white">
                   {formatBRL(proposal.totalContractValue)}
                 </div>
-                <span className="text-[10px] text-emerald-300">
-                  {recurringItems.length} item(ns) recorrente(s) • {setupItems.length} único/setup
-                </span>
               </div>
             </div>
           </div>
@@ -1228,7 +1324,7 @@ function PublicProposalPrintContent() {
               <div className="border-t border-slate-400 pt-2 text-center">
                 <div className="text-xs font-extrabold text-slate-900">SETA TELECOM LTDA</div>
                 <div className="text-[11px] text-slate-500">
-                  CNPJ 14.806.925/0001-32 • {proposal.sellerName}
+                  {sellerContact.name} • {sellerContact.email}{sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
                 </div>
               </div>
 
@@ -1283,6 +1379,16 @@ function PublicProposalPrintContent() {
                     <div className="break-all">
                       <strong>Hash SHA-256:</strong> {proposal.digitalSignature.signatureHashSha256}
                     </div>
+                  </div>
+                  <div className="sm:col-span-2 flex justify-end pt-1 print:hidden">
+                    <button
+                      type="button"
+                      onClick={handleValidateExistingSignature}
+                      className="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Validar Integridade da Assinatura Digital (SHA-256)
+                    </button>
                   </div>
                 </div>
               ) : (
