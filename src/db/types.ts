@@ -1469,7 +1469,9 @@ export interface StiHubUserRecord {
   mfaEnabled: boolean;
   mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
   totpSecret?: string;
+  totpConfigured?: boolean;
   totpConfiguredAt?: string | null;
+  lastUsedTotpTimeStep?: number | null;
   passwordHash?: string;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   lastLoginAt: string | null;

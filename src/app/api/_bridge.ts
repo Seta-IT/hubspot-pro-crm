@@ -21,6 +21,13 @@ export async function forwardToCrmRouter(
   if (sessionCookie && !query._sessionToken) {
     query._sessionToken = sessionCookie;
   }
+  const enrolledCookie = req.cookies.get('stihub_totp_enrolled')?.value;
+  if (enrolledCookie && !query._enrolledUsers) {
+    query._enrolledUsers = enrolledCookie;
+  }
+  if (!query._fromHttpBridge) {
+    query._fromHttpBridge = '1';
+  }
 
   let body: unknown = undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {

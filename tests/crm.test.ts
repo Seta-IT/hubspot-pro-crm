@@ -3166,4 +3166,151 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(approvedData.proposal.digitalSignature.timestampToken.startsWith("ACT-ITI-"));
     assert.ok(approvedData.contract.contractNumber.startsWith("LOC-"));
   });
+
+  it("rejeita códigos TOTP expirados (janela anterior de 30s), bloqueia reutilização (anti-replay) do mesmo código e oculta o QR Code/segredo quando o 2FA já está configurado", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { computeRfc6238Totp, verifyRfc6238Totp } = await import("../src/app/lib/auth");
+
+    // 1. Usuário existente com 2FA já configurado (totpConfigured === true): login NÃO pode expor totpPairing nem QR Code
+    const loginConfiguredRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        password: "Seta@2026#StiHub",
+      },
+    });
+    assert.equal(loginConfiguredRes.status, 200);
+    const loginConfiguredData = (loginConfiguredRes.body as {
+      data: {
+        totpConfigured: boolean;
+        totpPairing?: unknown;
+        user: { totpSecret?: string; totpConfigured?: boolean };
+      };
+    }).data;
+    assert.equal(loginConfiguredData.totpConfigured, true);
+    assert.equal(loginConfiguredData.totpPairing, undefined, "Não deve retornar totpPairing/QR Code quando totpConfigured === true");
+    assert.equal(loginConfiguredData.user.totpSecret, undefined, "Não deve expor totpSecret no payload de login quando já configurado");
+
+    // 2. Chamada HTTP externa não autenticada para /api/auth/setup-totp de usuário já configurado deve retornar 403
+    const blockedSetupRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/setup-totp",
+      query: { _fromHttpBridge: "1" },
+      body: { email: "marcelo.mira@setatelecom.com.br" },
+    });
+    assert.equal(blockedSetupRes.status, 403);
+
+    // 3. Janela estrita de 30s: código da janela anterior (now - 30_000) deve ser REJEITADO como expirado
+    const marceloSecret = repo.getRbacState().users.find((u) => u.email === "marcelo.mira@setatelecom.com.br")!.totpSecret!;
+    const nowMs = Date.now();
+    const expiredCodePrevWindow = computeRfc6238Totp(marceloSecret, nowMs - 30000, 0).code;
+    const validCurrentCode = computeRfc6238Totp(marceloSecret, nowMs, 0).code;
+
+    assert.equal(verifyRfc6238Totp(marceloSecret, expiredCodePrevWindow, nowMs), false, "verifyRfc6238Totp deve rejeitar janela anterior (now - 30s)");
+    assert.equal(verifyRfc6238Totp(marceloSecret, validCurrentCode, nowMs), true, "verifyRfc6238Totp deve aceitar janela atual de 30s");
+
+    const expiredVerifyRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: expiredCodePrevWindow,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(expiredVerifyRes.status, 401, "API deve rejeitar código TOTP expirado da janela anterior (401)");
+    assert.ok(
+      String((expiredVerifyRes.body as { error: string }).error).toLowerCase().includes("expirado"),
+      "Mensagem de erro deve informar que o código está expirado"
+    );
+
+    // 4. Código fixo antigo de demonstração (436906 / 118887) não deve mais ser aceito como bypass
+    const demoBypassRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: "436906",
+      },
+    });
+    if ("436906" !== validCurrentCode) {
+      assert.equal(demoBypassRes.status, 401, "Código estático 436906 não deve autenticar");
+    }
+
+    // 5. Primeiro uso do código atual de 30s funciona, e o SEGUNDO uso do mesmo código é bloqueado (Anti-Replay)
+    const firstUseRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: validCurrentCode,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(firstUseRes.status, 200);
+
+    const replayUseRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: validCurrentCode,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(replayUseRes.status, 401, "Reutilização (replay) do mesmo código TOTP deve ser bloqueada com 401");
+
+    // 6. Novo usuário recém-criado com totpConfigured = false recebe QR Code apenas no 1º acesso e passa para totpConfigured = true após confirmar
+    const newUser = repo.upsertRbacUser({
+      name: "Colaborador Primeiro Acesso",
+      email: "primeiro.acesso@setatelecom.com.br",
+      roleId: "VENDEDOR_SALES",
+      totpConfigured: false,
+    });
+    assert.equal(newUser.totpConfigured, false);
+
+    const firstLoginRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "primeiro.acesso@setatelecom.com.br",
+        password: "Seta@2026#StiHub",
+      },
+    });
+    assert.equal(firstLoginRes.status, 200);
+    const firstLoginData = (firstLoginRes.body as {
+      data: { totpConfigured: boolean; totpPairing?: { totpSecret: string; qrCodeSvgDataUrl: string } };
+    }).data;
+    assert.equal(firstLoginData.totpConfigured, false);
+    assert.ok(firstLoginData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"), "No 1º acesso (totpConfigured=false) deve exibir QR Code");
+
+    const firstEnrollCode = computeRfc6238Totp(firstLoginData.totpPairing!.totpSecret).code;
+    const enrollVerifyRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "primeiro.acesso@setatelecom.com.br",
+        code: firstEnrollCode,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(enrollVerifyRes.status, 200);
+
+    // No login seguinte, totpConfigured agora é true e o QR Code NÃO é mais retornado
+    const secondLoginRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "primeiro.acesso@setatelecom.com.br",
+        password: "Seta@2026#StiHub",
+      },
+    });
+    const secondLoginData = (secondLoginRes.body as {
+      data: { totpConfigured: boolean; totpPairing?: unknown };
+    }).data;
+    assert.equal(secondLoginData.totpConfigured, true);
+    assert.equal(secondLoginData.totpPairing, undefined, "Após o 1º pareamento, o QR Code nunca mais deve ser retornado no login");
+  });
 });

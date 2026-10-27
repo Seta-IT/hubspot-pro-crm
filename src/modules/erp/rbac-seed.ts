@@ -1141,7 +1141,9 @@ export function createSeedRbacState(): StiHubRbacState {
       erpItemPermissions,
       itemPermissions: { ...crmItemPermissions, ...erpItemPermissions },
       totpSecret: generateTotpSecretBase32(u.email),
+      totpConfigured: Boolean(u.mfaEnabled && u.active),
       totpConfiguredAt: u.mfaEnabled ? u.createdAt : null,
+      lastUsedTotpTimeStep: null,
     };
   });
 

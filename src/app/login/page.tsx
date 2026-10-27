@@ -21,7 +21,6 @@ export default function StiHubLoginPage() {
   const [activeMfaChannel, setActiveMfaChannel] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>(
     'TOTP_AUTHENTICATOR'
   );
-  const [showTotpQrSetup, setShowTotpQrSetup] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -31,6 +30,7 @@ export default function StiHubLoginPage() {
   const [challengeData, setChallengeData] = useState<{
     challengeId: string;
     mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
+    totpConfigured?: boolean;
     totpPairing?: {
       totpSecret: string;
       otpauthUri: string;
@@ -51,6 +51,7 @@ export default function StiHubLoginPage() {
       jobTitle: string;
       roleId: string;
       scope: string;
+      totpConfigured?: boolean;
       enabledModules?: Array<'CRM' | 'ERP' | 'CHAMADOS'>;
     };
     role: { id: string; name: string };
@@ -73,6 +74,7 @@ export default function StiHubLoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ email: email.trim(), password }),
       });
       const json = await res.json();
@@ -86,7 +88,6 @@ export default function StiHubLoginPage() {
         d?.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
       setActiveMfaChannel(preferredMethod);
       setMfaCode('');
-      setShowTotpQrSetup(false);
       if (preferredMethod === 'EMAIL_OTP' && d?.emailOtpStatus) {
         setInfoMsg(`Enviamos um código de 6 dígitos para ${d.emailOtpStatus.dispatchedTo}.`);
       }
@@ -107,6 +108,7 @@ export default function StiHubLoginPage() {
       const res = await fetch('/api/auth/send-email-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
           email: targetEmail,
           userId: challengeData?.user?.id,
@@ -144,48 +146,6 @@ export default function StiHubLoginPage() {
     }
   };
 
-  const handleRefreshTotpPairing = async (regenerate = false) => {
-    setErrorMsg(null);
-    try {
-      const targetEmail = challengeData?.user?.email || email.trim();
-      const res = await fetch('/api/auth/setup-totp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: targetEmail,
-          userId: challengeData?.user?.id,
-          regenerate,
-        }),
-      });
-      const json = await res.json();
-      if (res.ok && json?.data) {
-        const s = json.data;
-        setChallengeData((prev) =>
-          prev
-            ? {
-                ...prev,
-                totpPairing: {
-                  totpSecret: s.totpSecret,
-                  otpauthUri: s.otpauthUri,
-                  qrCodeSvgDataUrl: s.qrCodeSvgDataUrl,
-                  secondsRemaining: s.secondsRemaining,
-                },
-              }
-            : prev
-        );
-        setMfaCode('');
-        setInfoMsg(
-          regenerate
-            ? 'Novo QR Code gerado. Escaneie no aplicativo autenticador e digite os 6 dígitos.'
-            : 'QR Code atualizado.'
-        );
-        mfaInputRef.current?.focus();
-      }
-    } catch {
-      // ignore
-    }
-  };
-
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -206,19 +166,24 @@ export default function StiHubLoginPage() {
           userId: challengeData?.user?.id,
           code: cleanCode,
           mfaMethod: activeMfaChannel,
-          totpSecret: challengeData?.totpPairing?.totpSecret,
+          totpSecret:
+            challengeData?.totpConfigured === false
+              ? challengeData?.totpPairing?.totpSecret
+              : undefined,
           challengeId: challengeData?.challengeId,
         }),
       });
       const json = await res.json();
       if (!res.ok) {
-        setErrorMsg(json.error || 'Código inválido. Tente novamente.');
+        setErrorMsg(json.error || 'Código inválido ou expirado. Tente novamente.');
+        setMfaCode('');
         mfaInputRef.current?.focus();
         return;
       }
 
       if (typeof window !== 'undefined') {
         const token = json.data?.sessionToken || '';
+        const verifiedEmail = (json.data?.user?.email || email || '').trim().toLowerCase();
         localStorage.setItem(
           'stihub_active_session_v1',
           JSON.stringify({
@@ -238,6 +203,9 @@ export default function StiHubLoginPage() {
         );
         document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
         document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
+        if (verifiedEmail) {
+          document.cookie = `stihub_totp_enrolled=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+        }
         const params = new URLSearchParams(window.location.search);
         const rawNext = params.get('next') || '/';
         const nextUrl =
@@ -250,6 +218,9 @@ export default function StiHubLoginPage() {
       setLoading(false);
     }
   };
+
+  const isTotpAlreadyConfigured =
+    challengeData?.totpConfigured !== false && !challengeData?.totpPairing;
 
   return (
     <div className="min-h-screen bg-[#0d2b4e] flex flex-col items-center justify-center p-4 sm:p-6 text-slate-800">
@@ -382,63 +353,50 @@ export default function StiHubLoginPage() {
                 </button>
               </div>
 
-              {/* Option 1: Authenticator App QR Code toggle */}
+              {/* Option 1: Authenticator App — Only show QR Code on first-time setup (when totpConfigured === false) */}
               {activeMfaChannel === 'TOTP_AUTHENTICATOR' && (
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                      <QrCode className="w-4 h-4 text-[#0d2b4e]" />
-                      Configurar no celular
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowTotpQrSetup((v) => !v)}
-                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-[11px] font-bold text-[#0d2b4e] hover:bg-slate-100 cursor-pointer"
-                    >
-                      {showTotpQrSetup ? 'Ocultar QR Code' : 'Exibir QR Code'}
-                    </button>
-                  </div>
-
-                  {showTotpQrSetup && challengeData?.totpPairing && (
-                    <div className="p-3 rounded-lg bg-white border border-slate-200 flex flex-col items-center text-center space-y-2.5">
-                      <img
-                        src={challengeData.totpPairing.qrCodeSvgDataUrl}
-                        alt="QR Code Google Authenticator"
-                        className="w-36 h-36 rounded-lg border border-slate-200 p-1 bg-white"
-                      />
-                      <div className="w-full space-y-1.5">
-                        <div className="text-[11px] font-semibold text-slate-600">
-                          Escaneie o QR Code no aplicativo ou copie a chave:
+                  {isTotpAlreadyConfigured ? (
+                    <div className="text-slate-600 text-center py-0.5">
+                      Abra o <strong>Google Authenticator</strong> no seu celular e digite o código atual de 6 dígitos (válido por 30s).
+                    </div>
+                  ) : (
+                    challengeData?.totpPairing && (
+                      <div className="p-3 rounded-lg bg-white border border-slate-200 flex flex-col items-center text-center space-y-2.5">
+                        <div className="font-bold text-[#0d2b4e] flex items-center gap-1.5">
+                          <QrCode className="w-4 h-4" />
+                          Primeiro acesso: Escaneie o QR Code no Google Authenticator
                         </div>
-                        <div className="flex items-center justify-center gap-1.5">
-                          <code className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-[#0d2b4e] select-all">
-                            {challengeData.totpPairing.totpSecret.replace(/(.{4})/g, '$1 ').trim()}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard?.writeText(
-                                challengeData.totpPairing?.totpSecret || ''
-                              );
-                              setInfoMsg('Chave copiada!');
-                              mfaInputRef.current?.focus();
-                            }}
-                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <Copy className="w-3 h-3" /> Copiar
-                          </button>
-                        </div>
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleRefreshTotpPairing(true)}
-                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline cursor-pointer"
-                          >
-                            Gerar novo QR Code
-                          </button>
+                        <img
+                          src={challengeData.totpPairing.qrCodeSvgDataUrl}
+                          alt="QR Code Google Authenticator"
+                          className="w-36 h-36 rounded-lg border border-slate-200 p-1 bg-white"
+                        />
+                        <div className="w-full space-y-1.5">
+                          <div className="text-[11px] font-semibold text-slate-600">
+                            Ou copie a chave de configuração:
+                          </div>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <code className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-[#0d2b4e] select-all">
+                              {challengeData.totpPairing.totpSecret.replace(/(.{4})/g, '$1 ').trim()}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(
+                                  challengeData.totpPairing?.totpSecret || ''
+                                );
+                                setInfoMsg('Chave copiada!');
+                                mfaInputRef.current?.focus();
+                              }}
+                              className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Copy className="w-3 h-3" /> Copiar
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )
                   )}
                 </div>
               )}

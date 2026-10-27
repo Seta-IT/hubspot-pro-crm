@@ -5085,6 +5085,9 @@ export class CrmRepository {
     { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number }
   >();
 
+  private usedTotpCodeTracker = new Map<string, string>();
+  private consumedChallengeIds = new Set<string>();
+
   private ensureRbacState(): StiHubRbacState {
     if (!this.state.rbac || !Array.isArray(this.state.rbac.roles) || !Array.isArray(this.state.rbac.users)) {
       this.state.rbac = createSeedRbacState();
@@ -5120,6 +5123,9 @@ export class CrmRepository {
       }
       if (!u.totpSecret || !isValidPureBase32Secret(u.totpSecret)) {
         u.totpSecret = generateTotpSecretBase32(u.email);
+      }
+      if (u.totpConfigured === undefined) {
+        u.totpConfigured = Boolean(u.totpConfiguredAt || (u.mfaEnabled && u.active));
       }
     }
     return rbac;
@@ -5250,6 +5256,9 @@ export class CrmRepository {
       }
       if (input.password && String(input.password).trim().length >= 6) {
         existing.passwordHash = hashCorporatePassword(String(input.password));
+      }
+      if (typeof input.totpConfigured === "boolean") {
+        existing.totpConfigured = input.totpConfigured;
       }
       if (input.totpSecret && isValidPureBase32Secret(input.totpSecret)) {
         existing.totpSecret = input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
@@ -5395,7 +5404,9 @@ export class CrmRepository {
       mfaEnabled: input.mfaEnabled !== false,
       mfaMethod: input.mfaMethod || "TOTP_AUTHENTICATOR",
       totpSecret: input.totpSecret || generateTotpSecretBase32(targetEmail),
-      totpConfiguredAt: nowIso,
+      totpConfigured: Boolean(input.totpConfigured),
+      totpConfiguredAt: input.totpConfigured ? nowIso : null,
+      lastUsedTotpTimeStep: null,
       passwordHash:
         input.password && String(input.password).trim().length >= 6
           ? hashCorporatePassword(String(input.password))
@@ -5764,7 +5775,8 @@ export class CrmRepository {
   initiateLoginChallenge(
     email: string,
     password?: string,
-    ipAddress = "189.112.44.18"
+    ipAddress = "189.112.44.18",
+    enrolledCookieForced = false
   ): {
     ok: boolean;
     error?: string;
@@ -5773,6 +5785,7 @@ export class CrmRepository {
     role?: StiHubRoleDefinition;
     mfaRequired?: boolean;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+    totpConfigured?: boolean;
     demoTotpCode?: string;
     totpPairing?: {
       totpSecret: string;
@@ -5871,6 +5884,15 @@ export class CrmRepository {
       }
     }
 
+    const isTotpAlreadyConfigured = Boolean(
+      found.totpConfigured || found.totpConfiguredAt || enrolledCookieForced
+    );
+    const sanitizedUser: StiHubUserRecord = {
+      ...hydratedUser,
+      totpConfigured: isTotpAlreadyConfigured,
+      totpSecret: isTotpAlreadyConfigured ? undefined : hydratedUser.totpSecret,
+    };
+
     const challengeId = signMfaChallengeToken({
       cid: `MFA-${found.id}-${nowMs.toString(36).toUpperCase()}`,
       uid: found.id,
@@ -5881,25 +5903,29 @@ export class CrmRepository {
         ? sha256Hex(emailOtpStatus.devOtpPreview)
         : undefined,
       iat: nowMs,
-      exp: nowMs + 15 * 60 * 1000,
+      exp: nowMs + 5 * 60 * 1000,
     });
     return {
       ok: true,
       challengeId,
-      user: hydratedUser,
+      user: sanitizedUser,
       role,
       mfaRequired: true,
       mfaMethod: found.mfaMethod,
+      totpConfigured: isTotpAlreadyConfigured,
       demoTotpCode:
         found.mfaMethod === "EMAIL_OTP" && emailOtpStatus?.devOtpPreview
           ? emailOtpStatus.devOtpPreview
           : totpNow.code,
-      totpPairing: {
-        totpSecret: found.totpSecret,
-        otpauthUri,
-        qrCodeSvgDataUrl,
-        secondsRemaining: totpNow.secondsRemaining,
-      },
+      // Security: NEVER expose QR Code or totpSecret on login once TOTP is already configured
+      totpPairing: isTotpAlreadyConfigured
+        ? undefined
+        : {
+            totpSecret: found.totpSecret,
+            otpauthUri,
+            qrCodeSvgDataUrl,
+            secondsRemaining: totpNow.secondsRemaining,
+          },
       emailOtpStatus,
     };
   }
@@ -5960,45 +5986,136 @@ export class CrmRepository {
       };
     }
 
+    const realUserRecord = rbac.users.find((u) => u.id === user.id);
+    const isTotpAlreadyConfigured = Boolean(
+      realUserRecord?.totpConfigured || realUserRecord?.totpConfiguredAt
+    );
+
     const userSecret =
       user.totpSecret && isValidPureBase32Secret(user.totpSecret)
         ? user.totpSecret
         : generateTotpSecretBase32(user.email);
-    const deterministicEmailSecret = generateTotpSecretBase32(user.email);
-    const statelessChallenge = verifyMfaChallengeToken(input.challengeId);
-    const rawCandidateSecret = input.totpSecret || statelessChallenge?.totpSecret;
+
+    // If challengeId was provided and is expired or already consumed, reject immediately
+    let statelessChallenge: ReturnType<typeof verifyMfaChallengeToken> = null;
+    if (input.challengeId) {
+      statelessChallenge = verifyMfaChallengeToken(input.challengeId);
+      if (!statelessChallenge) {
+        return {
+          ok: false,
+          error: "Desafio 2FA expirado. Faça login novamente e digite o código atual de 6 dígitos.",
+        };
+      }
+      if (this.consumedChallengeIds.has(statelessChallenge.cid)) {
+        return {
+          ok: false,
+          error: "Este desafio 2FA já foi utilizado. Gere um novo código.",
+        };
+      }
+    }
+
+    // Only allow external candidatePairingSecret during initial enrollment (!isTotpAlreadyConfigured)
+    // or when rotating explicitly with a valid pairing secret
+    const rawCandidateSecret = !isTotpAlreadyConfigured
+      ? input.totpSecret || statelessChallenge?.totpSecret
+      : input.totpSecret;
     const candidatePairingSecret =
       rawCandidateSecret && isValidPureBase32Secret(rawCandidateSecret)
         ? rawCandidateSecret.toUpperCase().replace(/[^A-Z2-7]/g, "")
         : null;
 
-    // Validate against stored user secret, deterministic email secret, or newly paired QR secret (with +-2 windows = +-60s drift)
+    const currentTimeStep = Math.floor(nowMs / 30000);
+    const previousTimeStep = currentTimeStep - 1;
+    const nextTimeStep = currentTimeStep + 1;
+
+    // Check if the user entered an expired TOTP code from a past 30-second window (e.g. -1, -2, -3)
+    const isExpiredPastTotpWindow =
+      verifyRfc6238Totp(userSecret, rawCode, nowMs - 30000, 0) ||
+      verifyRfc6238Totp(userSecret, rawCode, nowMs - 60000, 0) ||
+      verifyRfc6238Totp(userSecret, rawCode, nowMs - 90000, 0) ||
+      (candidatePairingSecret
+        ? verifyRfc6238Totp(candidatePairingSecret, rawCode, nowMs - 30000, 0) ||
+          verifyRfc6238Totp(candidatePairingSecret, rawCode, nowMs - 60000, 0)
+        : false);
+
+    // Strict current 30-second window validation (allowedDriftWindows = 0)
     let matchedTotpSecret: string | null = null;
-    if (verifyRfc6238Totp(userSecret, rawCode, nowMs, 2)) {
+    if (verifyRfc6238Totp(userSecret, rawCode, nowMs, 0)) {
       matchedTotpSecret = userSecret;
     } else if (
       candidatePairingSecret &&
-      verifyRfc6238Totp(candidatePairingSecret, rawCode, nowMs, 2)
+      verifyRfc6238Totp(candidatePairingSecret, rawCode, nowMs, 0)
     ) {
       matchedTotpSecret = candidatePairingSecret;
-    } else if (
-      deterministicEmailSecret !== userSecret &&
-      verifyRfc6238Totp(deterministicEmailSecret, rawCode, nowMs, 2)
-    ) {
-      matchedTotpSecret = deterministicEmailSecret;
     }
+
+    if (!matchedTotpSecret && isExpiredPastTotpWindow) {
+      this.appendSecurityAuditLog({
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: role.id,
+        action: "MFA_2FA_EXPIRED_TOKEN_REJECTED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/verify-mfa",
+        status: "BLOCKED",
+        ipAddress: input.ipAddress,
+        details: `Token TOTP expirado (janela anterior de 30s) rejeitado para ${user.email}.`,
+      });
+      return {
+        ok: false,
+        error: "Código TOTP expirado. Aguarde o próximo código de 6 dígitos no seu Google Authenticator.",
+      };
+    }
+
+    // Anti-Replay protection: reject if the exact same 6-digit TOTP code was already used in this 30s window
+    const replayKey = `${emailKey}:${currentTimeStep}:${rawCode}`;
+    if (
+      matchedTotpSecret &&
+      (this.usedTotpCodeTracker.get(emailKey) === replayKey ||
+        (realUserRecord?.lastUsedTotpTimeStep === currentTimeStep &&
+          this.usedTotpCodeTracker.get(emailKey)?.endsWith(`:${rawCode}`)))
+    ) {
+      this.appendSecurityAuditLog({
+        actorEmail: user.email,
+        actorName: user.name,
+        actorRole: role.id,
+        action: "MFA_2FA_REPLAY_BLOCKED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/verify-mfa",
+        status: "BLOCKED",
+        ipAddress: input.ipAddress,
+        details: `Tentativa de reutilização (replay) do mesmo código TOTP bloqueada para ${user.email}.`,
+      });
+      return {
+        ok: false,
+        error: "Este código de 6 dígitos já foi utilizado e expirou. Aguarde o próximo código no Google Authenticator.",
+      };
+    }
+
     const isValidTotp = Boolean(matchedTotpSecret);
 
     let isValidEmailOtp = false;
-    if (statelessChallenge?.emailOtpHash && sha256Hex(rawCode) === statelessChallenge.emailOtpHash) {
-      isValidEmailOtp = true;
-    }
     const emailChallenge = this.emailOtpChallenges.get(emailKey);
-    if (emailChallenge && !emailChallenge.consumed) {
-      if (nowMs > emailChallenge.expiresAtMs) {
+    if (emailChallenge) {
+      if (emailChallenge.consumed) {
+        if (sha256Hex(rawCode) === emailChallenge.codeHash) {
+          return {
+            ok: false,
+            error: "Este código OTP por e-mail já foi utilizado. Solicite um novo código.",
+          };
+        }
+      } else if (nowMs > emailChallenge.expiresAtMs) {
         this.emailOtpChallenges.delete(emailKey);
+        return {
+          ok: false,
+          error: "Código OTP por e-mail expirado. Solicite um novo código.",
+        };
       } else if (emailChallenge.attempts >= emailChallenge.maxAttempts) {
         this.emailOtpChallenges.delete(emailKey);
+        return {
+          ok: false,
+          error: "Limite de tentativas do código OTP excedido. Solicite um novo código.",
+        };
       } else {
         emailChallenge.attempts += 1;
         if (sha256Hex(rawCode) === emailChallenge.codeHash) {
@@ -6006,13 +6123,14 @@ export class CrmRepository {
           emailChallenge.consumed = true;
         }
       }
+    } else if (
+      statelessChallenge?.emailOtpHash &&
+      sha256Hex(rawCode) === statelessChallenge.emailOtpHash
+    ) {
+      isValidEmailOtp = true;
     }
 
-    const expectedDemo = rbac.securityConfig.defaultTotpDemoCode || "436906";
-    const isHomologationBackup =
-      rawCode === expectedDemo || rawCode === "118887" || rawCode === "123456";
-
-    if (!isValidTotp && !isValidEmailOtp && !isHomologationBackup) {
+    if (!isValidTotp && !isValidEmailOtp) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 5 ? nowMs + 5 * 60 * 1000 : 0;
       this.loginAttemptTracker.set(emailKey, {
@@ -6038,13 +6156,20 @@ export class CrmRepository {
     }
 
     this.loginAttemptTracker.delete(emailKey);
-    const realUserRecord = rbac.users.find((u) => u.id === user.id);
+    if (statelessChallenge?.cid) {
+      this.consumedChallengeIds.add(statelessChallenge.cid);
+    }
+    if (matchedTotpSecret) {
+      this.usedTotpCodeTracker.set(emailKey, replayKey);
+    }
     if (realUserRecord) {
       realUserRecord.lastLoginAt = new Date().toISOString();
       if (matchedTotpSecret) {
         realUserRecord.totpSecret = matchedTotpSecret;
+        realUserRecord.totpConfigured = true;
         realUserRecord.totpConfiguredAt =
           realUserRecord.totpConfiguredAt || new Date().toISOString();
+        realUserRecord.lastUsedTotpTimeStep = currentTimeStep;
       }
     }
     this.save();

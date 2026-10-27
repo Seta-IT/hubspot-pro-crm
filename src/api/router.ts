@@ -3613,7 +3613,19 @@ export class CrmApiRouter {
       if (cleanPath === '/api/auth/login' && method === 'POST') {
         const email = String(body.email || '').trim();
         const password = body.password !== undefined ? String(body.password) : 'Seta@2026';
-        const challenge = this.repo.initiateLoginChallenge(email, password);
+        const enrolledCookieRaw = String(query._enrolledUsers || '');
+        const enrolledSet = new Set(
+          enrolledCookieRaw
+            .split(',')
+            .map((x) => x.trim().toLowerCase())
+            .filter(Boolean)
+        );
+        const challenge = this.repo.initiateLoginChallenge(
+          email,
+          password,
+          '189.112.44.18',
+          enrolledSet.has(email.toLowerCase())
+        );
         if (!challenge.ok) {
           return {
             status: 401,
@@ -3647,6 +3659,7 @@ export class CrmApiRouter {
               mfaRequired: true,
               challengeId: challenge.challengeId,
               mfaMethod: challenge.mfaMethod,
+              totpConfigured: challenge.totpConfigured,
               demoTotpCode: challenge.demoTotpCode,
               totpPairing: challenge.totpPairing,
               emailOtpStatus: challenge.emailOtpStatus
@@ -3714,6 +3727,33 @@ export class CrmApiRouter {
         ).trim();
         const regenerate = Boolean(body.regenerate || query.regenerate === '1');
         const explicitSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+
+        // Security: If user already has TOTP configured, block unauthenticated HTTP requests to /api/auth/setup-totp
+        const targetUser = this.repo.getEffectiveUserAndRole(target).user;
+        const enrolledCookieRaw = String(query._enrolledUsers || '');
+        const isAlreadyEnrolled =
+          Boolean(targetUser?.totpConfigured || targetUser?.totpConfiguredAt) ||
+          enrolledCookieRaw.toLowerCase().includes(target.toLowerCase());
+        const callerSessionToken =
+          query._sessionToken ||
+          (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+        const callerSession = callerSessionToken
+          ? this.repo.resolveSessionFromToken(callerSessionToken)
+          : null;
+        const isCallerAuthenticated = Boolean(
+          callerSession?.authenticated && callerSession?.mfaVerified
+        );
+
+        if (isAlreadyEnrolled && !isCallerAuthenticated && query._fromHttpBridge === '1') {
+          return {
+            status: 403,
+            body: {
+              error: 'O Google Authenticator já está configurado para esta conta. Para reconfigurar ou visualizar o QR Code, autentique-se primeiro com seu código de 6 dígitos e acesse Minha Conta.',
+              code: 'TOTP_ALREADY_CONFIGURED_FORBIDDEN',
+            },
+          };
+        }
+
         const setup = this.repo.setupUserTotp(target, regenerate, explicitSecret);
         if (!setup.ok) {
           return {

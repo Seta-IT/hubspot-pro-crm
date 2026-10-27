@@ -470,13 +470,14 @@ export function computeRfc6238Totp(
 
 /**
  * Verifies a 6-digit Google Authenticator TOTP code against a Base32 secret
- * allowing +-2 30-second drift windows (+-60s) per RFC 6238 to prevent clock-drift failures.
+ * strictly in the current active 30-second window (allowedDriftWindows = 0 by default)
+ * so expired 30s tokens are immediately rejected.
  */
 export function verifyRfc6238Totp(
   secretBase32: string,
   inputCode: string,
   timestampMs: number = Date.now(),
-  allowedDriftWindows = 2
+  allowedDriftWindows = 0
 ): boolean {
   const clean = String(inputCode || '').replace(/\D+/g, '');
   if (clean.length !== 6 || !secretBase32) return false;
@@ -574,10 +575,7 @@ export function verifyMfaCode(inputCode: string, secretBase32?: string): boolean
     secretBase32 && isValidPureBase32Secret(secretBase32)
       ? secretBase32
       : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  if (verifyRfc6238Totp(effectiveSecret, clean, Date.now(), 2)) {
-    return true;
-  }
-  return clean === '436906' || clean === '118887';
+  return verifyRfc6238Totp(effectiveSecret, clean, Date.now(), 0);
 }
 
 // ============================================================================
