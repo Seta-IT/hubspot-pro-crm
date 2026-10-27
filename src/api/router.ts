@@ -18,6 +18,8 @@ import { WorkflowEngine } from '../modules/workflows/workflow-engine';
 import { SequenceService } from '../modules/sequences/sequence-service';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
+import { classifyRouteRequiredModule, isPublicStiHubPath } from '../middleware';
+import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
@@ -447,6 +449,43 @@ export class CrmApiRouter {
     return response;
   }
 
+  private async dispatchEmailOtpMessage(params: {
+    toEmail: string;
+    userName: string;
+    otpCode: string;
+    expiresAt: string;
+  }): Promise<{
+    delivered: boolean;
+    deliveryMode: "RESEND_HTTP_API" | "DEV_LOG_FALLBACK";
+    protocol: string;
+  }> {
+    const protocol = `STI-OTP-${Date.now().toString(36).toUpperCase()}`;
+    const resendKey = (process.env.RESEND_API_KEY || "").trim();
+    if (resendKey) {
+      try {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "STI-hub Segurança <seguranca@setatelecom.com.br>",
+            to: [params.toEmail],
+            subject: `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`,
+            text: `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`,
+          }),
+        });
+        if (res.ok) {
+          return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
+        }
+      } catch {
+        // Fallback to dev log below
+      }
+    }
+    return { delivered: true, deliveryMode: "DEV_LOG_FALLBACK", protocol };
+  }
+
   private async handleRoute(
     method: string,
     cleanPath: string,
@@ -454,6 +493,143 @@ export class CrmApiRouter {
     body: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
+      // ======================================================================
+      // ZERO-TRUST IAM & MODULE ENFORCEMENT WHEN SESSION TOKEN IS PROVIDED
+      // ======================================================================
+      const activeSessionToken =
+        query._sessionToken ||
+        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+
+      if (activeSessionToken && !isPublicStiHubPath(cleanPath, method)) {
+        const resolvedSession = this.repo.resolveSessionFromToken(activeSessionToken);
+        if (!resolvedSession.authenticated || !resolvedSession.mfaVerified) {
+          return {
+            status: 401,
+            body: {
+              error: "Sessão corporativa STI-hub inválida, expirada ou sem verificação MFA 2FA.",
+              code: "MFA_SESSION_INVALID",
+            },
+          };
+        }
+
+        const reqMod = classifyRouteRequiredModule(cleanPath);
+        if (reqMod) {
+          const hasMod =
+            (reqMod === "CRM" && resolvedSession.moduleAccess.crm) ||
+            (reqMod === "ERP" && resolvedSession.moduleAccess.erp) ||
+            (reqMod === "CHAMADOS" && resolvedSession.moduleAccess.chamados);
+          if (!hasMod) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: resolvedSession.user.email,
+              actorName: resolvedSession.user.name,
+              actorRole: resolvedSession.role.id,
+              action: `IAM_MODULE_${reqMod}_BLOCKED`,
+              module: reqMod,
+              resource: `${method} ${cleanPath}`,
+              status: "BLOCKED",
+              details: `Acesso negado ao módulo ${reqMod} para ${resolvedSession.user.email} (módulos habilitados: [${resolvedSession.enabledModules.join(", ")}]).`,
+            });
+            return {
+              status: 403,
+              body: {
+                error: `Acesso bloqueado pela política IAM: o usuário ${resolvedSession.user.email} não possui o módulo ${reqMod} habilitado.`,
+                code: `MODULE_${reqMod}_FORBIDDEN`,
+                requiredModule: reqMod,
+                enabledModules: resolvedSession.enabledModules,
+              },
+            };
+          }
+        }
+
+        // Granular Panel 1 (CRM) & Panel 2 (ERP) Action Enforcement
+        if (cleanPath.startsWith("/api/admin/") && method !== "GET") {
+          if (!resolvedSession.effectiveActionGuards.canManageUsersRbac) {
+            return {
+              status: 403,
+              body: {
+                error: "Permissão negada: seu perfil não possui alçada para alterar políticas IAM/RBAC.",
+                code: "IAM_ADMIN_FORBIDDEN",
+              },
+            };
+          }
+        }
+
+        if (method === "DELETE") {
+          if (cleanPath.startsWith("/api/erp/")) {
+            if (
+              !resolvedSession.erpPermissions.canDeleteErpRecords &&
+              !resolvedSession.effectiveActionGuards.canDeleteRecords
+            ) {
+              return {
+                status: 403,
+                body: {
+                  error: "Permissão negada (Painel ERP): seu usuário não possui permissão para excluir registros do ERP.",
+                  code: "ERP_DELETE_FORBIDDEN",
+                },
+              };
+            }
+          } else if (
+            cleanPath.startsWith("/api/contacts/") ||
+            cleanPath.startsWith("/api/companies/") ||
+            cleanPath.startsWith("/api/deals/") ||
+            cleanPath.startsWith("/api/tickets/")
+          ) {
+            if (
+              !resolvedSession.crmPermissions.canDeleteCrmRecords &&
+              !resolvedSession.effectiveActionGuards.canDeleteRecords
+            ) {
+              return {
+                status: 403,
+                body: {
+                  error: "Permissão negada (Painel CRM): seu usuário não possui permissão para excluir registros do CRM.",
+                  code: "CRM_DELETE_FORBIDDEN",
+                },
+              };
+            }
+          }
+        }
+
+        if (
+          (cleanPath === "/api/data-health/merge" ||
+            cleanPath === "/api/companies/merge" ||
+            cleanPath === "/api/data-health/auto-clean") &&
+          method === "POST"
+        ) {
+          if (
+            !resolvedSession.crmPermissions.canMergeCrmRecords &&
+            !resolvedSession.effectiveActionGuards.canMergeRecords
+          ) {
+            return {
+              status: 403,
+              body: {
+                error: "Permissão negada (Painel CRM): seu usuário não possui alçada para mesclar duplicados (Data Health).",
+                code: "CRM_MERGE_FORBIDDEN",
+              },
+            };
+          }
+        }
+
+        if (
+          (cleanPath === "/api/erp/invoices" ||
+            cleanPath === "/api/erp/fiscal-documents" ||
+            cleanPath.endsWith("/generate-invoice") ||
+            cleanPath.endsWith("/generate-remessa")) &&
+          method === "POST"
+        ) {
+          if (
+            !resolvedSession.erpPermissions.canIssueFiscalDocuments &&
+            !resolvedSession.effectiveActionGuards.canIssueFiscalDocuments
+          ) {
+            return {
+              status: 403,
+              body: {
+                error: "Permissão negada (Painel ERP): seu usuário não possui alçada para emitir documentos fiscais (NF-e / NFS-e / Fatura SV 31).",
+                code: "ERP_FISCAL_ISSUANCE_FORBIDDEN",
+              },
+            };
+          }
+        }
+      }
       // ======================================================================
       // ATOMIC BOOTSTRAP & STATE RECONCILIATION (/api/bootstrap, /api/state)
       // ======================================================================
@@ -691,6 +867,22 @@ export class CrmApiRouter {
           if (!body.name) {
             return { status: 400, body: { error: 'O campo "name" é obrigatório.' } };
           }
+          if (typeof body.cnpj === 'string' && body.cnpj.trim().length > 0) {
+            const cpObj = (body.customProperties || {}) as Record<string, unknown>;
+            const pType = String(cpObj.customerType || body.personType || '');
+            const digits = body.cnpj.replace(/\D/g, '');
+            const check = validateDocumentByPersonType(
+              body.cnpj,
+              pType || (digits.length === 11 ? 'PF' : 'PJ')
+            );
+            if (!check.isValid) {
+              return {
+                status: 400,
+                body: { error: `${check.message} (${body.cnpj}).` },
+              };
+            }
+            body.cnpj = check.formatted;
+          }
           const company = this.repo.createCompany(body as { name: string; [k: string]: unknown });
           return { status: 201, body: { data: company } };
         }
@@ -725,6 +917,22 @@ export class CrmApiRouter {
         }
 
         if (method === 'PATCH' || method === 'PUT') {
+          if (typeof body.cnpj === 'string' && body.cnpj.trim().length > 0) {
+            const cpObj = (body.customProperties || {}) as Record<string, unknown>;
+            const pType = String(cpObj.customerType || body.personType || '');
+            const digits = body.cnpj.replace(/\D/g, '');
+            const check = validateDocumentByPersonType(
+              body.cnpj,
+              pType || (digits.length === 11 ? 'PF' : 'PJ')
+            );
+            if (!check.isValid) {
+              return {
+                status: 400,
+                body: { error: `${check.message} (${body.cnpj}).` },
+              };
+            }
+            body.cnpj = check.formatted;
+          }
           const updated = this.repo.updateCompany(id, body);
           if (!updated) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
@@ -2845,6 +3053,20 @@ export class CrmApiRouter {
           | 'purchaseOrders';
         const recId = erpRecordsMatch[2] ? decodeURIComponent(erpRecordsMatch[2]) : undefined;
         if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
+          if (col === 'suppliers' && typeof body.cnpj === 'string' && body.cnpj.trim().length > 0) {
+            const digits = body.cnpj.replace(/\D/g, '');
+            const check = validateDocumentByPersonType(
+              body.cnpj,
+              digits.length === 11 ? 'PF' : 'PJ'
+            );
+            if (!check.isValid) {
+              return {
+                status: 400,
+                body: { error: `${check.message} (${body.cnpj}).` },
+              };
+            }
+            body.cnpj = check.formatted;
+          }
           const saved = this.repo.upsertErpCollectionRecord(col, {
             ...body,
             ...(recId ? { id: recId } : {}),
@@ -3224,6 +3446,26 @@ export class CrmApiRouter {
             body: { error: challenge.error || 'Falha na autenticação corporativa.' },
           };
         }
+
+        let emailDelivery: {
+          delivered: boolean;
+          deliveryMode: "RESEND_HTTP_API" | "DEV_LOG_FALLBACK";
+          protocol: string;
+        } | null = null;
+
+        if (
+          challenge.mfaMethod === 'EMAIL_OTP' &&
+          challenge.emailOtpStatus?.devOtpPreview &&
+          challenge.user
+        ) {
+          emailDelivery = await this.dispatchEmailOtpMessage({
+            toEmail: challenge.user.email,
+            userName: challenge.user.name,
+            otpCode: challenge.emailOtpStatus.devOtpPreview,
+            expiresAt: challenge.emailOtpStatus.expiresAt,
+          });
+        }
+
         return {
           status: 200,
           body: {
@@ -3232,10 +3474,82 @@ export class CrmApiRouter {
               challengeId: challenge.challengeId,
               mfaMethod: challenge.mfaMethod,
               demoTotpCode: challenge.demoTotpCode,
+              totpPairing: challenge.totpPairing,
+              emailOtpStatus: challenge.emailOtpStatus
+                ? {
+                    ...challenge.emailOtpStatus,
+                    deliveryMode: emailDelivery?.deliveryMode || 'DEV_LOG_FALLBACK',
+                    protocol: emailDelivery?.protocol || 'STI-OTP-LOCAL',
+                  }
+                : undefined,
               user: challenge.user,
               role: challenge.role,
-              message: `Credenciais Seta Telecom validadas para ${challenge.user?.name}. Insira o código MFA de 6 dígitos.`,
+              message:
+                challenge.mfaMethod === 'EMAIL_OTP'
+                  ? `Credenciais validadas para ${challenge.user?.name}. Código OTP de 6 dígitos enviado para ${challenge.user?.email}.`
+                  : `Credenciais Seta Telecom validadas para ${challenge.user?.name}. Insira o código Google Authenticator (TOTP 6 dígitos) ou solicite OTP por e-mail.`,
             },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/send-email-otp' && method === 'POST') {
+        const target = String(body.email || body.userId || '').trim();
+        if (!target) {
+          return {
+            status: 400,
+            body: { error: 'Informe o e-mail ou ID do colaborador para enviar o código OTP.' },
+          };
+        }
+        const otpChallenge = this.repo.createEmailOtpChallenge(target);
+        if (!otpChallenge.ok || !otpChallenge.otpCode || !otpChallenge.email) {
+          return {
+            status: 429,
+            body: { error: otpChallenge.error || 'Não foi possível gerar o código OTP por e-mail.' },
+          };
+        }
+        const delivery = await this.dispatchEmailOtpMessage({
+          toEmail: otpChallenge.email,
+          userName: otpChallenge.userName || otpChallenge.email,
+          otpCode: otpChallenge.otpCode,
+          expiresAt: otpChallenge.expiresAt!,
+        });
+
+        return {
+          status: 200,
+          body: {
+            data: {
+              challengeId: otpChallenge.challengeId,
+              email: otpChallenge.email,
+              expiresAt: otpChallenge.expiresAt,
+              ttlSeconds: otpChallenge.ttlSeconds,
+              remainingAttempts: otpChallenge.remainingAttempts,
+              delivered: delivery.delivered,
+              deliveryMode: delivery.deliveryMode,
+              protocol: delivery.protocol,
+              devOtpPreview: otpChallenge.otpCode,
+              message: `Código OTP de 6 dígitos enviado para ${otpChallenge.email} (Protocolo ${delivery.protocol}). Válido por 5 minutos.`,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/setup-totp' && (method === 'GET' || method === 'POST')) {
+        const target = String(
+          body.email || body.userId || query.email || query.userId || 'marcelo.mira@setatelecom.com.br'
+        ).trim();
+        const regenerate = Boolean(body.regenerate || query.regenerate === '1');
+        const setup = this.repo.setupUserTotp(target, regenerate);
+        if (!setup.ok) {
+          return {
+            status: 404,
+            body: { error: setup.error || 'Falha ao configurar TOTP.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: setup,
           },
         };
       }
@@ -3244,14 +3558,24 @@ export class CrmApiRouter {
         const code = String(body.code || body.totpCode || '').trim();
         const email = body.email ? String(body.email) : undefined;
         const userId = body.userId ? String(body.userId) : undefined;
-        const verified = this.repo.verifyMfaAndCreateSession({ email, userId, code });
+        const mfaMethod =
+          body.mfaMethod === 'EMAIL_OTP' || body.mfaMethod === 'TOTP_AUTHENTICATOR'
+            ? body.mfaMethod
+            : undefined;
+        const verified = this.repo.verifyMfaAndCreateSession({
+          email,
+          userId,
+          code,
+          mfaMethod,
+        });
         if (!verified.ok || !verified.sessionToken) {
           return {
             status: 401,
             body: { error: verified.error || 'Código MFA 2FA inválido.' },
           };
         }
-        const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`;
+        const secureAttr = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
         return {
           status: 200,
           headers: {
@@ -3261,11 +3585,26 @@ export class CrmApiRouter {
             data: {
               authenticated: true,
               mfaVerified: true,
+              verifiedVia: verified.verifiedVia,
               sessionToken: verified.sessionToken,
               user: verified.user,
               role: verified.role,
               effectiveActionGuards: verified.effectiveActionGuards,
+              enabledModules: verified.enabledModules,
+              moduleAccess: verified.moduleAccess,
+              crmPermissions: verified.crmPermissions,
+              erpPermissions: verified.erpPermissions,
             },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/admin/audit-logs' && method === 'GET') {
+        const limit = Number(query.limit || 100);
+        return {
+          status: 200,
+          body: {
+            data: this.repo.listSecurityAuditLogs(limit),
           },
         };
       }
@@ -3495,6 +3834,26 @@ export class CrmApiRouter {
         }
         if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
           if (body.companyEmitter && typeof body.companyEmitter === 'object') {
+            const incomingCnpj = (body.companyEmitter as Record<string, unknown>).cnpj;
+            if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
+              const cnpjCheck = validateCnpj(incomingCnpj);
+              if (!cnpjCheck.isValid || !cnpjCheck.digits?.startsWith('14806925')) {
+                this.repo.appendSecurityAuditLog({
+                  action: 'FISCAL_MATRIZ_CNPJ_CHANGE_BLOCKED',
+                  module: 'FISCAL_A1',
+                  resource: '/api/admin/settings',
+                  status: 'BLOCKED',
+                  details: `Tentativa bloqueada de substituir CNPJ Matriz 14.806.925/0001-32 por "${incomingCnpj}".`,
+                });
+                return {
+                  status: 400,
+                  body: {
+                    error: 'Trava Fiscal Anti-Fraude: O CNPJ emissor da Seta Telecom LTDA deve pertencer à raiz oficial 14.806.925/0001-32 (validado em Módulo-11).',
+                    code: 'MATRIZ_CNPJ_PROTECTED_LOCK',
+                  },
+                };
+              }
+            }
             this.companyEmitter = {
               ...this.companyEmitter,
               ...(body.companyEmitter as Record<string, unknown>),

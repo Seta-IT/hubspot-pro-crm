@@ -11,6 +11,9 @@ import {
   validateEmail,
   normalizeAndValidatePhone,
   validateCnpj,
+  validateCpf,
+  formatDocumentByPersonType,
+  validateDocumentByPersonType,
   normalizeCorporateDomain,
 } from '../src/modules/data-health/validators';
 import {
@@ -1734,3 +1737,240 @@ describe('14. Responsividade Mobile (Drawers & Quick Bars) e 5 Modos de Visualiz
   });
 });
 
+
+describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-mail OTP), Sessão HMAC-SHA256, IAM 2 Painéis & Escopo Modular (CRM / ERP / Chamados)', () => {
+  it('valida TOTP RFC 6238 (Base32 + otpauth:// + QR SVG), OTP por E-mail com uso único e rejeita tokens falsificados', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Setup Google Authenticator TOTP RFC 6238
+    const setupRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/setup-totp',
+      body: { email: 'marcelo.mira@setatelecom.com.br' },
+    });
+    assert.equal(setupRes.status, 200);
+    const setupData = (setupRes.body as {
+      data: {
+        totpSecret: string;
+        otpauthUri: string;
+        qrCodeSvgDataUrl: string;
+        currentTotpCode: string;
+      };
+    }).data;
+    assert.ok(setupData.totpSecret.length >= 16);
+    assert.ok(setupData.otpauthUri.startsWith('otpauth://totp/'));
+    assert.ok(setupData.qrCodeSvgDataUrl.startsWith('data:image/svg+xml'));
+    assert.equal(setupData.currentTotpCode.length, 6);
+
+    // 2. Verifica TOTP RFC 6238 e emite token assinado HMAC-SHA256
+    const mfaTotpRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'marcelo.mira@setatelecom.com.br',
+        code: setupData.currentTotpCode,
+      },
+    });
+    assert.equal(mfaTotpRes.status, 200);
+    const totpSession = (mfaTotpRes.body as {
+      data: { sessionToken: string; verifiedVia: string };
+    }).data;
+    assert.equal(totpSession.verifiedVia, 'RFC6238_TOTP');
+    assert.ok(totpSession.sessionToken.includes('.'), 'Token deve conter assinatura HMAC-SHA256 separada por ponto');
+
+    // 3. Disparo e validação de Código OTP por E-mail (uso único)
+    const sendOtpRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/send-email-otp',
+      body: { email: 'fiscal@setatelecom.com.br' },
+    });
+    assert.equal(sendOtpRes.status, 200);
+    const otpPayload = (sendOtpRes.body as {
+      data: { devOtpPreview: string; protocol: string; ttlSeconds: number };
+    }).data;
+    assert.equal(otpPayload.devOtpPreview.length, 6);
+    assert.ok(otpPayload.protocol.startsWith('STI-OTP-'));
+    assert.equal(otpPayload.ttlSeconds, 300);
+
+    const verifyEmailOtpRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'fiscal@setatelecom.com.br',
+        code: otpPayload.devOtpPreview,
+        mfaMethod: 'EMAIL_OTP',
+      },
+    });
+    assert.equal(verifyEmailOtpRes.status, 200);
+    const emailOtpSession = (verifyEmailOtpRes.body as {
+      data: { verifiedVia: string; sessionToken: string; enabledModules: string[] };
+    }).data;
+    assert.equal(emailOtpSession.verifiedVia, 'EMAIL_OTP');
+    assert.deepEqual(emailOtpSession.enabledModules, ['ERP']);
+
+    // Reutilização do mesmo código OTP de e-mail deve falhar (replay protection)
+    const replayOtpRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'fiscal@setatelecom.com.br',
+        code: otpPayload.devOtpPreview,
+        mfaMethod: 'EMAIL_OTP',
+      },
+    });
+    assert.equal(replayOtpRes.status, 401);
+  });
+
+  it('aplica isolamento estrito de módulos (CRM, ERP, Chamados) e os 2 painéis IAM (Permissões CRM vs Permissões ERP)', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Usuário exclusivo de Chamados (henrique.noc@setatelecom.com.br -> ['CHAMADOS'])
+    const nocSetup = repo.setupUserTotp('henrique.noc@setatelecom.com.br');
+    const nocLogin = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'henrique.noc@setatelecom.com.br',
+        code: nocSetup.currentTotpCode,
+      },
+    });
+    assert.equal(nocLogin.status, 200);
+    const nocToken = (nocLogin.body as { data: { sessionToken: string; enabledModules: string[] } }).data.sessionToken;
+
+    // Acesso permitido a Chamados (/api/tickets)
+    const ticketsOk = await router.dispatch({
+      method: 'GET',
+      path: '/api/tickets',
+      query: { _sessionToken: nocToken },
+    });
+    assert.equal(ticketsOk.status, 200);
+
+    // Acesso bloqueado a ERP (/api/erp/overview) -> 403 MODULE_ERP_FORBIDDEN
+    const erpBlocked = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/overview',
+      query: { _sessionToken: nocToken },
+    });
+    assert.equal(erpBlocked.status, 403);
+
+    // Acesso bloqueado a CRM (/api/deals) -> 403 MODULE_CRM_FORBIDDEN
+    const crmBlocked = await router.dispatch({
+      method: 'GET',
+      path: '/api/deals',
+      query: { _sessionToken: nocToken },
+    });
+    assert.equal(crmBlocked.status, 403);
+
+    // 2. Usuário exclusivo de CRM (marketing@setatelecom.com.br -> ['CRM'])
+    const mktSetup = repo.setupUserTotp('marketing@setatelecom.com.br');
+    const mktLogin = await router.dispatch({
+      method: 'POST',
+      path: '/api/auth/verify-mfa',
+      body: {
+        email: 'marketing@setatelecom.com.br',
+        code: mktSetup.currentTotpCode,
+      },
+    });
+    const mktToken = (mktLogin.body as { data: { sessionToken: string } }).data.sessionToken;
+
+    const crmAllowed = await router.dispatch({
+      method: 'GET',
+      path: '/api/deals',
+      query: { _sessionToken: mktToken },
+    });
+    assert.equal(crmAllowed.status, 200);
+
+    const mktErpBlocked = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/overview',
+      query: { _sessionToken: mktToken },
+    });
+    assert.equal(mktErpBlocked.status, 403);
+
+    // 3. Proteção da Trava Fiscal do CNPJ Matriz 14.806.925/0001-32 e Audit Logs SHA-256
+    const badEmitterCnpj = await router.dispatch({
+      method: 'PUT',
+      path: '/api/admin/settings',
+      body: {
+        companyEmitter: {
+          cnpj: '07.228.550/0001-19',
+        },
+      },
+    });
+    assert.equal(badEmitterCnpj.status, 400);
+
+    const auditRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/admin/audit-logs',
+    });
+    assert.equal(auditRes.status, 200);
+    const auditData = (auditRes.body as {
+      data: { total: number; chainIntegrityVerified: boolean; logs: Array<{ integrityHashSha256: string }> };
+    }).data;
+    assert.equal(auditData.chainIntegrityVerified, true);
+    assert.ok(auditData.total >= 5);
+    assert.equal(auditData.logs[0].integrityHashSha256.length, 64);
+  });
+  it('valida matematicamente CNPJ (14 dígitos Mod-11) e CPF (11 dígitos Mod-11), aplica máscara dinâmica PJ/PF e bloqueia CNPJ/CPF inválido na API (400)', async () => {
+    // 1. Validação e autoformatação de CNPJ (PJ)
+    assert.equal(formatDocumentByPersonType('14806925000132', 'Pessoa Jurídica'), '14.806.925/0001-32');
+    const validCnpjCheck = validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica');
+    assert.equal(validCnpjCheck.isValid, true);
+    assert.equal(validCnpjCheck.docKind, 'CNPJ');
+    assert.equal(validCnpjCheck.message, 'CNPJ válido');
+
+    const badCnpjCheck = validateDocumentByPersonType('14.806.925/0001-99', 'Pessoa Jurídica');
+    assert.equal(badCnpjCheck.isValid, false);
+    assert.equal(badCnpjCheck.message, 'CNPJ inválido (dígitos verificadores incorretos)');
+
+    const repeatedCnpjCheck = validateDocumentByPersonType('11.111.111/1111-11', 'Pessoa Jurídica');
+    assert.equal(repeatedCnpjCheck.isValid, false);
+
+    // 2. Validação e autoformatação de CPF (PF)
+    assert.equal(formatDocumentByPersonType('52998224725', 'Pessoa Física'), '529.982.247-25');
+    const validCpf = validateCpf('529.982.247-25');
+    assert.equal(validCpf.isValid, true);
+    assert.equal(validCpf.formatted, '529.982.247-25');
+
+    const invalidCpf = validateDocumentByPersonType('529.982.247-99', 'Pessoa Física');
+    assert.equal(invalidCpf.isValid, false);
+    assert.equal(invalidCpf.docKind, 'CPF');
+    assert.equal(invalidCpf.message, 'CPF inválido (dígitos verificadores incorretos)');
+
+    const repeatedCpf = validateCpf('000.000.000-00');
+    assert.equal(repeatedCpf.isValid, false);
+
+    // 3. Bloqueio HTTP 400 na API ao tentar cadastrar empresa/cliente ou fornecedor com CNPJ inválido
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const badCompRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/companies',
+      body: {
+        name: 'Empresa Teste CNPJ Inválido LTDA',
+        cnpj: '14.806.925/0001-99',
+      },
+    });
+    assert.equal(badCompRes.status, 400);
+
+    const goodCompRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/companies',
+      body: {
+        name: 'Empresa Teste CNPJ Válido LTDA',
+        cnpj: '33000167000101',
+      },
+    });
+    assert.equal(goodCompRes.status, 201);
+    assert.equal((goodCompRes.body as { data: { cnpj: string } }).data.cnpj, '33.000.167/0001-01');
+
+    const badLookupRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/cnpj/14.806.925/0001-99',
+    });
+    assert.equal(badLookupRes.status, 400);
+  });
+});

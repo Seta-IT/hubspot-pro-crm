@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Search,
@@ -15,6 +15,13 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Company } from '../../db/types';
+import {
+  formatBrPhoneMask,
+  formatCepMask,
+  formatDocumentByPersonType,
+  validateCnpj,
+  validateDocumentByPersonType,
+} from '../../modules/data-health/validators';
 
 export interface AdditionalCompanyContact {
   id: string;
@@ -64,172 +71,272 @@ export default function GestaoClickCompanyModal({
   const company = companyProp !== undefined ? companyProp : (initialCompany ?? null);
   const isNew = isNewProp !== undefined ? isNewProp : mode === 'CREATE' || !company?.id;
   const cp = (company?.customProperties || {}) as Record<string, unknown>;
-  const firstAddr = Array.isArray(cp.addresses) && cp.addresses[0]
-    ? (cp.addresses[0] as Record<string, unknown>)
-    : {};
+  const firstAddr =
+    !isNew && Array.isArray(cp.addresses) && cp.addresses[0]
+      ? (cp.addresses[0] as Record<string, unknown>)
+      : {};
 
   // Bloco 1: Dados Gerais & Fiscais
   const [personType, setPersonType] = useState<string>(
-    String(cp.customerType || 'Pessoa Jurídica')
+    isNew ? 'Pessoa Jurídica' : String(cp.customerType || 'Pessoa Jurídica')
   );
-  const [situation, setSituation] = useState<string>(String(cp.situation || 'Ativo'));
+  const [situation, setSituation] = useState<string>(
+    isNew ? 'Ativo' : String(cp.situation || 'Ativo')
+  );
   const [internalCode, setInternalCode] = useState<string>(
-    String(cp.gestaoClickClientId || cp.internalCode || `GC-${Math.floor(1000 + Math.random() * 9000)}`)
+    isNew ? '' : String(cp.gestaoClickClientId || cp.internalCode || '')
   );
-  const [cnpj, setCnpj] = useState<string>(String(company?.cnpj || ''));
-  const [legalName, setLegalName] = useState<string>(String(company?.name || ''));
+  const [cnpj, setCnpj] = useState<string>(
+    isNew
+      ? ''
+      : formatDocumentByPersonType(String(company?.cnpj || ''), String(cp.customerType || 'Pessoa Jurídica'))
+  );
+  const [legalName, setLegalName] = useState<string>(
+    isNew ? '' : String(company?.name || '')
+  );
   const [tradeName, setTradeName] = useState<string>(
-    String(cp.tradeName || company?.name || '')
+    isNew ? '' : String(cp.tradeName || company?.name || '')
   );
   const [stateRegistration, setStateRegistration] = useState<string>(
-    String(cp.stateRegistration || 'ISENTO')
+    isNew ? '' : String(cp.stateRegistration || '')
   );
   const [ieIndicator, setIeIndicator] = useState<string>(
-    String(cp.ieIndicator || 'Contribuinte Isento')
+    isNew ? 'Contribuinte Isento' : String(cp.ieIndicator || 'Contribuinte Isento')
   );
   const [municipalRegistration, setMunicipalRegistration] = useState<string>(
-    String(cp.municipalRegistration || '')
+    isNew ? '' : String(cp.municipalRegistration || '')
   );
-  const [suframa, setSuframa] = useState<string>(String(cp.suframa || ''));
+  const [suframa, setSuframa] = useState<string>(
+    isNew ? '' : String(cp.suframa || '')
+  );
   const [taxRegime, setTaxRegime] = useState<string>(
-    String(cp.taxRegime || 'Lucro Presumido')
+    isNew ? 'Lucro Presumido' : String(cp.taxRegime || 'Lucro Presumido')
   );
   const [cnaeMain, setCnaeMain] = useState<string>(
-    String(cp.cnaeMain || '61.10-8-03')
+    isNew ? '' : String(cp.cnaeMain || '')
   );
   const [cnaeDescription, setCnaeDescription] = useState<string>(
-    String(cp.cnaeDescription || company?.industry || 'Serviços de Telecomunicações e TI')
+    isNew ? '' : String(cp.cnaeDescription || company?.industry || '')
   );
   const [openingDate, setOpeningDate] = useState<string>(
-    String(cp.openingDate || '2015-03-10')
+    isNew ? '' : String(cp.openingDate || '')
   );
   const [companySize, setCompanySize] = useState<string>(
-    String(company?.size || 'Médio / Grande Porte')
+    isNew ? '' : String(company?.size || '')
   );
   const [shareCapital, setShareCapital] = useState<string>(
-    String(cp.shareCapital ?? company?.annualRevenue ?? 1500000)
+    isNew ? '' : cp.shareCapital !== undefined ? String(cp.shareCapital) : company?.annualRevenue !== undefined ? String(company.annualRevenue) : ''
   );
   const [ownerName, setOwnerName] = useState<string>(
-    String(company?.ownerName || cp.sellerName || 'Marcelo Lopes Mira')
+    isNew ? '' : String(company?.ownerName || cp.sellerName || '')
   );
 
   // Bloco 2: Endereço Completo + IBGE
-  const [cep, setCep] = useState<string>(String(firstAddr.cep || cp.cep || '01310-100'));
-  const [street, setStreet] = useState<string>(
-    String(firstAddr.street || cp.street || 'Avenida Paulista')
+  const [cep, setCep] = useState<string>(
+    isNew ? '' : formatCepMask(String(firstAddr.cep || cp.cep || ''))
   );
-  const [number, setNumber] = useState<string>(String(firstAddr.number || cp.number || '1000'));
+  const [street, setStreet] = useState<string>(
+    isNew ? '' : String(firstAddr.street || cp.street || '')
+  );
+  const [number, setNumber] = useState<string>(
+    isNew ? '' : String(firstAddr.number || cp.number || '')
+  );
   const [complement, setComplement] = useState<string>(
-    String(firstAddr.complement || cp.complement || '')
+    isNew ? '' : String(firstAddr.complement || cp.complement || '')
   );
   const [neighborhood, setNeighborhood] = useState<string>(
-    String(firstAddr.neighborhood || cp.neighborhood || 'Bela Vista')
+    isNew ? '' : String(firstAddr.neighborhood || cp.neighborhood || '')
   );
-  const [city, setCity] = useState<string>(String(company?.city || 'São Paulo'));
-  const [uf, setUf] = useState<string>(String(company?.state || 'SP'));
-  const [ibgeCode, setIbgeCode] = useState<string>(String(cp.ibgeCode || '3550308'));
+  const [city, setCity] = useState<string>(
+    isNew ? '' : String(company?.city || '')
+  );
+  const [uf, setUf] = useState<string>(
+    isNew ? '' : String(company?.state || '')
+  );
+  const [ibgeCode, setIbgeCode] = useState<string>(
+    isNew ? '' : String(cp.ibgeCode || '')
+  );
 
   // Bloco 3: Contatos & Comunicação
   const [commercialPhone, setCommercialPhone] = useState<string>(
-    String(cp.phone || '(11) 3958-4929')
+    isNew ? '' : formatBrPhoneMask(String(cp.phone || ''))
   );
   const [whatsappPhone, setWhatsappPhone] = useState<string>(
-    String(cp.whatsappPhone || '(11) 93958-4929')
+    isNew ? '' : formatBrPhoneMask(String(cp.whatsappPhone || ''))
   );
   const [commercialEmail, setCommercialEmail] = useState<string>(
-    String(cp.emailComercial || (company?.domain ? `contato@${company.domain}` : ''))
+    isNew ? '' : String(cp.emailComercial || '')
   );
   const [financialNfeEmail, setFinancialNfeEmail] = useState<string>(
-    String(cp.emailFinanceiroNfe || (company?.domain ? `nfe@${company.domain}` : ''))
+    isNew ? '' : String(cp.emailFinanceiroNfe || '')
   );
-  const [domain, setDomain] = useState<string>(String(company?.domain || ''));
+  const [domain, setDomain] = useState<string>(
+    isNew ? '' : String(company?.domain || '')
+  );
   const [additionalContacts, setAdditionalContacts] = useState<AdditionalCompanyContact[]>(() => {
-    if (Array.isArray(cp.additionalContacts) && cp.additionalContacts.length > 0) {
+    if (!isNew && Array.isArray(cp.additionalContacts) && cp.additionalContacts.length > 0) {
       return cp.additionalContacts as AdditionalCompanyContact[];
     }
-    return [
-      {
-        id: 'ac-1',
-        name: 'Departamento Financeiro / Compras',
-        role: 'Financeiro & Faturamento',
-        email: company?.domain ? `financeiro@${company.domain}` : 'financeiro@cliente.com.br',
-        phone: '(11) 3958-4929',
-      },
-    ];
+    return [];
   });
 
   // Bloco 4: Dados Financeiros & Faturamento
   const [creditLimitBrl, setCreditLimitBrl] = useState<string>(
-    String(cp.creditLimitBrl ?? 150000)
+    isNew ? '' : cp.creditLimitBrl !== undefined ? String(cp.creditLimitBrl) : ''
   );
   const [defaultPaymentCondition, setDefaultPaymentCondition] = useState<string>(
-    String(cp.defaultPaymentCondition || 'Boleto 30 DDL')
+    isNew ? 'Boleto 30 DDL' : String(cp.defaultPaymentCondition || 'Boleto 30 DDL')
   );
   const [preferredBank, setPreferredBank] = useState<string>(
-    String(cp.preferredBank || 'Banco Inter')
+    isNew ? 'Banco Inter' : String(cp.preferredBank || 'Banco Inter')
   );
   const [billingDueDay, setBillingDueDay] = useState<string>(
-    String(cp.billingDueDay || '10')
+    isNew ? '' : String(cp.billingDueDay || '')
   );
   const [taxWithholdingConfig, setTaxWithholdingConfig] = useState<string>(
-    String(cp.taxWithholdingConfig || 'Dispensa ISS Locação (SV 31 STF) / Retenção IRRF+CSRF em Serviços')
+    isNew ? '' : String(cp.taxWithholdingConfig || '')
   );
   const [fiscalNotes, setFiscalNotes] = useState<string>(
-    String(cp.notes || 'Cadastro corporativo validado na Receita Federal e sincronizado com o GestãoClick #118887.')
+    isNew ? '' : String(cp.notes || '')
   );
 
-  // Receita Federal Lookup & 2-Step Deletion States
+  // Receita Federal Lookup, Validation & 2-Step Deletion States
   const [lookingUpCnpj, setLookingUpCnpj] = useState(false);
   const [receitaStatusBanner, setReceitaStatusBanner] = useState<string | null>(null);
+  const [validationErrorBanner, setValidationErrorBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirmStep, setShowDeleteConfirmStep] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Reset all fields whenever modal opens in New Mode vs Edit Mode
+  useEffect(() => {
+    const nextCp = (company?.customProperties || {}) as Record<string, unknown>;
+    const nextAddr =
+      !isNew && Array.isArray(nextCp.addresses) && nextCp.addresses[0]
+        ? (nextCp.addresses[0] as Record<string, unknown>)
+        : {};
+    const nextPersonType = isNew ? 'Pessoa Jurídica' : String(nextCp.customerType || 'Pessoa Jurídica');
+
+    setPersonType(nextPersonType);
+    setSituation(isNew ? 'Ativo' : String(nextCp.situation || 'Ativo'));
+    setInternalCode(isNew ? '' : String(nextCp.gestaoClickClientId || nextCp.internalCode || ''));
+    setCnpj(isNew ? '' : formatDocumentByPersonType(String(company?.cnpj || ''), nextPersonType));
+    setLegalName(isNew ? '' : String(company?.name || ''));
+    setTradeName(isNew ? '' : String(nextCp.tradeName || company?.name || ''));
+    setStateRegistration(isNew ? '' : String(nextCp.stateRegistration || ''));
+    setIeIndicator(isNew ? 'Contribuinte Isento' : String(nextCp.ieIndicator || 'Contribuinte Isento'));
+    setMunicipalRegistration(isNew ? '' : String(nextCp.municipalRegistration || ''));
+    setSuframa(isNew ? '' : String(nextCp.suframa || ''));
+    setTaxRegime(isNew ? 'Lucro Presumido' : String(nextCp.taxRegime || 'Lucro Presumido'));
+    setCnaeMain(isNew ? '' : String(nextCp.cnaeMain || ''));
+    setCnaeDescription(isNew ? '' : String(nextCp.cnaeDescription || company?.industry || ''));
+    setOpeningDate(isNew ? '' : String(nextCp.openingDate || ''));
+    setCompanySize(isNew ? '' : String(company?.size || ''));
+    setShareCapital(
+      isNew
+        ? ''
+        : nextCp.shareCapital !== undefined
+          ? String(nextCp.shareCapital)
+          : company?.annualRevenue !== undefined
+            ? String(company.annualRevenue)
+            : ''
+    );
+    setOwnerName(isNew ? '' : String(company?.ownerName || nextCp.sellerName || ''));
+    setCep(isNew ? '' : formatCepMask(String(nextAddr.cep || nextCp.cep || '')));
+    setStreet(isNew ? '' : String(nextAddr.street || nextCp.street || ''));
+    setNumber(isNew ? '' : String(nextAddr.number || nextCp.number || ''));
+    setComplement(isNew ? '' : String(nextAddr.complement || nextCp.complement || ''));
+    setNeighborhood(isNew ? '' : String(nextAddr.neighborhood || nextCp.neighborhood || ''));
+    setCity(isNew ? '' : String(company?.city || ''));
+    setUf(isNew ? '' : String(company?.state || ''));
+    setIbgeCode(isNew ? '' : String(nextCp.ibgeCode || ''));
+    setCommercialPhone(isNew ? '' : formatBrPhoneMask(String(nextCp.phone || '')));
+    setWhatsappPhone(isNew ? '' : formatBrPhoneMask(String(nextCp.whatsappPhone || '')));
+    setCommercialEmail(isNew ? '' : String(nextCp.emailComercial || ''));
+    setFinancialNfeEmail(isNew ? '' : String(nextCp.emailFinanceiroNfe || ''));
+    setDomain(isNew ? '' : String(company?.domain || ''));
+    setAdditionalContacts(
+      !isNew && Array.isArray(nextCp.additionalContacts)
+        ? (nextCp.additionalContacts as AdditionalCompanyContact[])
+        : []
+    );
+    setCreditLimitBrl(isNew ? '' : nextCp.creditLimitBrl !== undefined ? String(nextCp.creditLimitBrl) : '');
+    setDefaultPaymentCondition(isNew ? 'Boleto 30 DDL' : String(nextCp.defaultPaymentCondition || 'Boleto 30 DDL'));
+    setPreferredBank(isNew ? 'Banco Inter' : String(nextCp.preferredBank || 'Banco Inter'));
+    setBillingDueDay(isNew ? '' : String(nextCp.billingDueDay || ''));
+    setTaxWithholdingConfig(isNew ? '' : String(nextCp.taxWithholdingConfig || ''));
+    setFiscalNotes(isNew ? '' : String(nextCp.notes || ''));
+    setReceitaStatusBanner(null);
+    setValidationErrorBanner(null);
+    setShowDeleteConfirmStep(false);
+  }, [isNew, company?.id]);
+
+  const isPf = personType.toLowerCase().includes('física') || personType.toLowerCase().includes('fisica');
+  const docFeedback = validateDocumentByPersonType(cnpj, personType);
+
+  const handlePersonTypeChange = (nextType: string) => {
+    setPersonType(nextType);
+    setCnpj((prev) => formatDocumentByPersonType(prev, nextType));
+    setValidationErrorBanner(null);
+  };
+
   const handleLookupReceitaFederal = async (rawVal?: string) => {
     const targetCnpj = rawVal !== undefined ? rawVal : cnpj;
     const digits = targetCnpj.replace(/\D+/g, '');
-    if (digits.length !== 14) {
-      setReceitaStatusBanner('Digite os 14 números do CNPJ para consultar na Receita Federal.');
+    if (isPf) {
+      setValidationErrorBanner('A consulta automática na Receita Federal aplica-se apenas a Pessoa Jurídica (CNPJ 14 dígitos).');
+      return;
+    }
+    const check = validateCnpj(digits);
+    if (!check.isValid) {
+      setValidationErrorBanner(
+        check.reason === 'INVALID_CHECK_DIGITS' || check.reason === 'REPEATED_DIGITS'
+          ? 'CNPJ inválido (dígitos verificadores incorretos). Corrija o CNPJ antes de consultar na Receita Federal.'
+          : 'Digite os 14 números de um CNPJ matematicamente válido para consultar na Receita Federal.'
+      );
       return;
     }
     setLookingUpCnpj(true);
     setReceitaStatusBanner(null);
+    setValidationErrorBanner(null);
     try {
       const res = await fetch(`/api/cnpj/lookup?cnpj=${encodeURIComponent(digits)}`);
-      if (res.ok) {
-        const json = await res.json();
-        const d = json.data;
-        if (d) {
-          setCnpj(d.cnpj);
-          setLegalName(d.razaoSocial);
-          setTradeName(d.nomeFantasia || d.razaoSocial);
-          setSituation(d.situacaoCadastral === 'ATIVA' ? 'Ativo' : 'Inativo');
-          setOpeningDate(d.dataAbertura || '2015-01-10');
-          setCnaeMain(d.cnaePrincipal || '61.10-8-03');
-          setCnaeDescription(d.cnaeDescricao || 'Serviços de Telecomunicações e TI');
-          setCompanySize(d.porte || 'Médio / Grande Porte');
-          setShareCapital(String(d.capitalSocial || 1000000));
-          setStateRegistration(d.inscricaoEstadual || 'ISENTO');
-          setIeIndicator(d.indicadorIe || 'Contribuinte Isento');
-          setMunicipalRegistration(d.inscricaoMunicipal || '');
-          setTaxRegime(d.regimeTributario || 'Lucro Presumido');
-          setCep(d.cep || cep);
-          setStreet(d.logradouro || street);
-          setNumber(d.numero || number);
-          setComplement(d.complemento || '');
-          setNeighborhood(d.bairro || neighborhood);
-          setCity(d.cidade || city);
-          setUf(d.uf || uf);
-          setIbgeCode(d.codigoIbge || '3550308');
-          if (d.telefone) setCommercialPhone(d.telefone);
-          if (d.celularWhatsapp) setWhatsappPhone(d.celularWhatsapp);
-          if (d.emailComercial) setCommercialEmail(d.emailComercial);
-          if (d.emailFinanceiroNfe) setFinancialNfeEmail(d.emailFinanceiroNfe);
-          if (d.website) setDomain(d.website);
-          setReceitaStatusBanner(
-            `SITUAÇÃO ${d.situacaoCadastral} NA RECEITA FEDERAL — Dados oficiais preenchidos automaticamente (${d.source}).`
-          );
-        }
+      const json = await res.json();
+      if (!res.ok) {
+        setValidationErrorBanner(json?.error || 'Não foi possível consultar o CNPJ informado.');
+        return;
+      }
+      const d = json.data;
+      if (d) {
+        setCnpj(formatDocumentByPersonType(d.cnpj || digits, 'Pessoa Jurídica'));
+        setLegalName(d.razaoSocial || '');
+        setTradeName(d.nomeFantasia || d.razaoSocial || '');
+        setSituation(d.situacaoCadastral === 'ATIVA' ? 'Ativo' : 'Inativo');
+        setOpeningDate(d.dataAbertura || '');
+        setCnaeMain(d.cnaePrincipal || '');
+        setCnaeDescription(d.cnaeDescricao || '');
+        setCompanySize(d.porte || '');
+        setShareCapital(d.capitalSocial ? String(d.capitalSocial) : '');
+        setStateRegistration(d.inscricaoEstadual || 'ISENTO');
+        setIeIndicator(d.indicadorIe || 'Contribuinte Isento');
+        setMunicipalRegistration(d.inscricaoMunicipal || '');
+        setTaxRegime(d.regimeTributario || 'Lucro Presumido');
+        setCep(formatCepMask(d.cep || ''));
+        setStreet(d.logradouro || '');
+        setNumber(d.numero || '');
+        setComplement(d.complemento || '');
+        setNeighborhood(d.bairro || '');
+        setCity(d.cidade || '');
+        setUf(d.uf || '');
+        setIbgeCode(d.codigoIbge || '');
+        if (d.telefone) setCommercialPhone(formatBrPhoneMask(d.telefone));
+        if (d.celularWhatsapp) setWhatsappPhone(formatBrPhoneMask(d.celularWhatsapp));
+        if (d.emailComercial) setCommercialEmail(d.emailComercial);
+        if (d.emailFinanceiroNfe) setFinancialNfeEmail(d.emailFinanceiroNfe);
+        if (d.website) setDomain(d.website);
+        setReceitaStatusBanner(
+          `SITUAÇÃO ${d.situacaoCadastral} NA RECEITA FEDERAL — Dados oficiais preenchidos automaticamente (${d.source}).`
+        );
       }
     } finally {
       setLookingUpCnpj(false);
@@ -258,21 +365,31 @@ export default function GestaoClickCompanyModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!legalName.trim()) return;
+    if (!legalName.trim()) {
+      setValidationErrorBanner('Informe a Razão Social / Nome Completo do cliente.');
+      return;
+    }
+    if (!docFeedback.isValid) {
+      setValidationErrorBanner(
+        `${docFeedback.message}. Corrija o ${docFeedback.docKind} antes de salvar o cadastro.`
+      );
+      return;
+    }
+    setValidationErrorBanner(null);
     setSaving(true);
     try {
       await onSave(
         {
-          ...(company?.id ? { id: company.id } : {}),
+          ...(company?.id && !isNew ? { id: company.id } : {}),
           name: legalName.trim(),
-          cnpj: cnpj.trim() || null,
+          cnpj: docFeedback.formatted || cnpj.trim() || null,
           domain: domain.trim() || null,
           industry: cnaeDescription.trim() || 'Telecomunicações & TI',
-          size: companySize,
-          annualRevenue: Number(shareCapital) || 1500000,
+          size: companySize || 'Médio / Grande Porte',
+          annualRevenue: Number(shareCapital) || 0,
           city: city.trim() || 'São Paulo',
           state: uf.trim() || 'SP',
-          ownerName,
+          ownerName: ownerName.trim() || 'Marcelo Lopes Mira',
           customProperties: {
             ...cp,
             customerType: personType,
@@ -288,7 +405,7 @@ export default function GestaoClickCompanyModal({
             cnaeDescription,
             openingDate,
             shareCapital: Number(shareCapital) || 0,
-            sellerName: ownerName,
+            sellerName: ownerName.trim() || 'Marcelo Lopes Mira',
             cep,
             street,
             number,
@@ -314,7 +431,7 @@ export default function GestaoClickCompanyModal({
                 number,
                 complement,
                 neighborhood,
-                cityState: `${city} (${uf})`,
+                cityState: city ? `${city} (${uf || 'SP'})` : '',
                 ibgeCode,
               },
             ],
@@ -341,7 +458,7 @@ export default function GestaoClickCompanyModal({
               </span>
               <h2 className="text-sm sm:text-base font-extrabold">
                 {isNew
-                  ? 'Adicionar Cliente / Empresa (Cadastro Completo)'
+                  ? 'Novo Cadastro de Cliente / Empresa (Em Branco)'
                   : `Editar Cadastro de Cliente / Empresa — ${legalName}`}
               </h2>
             </div>
@@ -356,6 +473,23 @@ export default function GestaoClickCompanyModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-3 sm:p-5 space-y-4 text-xs max-h-[86vh] overflow-y-auto">
+          {/* VALIDATION ERROR BANNER */}
+          {validationErrorBanner && (
+            <div className="p-3 rounded-md bg-rose-950 text-white border border-rose-500 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-bold text-rose-200">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{validationErrorBanner}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setValidationErrorBanner(null)}
+                className="text-slate-300 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* RECEITA FEDERAL CONFIRMATION BANNER */}
           {receitaStatusBanner && (
             <div className="p-3 rounded-md bg-emerald-950 text-white border border-emerald-500 flex items-center justify-between gap-2">
@@ -373,31 +507,33 @@ export default function GestaoClickCompanyModal({
             </div>
           )}
 
-          {/* BLOCO 1: DADOS GERAIS & FISCAIS (COM BUSCA AUTOMÁTICA POR CNPJ NA RECEITA FEDERAL) */}
+          {/* BLOCO 1: DADOS GERAIS & FISCAIS */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">
-                  1. Dados Gerais, CNPJ (Receita Federal) &amp; Enquadramento Fiscal
+                  1. Dados Gerais, {isPf ? 'CPF (Pessoa Física)' : 'CNPJ (Receita Federal)'} &amp; Enquadramento Fiscal
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Digite os 14 dígitos do CNPJ ou clique em Consultar CNPJ na Receita Federal para preenchimento automático.
+                  {isPf
+                    ? 'Digite os 11 dígitos do CPF com validação matemática oficial (Módulo 11).'
+                    : 'Digite os 14 dígitos do CNPJ (validação Módulo 11) ou clique em Consultar CNPJ na Receita Federal.'}
                 </p>
               </div>
               <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-extrabold">
-                Trava Fiscal de CNPJ Ativa
+                Validação Módulo 11 &amp; Trava Fiscal Ativa
               </span>
             </div>
 
             <div className="p-5 space-y-3.5">
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Tipo de Pessoa *
                   </label>
                   <select
                     value={personType}
-                    onChange={(e) => setPersonType(e.target.value)}
+                    onChange={(e) => handlePersonTypeChange(e.target.value)}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
                     <option value="Pessoa Jurídica">Pessoa Jurídica (PJ)</option>
@@ -428,36 +564,71 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={internalCode}
                     onChange={(e) => setInternalCode(e.target.value)}
+                    placeholder="Automático / Opcional"
                     className="w-full px-2.5 py-2 rounded border border-slate-300 font-mono bg-slate-50"
                   />
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    CNPJ / CPF *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700">
+                      {isPf ? 'CPF *' : 'CNPJ *'}
+                    </label>
+                    {!docFeedback.isEmpty && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                          docFeedback.isValid
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }`}
+                      >
+                        {docFeedback.isValid ? `${docFeedback.docKind} válido` : `${docFeedback.docKind} inválido`}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
+                    maxLength={isPf ? 14 : 18}
                     value={cnpj}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setCnpj(val);
-                      if (val.replace(/\D+/g, '').length === 14) {
-                        handleLookupReceitaFederal(val);
+                      const masked = formatDocumentByPersonType(e.target.value, personType);
+                      setCnpj(masked);
+                      setValidationErrorBanner(null);
+                      const digits = masked.replace(/\D+/g, '');
+                      if (!isPf && digits.length === 14 && validateCnpj(digits).isValid) {
+                        handleLookupReceitaFederal(masked);
                       }
                     }}
-                    placeholder="00.000.000/0001-00"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-900"
+                    placeholder={isPf ? '000.000.000-00' : '00.000.000/0000-00'}
+                    className={`w-full px-3 py-2 rounded border font-mono font-bold transition ${
+                      !docFeedback.isEmpty && !docFeedback.isValid
+                        ? 'border-rose-500 bg-rose-50/40 text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/30'
+                        : !docFeedback.isEmpty && docFeedback.isValid
+                          ? 'border-emerald-500 bg-emerald-50/20 text-slate-900'
+                          : 'border-slate-300 text-slate-900'
+                    }`}
                   />
+                  {!docFeedback.isEmpty && !docFeedback.isValid && (
+                    <p className="text-[10px] font-bold text-rose-600 mt-1">
+                      {docFeedback.message}
+                    </p>
+                  )}
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-3 pt-5">
                   <button
                     type="button"
-                    disabled={lookingUpCnpj}
+                    disabled={lookingUpCnpj || isPf || !docFeedback.isValid}
                     onClick={() => handleLookupReceitaFederal()}
-                    className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                    title={
+                      isPf
+                        ? 'Consulta na Receita Federal disponível apenas para CNPJ (PJ)'
+                        : !docFeedback.isValid
+                          ? 'Informe um CNPJ matematicamente válido (14 dígitos) para consultar'
+                          : 'Consultar CNPJ na Receita Federal'
+                    }
+                    className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Search className="w-3.5 h-3.5 text-emerald-300" />
                     {lookingUpCnpj ? 'Consultando RFB...' : 'Consultar CNPJ na Receita Federal'}
@@ -468,25 +639,27 @@ export default function GestaoClickCompanyModal({
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <div className="sm:col-span-5">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Razão Social / Nome Completo *
+                    {isPf ? 'Nome Completo *' : 'Razão Social / Nome Empresarial *'}
                   </label>
                   <input
                     type="text"
                     required
                     value={legalName}
                     onChange={(e) => setLegalName(e.target.value)}
+                    placeholder={isPf ? 'Digite o nome completo' : 'Digite a razão social da empresa'}
                     className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
                   />
                 </div>
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Nome Fantasia
+                    {isPf ? 'Apelido / Nome Comercial' : 'Nome Fantasia'}
                   </label>
                   <input
                     type="text"
                     value={tradeName}
                     onChange={(e) => setTradeName(e.target.value)}
+                    placeholder="Opcional"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -500,6 +673,7 @@ export default function GestaoClickCompanyModal({
                     onChange={(e) => setOwnerName(e.target.value)}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
+                    <option value="">Selecione o responsável</option>
                     <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
                     <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
                     <option value="Michelle da Rocha">Michelle da Rocha</option>
@@ -535,6 +709,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={stateRegistration}
                     onChange={(e) => setStateRegistration(e.target.value)}
+                    placeholder="ISENTO ou nº da IE"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
@@ -547,6 +722,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={municipalRegistration}
                     onChange={(e) => setMunicipalRegistration(e.target.value)}
+                    placeholder="Opcional"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
@@ -590,6 +766,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={cnaeMain}
                     onChange={(e) => setCnaeMain(e.target.value)}
+                    placeholder="00.00-0-00"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
@@ -602,6 +779,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={cnaeDescription}
                     onChange={(e) => setCnaeDescription(e.target.value)}
+                    placeholder="Atividade principal da empresa"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -614,6 +792,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={openingDate}
                     onChange={(e) => setOpeningDate(e.target.value)}
+                    placeholder="AAAA-MM-DD"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -626,6 +805,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={companySize}
                     onChange={(e) => setCompanySize(e.target.value)}
+                    placeholder="Ex.: Médio / Grande"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -638,6 +818,7 @@ export default function GestaoClickCompanyModal({
                     type="number"
                     value={shareCapital}
                     onChange={(e) => setShareCapital(e.target.value)}
+                    placeholder="0,00"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                   />
                 </div>
@@ -658,11 +839,13 @@ export default function GestaoClickCompanyModal({
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">CEP *</label>
                 <input
                   type="text"
+                  maxLength={9}
                   value={cep}
                   onChange={(e) => {
-                    setCep(e.target.value);
-                    if (e.target.value.replace(/\D+/g, '').length === 8) {
-                      handleLookupCep(e.target.value);
+                    const maskedCep = formatCepMask(e.target.value);
+                    setCep(maskedCep);
+                    if (maskedCep.replace(/\D+/g, '').length === 8) {
+                      handleLookupCep(maskedCep);
                     }
                   }}
                   placeholder="00000-000"
@@ -675,6 +858,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={street}
                   onChange={(e) => setStreet(e.target.value)}
+                  placeholder="Rua, Avenida, Alameda..."
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
@@ -684,6 +868,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={number}
                   onChange={(e) => setNumber(e.target.value)}
+                  placeholder="Nº"
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
@@ -693,6 +878,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={complement}
                   onChange={(e) => setComplement(e.target.value)}
+                  placeholder="Andar, Sala, Bloco..."
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
@@ -703,6 +889,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={neighborhood}
                   onChange={(e) => setNeighborhood(e.target.value)}
+                  placeholder="Bairro"
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
@@ -712,6 +899,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
+                  placeholder="Município"
                   className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                 />
               </div>
@@ -722,6 +910,7 @@ export default function GestaoClickCompanyModal({
                   maxLength={2}
                   value={uf}
                   onChange={(e) => setUf(e.target.value.toUpperCase())}
+                  placeholder="UF"
                   className="w-full px-2.5 py-2 rounded border border-slate-300 font-bold text-center"
                 />
               </div>
@@ -733,6 +922,7 @@ export default function GestaoClickCompanyModal({
                   type="text"
                   value={ibgeCode}
                   onChange={(e) => setIbgeCode(e.target.value)}
+                  placeholder="7 dígitos IBGE"
                   className="w-full px-3 py-2 rounded border border-slate-300 font-mono bg-slate-50"
                 />
               </div>
@@ -753,7 +943,7 @@ export default function GestaoClickCompanyModal({
                 onClick={() =>
                   setAdditionalContacts((prev) => [
                     ...prev,
-                    { id: `ac-${Date.now()}`, name: '', role: 'TI / Compras', email: '', phone: '' },
+                    { id: `ac-${Date.now()}`, name: '', role: '', email: '', phone: '' },
                   ])
                 }
                 className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white text-[11px] font-bold cursor-pointer"
@@ -770,7 +960,8 @@ export default function GestaoClickCompanyModal({
                   <input
                     type="text"
                     value={commercialPhone}
-                    onChange={(e) => setCommercialPhone(e.target.value)}
+                    onChange={(e) => setCommercialPhone(formatBrPhoneMask(e.target.value))}
+                    placeholder="(00) 0000-0000"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -781,7 +972,8 @@ export default function GestaoClickCompanyModal({
                   <input
                     type="text"
                     value={whatsappPhone}
-                    onChange={(e) => setWhatsappPhone(e.target.value)}
+                    onChange={(e) => setWhatsappPhone(formatBrPhoneMask(e.target.value))}
+                    placeholder="(00) 90000-0000"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -793,6 +985,7 @@ export default function GestaoClickCompanyModal({
                     type="email"
                     value={commercialEmail}
                     onChange={(e) => setCommercialEmail(e.target.value)}
+                    placeholder="contato@empresa.com.br"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -804,6 +997,7 @@ export default function GestaoClickCompanyModal({
                     type="email"
                     value={financialNfeEmail}
                     onChange={(e) => setFinancialNfeEmail(e.target.value)}
+                    placeholder="nfe@empresa.com.br"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -815,6 +1009,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={domain}
                     onChange={(e) => setDomain(e.target.value)}
+                    placeholder="empresa.com.br"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
@@ -866,7 +1061,7 @@ export default function GestaoClickCompanyModal({
                         value={ac.phone}
                         onChange={(e) => {
                           const copy = [...additionalContacts];
-                          copy[idx].phone = e.target.value;
+                          copy[idx].phone = formatBrPhoneMask(e.target.value);
                           setAdditionalContacts(copy);
                         }}
                         className="col-span-2 px-2.5 py-1.5 rounded border border-slate-300"
@@ -905,6 +1100,7 @@ export default function GestaoClickCompanyModal({
                     type="number"
                     value={creditLimitBrl}
                     onChange={(e) => setCreditLimitBrl(e.target.value)}
+                    placeholder="0,00"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-emerald-700"
                   />
                 </div>
@@ -947,6 +1143,7 @@ export default function GestaoClickCompanyModal({
                     max={31}
                     value={billingDueDay}
                     onChange={(e) => setBillingDueDay(e.target.value)}
+                    placeholder="Ex.: 10"
                     className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
                   />
                 </div>
@@ -958,6 +1155,7 @@ export default function GestaoClickCompanyModal({
                     type="text"
                     value={taxWithholdingConfig}
                     onChange={(e) => setTaxWithholdingConfig(e.target.value)}
+                    placeholder="Opcional"
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
@@ -971,13 +1169,14 @@ export default function GestaoClickCompanyModal({
                   rows={2}
                   value={fiscalNotes}
                   onChange={(e) => setFiscalNotes(e.target.value)}
+                  placeholder="Observações cadastrais, fiscais ou comerciais..."
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
             </div>
           </div>
 
-          {/* RODAPÉ COM ZONA DE SEGURANÇA (EXCLUSÃO SOMENTE DENTRO DO CADASTRO COM CONFIRMAÇÃO EM 2 ETAPAS) */}
+          {/* RODAPÉ COM ZONA DE SEGURANÇA */}
           <div className="sticky bottom-0 z-20 bg-white rounded-md border border-slate-200 p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
             <div>
               {!isNew && company?.id && onDelete && canDelete && (
@@ -1035,10 +1234,21 @@ export default function GestaoClickCompanyModal({
               </button>
               <button
                 type="submit"
-                disabled={saving}
-                className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-50"
+                disabled={saving || !docFeedback.isValid || !legalName.trim()}
+                title={
+                  !docFeedback.isValid
+                    ? docFeedback.message
+                    : !legalName.trim()
+                      ? 'Preencha a Razão Social / Nome Completo'
+                      : 'Salvar Cadastro'
+                }
+                className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {saving ? 'Salvando Cadastro...' : isNew ? 'Cadastrar Cliente / Empresa' : 'Salvar Alterações do Cadastro'}
+                {saving
+                  ? 'Salvando Cadastro...'
+                  : isNew
+                    ? 'Cadastrar Cliente / Empresa'
+                    : 'Salvar Alterações do Cadastro'}
               </button>
             </div>
           </div>

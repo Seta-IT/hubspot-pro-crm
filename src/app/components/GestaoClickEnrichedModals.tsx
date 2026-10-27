@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Edit3,
@@ -38,6 +38,13 @@ import {
   ErpSupplierRecord,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import {
+  formatBrPhoneMask,
+  formatCepMask,
+  formatDocumentByPersonType,
+  validateCnpj,
+  validateDocumentByPersonType,
+} from '../../modules/data-health/validators';
 
 export interface CustomerAddressItem {
   id: string;
@@ -99,21 +106,25 @@ export function GestaoClickCustomerEditModal({
   const customProps = (company.customProperties || {}) as Record<string, unknown>;
 
   const [customerType, setCustomerType] = useState<string>(
-    String(customProps.customerType || 'Pessoa jurídica')
+    isNew ? 'Pessoa jurídica' : String(customProps.customerType || 'Pessoa jurídica')
   );
   const [situation, setSituation] = useState<string>(
-    String(customProps.situation || 'Ativo')
+    isNew ? 'Ativo' : String(customProps.situation || 'Ativo')
   );
   const [tradeName, setTradeName] = useState<string>(
-    String(customProps.tradeName || company.cnpj || company.name || '')
+    isNew ? '' : String(customProps.tradeName || company?.name || '')
   );
-  const [email, setEmail] = useState<string>(String(customProps.email || ''));
-  const [cnpj, setCnpj] = useState<string>(String(company.cnpj || '01.936.069/0001-94'));
+  const [email, setEmail] = useState<string>(isNew ? '' : String(customProps.email || ''));
+  const [cnpj, setCnpj] = useState<string>(
+    isNew
+      ? ''
+      : formatDocumentByPersonType(String(company?.cnpj || ''), String(customProps.customerType || 'Pessoa jurídica'))
+  );
   const [legalName, setLegalName] = useState<string>(
-    String(company.name || 'Digisystem Servicos Especializados LTDA')
+    isNew ? '' : String(company?.name || '')
   );
   const [stateRegistration, setStateRegistration] = useState<string>(
-    String(customProps.stateRegistration || '')
+    isNew ? '' : String(customProps.stateRegistration || '')
   );
   const [stateRegistrationExempt, setStateRegistrationExempt] = useState<boolean>(
     customProps.stateRegistrationExempt !== undefined
@@ -121,43 +132,43 @@ export function GestaoClickCustomerEditModal({
       : true
   );
   const [taxpayerType, setTaxpayerType] = useState<string>(
-    String(customProps.taxpayerType || 'Selecione')
+    isNew ? 'Selecione' : String(customProps.taxpayerType || 'Selecione')
   );
   const [municipalRegistration, setMunicipalRegistration] = useState<string>(
-    String(customProps.municipalRegistration || '')
+    isNew ? '' : String(customProps.municipalRegistration || '')
   );
-  const [suframa, setSuframa] = useState<string>(String(customProps.suframa || ''));
+  const [suframa, setSuframa] = useState<string>(isNew ? '' : String(customProps.suframa || ''));
   const [responsiblePerson, setResponsiblePerson] = useState<string>(
-    String(customProps.responsiblePerson || '')
+    isNew ? '' : String(customProps.responsiblePerson || '')
   );
   const [commercialPhone, setCommercialPhone] = useState<string>(
-    String(customProps.phone || customProps.commercialPhone || '')
+    isNew ? '' : formatBrPhoneMask(String(customProps.phone || customProps.commercialPhone || ''))
   );
   const [mobilePhone, setMobilePhone] = useState<string>(
-    String(customProps.mobilePhone || '')
+    isNew ? '' : formatBrPhoneMask(String(customProps.mobilePhone || ''))
   );
-  const [fax, setFax] = useState<string>(String(customProps.fax || ''));
+  const [fax, setFax] = useState<string>(isNew ? '' : String(customProps.fax || ''));
   const [website, setWebsite] = useState<string>(
-    String(company.domain || customProps.website || '')
+    isNew ? '' : String(company?.domain || customProps.website || '')
   );
   const [sellerName, setSellerName] = useState<string>(
-    String(company.ownerName || customProps.sellerName || 'Marcelo Mira')
+    isNew ? '' : String(company?.ownerName || customProps.sellerName || '')
   );
 
   const [addresses, setAddresses] = useState<CustomerAddressItem[]>(() => {
-    if (Array.isArray(customProps.addresses) && customProps.addresses.length > 0) {
+    if (!isNew && Array.isArray(customProps.addresses) && customProps.addresses.length > 0) {
       return customProps.addresses as CustomerAddressItem[];
     }
     return [
       {
         id: 'addr-1',
         type: 'Comercial / Matriz',
-        cep: '01311-926',
-        street: 'Avenida Paulista 1439',
-        number: '1439',
-        complement: 'Andar 4 Conj 43 A 44',
-        neighborhood: 'Bela Vista',
-        cityState: `${company.city || 'São Paulo'} (${company.state || 'SP'})`,
+        cep: '',
+        street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        cityState: isNew ? '' : `${company?.city || ''} (${company?.state || ''})`,
       },
     ];
   });
@@ -189,12 +200,58 @@ export function GestaoClickCustomerEditModal({
   const [showSerasaPanel, setShowSerasaPanel] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const isPf = customerType.toLowerCase().includes('física') || customerType.toLowerCase().includes('fisica');
+  const docFeedback = validateDocumentByPersonType(cnpj, customerType);
+
+  useEffect(() => {
+    const nextCp = (company?.customProperties || {}) as Record<string, unknown>;
+    const nextType = isNew ? 'Pessoa jurídica' : String(nextCp.customerType || 'Pessoa jurídica');
+    setCustomerType(nextType);
+    setSituation(isNew ? 'Ativo' : String(nextCp.situation || 'Ativo'));
+    setTradeName(isNew ? '' : String(nextCp.tradeName || company?.name || ''));
+    setEmail(isNew ? '' : String(nextCp.email || ''));
+    setCnpj(isNew ? '' : formatDocumentByPersonType(String(company?.cnpj || ''), nextType));
+    setLegalName(isNew ? '' : String(company?.name || ''));
+    setStateRegistration(isNew ? '' : String(nextCp.stateRegistration || ''));
+    setMunicipalRegistration(isNew ? '' : String(nextCp.municipalRegistration || ''));
+    setSuframa(isNew ? '' : String(nextCp.suframa || ''));
+    setResponsiblePerson(isNew ? '' : String(nextCp.responsiblePerson || ''));
+    setCommercialPhone(isNew ? '' : formatBrPhoneMask(String(nextCp.phone || nextCp.commercialPhone || '')));
+    setMobilePhone(isNew ? '' : formatBrPhoneMask(String(nextCp.mobilePhone || '')));
+    setFax(isNew ? '' : String(nextCp.fax || ''));
+    setWebsite(isNew ? '' : String(company?.domain || nextCp.website || ''));
+    setSellerName(isNew ? '' : String(company?.ownerName || nextCp.sellerName || ''));
+    setAddresses(
+      !isNew && Array.isArray(nextCp.addresses) && nextCp.addresses.length > 0
+        ? (nextCp.addresses as CustomerAddressItem[])
+        : [
+            {
+              id: 'addr-1',
+              type: 'Comercial / Matriz',
+              cep: '',
+              street: '',
+              number: '',
+              complement: '',
+              neighborhood: '',
+              cityState: isNew ? '' : `${company?.city || ''} (${company?.state || ''})`,
+            },
+          ]
+    );
+    setExtraContacts(!isNew && Array.isArray(nextCp.additionalContacts) ? (nextCp.additionalContacts as CustomerExtraContactItem[]) : []);
+    setCreditLimitBrl(isNew ? '' : nextCp.creditLimitBrl !== undefined ? String(nextCp.creditLimitBrl) : '');
+    setAttachments(!isNew && Array.isArray(nextCp.attachments) ? (nextCp.attachments as CustomerAttachmentItem[]) : []);
+    setNotes(isNew ? '' : String(nextCp.notes || ''));
+    setSerasaReport(null);
+    setShowSerasaPanel(false);
+  }, [isNew, company?.id]);
+
   const handleLookupCnpjRfbAndSerasa = async (openSerasaCard = false) => {
     const clean = cnpj.replace(/\D/g, '');
-    if (clean.length < 11) {
-      onShowToast?.('Digite um CNPJ válido para consultar na Receita Federal / Serasa.');
+    if (isPf || !validateCnpj(clean).isValid) {
+      onShowToast?.('CNPJ inválido (dígitos verificadores incorretos). Corrija o CNPJ antes de consultar na Receita Federal.');
       return;
     }
+
     setLoadingRfb(true);
     try {
       const res = await fetch(`/api/erp/cnpj/${encodeURIComponent(clean)}`);
@@ -277,6 +334,10 @@ export function GestaoClickCustomerEditModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!docFeedback.isValid) {
+      onShowToast?.(`${docFeedback.message}. Corrija antes de salvar.`);
+      return;
+    }
     setSaving(true);
     try {
       const firstAddr = addresses[0];
@@ -465,7 +526,11 @@ export function GestaoClickCustomerEditModal({
                 </label>
                 <select
                   value={customerType}
-                  onChange={(e) => setCustomerType(e.target.value)}
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    setCustomerType(nextType);
+                    setCnpj((prev) => formatDocumentByPersonType(prev, nextType));
+                  }}
                   className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                 >
                   <option value="Pessoa jurídica">Pessoa jurídica</option>
@@ -521,33 +586,62 @@ export function GestaoClickCustomerEditModal({
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-end">
               <div className="sm:col-span-3">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">CNPJ</label>
-                  <button
-                    type="button"
-                    onClick={() => handleLookupCnpjRfbAndSerasa(true)}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer shadow-2xs"
-                  >
-                    <Sparkles className="w-2.5 h-2.5 text-amber-300" />
-                    Consulta SERASA
-                  </button>
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    {isPf ? 'CPF *' : 'CNPJ *'}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {!docFeedback.isEmpty && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                          docFeedback.isValid
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }`}
+                      >
+                        {docFeedback.isValid ? `${docFeedback.docKind} válido` : `${docFeedback.docKind} inválido`}
+                      </span>
+                    )}
+                    {!isPf && (
+                      <button
+                        type="button"
+                        disabled={!docFeedback.isValid}
+                        onClick={() => handleLookupCnpjRfbAndSerasa(true)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer shadow-2xs disabled:opacity-40"
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-amber-300" />
+                        SERASA
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex">
                   <input
                     type="text"
+                    maxLength={isPf ? 14 : 18}
                     value={cnpj}
-                    onChange={(e) => setCnpj(e.target.value)}
-                    placeholder="00.000.000/0001-00"
-                    className="w-full px-3 py-2 rounded-l border border-slate-300 font-mono"
+                    onChange={(e) => setCnpj(formatDocumentByPersonType(e.target.value, customerType))}
+                    placeholder={isPf ? '000.000.000-00' : '00.000.000/0000-00'}
+                    className={`w-full px-3 py-2 rounded-l border font-mono ${
+                      !docFeedback.isEmpty && !docFeedback.isValid
+                        ? 'border-rose-500 bg-rose-50/40 text-rose-900'
+                        : !docFeedback.isEmpty && docFeedback.isValid
+                          ? 'border-emerald-500 bg-emerald-50/20 text-slate-900'
+                          : 'border-slate-300'
+                    }`}
                   />
                   <button
                     type="button"
+                    disabled={isPf || !docFeedback.isValid}
                     title="Consultar CNPJ na Receita Federal (RFB)"
                     onClick={() => handleLookupCnpjRfbAndSerasa(false)}
-                    className="px-3 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
+                    className="px-3 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer disabled:opacity-40"
                   >
                     <Search className="w-4 h-4" />
                   </button>
                 </div>
+                {!docFeedback.isEmpty && !docFeedback.isValid && (
+                  <p className="text-[10px] font-bold text-rose-600 mt-1">{docFeedback.message}</p>
+                )}
               </div>
 
               <div className="sm:col-span-3">
@@ -1148,8 +1242,8 @@ export function GestaoClickCustomerEditModal({
             </button>
             <button
               type="submit"
-              disabled={saving}
-              className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer shadow-sm"
+              disabled={saving || !docFeedback.isValid}
+              className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? 'Salvando...' : isNew ? 'Cadastrar Cliente' : 'Atualizar'}
             </button>
@@ -1191,12 +1285,14 @@ export function GestaoClickProductEditModal({
   const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState<string>(
-    item.name || '1000 Etiquetas Termicas 10x15 / 100x150 Em Resma Serrilhada'
+    isNew ? (item.name || '') : (item.name || '1000 Etiquetas Termicas 10x15 / 100x150 Em Resma Serrilhada')
   );
   const [gestaoClickCode, setGestaoClickCode] = useState<string>(
-    item.gestaoClickCode || 'KIT1000-ETQTERM-TMT'
+    isNew ? (item.gestaoClickCode || '') : (item.gestaoClickCode || 'KIT1000-ETQTERM-TMT')
   );
-  const [barcodeEan, setBarcodeEan] = useState<string>(item.barcodeEan || '7905987537095');
+  const [barcodeEan, setBarcodeEan] = useState<string>(
+    isNew ? (item.barcodeEan || '') : (item.barcodeEan || '7905987537095')
+  );
   const [productGroup, setProductGroup] = useState<string>(
     item.productGroup ||
       (item.category === 'EQUIPAMENTO_LOCACAO'

@@ -362,7 +362,7 @@ export default function ErpGestaoClickTab({
   const [showBatchBillingModal, setShowBatchBillingModal] = useState<boolean>(false);
   const [selectedContractIdsForBatch, setSelectedContractIdsForBatch] = useState<string[]>([]);
   const [editingCustomerModal, setEditingCustomerModal] = useState<{
-    company: Partial<Company>;
+    company: Partial<Company> | null;
     isNew: boolean;
   } | null>(null);
   const [editingProductModal, setEditingProductModal] = useState<{
@@ -3883,25 +3883,13 @@ export default function ErpGestaoClickTab({
                       type="button"
                       onClick={() =>
                         setEditingCustomerModal({
-                          company: {
-                            name: '',
-                            cnpj: '',
-                            city: 'São Paulo',
-                            state: 'SP',
-                            ownerName: 'Marcelo Mira',
-                            customProperties: {
-                              customerType: 'Pessoa jurídica',
-                              situation: 'Novo',
-                              stateRegistrationExempt: true,
-                              sellerName: 'Marcelo Mira',
-                            },
-                          },
+                          company: null,
                           isNew: true,
                         })
                       }
                       className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
                     >
-                      + Adicionar
+                      + Novo Cadastro
                     </button>
                   )}
                   {cadastrosSubTab === 'FORNECEDORES' && (
@@ -3932,7 +3920,7 @@ export default function ErpGestaoClickTab({
                         openCollectionEditor(
                           'employees',
                           'Novo Funcionário / Colaborador',
-                          { id: `emp-${Date.now()}`, name: '', role: 'Engenharia Telecom', email: '', phone: '', active: true },
+                          { id: `emp-${Date.now()}`, name: '', role: '', email: '', phone: '', active: true },
                           [
                             { key: 'name', label: 'Nome Completo *' },
                             { key: 'role', label: 'Cargo / Função' },
@@ -3957,26 +3945,13 @@ export default function ErpGestaoClickTab({
                         type="button"
                         onClick={() =>
                           setEditingCustomerModal({
-                            company: {
-                              name: 'Digisystem Servicos Especializados LTDA',
-                              cnpj: '01.936.069/0001-94',
-                              city: 'São Paulo',
-                              state: 'SP',
-                              ownerName: 'Marcelo Mira',
-                              customProperties: {
-                                tradeName: '01.936.069/0001-94',
-                                customerType: 'Pessoa jurídica',
-                                situation: 'Ativo',
-                                stateRegistrationExempt: true,
-                                sellerName: 'Marcelo Mira',
-                              },
-                            },
+                            company: null,
                             isNew: true,
                           })
                         }
                         className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
                       >
-                        + Adicionar
+                        + Adicionar Cliente (Novo Cadastro)
                       </button>
                       <span className="text-[11px] text-slate-500">
                         Consulta integrada: <strong>Receita Federal (RFB)</strong> &amp; <strong>Serasa Experian Score</strong>
@@ -4192,7 +4167,7 @@ export default function ErpGestaoClickTab({
                         openCollectionEditor(
                           'suppliers',
                           'Nova Transportadora Homologada',
-                          { id: `trp-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', supplierType: 'TRANSPORTADORA', modalFrete: 'Rodoviário / Aéreo (CIF/FOB)', cityState: 'São Paulo/SP', active: true },
+                          { id: `trp-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', supplierType: 'TRANSPORTADORA', modalFrete: '', cityState: '', active: true },
                           [
                             { key: 'name', label: 'Razão Social / Transportadora *' },
                             { key: 'cnpj', label: 'CNPJ' },
@@ -4447,21 +4422,7 @@ export default function ErpGestaoClickTab({
                         type="button"
                         onClick={() =>
                           setEditingProductModal({
-                            item: {
-                              gestaoClickCode: `GC-EQ-00${catalog.length + 105}`,
-                              name: '',
-                              barcodeEan: '7905987537095',
-                              category: 'EQUIPAMENTO_LOCACAO',
-                              fiscalNature: 'LOCACAO_BENS_MOVEIS',
-                              ncmOrLc116: 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
-                              cfopDefault: '5.102',
-                              cfopRemessaLocacao: '5.908',
-                              cfopRetornoLocacao: '5.909',
-                              stockAvailable: 10,
-                              stockRentedInClients: 0,
-                              monthlyRentalPrice: 1500,
-                              saleOrSetupPrice: 8500,
-                            },
+                            item: {},
                             isNew: true,
                           })
                         }
@@ -5265,7 +5226,7 @@ export default function ErpGestaoClickTab({
           isNew={editingCustomerModal.isNew}
           onClose={() => setEditingCustomerModal(null)}
           onSave={async (payload) => {
-            const compId = editingCustomerModal.company.id;
+            const compId = editingCustomerModal.company?.id;
             const res = await fetch(
               compId && !editingCustomerModal.isNew
                 ? `/api/companies/${encodeURIComponent(compId)}`
@@ -5289,14 +5250,14 @@ export default function ErpGestaoClickTab({
             await onRefresh();
           }}
           onDelete={
-            editingCustomerModal.company.id && !editingCustomerModal.isNew
+            editingCustomerModal.company?.id && !editingCustomerModal.isNew
               ? async (companyId: string) => {
                   await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
                     method: 'DELETE',
                   });
                   recordDeletedCompany(companyId);
                   setEditingCustomerModal(null);
-                  onShowToast(`Cliente ${editingCustomerModal.company.name} excluído após confirmação.`);
+                  onShowToast(`Cliente ${editingCustomerModal.company?.name || ''} excluído após confirmação.`);
                   await onRefresh();
                 }
               : undefined

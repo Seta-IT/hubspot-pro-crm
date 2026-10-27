@@ -36,12 +36,20 @@
   12. **Relatórios** (`REL_CADASTROS`, `REL_VENDAS`, `REL_OS`, `REL_ESTOQUE`, `REL_FINANCEIRO`, `REL_CONTRATOS`, `REL_FISCAL`, `REL_PERSONALIZADOS`, `REL_LOGS`)
   13. **Configurações** (`CFG_GERAIS`, `CFG_PLANO`, `CFG_USUARIOS`, `CFG_EMPRESA`, `CFG_MARCA`, `CFG_LOJAS`, `CFG_CERTIFICADO`, `CFG_EMAILS`, `CFG_AVISOS`)
 
-### 1.3. Ficha Completa de Cadastro de Clientes GestãoClick, Consulta Pública de CNPJ e Exclusão Segura
+### 1.3. Ficha Completa de Cadastro de Clientes GestãoClick, Validação Matemática Módulo 11 de CNPJ/CPF, Autoformatação PJ/PF, Novo Cadastro 100% em Branco e Exclusão Segura
 - **Status:** 100% Concluído (`src/app/components/GestaoClickEnrichedModals.tsx` + `src/modules/erp/cnpj-lookup-service.ts`)
 - **Ficha Expandida de Cadastro de Clientes (`1. Cadastros` — `GestaoClickCustomerEditModal`):**
   - Contempla todos os campos oficiais do GestãoClick: **CNPJ/CPF**, **Razão Social**, **Nome Fantasia**, **Inscrição Estadual (IE)**, **Indicador de IE** (Contribuinte ICMS, Contribuinte Isento, Não Contribuinte), **Inscrição Municipal (IM)**, **Regime Tributário**, **CNAE Principal**, **Endereço Completo com CEP e Código IBGE do Município**, **Contatos Adicionais** e **Limite de Crédito / Condição de Pagamento**.
 - **Consulta Pública Automática de CNPJ nos Órgãos Oficiais (`/api/erp/cnpj/:cnpj`):**
   - Integração direta com bases públicas oficiais (**Receita Federal / BrasilAPI / CNPJ.ws**) preenchendo automaticamente Razão Social, Nome Fantasia, CNAE, Situação Cadastral, Endereço completo, CEP, Código IBGE, Município/UF e indicadores de crédito.
+- **Validação Matemática Módulo 11 de CNPJ (14 dígitos) e CPF (11 dígitos) em Tempo Real e na API (`src/modules/data-health/validators.ts` + `src/api/router.ts`):**
+  - Rejeita CNPJs/CPFs com todos os dígitos repetidos (ex.: `00.000.000/0000-00`, `111.111.111-11`) e valida matematicamente os 2 dígitos verificadores oficiais (Módulo 11).
+  - Feedback visual imediato (borda vermelha + mensagem `"CNPJ inválido (dígitos verificadores incorretos)"` ou `"CPF inválido (dígitos verificadores incorretos)"`; e selo verde `"CNPJ válido"` / `"CPF válido"`), bloqueando o botão de Salvar e de Consultar Receita Federal enquanto inválido, além de retornar `400 Bad Request` no backend.
+- **Autoformatação Dinâmica (Máscara em Tempo Real) conforme Pessoa Jurídica (`PJ`) ou Pessoa Física (`PF`):**
+  - Quando selecionado **Pessoa Jurídica (`PJ`)**: aplica máscara automática `00.000.000/0000-00` (14 dígitos).
+  - Quando selecionado **Pessoa Física (`PF`)**: aplica máscara automática `000.000.000-00` (11 dígitos), reformatando imediatamente ao alternar entre PJ e PF, além de máscaras para CEP (`00000-000`) e Telefone/Celular.
+- **Abertura 100% em Branco ao Clicar em "Novo Cadastro" (`+ Novo Cadastro` / `+ Adicionar Cliente`):**
+  - Ao abrir o modal em modo de criação (`isNew: true` / `company: null`), um `useEffect` reseta todos os estados para strings vazias (`""`), sem preencher dados de demonstração.
 - **Proteção contra Exclusão Acidental na Listagem de Clientes:**
   - Na tabela de listagem de Clientes do ERP, foi removido o botão de deletar direto da linha e padronizado o botão harmonioso **`Editar / Abrir Cadastro`**. A exclusão exige abrir o cadastro do cliente e confirmar dentro da ficha.
 
@@ -238,7 +246,7 @@
 
 ---
 
-## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
+## 4. Próxima Etapa Planejada (Backlog de Integração ERP -> CRM — `[AGUARDANDO REGRAS DO USUÁRIO ANTES DE IMPLEMENTAR]`)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
   - **Diretriz do Marcéllo (`[t58u]`):** *"Ao criar uma proposta no ERP, ter a opção de criar no CRM, deixe isso no roadmap e me pergunte antes de criar para mais regras."*

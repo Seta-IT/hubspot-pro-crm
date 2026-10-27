@@ -33,6 +33,12 @@ import {
   ErpRentalEquipmentItem,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import {
+  formatBrPhoneMask,
+  formatCnpjMask,
+  formatCpfMask,
+  validateDocumentByPersonType,
+} from '../../modules/data-health/validators';
 import { computeProposalTotals, inferProposalItemType } from '../lib/proposal-share';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
@@ -2360,9 +2366,24 @@ export function GenericRecordEditModal({
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initialValues }));
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const cnpjFieldSpec = fields.find((f) => /cnpj|cpf/i.test(f.key));
+  const rawDocVal = cnpjFieldSpec ? String(values[cnpjFieldSpec.key] ?? '') : '';
+  const docDigits = rawDocVal.replace(/\D/g, '');
+  const docFeedback =
+    cnpjFieldSpec && docDigits.length > 0
+      ? validateDocumentByPersonType(rawDocVal, docDigits.length <= 11 ? 'PF' : 'PJ')
+      : null;
+  const hasInvalidDoc = Boolean(docFeedback && !docFeedback.isValid);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (hasInvalidDoc && docFeedback) {
+      setErrorMsg(`${docFeedback.message}. Corrija o documento antes de salvar.`);
+      return;
+    }
+    setErrorMsg(null);
     setSaving(true);
     try {
       await onSave(values);
@@ -2424,30 +2445,70 @@ export function GenericRecordEditModal({
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   ) : (
-                    <input
-                      type={f.type === 'number' ? 'number' : 'text'}
-                      step={f.type === 'number' ? '0.01' : undefined}
-                      placeholder={f.placeholder}
-                      value={String(values[f.key] ?? '')}
-                      onChange={(e) =>
-                        setValues({
-                          ...values,
-                          [f.key]: f.type === 'number' ? Number(e.target.value) : e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
+                    <div>
+                      <input
+                        type={f.type === 'number' ? 'number' : 'text'}
+                        step={f.type === 'number' ? '0.01' : undefined}
+                        placeholder={
+                          f.placeholder ||
+                          (/cnpj/i.test(f.key)
+                            ? '00.000.000/0000-00'
+                            : /phone|telefone/i.test(f.key)
+                              ? '(00) 00000-0000'
+                              : undefined)
+                        }
+                        value={String(values[f.key] ?? '')}
+                        onChange={(e) => {
+                          let nextVal: unknown =
+                            f.type === 'number' ? Number(e.target.value) : e.target.value;
+                          if (typeof nextVal === 'string') {
+                            if (/cnpj|cpf/i.test(f.key)) {
+                              const d = nextVal.replace(/\D/g, '');
+                              nextVal = d.length <= 11 && /cpf/i.test(f.label) ? formatCpfMask(d) : formatCnpjMask(d);
+                            } else if (/phone|telefone/i.test(f.key)) {
+                              nextVal = formatBrPhoneMask(nextVal);
+                            }
+                          }
+                          setErrorMsg(null);
+                          setValues({
+                            ...values,
+                            [f.key]: nextVal,
+                          });
+                        }}
+                        className={`w-full px-3 py-2 rounded border ${
+                          /cnpj|cpf/i.test(f.key) && docFeedback
+                            ? docFeedback.isValid
+                              ? 'border-emerald-500 bg-emerald-50/20 font-mono'
+                              : 'border-rose-500 bg-rose-50/40 text-rose-900 font-mono'
+                            : 'border-slate-300'
+                        }`}
+                      />
+                      {/cnpj|cpf/i.test(f.key) && docFeedback && (
+                        <span
+                          className={`block text-[10px] font-bold mt-1 ${
+                            docFeedback.isValid ? 'text-emerald-700' : 'text-rose-600'
+                          }`}
+                        >
+                          {docFeedback.message}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
 
+          {errorMsg && (
+            <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs">
+              {errorMsg}
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-3 border-t">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
               Cancelar
             </button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer">
+            <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
               {saving ? 'Salvando...' : 'Salvar Registro'}
             </button>
           </div>
