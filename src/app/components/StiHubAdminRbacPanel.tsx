@@ -2063,10 +2063,7 @@ export default function StiHubAdminRbacPanel({
                         <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
                           {modalTotpPreview.totpSecret}
                         </code>
-                        {' '}• Código Atual (30s):{' '}
-                        <strong className="font-mono text-emerald-700">
-                          {modalTotpPreview.currentTotpCode}
-                        </strong>
+
                       </div>
                       <div className="text-[10px] font-mono text-slate-600 truncate max-w-xl">
                         {modalTotpPreview.otpauthUri}
@@ -2420,9 +2417,7 @@ export default function StiHubAdminRbacPanel({
                             <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
                               {formatBase32SecretBlocks(userSecret)}
                             </code>
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
-                              Código 6 dígitos agora: {userTotpNow}
-                            </span>
+
                             <button
                               type="button"
                               onClick={() => setEditingUser({ ...editingUser, totpSecret: generateTotpSecretBase32(editingUser.email + ":" + Date.now()) })}
@@ -2793,9 +2788,7 @@ export default function StiHubAdminRbacPanel({
                       <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
                         {formatBase32SecretBlocks(newUserTotpSecret)}
                       </code>
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
-                        Código 6 dígitos: {generateTotpCodeSync(newUserTotpSecret)}
-                      </span>
+
                       <button
                         type="button"
                         onClick={() =>

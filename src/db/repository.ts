@@ -91,8 +91,10 @@ import {
   hashCorporatePassword,
   isValidPureBase32Secret,
   sha256Hex,
+  signMfaChallengeToken,
   signStiHubSessionToken,
   verifyCorporatePassword,
+  verifyMfaChallengeToken,
   verifyRfc6238Totp,
   verifyStiHubSessionToken,
 } from '../app/lib/auth';
@@ -124,6 +126,8 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     careOf: p.careOf || p.contactName || '',
     contactEmail: p.contactEmail,
     sellerName: p.sellerName || 'Marcelo Lopes Mira',
+    sellerEmail: p.sellerEmail,
+    sellerPhone: p.sellerPhone,
     contractMonths: Number(p.contractMonths || 24),
     readjustmentIndex: p.readjustmentIndex || 'IPCA',
     paymentCondition: p.paymentCondition || '',
@@ -245,6 +249,19 @@ export function computeProposalChangedFields(
 }
 
 export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): ErpCommercialProposal {
+  if (p.slaTier === "NOC_24X7_ALTA_DISP_4H") {
+    p.slaTier = "SEM_SLA_ESPECIFICO";
+    p.slaAvailabilityPercent = "";
+    p.slaResponseHours = 0;
+  }
+  if (p.paymentCondition && (p.paymentCondition.includes("Canal:") || p.paymentCondition.includes("Centro de Custo:"))) {
+    p.paymentCondition = p.paymentCondition
+      .replace(/\s*•?\s*Canal:\s*[^•]+/gi, "")
+      .replace(/\s*•?\s*Centro de Custo:\s*[^•]+/gi, "")
+      .replace(/\s*•?\s*Cliente Recorrente/gi, "")
+      .replace(/^[\s•]+|[\s•]+$/g, "")
+      .trim();
+  }
   if (!Array.isArray(p.versionHistory) || p.versionHistory.length === 0) {
     const initialVer = Number(p.version || 1);
     const snap = buildProposalVersionSnapshot(p);
@@ -2540,9 +2557,9 @@ export class CrmRepository {
       code,
       title: input.title.trim(),
       budgetType: inferredBudgetType,
-      storeName: input.storeName || 'Matriz',
-      salesChannel: input.salesChannel || 'Comercial B2B / Consultivo',
-      costCenter: input.costCenter || 'Comercial Telecom & TI',
+      storeName: input.storeName || '',
+      salesChannel: input.salesChannel || '',
+      costCenter: input.costCenter || '',
       proposalDate: input.proposalDate || now.slice(0, 10),
       deliveryForecast: input.deliveryForecast || 'Imediato (até 48h úteis após aceite)',
       careOf:
@@ -2555,9 +2572,9 @@ export class CrmRepository {
       internalNotes: input.internalNotes || '',
       setupFee: explicitSetupFee,
       templateStyle: input.templateStyle || 'SETA_PREMIUM_TELECOM',
-      slaTier: input.slaTier || 'NOC_24X7_ALTA_DISP_4H',
-      slaAvailabilityPercent: input.slaAvailabilityPercent || '99,95%',
-      slaResponseHours: input.slaResponseHours ?? 4,
+      slaTier: input.slaTier && input.slaTier !== 'NOC_24X7_ALTA_DISP_4H' ? input.slaTier : 'SEM_SLA_ESPECIFICO',
+      slaAvailabilityPercent: input.slaAvailabilityPercent || '',
+      slaResponseHours: input.slaResponseHours ?? 0,
       shippingCost,
       shippingCarrier: input.shippingCarrier || 'Frota Própria Seta Telecom',
       deliveryAddress: input.deliveryAddress || '',
@@ -2576,6 +2593,8 @@ export class CrmRepository {
       contactEmail: input.contactEmail || contact?.email || undefined,
       dealId: input.dealId || null,
       sellerName: input.sellerName || 'Marcelo Lopes Mira',
+      sellerEmail: input.sellerEmail || 'marcelo.mira@setatelecom.com.br',
+      sellerPhone: input.sellerPhone || '(11) 99999-4929',
       status: input.status || 'ENVIADA',
       modality: input.modality,
       readjustmentIndex: input.readjustmentIndex || 'IPCA',
@@ -3683,7 +3702,29 @@ export class CrmRepository {
     digitalSignature: ErpProposalDigitalSignature;
   } | null {
     const erp = this.ensureErp();
-    const proposal = erp.proposals.find((p) => p.id === proposalId || p.code === proposalId);
+    const cleanId = decodeURIComponent(String(proposalId || "")).trim();
+    let proposal = erp.proposals.find(
+      (p) =>
+        p.id === cleanId ||
+        p.id.toLowerCase() === cleanId.toLowerCase() ||
+        p.code === cleanId ||
+        p.code.toLowerCase() === cleanId.toLowerCase()
+    );
+    if (!proposal && signatureInput && typeof signatureInput === "object") {
+      const incoming = (signatureInput.proposal && typeof signatureInput.proposal === "object"
+        ? signatureInput.proposal
+        : signatureInput.title
+          ? signatureInput
+          : null) as Partial<ErpCommercialProposal> | null;
+      if (incoming) {
+        proposal =
+          this.updateProposal(cleanId, {
+            ...incoming,
+            id: incoming.id || cleanId,
+            title: incoming.title || `Proposta Comercial ${cleanId}`,
+          }) || undefined;
+      }
+    }
     if (!proposal) return null;
 
     const now = new Date();
@@ -5669,9 +5710,18 @@ export class CrmRepository {
     }
 
     const otpCode = String(crypto.randomInt(100000, 1000000));
-    const ttlMs = 5 * 60 * 1000; // 5 minutes
+    const ttlMs = 10 * 60 * 1000; // 10 minutes
     const expiresAtMs = nowMs + ttlMs;
-    const challengeId = `OTP-MAIL-${found.id}-${nowMs.toString(36).toUpperCase()}`;
+    const challengeId = signMfaChallengeToken({
+      cid: `OTP-MAIL-${found.id}-${nowMs.toString(36).toUpperCase()}`,
+      uid: found.id,
+      email: found.email,
+      mfaMethod: "EMAIL_OTP",
+      totpSecret: found.totpSecret || generateTotpSecretBase32(found.email),
+      emailOtpHash: sha256Hex(otpCode),
+      iat: nowMs,
+      exp: expiresAtMs,
+    });
 
     this.emailOtpChallenges.set(key, {
       challengeId,
@@ -5821,7 +5871,18 @@ export class CrmRepository {
       }
     }
 
-    const challengeId = `MFA-${found.id}-${nowMs.toString(36).toUpperCase()}`;
+    const challengeId = signMfaChallengeToken({
+      cid: `MFA-${found.id}-${nowMs.toString(36).toUpperCase()}`,
+      uid: found.id,
+      email: found.email,
+      mfaMethod: found.mfaMethod,
+      totpSecret: found.totpSecret,
+      emailOtpHash: emailOtpStatus?.devOtpPreview
+        ? sha256Hex(emailOtpStatus.devOtpPreview)
+        : undefined,
+      iat: nowMs,
+      exp: nowMs + 15 * 60 * 1000,
+    });
     return {
       ok: true,
       challengeId,
@@ -5849,6 +5910,7 @@ export class CrmRepository {
     code: string;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
     totpSecret?: string;
+    challengeId?: string;
     ipAddress?: string;
   }): {
     ok: boolean;
@@ -5903,9 +5965,11 @@ export class CrmRepository {
         ? user.totpSecret
         : generateTotpSecretBase32(user.email);
     const deterministicEmailSecret = generateTotpSecretBase32(user.email);
+    const statelessChallenge = verifyMfaChallengeToken(input.challengeId);
+    const rawCandidateSecret = input.totpSecret || statelessChallenge?.totpSecret;
     const candidatePairingSecret =
-      input.totpSecret && isValidPureBase32Secret(input.totpSecret)
-        ? input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "")
+      rawCandidateSecret && isValidPureBase32Secret(rawCandidateSecret)
+        ? rawCandidateSecret.toUpperCase().replace(/[^A-Z2-7]/g, "")
         : null;
 
     // Validate against stored user secret, deterministic email secret, or newly paired QR secret (with +-2 windows = +-60s drift)
@@ -5926,6 +5990,9 @@ export class CrmRepository {
     const isValidTotp = Boolean(matchedTotpSecret);
 
     let isValidEmailOtp = false;
+    if (statelessChallenge?.emailOtpHash && sha256Hex(rawCode) === statelessChallenge.emailOtpHash) {
+      isValidEmailOtp = true;
+    }
     const emailChallenge = this.emailOtpChallenges.get(emailKey);
     if (emailChallenge && !emailChallenge.consumed) {
       if (nowMs > emailChallenge.expiresAtMs) {

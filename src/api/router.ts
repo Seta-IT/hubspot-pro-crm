@@ -2551,7 +2551,7 @@ export class CrmApiRouter {
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        const res = this.repo.approveProposalAndConvertToContract(approvePropMatch[1], body);
+        const res = this.repo.approveProposalAndConvertToContract(decodeURIComponent(approvePropMatch[1]), body);
         if (!res) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         }
@@ -3738,12 +3738,14 @@ export class CrmApiRouter {
             ? body.mfaMethod
             : undefined;
         const totpSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        const challengeId = typeof body.challengeId === 'string' ? body.challengeId : undefined;
         const verified = this.repo.verifyMfaAndCreateSession({
           email,
           userId,
           code,
           mfaMethod,
           totpSecret,
+          challengeId,
         });
         if (!verified.ok || !verified.sessionToken) {
           return {
@@ -3751,7 +3753,7 @@ export class CrmApiRouter {
             body: { error: verified.error || 'Código MFA 2FA inválido.' },
           };
         }
-        const secureAttr = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
         const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
         return {
           status: 200,

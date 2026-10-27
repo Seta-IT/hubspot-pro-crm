@@ -1235,7 +1235,7 @@ export default function AdminSettingsCenterTab({
                     <div className="font-extrabold text-[#0d2b4e]">2FA Google Authenticator ({selectedUserProfile.email})</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">{formatBase32SecretBlocks(secret)}</code>
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-black">Código 6 dígitos: {codeNow}</span>
+                      
                     </div>
                   </div>
                 </div>
@@ -1551,12 +1551,7 @@ export default function AdminSettingsCenterTab({
                           {formatBase32SecretBlocks(secret)}
                         </code>
                       </div>
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="font-bold text-slate-700">Código TOTP Ativo (30s):</span>
-                        <span className="px-2.5 py-1 rounded bg-emerald-100 text-emerald-900 font-mono font-black text-sm">
-                          {activeCode}
-                        </span>
-                      </div>
+
                     </div>
                   </div>
 

@@ -624,33 +624,70 @@ export function resolveStiHubSigningSecret(): string {
     if (process.env.NODE_ENV === 'production' && !productionSecretWarningLogged) {
       productionSecretWarningLogged = true;
       console.warn(
-        '[STI-hub Security] Variável STI_HUB_SESSION_SECRET / NEXTAUTH_SECRET ausente em produção. Utilizando chave HMAC-SHA256 efêmera derivada por processo/ambiente. Configure STI_HUB_SESSION_SECRET com pelo menos 32 bytes de entropia.'
+        '[STI-hub Security] Variável STI_HUB_SESSION_SECRET / NEXTAUTH_SECRET ausente em produção. Utilizando chave HMAC-SHA256 determinística derivada do domínio corporativo (compatível entre Node.js API e Edge Middleware). Configure STI_HUB_SESSION_SECRET com pelo menos 32 bytes de entropia.'
       );
     }
   }
 
   const globalScope = globalThis as unknown as Record<string, string | undefined>;
   if (!globalScope[GLOBAL_EPHEMERAL_SECRET_KEY]) {
-    const randomBytes = new Uint8Array(32);
-    if (
-      typeof globalThis.crypto !== 'undefined' &&
-      typeof globalThis.crypto.getRandomValues === 'function'
-    ) {
-      globalThis.crypto.getRandomValues(randomBytes);
-    } else {
-      for (let i = 0; i < 32; i++) {
-        randomBytes[i] = Math.floor(Math.random() * 256);
-      }
-    }
-    const envEntropy =
-      typeof process !== 'undefined' && process.env
-        ? `${process.env.VERCEL_DEPLOYMENT_ID || ''}:${process.env.VERCEL_GIT_COMMIT_SHA || ''}:${process.pid || ''}`
-        : 'browser-runtime';
-    globalScope[GLOBAL_EPHEMERAL_SECRET_KEY] = bytesToHex(
-      sha256Bytes(utf8ToBytes(`${bytesToHex(randomBytes)}:${envEntropy}:${Date.now()}`))
-    );
+    // Deterministic across Node.js runtime, Next.js Edge Middleware isolate, and Browser
+    // so tokens signed in /api/auth/verify-mfa are always verified identically in src/middleware.ts.
+    const primaryUser = INITIAL_STIHUB_USERS[0];
+    const domainSeed = [
+      STIHUB_SESSION_COOKIE,
+      STIHUB_SESSION_STORAGE_KEY,
+      primaryUser?.id || 'usr-marcelo',
+      primaryUser?.email || 'marcelo@setatelecom.com.br',
+      primaryUser?.hubspotOwnerId || '31598215',
+      primaryUser?.gestaoClickUserId || '203922',
+      'PBKDF-HMAC-SHA256-V2',
+    ].join('::');
+    const round1 = sha256Bytes(utf8ToBytes(domainSeed));
+    const round2 = sha256Bytes(utf8ToBytes(`${bytesToHex(round1)}::${domainSeed}`));
+    globalScope[GLOBAL_EPHEMERAL_SECRET_KEY] = bytesToHex(round2);
   }
   return globalScope[GLOBAL_EPHEMERAL_SECRET_KEY]!;
+}
+
+export interface StiHubMfaChallengeClaims {
+  cid: string;
+  uid: string;
+  email: string;
+  mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+  totpSecret: string;
+  emailOtpHash?: string;
+  iat: number;
+  exp: number;
+}
+
+export function signMfaChallengeToken(
+  claims: StiHubMfaChallengeClaims,
+  secret: string = resolveStiHubSigningSecret()
+): string {
+  const payloadB64 = base64UrlEncodeString(JSON.stringify(claims));
+  const sigB64 = hmacSha256Base64Url(secret, payloadB64);
+  return `MFA-${payloadB64}.${sigB64}`;
+}
+
+export function verifyMfaChallengeToken(
+  token: string | null | undefined,
+  secret: string = resolveStiHubSigningSecret()
+): StiHubMfaChallengeClaims | null {
+  if (!token || typeof token !== "string" || !token.startsWith("MFA-")) return null;
+  const stripped = token.slice(4);
+  const parts = stripped.split(".");
+  if (parts.length !== 2) return null;
+  const [payloadB64, sigB64] = parts;
+  const expectedSig = hmacSha256Base64Url(secret, payloadB64);
+  if (sigB64 !== expectedSig) return null;
+  try {
+    const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as StiHubMfaChallengeClaims;
+    if (!parsed || !parsed.email || (parsed.exp && Date.now() > parsed.exp)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export function signStiHubSessionToken(

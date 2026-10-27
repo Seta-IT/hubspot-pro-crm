@@ -2992,4 +2992,80 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(decoded.shippingCost, 350);
     assert.ok(pageSrc.includes("handleTemplateStyleChange"));
   });
+
+  it("completa o fluxo ponta a ponta de 2FA Google Authenticator (login -> refresh/setup-totp -> verify-mfa -> middleware em isolate separado sem loop para /login) e mantém o campo de 6 dígitos sempre limpo na UI", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // Etapa 1: Login inicial -> recebe QR Code e segredo TOTP
+    const loginRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        password: "Seta@2026#StiHub",
+      },
+    });
+    assert.equal(loginRes.status, 200);
+
+    // Etapa 1b: Usuário clica em Sincronizar / Rotacionar QR Code (setup-totp)
+    const refreshRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/setup-totp",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        regenerate: true,
+      },
+    });
+    assert.equal(refreshRes.status, 200);
+    const refreshed = (refreshRes.body as {
+      data: { totpSecret: string; qrCodeSvgDataUrl: string };
+    }).data;
+    assert.ok(refreshed.totpSecret.length >= 16);
+    assert.ok(refreshed.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
+
+    // Etapa 2: Usuário digita os 6 dígitos gerados no app Google Authenticator para o segredo pareado e confirma
+    const totpCodeFromPhone = generateTotpCodeSync(refreshed.totpSecret);
+    const verifyRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: totpCodeFromPhone,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+        totpSecret: refreshed.totpSecret,
+      },
+    });
+    assert.equal(verifyRes.status, 200);
+    const sessionToken = (verifyRes.body as { data: { sessionToken: string; verifiedVia: string } }).data.sessionToken;
+    assert.ok(sessionToken.includes("."));
+
+    // Etapa 3: Simula o Edge Middleware rodando em um V8 isolate separado (limpando cache globalThis)
+    delete (globalThis as Record<string, unknown>).__STIHUB_EPHEMERAL_SIGNING_SECRET_V1__;
+    const middlewareDecision = evaluateStiHubRouteProtection({
+      pathname: "/",
+      method: "GET",
+      sessionToken,
+      enforceStrictLock: true,
+    });
+    assert.equal(middlewareDecision.allowed, true, "Middleware deve aceitar imediatamente o cookie stihub_session sem redirecionar para /login");
+    assert.equal(middlewareDecision.redirectTo, null);
+    assert.equal(middlewareDecision.statusCode, 200);
+    assert.equal(middlewareDecision.reason, "MFA_SESSION_VERIFIED");
+
+    // Etapa 4: Verifica que login/page.tsx e UserAccountModal.tsx deixam o campo de 6 dígitos limpo e não exibem o código TOTP na UI
+    const rootDir = process.cwd();
+    const loginPageSrc = fs.readFileSync(path.join(rootDir, "src/app/login/page.tsx"), "utf8");
+    const accountModalSrc = fs.readFileSync(path.join(rootDir, "src/app/components/UserAccountModal.tsx"), "utf8");
+    assert.equal(loginPageSrc.includes("setMfaCode(d?.demoTotpCode"), false, "Não deve autopreencher mfaCode no login");
+    assert.equal(loginPageSrc.includes("setMfaCode(s.currentTotpCode"), false, "Não deve autopreencher mfaCode ao sincronizar QR");
+    assert.equal(loginPageSrc.includes("Código 2FA sincronizado para homologação"), false, "Não deve exibir o código 2FA na tela de login");
+    assert.equal(accountModalSrc.includes("Código TOTP RFC 6238 atual no servidor"), false, "Não deve exibir o código TOTP no modal da conta");
+    assert.equal(loginPageSrc.includes("Seleção Rápida de Perfil"), false, "Não deve exibir painel lateral de seleção rápida na tela de login");
+    assert.equal(loginPageSrc.includes("Sessão Assinada HMAC-SHA256"), false, "Não deve exibir badges técnicos no topo do login");
+    assert.equal(loginPageSrc.includes("ETAPA 1 DE 2"), false, "Não deve exibir texto técnico ETAPA 1 DE 2");
+    assert.equal(loginPageSrc.includes("ETAPA 2 DE 2"), false, "Não deve exibir texto técnico ETAPA 2 DE 2");
+    assert.ok(loginPageSrc.includes("<span>{loading ? 'Entrando...' : 'Login'}</span>"), "Botão da Etapa 1 deve chamar-se Login");
+    assert.ok(loginPageSrc.includes("Aplicativo Autenticador") && loginPageSrc.includes("Código por E-mail"), "Deve exibir as duas opções claras de 2FA");
+  });
 });

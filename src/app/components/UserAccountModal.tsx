@@ -47,7 +47,6 @@ export default function UserAccountModal({
     totpSecretFormatted: string;
     otpauthUri: string;
     qrCodeSvgDataUrl: string;
-    currentTotpCode: string;
     secondsRemaining: number;
   } | null>(null);
   const [verifyTotpInput, setVerifyTotpInput] = useState('');
@@ -77,10 +76,11 @@ export default function UserAccountModal({
             d.totpSecretFormatted || String(d.totpSecret || '').replace(/(.{4})/g, '$1 ').trim(),
           otpauthUri: d.otpauthUri,
           qrCodeSvgDataUrl: d.qrCodeSvgDataUrl,
-          currentTotpCode: d.currentTotpCode,
           secondsRemaining: d.secondsRemaining || 30,
         });
+        setVerifyTotpInput('');
         if (regenerate) {
+          setTotpVerifiedMsg(null);
           onShowToast('Nova chave Base32 e QR Code Google Authenticator gerados!');
         }
       }
@@ -102,6 +102,7 @@ export default function UserAccountModal({
     const res = await fetch('/api/auth/verify-mfa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         email: user.email,
         userId: user.id,
@@ -112,9 +113,15 @@ export default function UserAccountModal({
     });
     const json = await res.json();
     if (res.ok) {
+      const token = json.data?.sessionToken || '';
+      if (typeof window !== 'undefined' && token) {
+        document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
+        document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
+      }
       setTotpVerifiedMsg(
         `Google Authenticator validado e sincronizado com sucesso! (${json.data?.verifiedVia || 'RFC6238_TOTP'})`
       );
+      setVerifyTotpInput('');
       onShowToast('Google Authenticator validado e salvo na sua conta!');
     } else {
       setTotpVerifiedMsg(null);
@@ -136,7 +143,7 @@ export default function UserAccountModal({
       const json = await res.json();
       if (res.ok && json?.data) {
         onShowToast(
-          `Código OTP de 6 dígitos enviado para ${json.data.email} (Protocolo ${json.data.protocol} • Código: ${json.data.devOtpPreview})!`
+          `Código OTP de 6 dígitos enviado para ${json.data.email} (Protocolo ${json.data.protocol})!`
         );
       } else {
         onShowToast(json?.error || 'Erro ao enviar código OTP por e-mail.');
@@ -390,22 +397,6 @@ export default function UserAccountModal({
                     </div>
                   </div>
 
-                  <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <span className="text-slate-600">Código TOTP RFC 6238 atual no servidor: </span>
-                      <strong className="font-mono text-sm font-black text-emerald-700 tracking-widest">
-                        {totpPairing.currentTotpCode}
-                      </strong>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => loadTotpPairing(false)}
-                      className="text-[11px] font-bold text-[#0d2b4e] underline cursor-pointer"
-                    >
-                      Atualizar janela 30s
-                    </button>
-                  </div>
-
                   <div className="pt-1">
                     <label className="block font-bold text-slate-700 mb-1">
                       Testar / Confirmar Código de 6 Dígitos do seu Google Authenticator:
@@ -413,9 +404,17 @@ export default function UserAccountModal({
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
                         maxLength={6}
                         value={verifyTotpInput}
                         onChange={(e) => setVerifyTotpInput(e.target.value.replace(/\D+/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleVerifyPairedTotpNow();
+                          }
+                        }}
                         placeholder="Digite os 6 dígitos do app"
                         className="w-48 px-3 py-2 rounded-lg border-2 border-[#0d2b4e] font-mono text-sm font-black tracking-widest text-center text-[#0d2b4e]"
                       />

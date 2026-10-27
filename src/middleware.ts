@@ -231,10 +231,11 @@ export function middleware(req: NextRequest) {
 
   if (!decision.allowed) {
     if (decision.redirectTo) {
-      return applySecurityHeaders(
-        NextResponse.redirect(new URL(decision.redirectTo, req.url)),
-        decision.reason
-      );
+      const redirectRes = NextResponse.redirect(new URL(decision.redirectTo, req.url));
+      if (sessionToken && decision.statusCode !== 403) {
+        redirectRes.cookies.delete('stihub_session');
+      }
+      return applySecurityHeaders(redirectRes, decision.reason);
     }
     return applySecurityHeaders(
       NextResponse.json(
