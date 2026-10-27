@@ -65,7 +65,10 @@ interface ContactsCompaniesTabProps {
   companies: EnrichedCompanyItem[];
   initialSelectedContactId?: string | null;
   onClearInitialContact?: () => void;
+  initialSelectedCompanyId?: string | null;
+  onClearInitialCompany?: () => void;
   initialSubView?: 'CONTACTS' | 'COMPANIES' | 'TASKS';
+  navigationTrigger?: number;
   onCreateContact: (payload: {
     email?: string;
     firstName: string;
@@ -116,7 +119,10 @@ export default function ContactsCompaniesTab({
   companies,
   initialSelectedContactId,
   onClearInitialContact,
+  initialSelectedCompanyId,
+  onClearInitialCompany,
   initialSubView,
+  navigationTrigger,
   onCreateContact,
   onUpdateContact,
   onDeleteContact,
@@ -131,12 +137,27 @@ export default function ContactsCompaniesTab({
   const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>(initialSubView || 'CONTACTS');
   useEffect(() => {
     if (initialSubView) setSubView(initialSubView);
-  }, [initialSubView]);
+  }, [initialSubView, navigationTrigger]);
+
+  useEffect(() => {
+    if (initialSelectedCompanyId) {
+      setSubView('COMPANIES');
+      const found = companies.find((c) => c.id === initialSelectedCompanyId);
+      if (found) {
+        setGestaoClickModalMode('EDIT');
+        setGestaoClickModalCompany(found);
+      }
+      onClearInitialCompany?.();
+    }
+  }, [initialSelectedCompanyId, companies]);
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('ALL');
   const [buyingRoleFilter, setBuyingRoleFilter] = useState<string>('ALL');
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
   const [activeSegment, setActiveSegment] = useState<"ALL" | "MARCELO" | "EVELYN" | "GESTAOCLICK" | "ABM">("ALL");
+  const [companyTierFilter, setCompanyTierFilter] = useState<string>('ALL');
+  const [companyStateFilter, setCompanyStateFilter] = useState<string>('ALL');
+  const [companySectorFilter, setCompanySectorFilter] = useState<string>('ALL');
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [contactInitialEdit, setContactInitialEdit] = useState(false);
@@ -565,6 +586,22 @@ export default function ContactsCompaniesTab({
     } else if (activeSegment === 'ABM') {
       if (!comp.isTargetAccount && comp.icpTier !== 'TIER_1') return false;
     }
+    if (companyTierFilter !== 'ALL') {
+      if (companyTierFilter === 'TARGET_ABM') {
+        if (!comp.isTargetAccount) return false;
+      } else if (comp.icpTier !== companyTierFilter) {
+        return false;
+      }
+    }
+    if (companyStateFilter !== 'ALL') {
+      if ((comp.state || '').toUpperCase() !== companyStateFilter) return false;
+    }
+    if (companySectorFilter !== 'ALL') {
+      const ind = normalizeSearch(comp.industry);
+      if (companySectorFilter === 'TELECOM' && !ind.includes('telecom') && !ind.includes('comunic')) return false;
+      if (companySectorFilter === 'TI' && !ind.includes('ti') && !ind.includes('software') && !ind.includes('tecnolog') && !ind.includes('consultoria')) return false;
+      if (companySectorFilter === 'FINANCEIRO' && !ind.includes('finan') && !ind.includes('fintech') && !ind.includes('pagament') && !ind.includes('crédito') && !ind.includes('credito')) return false;
+    }
     if (searchQuery.trim()) {
       const q = normalizeSearch(searchQuery);
       const qDigits = searchQuery.replace(/\D+/g, '');
@@ -791,8 +828,44 @@ export default function ContactsCompaniesTab({
               </select>
             </div>
           ) : (
-            <div className="lg:col-span-3 flex items-center text-xs text-[#516f90] font-medium">
-              Validação CNPJ Mod-11 + Sincronia GestãoClick #118887
+            <div className="lg:col-span-3 flex items-center gap-2">
+              <select
+                aria-label="Filtrar Empresas por Tier / ABM"
+                value={companyTierFilter}
+                onChange={(e) => setCompanyTierFilter(e.target.value)}
+                className="flex-1 px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
+              >
+                <option value="ALL">Tier / ABM: Todos</option>
+                <option value="TARGET_ABM">Contas Alvo ABM</option>
+                <option value="TIER_1">ICP Tier 1 (Enterprise)</option>
+                <option value="TIER_2">ICP Tier 2 (Mid-Market)</option>
+                <option value="TIER_3">ICP Tier 3</option>
+              </select>
+
+              <select
+                aria-label="Filtrar Empresas por Setor"
+                value={companySectorFilter}
+                onChange={(e) => setCompanySectorFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
+              >
+                <option value="ALL">Setor: Todos</option>
+                <option value="TELECOM">Telecom &amp; Conectividade</option>
+                <option value="TI">Software &amp; TI</option>
+                <option value="FINANCEIRO">Fintech &amp; Financeiro</option>
+              </select>
+
+              <select
+                aria-label="Filtrar Empresas por UF"
+                value={companyStateFilter}
+                onChange={(e) => setCompanyStateFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
+              >
+                <option value="ALL">UF: Todas</option>
+                <option value="SP">SP</option>
+                <option value="RJ">RJ</option>
+                <option value="MG">MG</option>
+                <option value="SC">SC</option>
+              </select>
             </div>
           )}
 

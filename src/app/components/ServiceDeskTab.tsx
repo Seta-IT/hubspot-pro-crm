@@ -99,6 +99,8 @@ interface ServiceDeskTabProps {
   companies: Company[];
   rentalContracts?: ErpRentalContract[];
   serviceOrders?: ErpServiceOrder[];
+  initialSelectedTicketId?: string | null;
+  onClearInitialTicket?: () => void;
   onCreateTicket: (payload: {
     subject: string;
     description: string;
@@ -225,6 +227,8 @@ export default function ServiceDeskTab({
   companies,
   rentalContracts = [],
   serviceOrders = [],
+  initialSelectedTicketId,
+  onClearInitialTicket,
   onCreateTicket,
   onUpdateTicket,
   onDeleteTicket,
@@ -262,8 +266,16 @@ export default function ServiceDeskTab({
   const [queueFilter, setQueueFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(
-    tickets[0]?.id || null
+    initialSelectedTicketId || tickets[0]?.id || null
   );
+
+  useEffect(() => {
+    if (initialSelectedTicketId) {
+      setChamadosMacroTab('OPERATIONS');
+      setSelectedTicketId(initialSelectedTicketId);
+      onClearInitialTicket?.();
+    }
+  }, [initialSelectedTicketId]);
 
   // Realtime clock for SLA countdowns (updates every 15 seconds)
   const [nowMs, setNowMs] = useState<number>(() => Date.now());

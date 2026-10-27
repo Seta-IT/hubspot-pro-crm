@@ -70,6 +70,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
   key: SearchCategoryKey;
   label: string;
   system: 'CRM' | 'ERP' | 'CHAMADOS';
+  allowedSystems: SearchSystemFilter[];
   avatarBg: string;
   pillActiveCls: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -78,6 +79,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'CONTACTS',
     label: 'Contatos',
     system: 'CRM',
+    allowedSystems: ['ALL', 'CRM'],
     avatarBg: 'bg-blue-600',
     pillActiveCls: 'bg-blue-50 text-blue-900 border-blue-500 ring-1 ring-blue-500/30',
     icon: User,
@@ -86,6 +88,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'COMPANIES',
     label: 'Empresas / Clientes',
     system: 'CRM',
+    allowedSystems: ['ALL', 'CRM', 'ERP'],
     avatarBg: 'bg-orange-600',
     pillActiveCls: 'bg-orange-50 text-orange-900 border-orange-500 ring-1 ring-orange-500/30',
     icon: Building2,
@@ -94,6 +97,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'DEALS',
     label: 'Negócios',
     system: 'CRM',
+    allowedSystems: ['ALL', 'CRM'],
     avatarBg: 'bg-emerald-600',
     pillActiveCls: 'bg-emerald-50 text-emerald-900 border-emerald-500 ring-1 ring-emerald-500/30',
     icon: Briefcase,
@@ -102,6 +106,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'PROPOSALS',
     label: 'Orçamentos / Propostas',
     system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
     avatarBg: 'bg-indigo-600',
     pillActiveCls: 'bg-indigo-50 text-indigo-900 border-indigo-500 ring-1 ring-indigo-500/30',
     icon: FileText,
@@ -110,6 +115,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'PRODUCTS',
     label: 'Produtos / Itens',
     system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
     avatarBg: 'bg-purple-600',
     pillActiveCls: 'bg-purple-50 text-purple-900 border-purple-500 ring-1 ring-purple-500/30',
     icon: Package,
@@ -118,6 +124,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'CONTRACTS',
     label: 'Contratos',
     system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
     avatarBg: 'bg-teal-600',
     pillActiveCls: 'bg-teal-50 text-teal-900 border-teal-500 ring-1 ring-teal-500/30',
     icon: FileSignature,
@@ -126,6 +133,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'INVOICES',
     label: 'Notas Fiscais',
     system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
     avatarBg: 'bg-cyan-600',
     pillActiveCls: 'bg-cyan-50 text-cyan-900 border-cyan-500 ring-1 ring-cyan-500/30',
     icon: Receipt,
@@ -134,6 +142,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'SERVICE_ORDERS',
     label: 'Ordens de Serviço',
     system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
     avatarBg: 'bg-amber-600',
     pillActiveCls: 'bg-amber-50 text-amber-900 border-amber-500 ring-1 ring-amber-500/30',
     icon: Wrench,
@@ -142,6 +151,7 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     key: 'TICKETS',
     label: 'Chamados / Tickets',
     system: 'CHAMADOS',
+    allowedSystems: ['ALL', 'CHAMADOS'],
     avatarBg: 'bg-rose-600',
     pillActiveCls: 'bg-rose-50 text-rose-900 border-rose-500 ring-1 ring-rose-500/30',
     icon: Headphones,
@@ -164,6 +174,9 @@ export function entryBelongsToSystem(
 ): boolean {
   if (sys === 'ALL') return true;
   if (entry.category === 'COMPANIES') {
+    if (entry.id.startsWith('COMPANIES:sup-')) {
+      return sys === 'ERP';
+    }
     return sys === 'CRM' || sys === 'ERP';
   }
   return entry.system === sys;
@@ -180,17 +193,30 @@ export function filterGlobalSearchEntries(params: {
   const qDigits = query.replace(/\D+/g, '');
 
   return allEntries.filter((entry) => {
-    // When specific category pills are selected, filter by those categories first
+    // 1. Respect systemFilter if not ALL (unless user explicitly picked a category pill from another system)
+    if (systemFilter !== 'ALL') {
+      const explicitlyPickedCategory =
+        selectedCategories.length > 0 && selectedCategories.includes(entry.category);
+      const pillMeta = SEARCH_CATEGORY_PILLS.find((p) => p.key === entry.category);
+      const pillCompatibleWithSys = pillMeta
+        ? pillMeta.allowedSystems.includes(systemFilter)
+        : false;
+
+      if (!explicitlyPickedCategory || pillCompatibleWithSys) {
+        if (!entryBelongsToSystem(entry, systemFilter)) {
+          return false;
+        }
+      }
+    }
+
+    // 2. Respect selectedCategories simultaneously
     if (selectedCategories.length > 0) {
       if (!selectedCategories.includes(entry.category)) {
         return false;
       }
-    } else if (systemFilter !== 'ALL') {
-      if (!entryBelongsToSystem(entry, systemFilter)) {
-        return false;
-      }
     }
 
+    // 3. Respect text / digits query
     if (!q) return true;
     const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
     const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
@@ -214,7 +240,6 @@ export default function GlobalHeaderSearch({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [systemFilter, setSystemFilter] = useState<SearchSystemFilter>('ALL');
-  // Inicia sem travar categorias para que todos os 9 módulos (CRM, ERP e Chamados) apareçam na busca imediatamente
   const [selectedCategories, setSelectedCategories] = useState<SearchCategoryKey[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -259,33 +284,26 @@ export default function GlobalHeaderSearch({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  // Smart System Filter handler: selecting a system clears conflicting category pills
   const handleSelectSystemFilter = (sys: SearchSystemFilter) => {
     setSystemFilter(sys);
     if (sys !== 'ALL') {
       setSelectedCategories((prev) =>
         prev.filter((catKey) => {
-          if (catKey === 'COMPANIES') return sys === 'CRM' || sys === 'ERP';
           const pill = SEARCH_CATEGORY_PILLS.find((p) => p.key === catKey);
-          return pill ? pill.system === sys : true;
+          return pill ? pill.allowedSystems.includes(sys) : true;
         })
       );
     }
     setActiveIndex(0);
   };
 
-  // Smart Category Pill toggle: if user clicks a category pill outside current systemFilter, auto-expand systemFilter to 'ALL' so results are never empty!
   const toggleCategory = (cat: SearchCategoryKey) => {
     const pill = SEARCH_CATEGORY_PILLS.find((p) => p.key === cat);
     setSelectedCategories((prev) => {
       const isRemoving = prev.includes(cat);
       const next = isRemoving ? prev.filter((k) => k !== cat) : [...prev, cat];
       if (!isRemoving && pill && systemFilter !== 'ALL') {
-        const compatible =
-          cat === 'COMPANIES'
-            ? systemFilter === 'CRM' || systemFilter === 'ERP'
-            : pill.system === systemFilter;
-        if (!compatible) {
+        if (!pill.allowedSystems.includes(systemFilter)) {
           setSystemFilter('ALL');
         }
       }
@@ -450,6 +468,11 @@ export default function GlobalHeaderSearch({
     tickets,
   ]);
 
+  const visibleCategoryPills = useMemo(() => {
+    if (systemFilter === 'ALL') return SEARCH_CATEGORY_PILLS;
+    return SEARCH_CATEGORY_PILLS.filter((p) => p.allowedSystems.includes(systemFilter));
+  }, [systemFilter]);
+
   const categoryCounts = useMemo(() => {
     const counts: Record<SearchCategoryKey, number> = {
       CONTACTS: 0,
@@ -465,6 +488,9 @@ export default function GlobalHeaderSearch({
     const q = normalizeSearchText(query);
     const qDigits = query.replace(/\D+/g, '');
     for (const entry of allIndexedEntries) {
+      if (systemFilter !== 'ALL' && !entryBelongsToSystem(entry, systemFilter)) {
+        continue;
+      }
       if (q) {
         const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
         const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
@@ -475,7 +501,7 @@ export default function GlobalHeaderSearch({
       counts[entry.category] = (counts[entry.category] || 0) + 1;
     }
     return counts;
-  }, [allIndexedEntries, query]);
+  }, [allIndexedEntries, query, systemFilter]);
 
   const matchingPool = useMemo(
     () =>
@@ -491,7 +517,6 @@ export default function GlobalHeaderSearch({
   const filteredEntries = useMemo(() => {
     const hasFilter = selectedCategories.length > 0 || systemFilter !== 'ALL';
     if (!query.trim() && !hasFilter) {
-      // When no query and no filters are active, show recently selected + diverse sample across CRM, ERP & Chamados
       const recentMatched = recentIds
         .map((id) => matchingPool.find((e) => e.id === id))
         .filter((e): e is SearchResultEntry => Boolean(e));
@@ -518,7 +543,7 @@ export default function GlobalHeaderSearch({
       return [...recentMatched, ...diversePicks].slice(0, 14);
     }
 
-    return matchingPool.slice(0, 20);
+    return matchingPool.slice(0, 24);
   }, [matchingPool, query, systemFilter, selectedCategories, recentIds]);
 
   const handleChooseEntry = (entry: SearchResultEntry) => {
@@ -578,7 +603,6 @@ export default function GlobalHeaderSearch({
           {query && (
             <button
               type="button"
-              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setQuery('');
                 inputRef.current?.focus();
@@ -596,15 +620,7 @@ export default function GlobalHeaderSearch({
 
       {/* HUBSPOT-STYLE GLOBAL SEARCH POPOVER */}
       {open && (
-        <div
-          onMouseDown={(e) => {
-            // Keep input focused when clicking inside popover filters
-            if ((e.target as HTMLElement).tagName !== 'INPUT') {
-              e.preventDefault();
-            }
-          }}
-          className="absolute left-0 right-0 sm:w-[680px] sm:-left-12 mt-2 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 overflow-hidden text-[#33475b]"
-        >
+        <div className="absolute left-0 right-0 sm:w-[680px] sm:-left-12 mt-2 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 overflow-hidden text-[#33475b]">
           {/* 1. HEADER + SYSTEM FILTER & CATEGORY PILLS */}
           <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -644,9 +660,9 @@ export default function GlobalHeaderSearch({
               </div>
             </div>
 
-            {/* Pílulas de Categoria Selecionáveis (Múltipla Seleção estilo HubSpot) + Limpar filtros (N) */}
+            {/* Pílulas de Categoria Selecionáveis (Filtradas pelo Sistema Escolhido) + Limpar filtros (N) */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {SEARCH_CATEGORY_PILLS.map((pill) => {
+              {visibleCategoryPills.map((pill) => {
                 const Icon = pill.icon;
                 const active = selectedCategories.includes(pill.key);
                 const count = categoryCounts[pill.key] ?? 0;

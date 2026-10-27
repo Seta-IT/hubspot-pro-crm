@@ -154,6 +154,9 @@ interface ErpGestaoClickTabProps {
   onRefresh: () => Promise<void>;
   onShowToast: (msg: string) => void;
   initialSection?: GestaoClickMenuSection;
+  navigationTrigger?: number;
+  targetEntity?: { type: string; id: string; query?: string } | null;
+  onClearTargetEntity?: () => void;
   autoOpenNewProposalTrigger?: number;
   prefillProposalFromDeal?: Deal | null;
   rbacState?: StiHubRbacState | null;
@@ -290,6 +293,9 @@ export default function ErpGestaoClickTab({
   onRefresh,
   onShowToast,
   initialSection,
+  navigationTrigger,
+  targetEntity,
+  onClearTargetEntity,
   autoOpenNewProposalTrigger,
   prefillProposalFromDeal,
   rbacState,
@@ -346,6 +352,7 @@ export default function ErpGestaoClickTab({
   const [osViewMode, setOsViewMode] = useState<"LISTA" | "PAINEL">("LISTA");
   const [osSearch, setOsSearch] = useState<string>("");
   const [osTechFilter, setOsTechFilter] = useState<string>("TODOS");
+  const [osStatusFilter, setOsStatusFilter] = useState<string>("TODOS");
   const [kardexFilter, setKardexFilter] = useState<"TODOS" | "ENTRADA" | "REMESSA" | "SAIDA">("TODOS");
   const [contractsSubFilter, setContractsSubFilter] = useState<
     "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES"
@@ -434,7 +441,64 @@ export default function ErpGestaoClickTab({
     if (initialSection) {
       setActiveSection(initialSection);
     }
-  }, [initialSection]);
+  }, [initialSection, navigationTrigger]);
+
+  React.useEffect(() => {
+    if (!targetEntity || !erpData) return;
+    const { type, id, query } = targetEntity;
+    if (type === 'PROPOSAL') {
+      setActiveSection('ORCAMENTOS');
+      const found = erpData.proposals.find((p) => p.id === id || p.code === id);
+      if (found) {
+        setHighlightedProposalId(found.id);
+        setIsCreatingProposalModal(false);
+        setEditingProposal(found);
+      }
+    } else if (type === 'CONTRACT') {
+      setActiveSection('CONTRATOS');
+      const found = erpData.rentalContracts.find((c) => c.id === id || c.contractNumber === id);
+      if (found) {
+        setHighlightedContractId(found.id);
+        setEditingContractReadOnly(false);
+        setEditingContractTab('DADOS_GERAIS');
+        setEditingContract(found);
+      }
+    } else if (type === 'PRODUCT') {
+      setActiveSection('ITENS');
+      const found = erpData.catalog.find((it) => it.id === id || it.gestaoClickCode === id);
+      if (found) {
+        setSelectedItemId(found.id);
+        setEditingProductModal({ item: found, isNew: false });
+      }
+    } else if (type === 'INVOICE') {
+      setActiveSection('FISCAL');
+      const found = erpData.invoices.find((inv) => inv.id === id || inv.documentNumber === id);
+      if (found) {
+        setEditingInvoice(found);
+      }
+    } else if (type === 'SERVICE_ORDER') {
+      setActiveSection('ORDENS_SERVICOS');
+      const found = (erpData.serviceOrders || []).find((os) => os.id === id || os.code === id);
+      if (found) {
+        setOsSearch(found.code);
+      } else if (query) {
+        setOsSearch(query);
+      }
+    } else if (type === 'CUSTOMER') {
+      setActiveSection('CADASTROS');
+      setCadastrosSubTab('CLIENTES');
+      const found = companies.find((c) => c.id === id);
+      if (found) {
+        setSelectedCadastroId(found.id);
+        setEditingCustomerModal({ company: found, isNew: false, readOnly: false });
+      }
+    } else if (type === 'SUPPLIER') {
+      setActiveSection('CADASTROS');
+      setCadastrosSubTab('FORNECEDORES');
+      if (query) setCustomerSearchQuery(query);
+    }
+    onClearTargetEntity?.();
+  }, [targetEntity, navigationTrigger, erpData, companies]);
 
   React.useEffect(() => {
     if (autoOpenNewProposalTrigger && autoOpenNewProposalTrigger > 0) {
@@ -2938,6 +3002,26 @@ export default function ErpGestaoClickTab({
       filteredInvoices = invoices.filter((i) => i.documentType === "NFCE_CONSUMIDOR");
     }
 
+    if (invoicesStatusFilter !== "TODOS") {
+      filteredInvoices = filteredInvoices.filter((i) => i.status === invoicesStatusFilter);
+    }
+    if (invoicesSearchQuery.trim()) {
+      const q = invoicesSearchQuery
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+      const qDigits = invoicesSearchQuery.replace(/\D+/g, "");
+      filteredInvoices = filteredInvoices.filter((i) => {
+        const hay = `${i.documentNumber} ${i.companyName} ${i.companyCnpj || ""} ${i.cfop || ""} ${i.documentType}`
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        const digits = `${i.documentNumber} ${i.companyCnpj || ""}`.replace(/\D+/g, "");
+        return hay.includes(q) || (qDigits.length >= 2 && digits.includes(qDigits));
+      });
+    }
+
     const totalLocacaoGross = invoices
       .filter((i) => i.documentType === "FATURA_LOCACAO")
       .reduce((s, i) => s + i.grossAmount, 0);
@@ -3344,6 +3428,35 @@ export default function ErpGestaoClickTab({
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* BARRA DE BUSCA E FILTRO DE STATUS FISCAL */}
+        {effectiveFiscalTab !== "FIS_COMPRAS" && effectiveFiscalTab !== "FIS_AUXILIARES" && (
+          <div className="bg-white rounded-md border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-extrabold text-[#0d2b4e]">
+              Documentos Fiscais Exibidos ({filteredInvoices.length} de {invoices.length})
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={invoicesSearchQuery}
+                onChange={(e) => setInvoicesSearchQuery(e.target.value)}
+                placeholder="Buscar por Nº NF, cliente, CNPJ ou CFOP..."
+                className="px-3 py-1.5 rounded border border-slate-300 bg-white text-xs w-64"
+              />
+              <select
+                aria-label="Filtrar Notas Fiscais por Status"
+                value={invoicesStatusFilter}
+                onChange={(e) => setInvoicesStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+              >
+                <option value="TODOS">Status: Todos</option>
+                <option value="EMITIDA">Emitidas / Em Aberto</option>
+                <option value="PAGA">Pagas / Liquidadas</option>
+                <option value="VENCIDA">Vencidas</option>
+              </select>
             </div>
           </div>
         )}
@@ -3987,12 +4100,37 @@ export default function ErpGestaoClickTab({
               )}
 
               {cadastrosSubTab === 'FORNECEDORES' && (
-                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0"><table className="w-full min-w-[640px] text-left text-xs">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <span className="text-xs text-slate-500">Fornecedores homologados Seta Telecom</span>
+                    <input
+                      type="text"
+                      value={customerSearchQuery}
+                      onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                      placeholder="Buscar fornecedor por nome, CNPJ ou e-mail..."
+                      className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                    />
+                  </div>
+                  <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0"><table className="w-full min-w-[640px] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                     <tr><th className="py-2 px-3">Fornecedor</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Telefone</th><th className="py-2 px-3">E-mail</th><th className="py-2 px-3 text-right">Ações</th></tr>
                   </thead>
                   <tbody className="divide-y">
-                    {suppliers.map((sup) => (
+                    {suppliers
+                      .filter((sup) => {
+                        if (!customerSearchQuery.trim()) return true;
+                        const q = customerSearchQuery
+                          .normalize('NFD')
+                          .replace(/[\u0300-\u036f]/g, '')
+                          .toLowerCase()
+                          .trim();
+                        const hay = `${sup.name} ${sup.cnpj || ''} ${sup.email || ''} ${sup.phone || ''}`
+                          .normalize('NFD')
+                          .replace(/[\u0300-\u036f]/g, '')
+                          .toLowerCase();
+                        return hay.includes(q);
+                      })
+                      .map((sup) => (
                       <tr
                         key={sup.id}
                         onClick={() =>
@@ -4061,6 +4199,7 @@ export default function ErpGestaoClickTab({
                     ))}
                   </tbody>
                 </table></div>
+                </div>
               )}
 
               {cadastrosSubTab === 'FUNCIONARIOS' && (
@@ -4596,12 +4735,16 @@ export default function ErpGestaoClickTab({
               }
               if (activeSubId === 'VENDAS_PRODUTOS' && isReturnOrder(v)) return false;
               if (vendasSearch.trim()) {
-                const q = vendasSearch.toLowerCase();
-                return (
-                  v.companyName.toLowerCase().includes(q) ||
-                  v.code.toLowerCase().includes(q) ||
-                  (v.sellerName || '').toLowerCase().includes(q)
-                );
+                const q = vendasSearch
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .trim();
+                const hay = `${v.companyName} ${v.code} ${v.sellerName || ''} ${v.itemsSummary || ''} ${v.status || ''}`
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase();
+                return hay.includes(q);
               }
               return true;
             });
@@ -4719,7 +4862,7 @@ export default function ErpGestaoClickTab({
                         <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
                       </thead>
                       <tbody className="divide-y">
-                        {(filteredSales.length > 0 ? filteredSales : salesOrders).map((v) => (
+                        {filteredSales.map((v) => (
                           <tr key={v.id} className="hover:bg-slate-50">
                             <td className="py-2 px-3 font-mono font-bold">#{v.code}</td>
                             <td className="py-2 px-3 font-semibold">{v.companyName}</td>
@@ -4770,15 +4913,20 @@ export default function ErpGestaoClickTab({
               if (osTechFilter !== 'TODOS' && !(os.technicianName || '').toLowerCase().includes(osTechFilter.toLowerCase())) {
                 return false;
               }
+              if (osStatusFilter !== 'TODOS' && os.status !== osStatusFilter) {
+                return false;
+              }
               if (osSearch.trim()) {
-                const q = osSearch.toLowerCase();
-                return (
-                  os.companyName.toLowerCase().includes(q) ||
-                  os.code.toLowerCase().includes(q) ||
-                  (os.equipmentName || '').toLowerCase().includes(q) ||
-                  (os.serialNumber || '').toLowerCase().includes(q) ||
-                  (os.description || '').toLowerCase().includes(q)
-                );
+                const q = osSearch
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .trim();
+                const hay = `${os.companyName} ${os.code} ${os.equipmentName || ''} ${os.serialNumber || ''} ${os.description || ''} ${os.technicianName || ''}`
+                  .normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase();
+                return hay.includes(q);
               }
               return true;
             });
@@ -4917,6 +5065,19 @@ export default function ErpGestaoClickTab({
                       placeholder="Buscar O.S., cliente, equipamento ou S/N..."
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs"
                     />
+                    <select
+                      aria-label="Filtrar O.S. por Situação"
+                      value={osStatusFilter}
+                      onChange={(e) => setOsStatusFilter(e.target.value)}
+                      className="w-full px-2.5 py-1 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                    >
+                      <option value="TODOS">Situação: Todas</option>
+                      <option value="Aberta">Aberta</option>
+                      <option value="Em andamento">Em andamento</option>
+                      <option value="Aguardando peça">Aguardando peça</option>
+                      <option value="Concluída">Concluída</option>
+                      <option value="Cancelada">Cancelada</option>
+                    </select>
                   </div>
                 </div>
 

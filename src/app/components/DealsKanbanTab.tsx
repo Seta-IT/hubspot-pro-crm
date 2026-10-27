@@ -110,6 +110,8 @@ interface DealsKanbanTabProps {
   onAddDealNote: (dealId: string, title: string, body: string, activityType?: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK') => Promise<void>;
   selectedPipelineId?: string;
   onSelectPipeline?: (pipelineId: string) => void;
+  initialSelectedDealId?: string | null;
+  onClearInitialDeal?: () => void;
   onUpdateDeal?: (dealId: string, patch: Record<string, unknown>) => Promise<void>;
   onDeleteDeal?: (dealId: string) => Promise<void>;
   onNavigateToErp?: () => void;
@@ -151,6 +153,8 @@ export default function DealsKanbanTab({
   onAddDealNote,
   selectedPipelineId,
   onSelectPipeline,
+  initialSelectedDealId,
+  onClearInitialDeal,
   onUpdateDeal,
   onDeleteDeal,
   onNavigateToErp,
@@ -200,6 +204,19 @@ export default function DealsKanbanTab({
   useEffect(() => {
     setMobileStageFilter('ALL');
   }, [currentPipelineId]);
+
+  useEffect(() => {
+    if (initialSelectedDealId) {
+      const found = deals.find((d) => d.id === initialSelectedDealId);
+      if (found) {
+        if (found.pipelineId && found.pipelineId !== currentPipelineId) {
+          handleSelectPipe(found.pipelineId);
+        }
+        openDealDetail(found);
+      }
+      onClearInitialDeal?.();
+    }
+  }, [initialSelectedDealId, deals]);
 
   const [filterRottingOnly, setFilterRottingOnly] = useState(false);
   const [filterOwner, setFilterOwner] = useState<string>('ALL');

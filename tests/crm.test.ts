@@ -2283,4 +2283,66 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     });
     assert.ok(mundivoxSearch.some((r) => r.title.includes('4695')));
   });
+
+  it('aplica simultaneamente systemFilter e selectedCategories na Pesquisa Global, filtra Fornecedores vs Empresas CRM, e garante todos os filtros internos de Empresas CRM, Vendas, Fiscal e O.S.', () => {
+    const rootDir = process.cwd();
+    const ccSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ContactsCompaniesTab.tsx'), 'utf8');
+    const erpSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    const pageSrc = fs.readFileSync(path.join(rootDir, 'src/app/page.tsx'), 'utf8');
+
+    // 1. Teste de combinação simultânea: systemFilter = 'CRM' + selectedCategories = ['COMPANIES'] deve excluir fornecedores (COMPANIES:sup-*)
+    const entries: SearchResultEntry[] = [
+      {
+        id: 'COMPANIES:comp-1',
+        entityId: 'comp-1',
+        category: 'COMPANIES',
+        system: 'CRM',
+        title: 'MUNDIVOX COMUNICACOES LTDA',
+        subtitle: 'Empresa • CRM & ERP',
+      },
+      {
+        id: 'COMPANIES:sup-1',
+        entityId: 'sup-1',
+        category: 'COMPANIES',
+        system: 'ERP',
+        title: 'AGIS EQUIPAMENTOS',
+        subtitle: 'Fornecedor • ERP',
+      },
+    ];
+
+    const crmCompaniesOnly = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '',
+      systemFilter: 'CRM',
+      selectedCategories: ['COMPANIES'],
+    });
+    assert.equal(crmCompaniesOnly.length, 1);
+    assert.equal(crmCompaniesOnly[0].id, 'COMPANIES:comp-1');
+
+    const erpCompaniesAndSuppliers = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '',
+      systemFilter: 'ERP',
+      selectedCategories: ['COMPANIES'],
+    });
+    assert.equal(erpCompaniesAndSuppliers.length, 2);
+
+    // 2. Nenhum fallback "(filteredSales.length > 0 ? filteredSales : salesOrders)" em ErpGestaoClickTab
+    assert.equal(erpSrc.includes('filteredSales.length > 0 ? filteredSales : salesOrders'), false);
+
+    // 3. Presença dos novos filtros em ContactsCompaniesTab (Empresas CRM) e ErpGestaoClickTab (Fiscal e O.S.)
+    assert.ok(ccSrc.includes('companyTierFilter'));
+    assert.ok(ccSrc.includes('companySectorFilter'));
+    assert.ok(ccSrc.includes('companyStateFilter'));
+    assert.ok(erpSrc.includes('invoicesSearchQuery'));
+    assert.ok(erpSrc.includes('invoicesStatusFilter'));
+    assert.ok(erpSrc.includes('osStatusFilter'));
+
+    // 4. Deep-link navigation triggers no page.tsx ao clicar em resultado da busca global
+    assert.ok(pageSrc.includes('erpNavigationTrigger'));
+    assert.ok(pageSrc.includes('erpTargetEntity'));
+    assert.ok(pageSrc.includes('initialCompanyIdForModal'));
+    assert.ok(pageSrc.includes('initialDealIdForDrawer'));
+    assert.ok(pageSrc.includes('initialTicketIdForDrawer'));
+  });
 });

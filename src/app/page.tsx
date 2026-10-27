@@ -103,6 +103,12 @@ export default function HubSpotProCrmApp() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [initialContactIdForDrawer, setInitialContactIdForDrawer] = useState<string | null>(null);
+  const [initialCompanyIdForModal, setInitialCompanyIdForModal] = useState<string | null>(null);
+  const [initialDealIdForDrawer, setInitialDealIdForDrawer] = useState<string | null>(null);
+  const [initialTicketIdForDrawer, setInitialTicketIdForDrawer] = useState<string | null>(null);
+  const [contactsNavTrigger, setContactsNavTrigger] = useState<number>(0);
+  const [erpNavigationTrigger, setErpNavigationTrigger] = useState<number>(0);
+  const [erpTargetEntity, setErpTargetEntity] = useState<{ type: string; id: string; query?: string } | null>(null);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('pipe-enterprise-b2b');
   const [erpData, setErpData] = useState<ErpOverviewPayload | null>(null);
   const [erpInitialSection, setErpInitialSection] = useState<GestaoClickMenuSection>('INICIO');
@@ -1183,31 +1189,59 @@ export default function HubSpotProCrmApp() {
               if (entry.category === 'CONTACTS') {
                 setInitialContactIdForDrawer(entry.entityId);
                 setContactsInitialSubView('CONTACTS');
+                setContactsNavTrigger((n) => n + 1);
                 setLastCrmSubModule('CONTACTS_COMPANIES');
                 setActiveModule('CONTACTS_COMPANIES');
               } else if (entry.category === 'COMPANIES') {
-                setContactsInitialSubView('COMPANIES');
-                setLastCrmSubModule('CONTACTS_COMPANIES');
-                setActiveModule('CONTACTS_COMPANIES');
+                if (entry.id.startsWith('COMPANIES:sup-') || activeModule === 'ERP_GESTAOCLICK') {
+                  setErpInitialSection('CADASTROS');
+                  setErpTargetEntity({
+                    type: entry.id.startsWith('COMPANIES:sup-') ? 'SUPPLIER' : 'CUSTOMER',
+                    id: entry.entityId,
+                    query: entry.title,
+                  });
+                  setErpNavigationTrigger((n) => n + 1);
+                  setActiveModule('ERP_GESTAOCLICK');
+                } else {
+                  setContactsInitialSubView('COMPANIES');
+                  setInitialCompanyIdForModal(entry.entityId);
+                  setContactsNavTrigger((n) => n + 1);
+                  setLastCrmSubModule('CONTACTS_COMPANIES');
+                  setActiveModule('CONTACTS_COMPANIES');
+                }
               } else if (entry.category === 'DEALS') {
+                const dealObj = deals.find((d) => d.id === entry.entityId);
+                if (dealObj?.pipelineId) setSelectedPipelineId(dealObj.pipelineId);
+                setInitialDealIdForDrawer(entry.entityId);
                 setLastCrmSubModule('DEALS_KANBAN');
                 setActiveModule('DEALS_KANBAN');
               } else if (entry.category === 'PROPOSALS') {
                 setErpInitialSection('ORCAMENTOS');
+                setErpTargetEntity({ type: 'PROPOSAL', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'PRODUCTS') {
                 setErpInitialSection('ITENS');
+                setErpTargetEntity({ type: 'PRODUCT', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'CONTRACTS') {
                 setErpInitialSection('CONTRATOS');
+                setErpTargetEntity({ type: 'CONTRACT', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'INVOICES') {
                 setErpInitialSection('FISCAL');
+                setErpTargetEntity({ type: 'INVOICE', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'SERVICE_ORDERS') {
                 setErpInitialSection('ORDENS_SERVICOS');
+                setErpTargetEntity({ type: 'SERVICE_ORDER', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'TICKETS') {
+                setInitialTicketIdForDrawer(entry.entityId);
                 setActiveModule('SERVICE_DESK');
               }
             }}
@@ -1464,6 +1498,7 @@ export default function HubSpotProCrmApp() {
                   type="button"
                   onClick={() => {
                     setErpInitialSection("CADASTROS");
+                    setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
@@ -1475,6 +1510,7 @@ export default function HubSpotProCrmApp() {
                   type="button"
                   onClick={() => {
                     setErpInitialSection("ORCAMENTOS");
+                    setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
@@ -1486,6 +1522,7 @@ export default function HubSpotProCrmApp() {
                   type="button"
                   onClick={() => {
                     setErpInitialSection("CONTRATOS");
+                    setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
@@ -1497,6 +1534,7 @@ export default function HubSpotProCrmApp() {
                   type="button"
                   onClick={() => {
                     setErpInitialSection("ORDENS_SERVICOS");
+                    setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
@@ -1641,6 +1679,9 @@ export default function HubSpotProCrmApp() {
               }}
               onShowToast={showToast}
               initialSection={erpInitialSection}
+              navigationTrigger={erpNavigationTrigger}
+              targetEntity={erpTargetEntity}
+              onClearTargetEntity={() => setErpTargetEntity(null)}
               autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
               prefillProposalFromDeal={prefillProposalDeal}
             />
@@ -1649,6 +1690,8 @@ export default function HubSpotProCrmApp() {
           {activeModule === 'SERVICE_DESK' && (
             <ServiceDeskTab
               tickets={tickets}
+              initialSelectedTicketId={initialTicketIdForDrawer}
+              onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
               kpis={ticketKpis}
               contacts={contacts}
               companies={companies}
@@ -1904,6 +1947,8 @@ export default function HubSpotProCrmApp() {
                     onAddDealNote={handleAddDealNote}
                     selectedPipelineId={selectedPipelineId}
                     onSelectPipeline={(id) => setSelectedPipelineId(id)}
+                    initialSelectedDealId={initialDealIdForDrawer}
+                    onClearInitialDeal={() => setInitialDealIdForDrawer(null)}
                     onUpdateDeal={handleUpdateDeal}
                     onDeleteDeal={handleDeleteDeal}
                     onNavigateToErp={() => {
@@ -1923,7 +1968,10 @@ export default function HubSpotProCrmApp() {
                     companies={companies}
                     initialSelectedContactId={initialContactIdForDrawer}
                     onClearInitialContact={() => setInitialContactIdForDrawer(null)}
+                    initialSelectedCompanyId={initialCompanyIdForModal}
+                    onClearInitialCompany={() => setInitialCompanyIdForModal(null)}
                     initialSubView={contactsInitialSubView}
+                    navigationTrigger={contactsNavTrigger}
                     onCreateContact={handleCreateContact}
                     onUpdateContact={handleUpdateContact}
                     onDeleteContact={handleDeleteContact}
