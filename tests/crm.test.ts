@@ -2017,4 +2017,49 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(modalsSrc.includes("sku: found?.gestaoClickCode || ''"));
     assert.ok(modalsSrc.includes("description: found?.name || ''"));
   });
+
+  it('implementa busca autocomplete no campo Cliente * da proposta, alerta quando cliente não está cadastrado e botão verde "+ Adicionar novo" com vínculo imediato na própria tela da proposta', () => {
+    const rootDir = process.cwd();
+    const modalsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpEditModals.tsx'), 'utf8');
+
+    // 1. Campo Cliente * com placeholder "Digite para buscar" e cabeçalho fiel ao print GestãoClick
+    assert.ok(modalsSrc.includes('placeholder="Digite para buscar"'));
+    assert.ok(modalsSrc.includes('Nenhum cliente cadastrado encontrado para'));
+
+    // 2. Botão verde "+ Adicionar novo" (#10b981) no rodapé do dropdown
+    assert.ok(modalsSrc.includes('+ Adicionar novo'));
+    assert.ok(modalsSrc.includes('bg-[#10b981]'));
+
+    // 3. Modal inline de cadastro rápido na própria tela de proposta com consulta Receita Federal e "Salvar e Vincular à Proposta"
+    assert.ok(modalsSrc.includes('showQuickClientModal'));
+    assert.ok(modalsSrc.includes('handleSaveAndLinkQuickClient'));
+    assert.ok(modalsSrc.includes('Salvar e Vincular à Proposta'));
+    assert.ok(modalsSrc.includes('Preencha os <span className="text-[#1e3a6e]">campos extras</span> da sua empresa'));
+  });
+  it('permite selecionar e desmarcar livremente orçamentos, clientes e itens do catálogo (sem travar no primeiro item)', () => {
+    const erpTabSrc = fs.readFileSync(
+      path.join(__dirname, '../../src/app/components/ErpGestaoClickTab.tsx'),
+      'utf8'
+    );
+    assert.ok(
+      !erpTabSrc.includes('(selectedProposalId || filteredProposals[0]?.id)'),
+      'Não deve forçar fallback para filteredProposals[0]?.id quando selectedProposalId for null'
+    );
+    assert.ok(
+      !erpTabSrc.includes('(selectedCadastroId || companies[0]?.id)'),
+      'Não deve forçar fallback para companies[0]?.id quando selectedCadastroId for null'
+    );
+    assert.ok(
+      !erpTabSrc.includes('(selectedItemId || filteredCatalogItems[0]?.id)'),
+      'Não deve forçar fallback para filteredCatalogItems[0]?.id quando selectedItemId for null'
+    );
+    assert.ok(
+      erpTabSrc.includes('setSelectedProposalId((prev) => (prev === prop.id ? null : prop.id))'),
+      'Deve alternar (toggle) selectedProposalId para null ao clicar no orçamento já selecionado'
+    );
+
+    // Verifica que o CNPJ canônico da Matriz Seta Telecom (14.806.925/0001-32) é aceito e CNPJs incorretos continuam rejeitados
+    assert.equal(validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica').isValid, true);
+    assert.equal(validateDocumentByPersonType('14.806.925/0001-99', 'Pessoa Jurídica').isValid, false);
+  });
 });

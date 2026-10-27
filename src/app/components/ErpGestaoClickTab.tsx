@@ -1292,8 +1292,7 @@ export default function ErpGestaoClickTab({
             <div className="flex flex-wrap items-center gap-2">
               {(() => {
                 const targetProp =
-                  filteredProposals.find((p) => p.id === selectedProposalId) ||
-                  filteredProposals[0];
+                  filteredProposals.find((p) => p.id === selectedProposalId) || null;
                 return targetProp ? (
                   <>
                     <button
@@ -1304,7 +1303,7 @@ export default function ErpGestaoClickTab({
                       }}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Selecionado ({targetProp.code})
+                      <Edit3 className="w-3.5 h-3.5" /> Editar Selecionado ({targetProp.code})
                     </button>
                     <a
                       href={buildPublicProposalUrl(targetProp, { autoPrint: true })}
@@ -1314,12 +1313,21 @@ export default function ErpGestaoClickTab({
                     >
                       <Printer className="w-3.5 h-3.5" /> Imprimir PDF ({targetProp.code})
                     </a>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProposalId(null)}
+                      title="Desmarcar orçamento selecionado"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" /> Desmarcar
+                    </button>
                   </>
-                ) : null;
+                ) : (
+                  <span className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-600">
+                    Nenhum orçamento marcado — clique na caixa Sel. ou em uma linha para selecionar (ou clique novamente para desmarcar)
+                  </span>
+                );
               })()}
-              <span className="text-[11px] text-slate-500">
-                💡 Clique em qualquer linha abaixo para selecionar ou clique em <strong>✏️ Editar</strong> para abrir o orçamento completo.
-              </span>
             </div>
 
             {effectiveOrcTab !== 'ORC_AUXILIARES' && (
@@ -1478,7 +1486,19 @@ export default function ErpGestaoClickTab({
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
                   <tr>
-                    <th className="py-2.5 px-3 w-8">Sel.</th>
+                    <th className="py-2.5 px-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedProposalId && filteredProposals.some((p) => p.id === selectedProposalId))}
+                        onChange={() =>
+                          setSelectedProposalId((prev) =>
+                            prev ? null : (filteredProposals[0]?.id ?? null)
+                          )
+                        }
+                        title={selectedProposalId ? "Desmarcar orçamento selecionado" : "Selecionar primeiro orçamento"}
+                        className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                      />
+                    </th>
                     <th className="py-2.5 px-3">Cód.</th>
                     <th className="py-2.5 px-3">Cliente / Razão Social</th>
                     <th className="py-2.5 px-3">Tipo</th>
@@ -1511,9 +1531,11 @@ export default function ErpGestaoClickTab({
                     return (
                       <tr
                         key={prop.id}
-                        onClick={() => setSelectedProposalId(prop.id)}
+                        onClick={() =>
+                          setSelectedProposalId((prev) => (prev === prop.id ? null : prop.id))
+                        }
                         className={`cursor-pointer transition ${
-                          (selectedProposalId || filteredProposals[0]?.id) === prop.id
+                          selectedProposalId === prop.id
                             ? 'bg-blue-50/80 hover:bg-blue-100/60'
                             : 'hover:bg-slate-50'
                         }`}
@@ -1521,13 +1543,16 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            checked={(selectedProposalId || filteredProposals[0]?.id) === prop.id}
-                            onChange={() => setSelectedProposalId(prop.id)}
+                            checked={selectedProposalId === prop.id}
+                            onChange={() =>
+                              setSelectedProposalId((prev) => (prev === prop.id ? null : prop.id))
+                            }
                             className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                           />
                         </td>
                         <td
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setIsCreatingProposalModal(false);
                             setEditingProposal(prop);
                           }}
@@ -1585,7 +1610,7 @@ export default function ErpGestaoClickTab({
                             ({prop.contractMonths}m)
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center gap-1">
                             <button
                               type="button"
@@ -3780,7 +3805,7 @@ export default function ErpGestaoClickTab({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {cadastrosSubTab === 'CLIENTES' && (() => {
-                    const selComp = companies.find((c) => c.id === selectedCadastroId) || companies[0];
+                    const selComp = companies.find((c) => c.id === selectedCadastroId) || null;
                     return selComp ? (
                       <div className="inline-flex items-center gap-1.5">
                         <button
@@ -3927,9 +3952,11 @@ export default function ErpGestaoClickTab({
                           return (
                             <tr
                               key={c.id}
-                              onClick={() => setSelectedCadastroId(c.id)}
+                              onClick={() =>
+                                setSelectedCadastroId((prev) => (prev === c.id ? null : c.id))
+                              }
                               className={`cursor-pointer transition ${
-                                (selectedCadastroId || companies[0]?.id) === c.id
+                                selectedCadastroId === c.id
                                   ? 'bg-blue-50/80 hover:bg-blue-100/60'
                                   : 'hover:bg-slate-50'
                               }`}
@@ -3937,8 +3964,10 @@ export default function ErpGestaoClickTab({
                               <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                                 <input
                                   type="checkbox"
-                                  checked={(selectedCadastroId || companies[0]?.id) === c.id}
-                                  onChange={() => setSelectedCadastroId(c.id)}
+                                  checked={selectedCadastroId === c.id}
+                                  onChange={() =>
+                                    setSelectedCadastroId((prev) => (prev === c.id ? null : c.id))
+                                  }
                                   className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                                 />
                               </td>
@@ -4459,8 +4488,7 @@ export default function ErpGestaoClickTab({
                     <div className="flex flex-wrap items-center gap-2">
                       {(() => {
                         const selItem =
-                          filteredCatalogItems.find((i) => i.id === selectedItemId) ||
-                          filteredCatalogItems[0];
+                          filteredCatalogItems.find((i) => i.id === selectedItemId) || null;
                         return selItem ? (
                           <button
                             type="button"
@@ -4492,9 +4520,11 @@ export default function ErpGestaoClickTab({
                       {filteredCatalogItems.map((it) => (
                         <tr
                           key={it.id}
-                          onClick={() => setSelectedItemId(it.id)}
+                          onClick={() =>
+                            setSelectedItemId((prev) => (prev === it.id ? null : it.id))
+                          }
                           className={`cursor-pointer transition ${
-                            (selectedItemId || filteredCatalogItems[0]?.id) === it.id
+                            selectedItemId === it.id
                               ? 'bg-blue-50/80 hover:bg-blue-100/60'
                               : 'hover:bg-slate-50'
                           }`}
@@ -4502,8 +4532,10 @@ export default function ErpGestaoClickTab({
                           <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
-                              checked={(selectedItemId || filteredCatalogItems[0]?.id) === it.id}
-                              onChange={() => setSelectedItemId(it.id)}
+                              checked={selectedItemId === it.id}
+                              onChange={() =>
+                                setSelectedItemId((prev) => (prev === it.id ? null : it.id))
+                              }
                               className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                             />
                           </td>
@@ -5211,6 +5243,11 @@ export default function ErpGestaoClickTab({
             setIsCreatingProposalModal(false);
           }}
           onSave={handleSaveEditedProposal}
+          onCustomerCreated={async (created) => {
+            recordUpsertedCompany(created);
+            await onRefresh();
+          }}
+          onShowToast={onShowToast}
           catalog={catalog}
           companies={companies}
           contacts={contacts}

@@ -15,6 +15,10 @@ import {
   Calendar,
   Wrench,
   Package,
+  Search,
+  Building2,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   Company,
@@ -46,6 +50,8 @@ export function ProposalEditModal({
   proposal,
   onClose,
   onSave,
+  onCustomerCreated,
+  onShowToast,
   catalog = [],
   companies = [],
   contacts = [],
@@ -55,6 +61,8 @@ export function ProposalEditModal({
   proposal: ErpCommercialProposal;
   onClose: () => void;
   onSave: (updated: ErpCommercialProposal) => Promise<void>;
+  onCustomerCreated?: (created: Company) => Promise<void> | void;
+  onShowToast?: (msg: string) => void;
   catalog?: ErpCatalogItem[];
   companies?: Company[];
   contacts?: Contact[];
@@ -65,6 +73,267 @@ export function ProposalEditModal({
     computeProposalTotals(structuredClone(proposal))
   );
   const [saving, setSaving] = useState(false);
+
+  // GestãoClick Client Autocomplete & Inline Quick Customer Registration States
+  const [localCreatedCompanies, setLocalCreatedCompanies] = useState<Company[]>([]);
+  const [clientSearchInput, setClientSearchInput] = useState<string>(() =>
+    proposal.companyName || ''
+  );
+  const [clientDropdownOpen, setClientDropdownOpen] = useState<boolean>(false);
+  const [validityDaysInput, setValidityDaysInput] = useState<string>(() => {
+    if (isNew && !proposal.validUntil) return '';
+    return '15 dias';
+  });
+  const [coverText, setCoverText] = useState<string>(() =>
+    String((proposal as unknown as Record<string, unknown>).coverText || '')
+  );
+
+  // Inline "+ Adicionar novo" Client Modal State (inside Proposal screen without losing draft)
+  const [showQuickClientModal, setShowQuickClientModal] = useState<boolean>(false);
+  const [qcPersonType, setQcPersonType] = useState<'PJ' | 'PF'>('PJ');
+  const [qcCnpjCpf, setQcCnpjCpf] = useState<string>('');
+  const [qcLegalName, setQcLegalName] = useState<string>('');
+  const [qcTradeName, setQcTradeName] = useState<string>('');
+  const [qcIe, setQcIe] = useState<string>('ISENTO');
+  const [qcTaxRegime, setQcTaxRegime] = useState<string>('Lucro Presumido');
+  const [qcPhone, setQcPhone] = useState<string>('');
+  const [qcEmail, setQcEmail] = useState<string>('');
+  const [qcCareOf, setQcCareOf] = useState<string>('');
+  const [qcCep, setQcCep] = useState<string>('');
+  const [qcStreet, setQcStreet] = useState<string>('');
+  const [qcNumber, setQcNumber] = useState<string>('');
+  const [qcNeighborhood, setQcNeighborhood] = useState<string>('');
+  const [qcCity, setQcCity] = useState<string>('');
+  const [qcState, setQcState] = useState<string>('SP');
+  const [qcLookingUpRfb, setQcLookingUpRfb] = useState<boolean>(false);
+  const [qcRfbBanner, setQcRfbBanner] = useState<string | null>(null);
+  const [qcErrorMsg, setQcErrorMsg] = useState<string | null>(null);
+  const [qcSaving, setQcSaving] = useState<boolean>(false);
+
+  const allAvailableCompanies = React.useMemo(() => {
+    const map = new Map<string, Company>();
+    for (const c of localCreatedCompanies) map.set(c.id, c);
+    for (const c of companies) {
+      if (!map.has(c.id)) map.set(c.id, c);
+    }
+    return Array.from(map.values());
+  }, [companies, localCreatedCompanies]);
+
+  const matchingClients = React.useMemo(() => {
+    const q = clientSearchInput.trim().toLowerCase();
+    const qDigits = q.replace(/\D+/g, '');
+    if (!q) return allAvailableCompanies.slice(0, 12);
+    return allAvailableCompanies
+      .filter((c) => {
+        const cp = (c.customProperties || {}) as Record<string, unknown>;
+        const trade = String(cp.tradeName || c.domain || '').toLowerCase();
+        const nameMatch = c.name.toLowerCase().includes(q) || trade.includes(q);
+        const cnpjRaw = String(c.cnpj || '').toLowerCase();
+        const cnpjDigits = cnpjRaw.replace(/\D+/g, '');
+        const cnpjMatch =
+          cnpjRaw.includes(q) || (qDigits.length >= 2 && cnpjDigits.includes(qDigits));
+        return nameMatch || cnpjMatch;
+      })
+      .slice(0, 12);
+  }, [allAvailableCompanies, clientSearchInput]);
+
+  const handleSelectExistingClient = (comp: Company) => {
+    const compContact = contacts.find((ct) => ct.companyId === comp.id);
+    const compDeal = deals.find((d) => d.companyId === comp.id);
+    const contactFull = compContact
+      ? `${compContact.firstName} ${compContact.lastName}`.trim()
+      : draft.careOf || draft.contactName || '';
+    setClientSearchInput(comp.name);
+    setClientDropdownOpen(false);
+    updateDraft({
+      companyId: comp.id,
+      companyName: comp.name,
+      companyCnpj: comp.cnpj || draft.companyCnpj || '',
+      contactId: compContact?.id || draft.contactId || null,
+      contactName: contactFull,
+      careOf: contactFull,
+      contactEmail: compContact?.email || draft.contactEmail,
+      dealId: compDeal?.id || draft.dealId || null,
+      deliveryAddress:
+        comp.city && comp.state
+          ? `${comp.name} — ${comp.city}/${comp.state}`
+          : draft.deliveryAddress,
+    });
+  };
+
+  const handleLookupQuickClientRfb = async (rawDoc: string) => {
+    const digits = rawDoc.replace(/\D+/g, '');
+    if (digits.length !== 14) {
+      setQcErrorMsg('Informe os 14 dígitos do CNPJ para consultar automaticamente na Receita Federal.');
+      return;
+    }
+    setQcLookingUpRfb(true);
+    setQcErrorMsg(null);
+    setQcRfbBanner(null);
+    try {
+      const res = await fetch(`/api/cnpj/lookup?cnpj=${encodeURIComponent(digits)}`);
+      const json = await res.json();
+      if (!res.ok || !json?.data) {
+        setQcErrorMsg(json?.error || 'Não foi possível consultar o CNPJ na Receita Federal.');
+        return;
+      }
+      const d = json.data;
+      setQcCnpjCpf(formatCnpjMask(d.cnpj || digits));
+      setQcLegalName(d.razaoSocial || '');
+      setQcTradeName(d.nomeFantasia || d.razaoSocial || '');
+      setQcIe(d.inscricaoEstadual || 'ISENTO');
+      setQcTaxRegime(d.regimeTributario || 'Lucro Presumido');
+      if (d.telefone) setQcPhone(formatBrPhoneMask(d.telefone));
+      if (d.emailComercial || d.emailFinanceiroNfe) {
+        setQcEmail(d.emailComercial || d.emailFinanceiroNfe || '');
+      }
+      setQcCep(d.cep || '');
+      setQcStreet(d.logradouro || '');
+      setQcNumber(d.numero || '');
+      setQcNeighborhood(d.bairro || '');
+      setQcCity(d.cidade || 'São Paulo');
+      setQcState(d.uf || 'SP');
+      setQcRfbBanner(
+        `CNPJ ${d.cnpj} validado na Receita Federal (${d.situacaoCadastral}) — Dados preenchidos automaticamente!`
+      );
+    } catch {
+      setQcErrorMsg('Falha de rede ao consultar CNPJ na Receita Federal.');
+    } finally {
+      setQcLookingUpRfb(false);
+    }
+  };
+
+  const handleOpenQuickNewClientModal = () => {
+    const typed = clientSearchInput.trim();
+    const typedDigits = typed.replace(/\D+/g, '');
+    setClientDropdownOpen(false);
+    setQcErrorMsg(null);
+    setQcRfbBanner(null);
+    setQcIe('ISENTO');
+    setQcTaxRegime('Lucro Presumido');
+    setQcPhone('');
+    setQcEmail('');
+    setQcCareOf(draft.careOf || '');
+    setQcCep('');
+    setQcStreet('');
+    setQcNumber('');
+    setQcNeighborhood('');
+    setQcCity('');
+    setQcState('SP');
+
+    if (typedDigits.length >= 11 && typedDigits.length === typed.replace(/[.\-/\s]/g, '').length) {
+      const isCpf = typedDigits.length <= 11;
+      setQcPersonType(isCpf ? 'PF' : 'PJ');
+      const formatted = isCpf ? formatCpfMask(typedDigits) : formatCnpjMask(typedDigits);
+      setQcCnpjCpf(formatted);
+      setQcLegalName('');
+      setQcTradeName('');
+      setShowQuickClientModal(true);
+      if (typedDigits.length === 14) {
+        handleLookupQuickClientRfb(typedDigits);
+      }
+    } else {
+      setQcPersonType('PJ');
+      setQcCnpjCpf('');
+      setQcLegalName(typed);
+      setQcTradeName(typed);
+      setShowQuickClientModal(true);
+    }
+  };
+
+  const handleSaveAndLinkQuickClient = async () => {
+    if (!qcLegalName.trim()) {
+      setQcErrorMsg('Informe a Razão Social / Nome Completo do cliente.');
+      return;
+    }
+    const docCheck = validateDocumentByPersonType(
+      qcCnpjCpf,
+      qcPersonType === 'PF' ? 'Pessoa Física' : 'Pessoa Jurídica'
+    );
+    if (!docCheck.isValid) {
+      setQcErrorMsg(`${docCheck.message}. Corrija o ${docCheck.docKind} antes de salvar.`);
+      return;
+    }
+    setQcSaving(true);
+    setQcErrorMsg(null);
+    try {
+      const payload = {
+        name: qcLegalName.trim(),
+        cnpj: docCheck.formatted || qcCnpjCpf.trim(),
+        city: qcCity.trim() || 'São Paulo',
+        state: qcState.trim() || 'SP',
+        ownerName: draft.sellerName || 'Marcelo Mira',
+        customProperties: {
+          customerType: qcPersonType === 'PF' ? 'Pessoa Física' : 'Pessoa Jurídica',
+          situation: 'Ativo',
+          tradeName: qcTradeName.trim() || qcLegalName.trim(),
+          stateRegistration: qcIe.trim() || 'ISENTO',
+          taxRegime: qcTaxRegime,
+          phone: qcPhone.trim(),
+          emailComercial: qcEmail.trim(),
+          cep: qcCep.trim(),
+          street: qcStreet.trim(),
+          number: qcNumber.trim(),
+          neighborhood: qcNeighborhood.trim(),
+          sellerName: draft.sellerName || 'Marcelo Mira',
+        },
+      };
+      const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setQcErrorMsg(json?.error || 'Não foi possível cadastrar o novo cliente.');
+        return;
+      }
+      const createdCompany: Company = json?.data || {
+        id: `comp-${Date.now()}`,
+        name: payload.name,
+        domain: null,
+        cnpj: payload.cnpj,
+        industry: 'Telecomunicações & TI',
+        size: 'Médio Porte',
+        annualRevenue: null,
+        city: payload.city,
+        state: payload.state,
+        country: 'Brasil',
+        completenessScore: 95,
+        ownerName: payload.ownerName,
+        enrichedAt: new Date().toISOString(),
+        enrichmentSource: 'Cadastro Rápido na Proposta (Receita Federal)',
+        customProperties: payload.customProperties,
+        lastActivityAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setLocalCreatedCompanies((prev) => [createdCompany, ...prev]);
+      setClientSearchInput(createdCompany.name);
+      updateDraft({
+        companyId: createdCompany.id,
+        companyName: createdCompany.name,
+        companyCnpj: createdCompany.cnpj || payload.cnpj,
+        careOf: qcCareOf.trim() || draft.careOf || '',
+        contactName: qcCareOf.trim() || draft.contactName || '',
+        contactEmail: qcEmail.trim() || draft.contactEmail || undefined,
+        deliveryAddress:
+          qcStreet.trim() || qcCity.trim()
+            ? `${qcStreet.trim()} ${qcNumber.trim()} — ${qcCity.trim()}/${qcState.trim()}`.trim()
+            : draft.deliveryAddress,
+      });
+      if (onCustomerCreated) {
+        await onCustomerCreated(createdCompany);
+      }
+      onShowToast?.(
+        `Cliente "${createdCompany.name}" (${createdCompany.cnpj}) cadastrado e vinculado automaticamente à proposta!`
+      );
+      setShowQuickClientModal(false);
+    } finally {
+      setQcSaving(false);
+    }
+  };
 
   const [selectedProductSku, setSelectedProductSku] = useState<string>('');
   const [productSearch, setProductSearch] = useState<string>('');
@@ -298,15 +567,18 @@ export function ProposalEditModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
-          {/* BLOCO 1: DADOS GERAIS DO ORÇAMENTO */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+          {/* BLOCO 1: INFORME OS DADOS DO ORÇAMENTO (FIEL AO PRINT GESTÃOCLICK [t62u]) */}
+          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  ✏️ 1. Dados Gerais do <span className="text-[#1e3a6e]">Orçamento / Proposta</span>
+                <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
+                  <span>
+                    Informe os <span className="text-[#1e3a6e]">dados</span> do orçamento
+                  </span>
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  Tipo de orçamento, código, situação, cliente, vendedor, canal de venda, loja e introdução.
+                  Número, cliente, vendedor, datas e a introdução da proposta
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -343,17 +615,271 @@ export function ProposalEditModal({
               </div>
             </div>
 
-            <div className="p-5 space-y-3.5">
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Código</label>
+            <div className="p-5 space-y-4">
+              {/* LINHA 1 DO GESTÃOCLICK: Número | Cliente * (Autocomplete + Botão Verde "+ Adicionar novo") | Data * | Validade */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
+                {/* Coluna 1: Número */}
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Número</label>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      value={draft.code}
+                      onChange={(e) => updateDraft({ code: e.target.value })}
+                      className="w-full px-3 py-2 rounded-l border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800"
+                    />
+                    <span className="px-2.5 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r text-slate-500 flex items-center">
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </div>
+
+                {/* Coluna 2: Cliente * (Busca Autocomplete + Aviso Cliente Não Cadastrado + Botão Verde "+ Adicionar novo") */}
+                <div className="sm:col-span-4 relative">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-700">
+                      Cliente <span className="text-rose-600">*</span>
+                    </label>
+                    {draft.companyCnpj && (
+                      <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        CNPJ: {draft.companyCnpj}
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Digite para buscar"
+                      value={clientSearchInput}
+                      onFocus={() => setClientDropdownOpen(true)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setClientSearchInput(val);
+                        setClientDropdownOpen(true);
+                        updateDraft({
+                          companyName: val,
+                          companyId: null,
+                        });
+                      }}
+                      className="w-full px-3 py-2 rounded border border-slate-300 focus:border-[#0091ae] focus:outline-none font-semibold text-slate-900 bg-white"
+                    />
+                    {clientSearchInput && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClientSearchInput('');
+                          setClientDropdownOpen(true);
+                          updateDraft({ companyId: null, companyName: '', companyCnpj: '' });
+                        }}
+                        title="Limpar busca de cliente"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* DROPDOWN FLUTUANTE GESTÃOCLICK */}
+                    {clientDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-md border border-slate-300 shadow-2xl overflow-hidden">
+                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                          {matchingClients.length > 0 ? (
+                            matchingClients.map((comp, idx) => {
+                              const cp = (comp.customProperties || {}) as Record<string, unknown>;
+                              const trade = String(cp.tradeName || comp.name);
+                              const isHighlighted = idx === 0 || draft.companyId === comp.id;
+                              return (
+                                <button
+                                  key={comp.id}
+                                  type="button"
+                                  onClick={() => handleSelectExistingClient(comp)}
+                                  className={`w-full text-left px-3.5 py-2.5 transition cursor-pointer block ${
+                                    isHighlighted
+                                      ? 'bg-[#2b579a] text-white'
+                                      : 'hover:bg-slate-100 text-slate-900'
+                                  }`}
+                                >
+                                  <div className="font-extrabold text-xs truncate">{comp.name}</div>
+                                  <div
+                                    className={`text-[11px] truncate ${
+                                      isHighlighted ? 'text-blue-100' : 'text-slate-500'
+                                    }`}
+                                  >
+                                    {trade} {comp.cnpj ? `- ${comp.cnpj}` : ''}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="p-3.5 bg-amber-50/90 text-amber-950 space-y-1">
+                              <div className="flex items-center gap-1.5 font-extrabold text-xs text-amber-900">
+                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                <span>
+                                  Nenhum cliente cadastrado encontrado para &ldquo;{clientSearchInput}&rdquo;.
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-amber-800">
+                                Clique no botão verde <strong>+ Adicionar novo</strong> abaixo para cadastrar este cliente agora mesmo (com busca automática de CNPJ na Receita Federal) sem sair da proposta.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* BOTÃO LARGO VERDE "+ Adicionar novo" NO RODAPÉ DO DROPDOWN (FIEL AO PRINT) */}
+                        <div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleOpenQuickNewClientModal}
+                            className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>+ Adicionar novo</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setClientDropdownOpen(false)}
+                            className="px-2.5 py-2 rounded border border-slate-300 bg-white text-slate-600 hover:text-slate-900 text-[11px] font-bold cursor-pointer shrink-0"
+                          >
+                            Fechar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Coluna 3: Data * */}
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Data <span className="text-rose-600">*</span>
+                  </label>
                   <input
-                    type="text"
-                    value={draft.code}
-                    onChange={(e) => updateDraft({ code: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-slate-50 font-mono font-bold text-slate-900"
+                    type="date"
+                    required
+                    value={
+                      draft.proposalDate ||
+                      (draft.createdAt ? draft.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10))
+                    }
+                    onChange={(e) => updateDraft({ proposalDate: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                   />
                 </div>
+
+                {/* Coluna 4: Validade */}
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
+                  <input
+                    type="text"
+                    placeholder="Ex.: 10 dias"
+                    value={validityDaysInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setValidityDaysInput(val);
+                      const numDays = parseInt(val.replace(/\D+/g, ''), 10);
+                      if (!Number.isNaN(numDays) && numDays > 0) {
+                        const dt = new Date(Date.now() + numDays * 86400000)
+                          .toISOString()
+                          .slice(0, 10);
+                        updateDraft({ validUntil: dt });
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded border border-slate-300"
+                  />
+                </div>
+              </div>
+
+              {/* LINHA 2 DO GESTÃOCLICK: Vendedor | Situação | Aos cuidados de | Canal de venda * */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Vendedor</label>
+                  <select
+                    value={draft.sellerName || ''}
+                    onChange={(e) => updateDraft({ sellerName: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  >
+                    <option value="">Selecione</option>
+                    <option value="Marcelo Mira">Marcelo Mira</option>
+                    <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
+                    <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
+                    <option value="Michelle da Rocha">Michelle da Rocha</option>
+                    <option value="Paula Campos">Paula Campos</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Situação</label>
+                  <select
+                    value={draft.status}
+                    onChange={(e) =>
+                      updateDraft({ status: e.target.value as ErpCommercialProposal['status'] })
+                    }
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
+                  >
+                    <option value="RASCUNHO">Em Aberto</option>
+                    <option value="ENVIADA">Enviado ao Cliente</option>
+                    <option value="EM_NEGOCIACAO">Em Negociação</option>
+                    <option value="APROVADA">Aprovado</option>
+                    <option value="CONVERTIDA_CONTRATO">Convertido em Contrato</option>
+                    <option value="RECUSADA">Cancelado / Recusado</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Aos cuidados de
+                  </label>
+                  <input
+                    type="text"
+                    placeholder=""
+                    value={draft.careOf ?? draft.contactName ?? ''}
+                    onChange={(e) =>
+                      updateDraft({ careOf: e.target.value, contactName: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded border border-slate-300"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Canal de venda <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={draft.salesChannel || 'Cliente Recorrente'}
+                    onChange={(e) => updateDraft({ salesChannel: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  >
+                    <option value="Cliente Recorrente">Cliente Recorrente</option>
+                    <option value="Comercial B2B / Consultivo">Comercial B2B / Consultivo</option>
+                    <option value="Presencial">Presencial</option>
+                    <option value="Telefone">Telefone / Inside Sales</option>
+                    <option value="WhatsApp">WhatsApp Corporativo</option>
+                    <option value="E-commerce">Portal B2B / E-commerce</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ / CPF | Prazo Contratual */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+                <div className="sm:col-span-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Centro de custo
+                  </label>
+                  <input
+                    type="text"
+                    list="gestaoclick-cost-centers"
+                    placeholder="Digite para buscar"
+                    value={draft.costCenter || ''}
+                    onChange={(e) => updateDraft({ costCenter: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                  />
+                  <datalist id="gestaoclick-cost-centers">
+                    <option value="Comercial Telecom & TI" />
+                    <option value="Locação de Ativos (MRR)" />
+                    <option value="Projetos & Engenharia NOC" />
+                    <option value="VENDAS" />
+                  </datalist>
+                </div>
+
                 <div className="sm:col-span-5">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Título / Escopo Comercial da Proposta <span className="text-rose-600">*</span>
@@ -367,226 +893,21 @@ export function ProposalEditModal({
                     className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
                   />
                 </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Situação (Status GestãoClick)
-                  </label>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      updateDraft({ status: e.target.value as ErpCommercialProposal['status'] })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
-                  >
-                    <option value="RASCUNHO">Em Aberto (DRAFT)</option>
-                    <option value="ENVIADA">Enviado ao Cliente (SENT)</option>
-                    <option value="EM_NEGOCIACAO">Em Negociação (UNDER_NEGOTIATION)</option>
-                    <option value="APROVADA">Aprovado (APPROVED)</option>
-                    <option value="CONVERTIDA_CONTRATO">Convertido em Contrato (CONVERTED)</option>
-                    <option value="RECUSADA">Cancelado / Recusado (REJECTED)</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Loja / Unidade</label>
-                  <input
-                    type="text"
-                    value={draft.storeName || 'Matriz'}
-                    onChange={(e) => updateDraft({ storeName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
-                  />
-                </div>
-              </div>
 
-              {/* CLIENTE + PREENCHIMENTO AUTOMÁTICO DO CRM */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                {companies.length > 0 && (
-                  <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Selecionar Cliente do CRM / GestãoClick
-                    </label>
-                    <select
-                      value={draft.companyId || ''}
-                      onChange={(e) => {
-                        const compId = e.target.value;
-                        const comp = companies.find((c) => c.id === compId);
-                        const compContact = contacts.find((ct) => ct.companyId === compId);
-                        const compDeal = deals.find((d) => d.companyId === compId);
-                        if (comp) {
-                          const contactFull = compContact
-                            ? `${compContact.firstName} ${compContact.lastName}`.trim()
-                            : draft.contactName;
-                          updateDraft({
-                            companyId: comp.id,
-                            companyName: comp.name,
-                            companyCnpj: comp.cnpj || draft.companyCnpj,
-                            contactId: compContact?.id || draft.contactId,
-                            contactName: contactFull,
-                            careOf: contactFull,
-                            contactEmail: compContact?.email || draft.contactEmail,
-                            dealId: compDeal?.id || draft.dealId,
-                            deliveryAddress:
-                              comp.city && comp.state
-                                ? `${comp.name} — ${comp.city}/${comp.state}`
-                                : draft.deliveryAddress,
-                          });
-                        } else {
-                          updateDraft({ companyId: null });
-                        }
-                      }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                    >
-                      <option value="">-- Digitar manualmente ou escolher da lista --</option>
-                      {companies.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} {c.cnpj ? `(${c.cnpj})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className={companies.length > 0 ? 'sm:col-span-4' : 'sm:col-span-6'}>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Cliente / Razão Social <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.companyName}
-                    onChange={(e) => updateDraft({ companyName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-900"
-                  />
-                </div>
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ / CPF</label>
                   <input
                     type="text"
-                    value={draft.companyCnpj}
+                    placeholder="00.000.000/0000-00"
+                    value={draft.companyCnpj || ''}
                     onChange={(e) => updateDraft({ companyCnpj: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Aos cuidados de</label>
-                  <input
-                    type="text"
-                    value={draft.careOf ?? draft.contactName}
-                    onChange={(e) =>
-                      updateDraft({ careOf: e.target.value, contactName: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">E-mail do Contato</label>
-                  <input
-                    type="email"
-                    value={draft.contactEmail || ''}
-                    onChange={(e) => updateDraft({ contactEmail: e.target.value })}
-                    placeholder="decisor@cliente.com.br"
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Negócio (Deal CRM Vinculado)
-                  </label>
-                  <select
-                    value={draft.dealId || ''}
-                    onChange={(e) => updateDraft({ dealId: e.target.value || null })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                  >
-                    <option value="">Sem vínculo direto com Deal</option>
-                    {deals.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title} ({formatBRL(d.value)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Data da Proposta</label>
-                  <input
-                    type="date"
-                    value={
-                      draft.proposalDate ||
-                      (draft.createdAt ? draft.createdAt.slice(0, 10) : '2026-10-26')
-                    }
-                    onChange={(e) => updateDraft({ proposalDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
-                  <input
-                    type="date"
-                    value={
-                      draft.validUntil && draft.validUntil.length >= 10
-                        ? draft.validUntil.slice(0, 10)
-                        : '2026-11-10'
-                    }
-                    onChange={(e) => updateDraft({ validUntil: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Prazo de Entrega / Ativação
-                  </label>
-                  <input
-                    type="text"
-                    value={draft.deliveryForecast || 'Imediato (até 48h úteis)'}
-                    onChange={(e) => updateDraft({ deliveryForecast: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Vendedor / Executivo Seta Telecom
-                  </label>
-                  <input
-                    type="text"
-                    value={draft.sellerName}
-                    onChange={(e) => updateDraft({ sellerName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
-                  />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Canal de Venda</label>
-                  <select
-                    value={draft.salesChannel || 'Comercial B2B / Consultivo'}
-                    onChange={(e) => updateDraft({ salesChannel: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                  >
-                    <option value="Comercial B2B / Consultivo">Comercial B2B / Consultivo</option>
-                    <option value="Presencial">Presencial</option>
-                    <option value="Telefone">Telefone / Inside Sales</option>
-                    <option value="WhatsApp">WhatsApp Corporativo</option>
-                    <option value="Cliente Recorrente">Cliente Recorrente (Upsell)</option>
-                    <option value="E-commerce">Portal B2B / E-commerce</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Centro de Custo</label>
-                  <select
-                    value={draft.costCenter || 'Comercial Telecom & TI'}
-                    onChange={(e) => updateDraft({ costCenter: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                  >
-                    <option value="Comercial Telecom & TI">Comercial Telecom &amp; TI</option>
-                    <option value="Locação de Ativos">Locação de Ativos (MRR)</option>
-                    <option value="Projetos & Engenharia">Projetos &amp; Engenharia NOC</option>
-                    <option value="VENDAS">VENDAS</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Prazo Contratual (Meses)
+                    Prazo (Meses)
                   </label>
                   <input
                     type="number"
@@ -601,20 +922,44 @@ export function ProposalEditModal({
                 </div>
               </div>
 
+              {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Introdução da Proposta (impressa na abertura do PDF A4)
+                  Introdução da proposta
                 </label>
                 <textarea
                   rows={2}
-                  value={
-                    draft.introductionText ??
-                    'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.'
-                  }
+                  placeholder="Valor Mensal de R$"
+                  value={draft.introductionText ?? ''}
                   onChange={(e) => updateDraft({ introductionText: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* BLOCO 2 DO GESTÃOCLICK: PREENCHA OS CAMPOS EXTRAS DA SUA EMPRESA (CAPA) */}
+          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
+              <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-[#1e3a6e]" />
+                <span>
+                  Preencha os <span className="text-[#1e3a6e]">campos extras</span> da sua empresa
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Campos que a sua empresa criou para os orçamentos
+              </div>
+            </div>
+            <div className="p-5">
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Capa</label>
+              <input
+                type="text"
+                value={coverText}
+                onChange={(e) => setCoverText(e.target.value)}
+                placeholder="Texto ou identificador de capa da proposta (opcional)"
+                className="w-full px-3 py-2 rounded border border-slate-300"
+              />
             </div>
           </div>
 
@@ -625,7 +970,7 @@ export function ProposalEditModal({
                 <Package className="w-4 h-4 text-[#1e3a6e]" />
                 <div>
                   <div className="text-sm font-bold text-slate-800">
-                    2. Produtos / <span className="text-[#1e3a6e]">Equipamentos</span> ({productItemsWithIdx.length})
+                    Adicione os <span className="text-[#1e3a6e]">produtos</span> do orçamento ({productItemsWithIdx.length})
                   </div>
                   <div className="text-[11px] text-slate-500">
                     Catálogo GestãoClick (786 produtos) • Locação de Bens Móveis (0% ISS — SV 31 STF) ou Venda de Hardware.
@@ -1576,6 +1921,234 @@ export function ProposalEditModal({
             </div>
           </div>
         </form>
+
+        {/* MODAL SOBREPOSTO INLINE: "+ ADICIONAR NOVO" CLIENTE DIRETO NA TELA DE PROPOSTA (SEM PERDER O ORÇAMENTO) */}
+        {showQuickClientModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+            <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-6 text-xs">
+              <div className="px-5 py-3.5 bg-[#10b981] text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5" />
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 block">
+                      Cadastro Rápido Integrado ao Orçamento (Receita Federal + GestãoClick)
+                    </span>
+                    <h3 className="text-sm font-extrabold">
+                      + Adicionar Novo Cliente e Vincular Automaticamente à Proposta
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickClientModal(false)}
+                  className="text-white/80 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
+                {qcRfbBanner && (
+                  <div className="p-3 rounded bg-emerald-950 text-emerald-300 border border-emerald-500 font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{qcRfbBanner}</span>
+                  </div>
+                )}
+                {qcErrorMsg && (
+                  <div className="p-3 rounded bg-rose-50 text-rose-800 border border-rose-300 font-bold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{qcErrorMsg}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-3">
+                    <label className="block font-bold text-slate-700 mb-1">Tipo de Pessoa</label>
+                    <select
+                      value={qcPersonType}
+                      onChange={(e) => setQcPersonType(e.target.value as 'PJ' | 'PF')}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    >
+                      <option value="PJ">Pessoa Jurídica (CNPJ)</option>
+                      <option value="PF">Pessoa Física (CPF)</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-5">
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {qcPersonType === 'PF' ? 'CPF *' : 'CNPJ *'}
+                    </label>
+                    <input
+                      type="text"
+                      value={qcCnpjCpf}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const digits = raw.replace(/\D+/g, '');
+                        const formatted =
+                          qcPersonType === 'PF' ? formatCpfMask(digits) : formatCnpjMask(digits);
+                        setQcCnpjCpf(formatted);
+                        if (qcPersonType === 'PJ' && digits.length === 14) {
+                          handleLookupQuickClientRfb(digits);
+                        }
+                      }}
+                      placeholder={qcPersonType === 'PF' ? '000.000.000-00' : '00.000.000/0001-00'}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-900"
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <button
+                      type="button"
+                      disabled={qcLookingUpRfb || qcPersonType === 'PF'}
+                      onClick={() => handleLookupQuickClientRfb(qcCnpjCpf)}
+                      className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                    >
+                      <Search className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>{qcLookingUpRfb ? 'Consultando RFB...' : 'Consultar Receita Federal'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Razão Social / Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      value={qcLegalName}
+                      onChange={(e) => setQcLegalName(e.target.value)}
+                      placeholder="Ex.: Digisystem Serviços Especializados LTDA"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Nome Fantasia</label>
+                    <input
+                      type="text"
+                      value={qcTradeName}
+                      onChange={(e) => setQcTradeName(e.target.value)}
+                      placeholder="Ex.: Digisystem Tecnologia"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Inscrição Estadual</label>
+                    <input
+                      type="text"
+                      value={qcIe}
+                      onChange={(e) => setQcIe(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                    <input
+                      type="text"
+                      value={qcPhone}
+                      onChange={(e) => setQcPhone(formatBrPhoneMask(e.target.value))}
+                      placeholder="(11) 90000-0000"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail Comercial / NFe</label>
+                    <input
+                      type="email"
+                      value={qcEmail}
+                      onChange={(e) => setQcEmail(e.target.value)}
+                      placeholder="contato@empresa.com.br"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block font-bold text-slate-700 mb-1">CEP</label>
+                    <input
+                      type="text"
+                      value={qcCep}
+                      onChange={(e) => setQcCep(e.target.value)}
+                      placeholder="00000-000"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
+                    />
+                  </div>
+                  <div className="sm:col-span-5">
+                    <label className="block font-bold text-slate-700 mb-1">Logradouro</label>
+                    <input
+                      type="text"
+                      value={qcStreet}
+                      onChange={(e) => setQcStreet(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Número</label>
+                    <input
+                      type="text"
+                      value={qcNumber}
+                      onChange={(e) => setQcNumber(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">UF</label>
+                    <input
+                      type="text"
+                      value={qcState}
+                      onChange={(e) => setQcState(e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      value={qcCity}
+                      onChange={(e) => setQcCity(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Aos cuidados de (Contato na Proposta)
+                    </label>
+                    <input
+                      type="text"
+                      value={qcCareOf}
+                      onChange={(e) => setQcCareOf(e.target.value)}
+                      placeholder="Ex.: Diretoria de TI / Compras"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickClientModal(false)}
+                    className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={qcSaving}
+                    onClick={handleSaveAndLinkQuickClient}
+                    className="px-5 py-2 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {qcSaving ? 'Salvando e Vinculando...' : 'Salvar e Vincular à Proposta'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
