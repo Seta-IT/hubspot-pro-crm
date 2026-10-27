@@ -64,6 +64,7 @@ interface GlobalHeaderSearchProps {
   serviceOrders: ErpServiceOrder[];
   tickets: ServiceTicket[];
   onSelectResult: (result: SearchResultEntry) => void;
+  onNavigateToCategory?: (category: SearchCategoryKey, query: string) => void;
 }
 
 export const SEARCH_CATEGORY_PILLS: Array<{
@@ -236,11 +237,13 @@ export default function GlobalHeaderSearch({
   serviceOrders,
   tickets,
   onSelectResult,
+  onNavigateToCategory,
 }: GlobalHeaderSearchProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [systemFilter, setSystemFilter] = useState<SearchSystemFilter>('ALL');
   const [selectedCategories, setSelectedCategories] = useState<SearchCategoryKey[]>([]);
+  const [multiSelectMode, setMultiSelectMode] = useState<boolean>(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
 
@@ -297,18 +300,28 @@ export default function GlobalHeaderSearch({
     setActiveIndex(0);
   };
 
-  const toggleCategory = (cat: SearchCategoryKey) => {
+  const toggleCategory = (cat: SearchCategoryKey, forceMulti?: boolean) => {
     const pill = SEARCH_CATEGORY_PILLS.find((p) => p.key === cat);
-    setSelectedCategories((prev) => {
-      const isRemoving = prev.includes(cat);
-      const next = isRemoving ? prev.filter((k) => k !== cat) : [...prev, cat];
-      if (!isRemoving && pill && systemFilter !== 'ALL') {
-        if (!pill.allowedSystems.includes(systemFilter)) {
-          setSystemFilter('ALL');
-        }
+    const useMulti = Boolean(forceMulti || multiSelectMode);
+    const isCurrentlySelected = selectedCategories.includes(cat);
+
+    let nextCategories: SearchCategoryKey[];
+    if (useMulti) {
+      nextCategories = isCurrentlySelected
+        ? selectedCategories.filter((k) => k !== cat)
+        : [...selectedCategories, cat];
+    } else {
+      // Single-select direto: clicar em uma pílula filtra APENAS aquela categoria; clicar nela de novo limpa
+      nextCategories =
+        isCurrentlySelected && selectedCategories.length === 1 ? [] : [cat];
+    }
+
+    setSelectedCategories(nextCategories);
+    if (nextCategories.includes(cat) && pill && systemFilter !== 'ALL') {
+      if (!pill.allowedSystems.includes(systemFilter)) {
+        setSystemFilter('ALL');
       }
-      return next;
-    });
+    }
     setActiveIndex(0);
   };
 
@@ -670,7 +683,7 @@ export default function GlobalHeaderSearch({
                   <button
                     key={pill.key}
                     type="button"
-                    onClick={() => toggleCategory(pill.key)}
+                    onClick={(e) => toggleCategory(pill.key, e.ctrlKey || e.metaKey || e.shiftKey)}
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer ${
                       active
                         ? pill.pillActiveCls
@@ -685,7 +698,25 @@ export default function GlobalHeaderSearch({
               })}
 
               <div className="inline-flex items-center gap-2 ml-1 pl-2 border-l border-slate-200">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                <button
+                  type="button"
+                  onClick={() => setMultiSelectMode((v) => !v)}
+                  title={
+                    multiSelectMode
+                      ? "Modo Multi-Filtro Ativo (clique para voltar ao filtro único direto)"
+                      : "Ativar seleção múltipla de categorias"
+                  }
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold border transition cursor-pointer ${
+                    multiSelectMode
+                      ? "bg-[#0f766e] text-white border-[#0f766e]"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {multiSelectMode ? "Multi-filtro: ON" : "Filtro único"}
+                  </span>
+                </button>
                 {activeFiltersCount > 0 && (
                   <button
                     type="button"
@@ -707,15 +738,30 @@ export default function GlobalHeaderSearch({
                   ? `Resultados filtrados (${matchingPool.length} encontrado${matchingPool.length === 1 ? '' : 's'})`
                   : 'Resultados selecionados recentemente'}
               </span>
-              {activeFiltersCount > 0 && (
-                <span className="px-2 py-0.5 rounded bg-teal-50 text-[#0f766e] border border-teal-200 text-[10px] font-extrabold">
-                  {selectedCategories.length > 0
-                    ? selectedCategories
-                        .map((c) => SEARCH_CATEGORY_PILLS.find((p) => p.key === c)?.label)
-                        .join(', ')
-                    : `Sistema: ${systemFilter}`}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedCategories.length === 1 && onNavigateToCategory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cat = selectedCategories[0];
+                      setOpen(false);
+                      onNavigateToCategory(cat, query);
+                    }}
+                    className="px-2.5 py-0.5 rounded bg-[#0f766e] hover:bg-[#115e59] text-white text-[10px] font-extrabold transition cursor-pointer"
+                  >
+                    Abrir aba de {SEARCH_CATEGORY_PILLS.find((p) => p.key === selectedCategories[0])?.label} →
+                  </button>
+                )}
+                {activeFiltersCount > 0 && (
+                  <span className="px-2 py-0.5 rounded bg-teal-50 text-[#0f766e] border border-teal-200 text-[10px] font-extrabold">
+                    {selectedCategories.length > 0
+                      ? selectedCategories
+                          .map((c) => SEARCH_CATEGORY_PILLS.find((p) => p.key === c)?.label)
+                          .join(', ')
+                      : `Sistema: ${systemFilter}`}
+                  </span>
+                )}
+              </div>
             </div>
 
             {filteredEntries.length === 0 ? (

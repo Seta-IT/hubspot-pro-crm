@@ -78,6 +78,10 @@ export default function DataHealthTab({
   const [reassignTarget, setReassignTarget] = useState('Marcelo Lopes Mira');
   const [reassigning, setReassigning] = useState(false);
   const [reassignMsg, setReassignMsg] = useState<string | null>(null);
+  const [erpHealthSearch, setErpHealthSearch] = useState<string>('');
+  const [erpHealthFilter, setErpHealthFilter] = useState<'ALL' | 'VALID_CNPJ' | 'PENDING_CNPJ'>('ALL');
+  const [chamadosHealthSearch, setChamadosHealthSearch] = useState<string>('');
+  const [chamadosHealthPriorityFilter, setChamadosHealthPriorityFilter] = useState<string>('ALL');
 
   const handleReassignOrphans = async () => {
     setReassigning(true);
@@ -262,11 +266,59 @@ export default function DataHealthTab({
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3 text-xs">
-            <h3 className="text-sm font-extrabold text-slate-900">
-              Auditoria Individual de Protocolos de Chamados ({tickets.length})
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Auditoria Individual de Protocolos de Chamados ({tickets.length})
+              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={chamadosHealthSearch}
+                  onChange={(e) => setChamadosHealthSearch(e.target.value)}
+                  placeholder="Filtrar protocolo, assunto, fila ou S/N..."
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-64"
+                />
+                <select
+                  aria-label="Filtrar Auditoria de Chamados por Prioridade"
+                  value={chamadosHealthPriorityFilter}
+                  onChange={(e) => setChamadosHealthPriorityFilter(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                >
+                  <option value="ALL">Prioridade: Todas</option>
+                  <option value="CRITICAL">Crítica</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="MEDIUM">Média</option>
+                  <option value="LOW">Baixa</option>
+                </select>
+                {(chamadosHealthSearch.trim() !== '' || chamadosHealthPriorityFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChamadosHealthSearch('');
+                      setChamadosHealthPriorityFilter('ALL');
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold cursor-pointer"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
-              {tickets.slice(0, 10).map((tk) => (
+              {tickets
+                .filter((tk) => {
+                  if (chamadosHealthPriorityFilter !== 'ALL' && tk.priority !== chamadosHealthPriorityFilter) return false;
+                  if (!chamadosHealthSearch.trim()) return true;
+                  const q = chamadosHealthSearch.toLowerCase();
+                  return (
+                    tk.key.toLowerCase().includes(q) ||
+                    tk.subject.toLowerCase().includes(q) ||
+                    (tk.assignee || '').toLowerCase().includes(q) ||
+                    (tk.equipmentSerial || '').toLowerCase().includes(q)
+                  );
+                })
+                .slice(0, 15)
+                .map((tk) => (
                 <div key={tk.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                   <div>
                     <div className="font-bold text-slate-900">
@@ -349,6 +401,51 @@ export default function DataHealthTab({
             </div>
           </div>
 
+          {/* ERP AUDIT FILTER BAR */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'ALL', label: `Todos os Clientes ERP (${companies.length})` },
+                { id: 'VALID_CNPJ', label: `Com CNPJ Válido (${companies.filter((c) => Boolean(c.cnpj)).length})` },
+                { id: 'PENDING_CNPJ', label: `CNPJ Pendente (${companies.filter((c) => !c.cnpj).length})` },
+              ].map((fb) => (
+                <button
+                  key={fb.id}
+                  type="button"
+                  onClick={() => setErpHealthFilter(fb.id as typeof erpHealthFilter)}
+                  className={`px-3 py-1.5 rounded-lg font-extrabold transition cursor-pointer ${
+                    erpHealthFilter === fb.id
+                      ? 'bg-[#1e3a6e] text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {fb.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={erpHealthSearch}
+                onChange={(e) => setErpHealthSearch(e.target.value)}
+                placeholder="Buscar cliente, CNPJ, SKU ou NCM na auditoria..."
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-64"
+              />
+              {(erpHealthSearch.trim() !== '' || erpHealthFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpHealthSearch('');
+                    setErpHealthFilter('ALL');
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold cursor-pointer"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* ERP AUDIT TABLES */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 text-xs">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
@@ -366,11 +463,24 @@ export default function DataHealthTab({
                   onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
                   className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-bold cursor-pointer"
                 >
-                  ✏️ Gerenciar no ERP
+                  Gerenciar no ERP
                 </button>
               </div>
               <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
-                {companies.slice(0, 8).map((c) => (
+                {companies
+                  .filter((c) => {
+                    if (erpHealthFilter === 'VALID_CNPJ' && !c.cnpj) return false;
+                    if (erpHealthFilter === 'PENDING_CNPJ' && c.cnpj) return false;
+                    if (!erpHealthSearch.trim()) return true;
+                    const q = erpHealthSearch.toLowerCase();
+                    return (
+                      c.name.toLowerCase().includes(q) ||
+                      (c.cnpj || '').toLowerCase().includes(q) ||
+                      (c.city || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 12)
+                  .map((c) => (
                   <div key={c.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                     <div>
                       <div className="font-bold text-slate-900">{c.name}</div>
@@ -409,7 +519,18 @@ export default function DataHealthTab({
                 </button>
               </div>
               <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
-                {(erpData?.catalog || []).slice(0, 8).map((it) => (
+                {(erpData?.catalog || [])
+                  .filter((it) => {
+                    if (!erpHealthSearch.trim()) return true;
+                    const q = erpHealthSearch.toLowerCase();
+                    return (
+                      it.name.toLowerCase().includes(q) ||
+                      it.gestaoClickCode.toLowerCase().includes(q) ||
+                      (it.ncmOrLc116 || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 12)
+                  .map((it) => (
                   <div key={it.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                     <div>
                       <div className="font-bold text-slate-900">

@@ -362,6 +362,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       enrichmentSource: null,
       customProperties: {
         accountExecutive: '(Inside) Gabriel Lopes (Inativo)',
+        status: 'Inativo',
       },
       lastActivityAt: daysAgoIso(110),
       createdAt: daysAgoIso(120),

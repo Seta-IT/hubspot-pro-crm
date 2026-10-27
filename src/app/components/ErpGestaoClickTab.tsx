@@ -1272,26 +1272,27 @@ export default function ErpGestaoClickTab({
         ? (activeSubId as 'ORC_PRODUTOS' | 'ORC_SERVICOS' | 'ORC_AUXILIARES')
         : 'TODOS';
 
-    const hasProductItem = (p: ErpCommercialProposal) =>
-      p.budgetType === 'PRODUTOS' ||
-      p.budgetType === 'LOCACAO' ||
-      p.budgetType === 'CONJUNTO' ||
-      p.items.some(
+    const hasProductItem = (p: ErpCommercialProposal) => {
+      if (p.budgetType === 'SERVICOS') return false;
+      if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO' || p.budgetType === 'CONJUNTO') return true;
+      return p.items.some(
         (i) =>
           i.itemType === 'PRODUCT' ||
           i.fiscalNature === 'LOCACAO_BENS_MOVEIS' ||
           i.fiscalNature === 'VENDA_EQUIPAMENTO'
       );
+    };
 
-    const hasServiceItem = (p: ErpCommercialProposal) =>
-      p.budgetType === 'SERVICOS' ||
-      p.budgetType === 'CONJUNTO' ||
-      p.items.some(
+    const hasServiceItem = (p: ErpCommercialProposal) => {
+      if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO') return false;
+      if (p.budgetType === 'SERVICOS' || p.budgetType === 'CONJUNTO') return true;
+      return p.items.some(
         (i) =>
           i.itemType === 'SERVICE' ||
           i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
           i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
       );
+    };
 
     const tabFiltered =
       effectiveOrcTab === 'ORC_PRODUTOS'
@@ -1481,20 +1482,56 @@ export default function ErpGestaoClickTab({
                   />
                 </div>
                 <select
+                  aria-label="Filtrar Orçamentos por Situação"
                   value={proposalsStatusFilter}
                   onChange={(e) => setProposalsStatusFilter(e.target.value)}
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
                 >
-                  <option value="TODOS">Situação: Todas</option>
-                  <option value="RASCUNHO">Em Aberto</option>
-                  <option value="ENVIADA">Enviado</option>
-                  <option value="EM_NEGOCIACAO">Em Negociação</option>
-                  <option value="APROVADA">Aprovado</option>
-                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato</option>
-                  <option value="RECUSADA">Cancelado / Recusado</option>
+                  <option value="TODOS">Situação: Todas ({tabFiltered.length})</option>
+                  <option value="RASCUNHO">Em Aberto ({tabFiltered.filter((p) => p.status === 'RASCUNHO').length})</option>
+                  <option value="ENVIADA">Enviado ({tabFiltered.filter((p) => p.status === 'ENVIADA').length})</option>
+                  <option value="EM_NEGOCIACAO">Em Negociação ({tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})</option>
+                  <option value="APROVADA">Aprovado ({tabFiltered.filter((p) => p.status === 'APROVADA').length})</option>
+                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato ({tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})</option>
+                  <option value="RECUSADA">Cancelado / Recusado ({tabFiltered.filter((p) => p.status === 'RECUSADA').length})</option>
                 </select>
+                {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || effectiveOrcTab !== 'TODOS') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProposalsSearch('');
+                      setProposalsStatusFilter('TODOS');
+                      setActiveSubId('ORC_TODOS');
+                    }}
+                    className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
               </div>
             )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+            {[
+              { id: 'ORC_TODOS', match: 'TODOS', label: `Todos os Orçamentos (${proposals.length})` },
+              { id: 'ORC_PRODUTOS', match: 'ORC_PRODUTOS', label: `Produtos & Locação (${proposals.filter(hasProductItem).length})` },
+              { id: 'ORC_SERVICOS', match: 'ORC_SERVICOS', label: `Serviços Técnicos LC 116 (${proposals.filter(hasServiceItem).length})` },
+              { id: 'ORC_AUXILIARES', match: 'ORC_AUXILIARES', label: 'Opções Auxiliares & Templates' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveSubId(tab.id)}
+                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
+                  effectiveOrcTab === tab.match
+                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -2054,14 +2091,16 @@ export default function ErpGestaoClickTab({
 
   const renderContractsList = () => {
     const effectiveTab: "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES" =
-      contractsSubFilter !== "TODOS"
-        ? contractsSubFilter
-        : activeSubId === "CTR_SERVICOS" ||
-            activeSubId === "CTR_ASSINATURAS" ||
-            activeSubId === "CTR_AUXILIARES" ||
-            activeSubId === "CTR_LOCACOES"
-          ? (activeSubId as "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES")
-          : "TODOS";
+      activeSubId === "CTR_TODOS"
+        ? "TODOS"
+        : contractsSubFilter !== "TODOS"
+          ? contractsSubFilter
+          : activeSubId === "CTR_SERVICOS" ||
+              activeSubId === "CTR_ASSINATURAS" ||
+              activeSubId === "CTR_AUXILIARES" ||
+              activeSubId === "CTR_LOCACOES"
+            ? (activeSubId as "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES")
+            : "TODOS";
 
     const locacoesList = rentalContracts.filter((c) => {
       const m = inferContractModality(c);
@@ -2234,7 +2273,7 @@ export default function ErpGestaoClickTab({
                 type="button"
                 onClick={() => {
                   setContractsSubFilter(tab.id as typeof contractsSubFilter);
-                  setActiveSubId(tab.id === "TODOS" ? "CTR_LOCACOES" : tab.id);
+                  setActiveSubId(tab.id === "TODOS" ? "CTR_TODOS" : tab.id);
                 }}
                 className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
                   effectiveTab === tab.id
@@ -2528,12 +2567,26 @@ export default function ErpGestaoClickTab({
                   onChange={(e) => setContractsStatusFilter(e.target.value)}
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
                 >
-                  <option value="TODOS">Situação: Todos</option>
-                  <option value="ATIVO">Ativos</option>
-                  <option value="EM_IMPLANTACAO">Em Implantação</option>
-                  <option value="VENCENDO">Renovação Próxima / Vencendo</option>
-                  <option value="ENCERRADO">Encerrados</option>
+                  <option value="TODOS">Situação: Todos ({baseTabContracts.length})</option>
+                  <option value="ATIVO">Ativos ({baseTabContracts.filter((c) => c.status === "ATIVO").length})</option>
+                  <option value="EM_IMPLANTACAO">Em Implantação ({baseTabContracts.filter((c) => c.status === "EM_IMPLANTACAO").length})</option>
+                  <option value="VENCENDO">Renovação Próxima / Vencendo ({baseTabContracts.filter((c) => c.status === "RENOVACAO_PROXIMA" || computeContractValidityInfo(c.endDate, c.status).isWarning).length})</option>
+                  <option value="ENCERRADO">Encerrados ({baseTabContracts.filter((c) => c.status === "ENCERRADO").length})</option>
                 </select>
+                {(contractsSearchQuery.trim() !== "" || contractsStatusFilter !== "TODOS" || effectiveTab !== "TODOS") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContractsSearchQuery("");
+                      setContractsStatusFilter("TODOS");
+                      setContractsSubFilter("TODOS");
+                      setActiveSubId("CTR_TODOS");
+                    }}
+                    className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -2964,10 +3017,9 @@ export default function ErpGestaoClickTab({
       activeSubId === "FIS_SERVICOS" ||
       activeSubId === "FIS_CONSUMIDOR" ||
       activeSubId === "FIS_COMPRAS" ||
-      activeSubId === "FIS_AUXILIARES" ||
-      activeSubId === "FIS_TODOS"
+      activeSubId === "FIS_AUXILIARES"
         ? activeSubId
-        : "FIS_PRODUTOS";
+        : "FIS_TODOS";
 
     const countProdutos = invoices.filter((i) =>
       ["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)
@@ -3075,12 +3127,12 @@ export default function ErpGestaoClickTab({
 
           <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
             {[
+              { id: "FIS_TODOS", label: `Todos os Documentos (${invoices.length})` },
               { id: "FIS_PRODUTOS", label: `Notas de Produtos (${countProdutos})` },
               { id: "FIS_SERVICOS", label: `Notas de Serviços & Faturas Locação (${countServicos})` },
               { id: "FIS_CONSUMIDOR", label: `Notas do Consumidor NFC-e (${countConsumidor})` },
               { id: "FIS_COMPRAS", label: `Notas de Compras / Entrada (${purchaseOrders.length})` },
               { id: "FIS_AUXILIARES", label: "Opções Auxiliares & Tabelas CFOP/ISS" },
-              { id: "FIS_TODOS", label: `Todos os Documentos (${invoices.length})` },
             ].map((tabItem) => (
               <button
                 key={tabItem.id}
@@ -3452,11 +3504,24 @@ export default function ErpGestaoClickTab({
                 onChange={(e) => setInvoicesStatusFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
               >
-                <option value="TODOS">Status: Todos</option>
-                <option value="EMITIDA">Emitidas / Em Aberto</option>
-                <option value="PAGA">Pagas / Liquidadas</option>
-                <option value="VENCIDA">Vencidas</option>
+                <option value="TODOS">Status: Todos ({invoices.length})</option>
+                <option value="EMITIDA">Emitidas / Em Aberto ({invoices.filter((i) => i.status === "EMITIDA").length})</option>
+                <option value="PAGA">Pagas / Liquidadas ({invoices.filter((i) => i.status === "PAGA").length})</option>
+                <option value="VENCIDA">Vencidas ({invoices.filter((i) => i.status === "VENCIDA").length})</option>
               </select>
+              {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODOS") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInvoicesSearchQuery("");
+                    setInvoicesStatusFilter("TODOS");
+                    setActiveSubId("FIS_TODOS");
+                  }}
+                  className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                >
+                  Limpar filtros
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -3692,7 +3757,9 @@ export default function ErpGestaoClickTab({
                       if (sub.id === 'CAD_AUXILIARES') setCadastrosSubTab('AUXILIARES');
                       if (sub.id === 'OS_PAINEL') setOsViewMode('PAINEL');
                       if (sub.id === 'OS_GERENCIAR') setOsViewMode('LISTA');
-                      if (
+                      if (sub.id === 'CTR_TODOS') {
+                        setContractsSubFilter('TODOS');
+                      } else if (
                         sub.id === 'CTR_LOCACOES' ||
                         sub.id === 'CTR_SERVICOS' ||
                         sub.id === 'CTR_ASSINATURAS' ||
@@ -3735,7 +3802,9 @@ export default function ErpGestaoClickTab({
                 if (subId === 'CAD_AUXILIARES') setCadastrosSubTab('AUXILIARES');
                 if (subId === 'OS_PAINEL') setOsViewMode('PAINEL');
                 if (subId === 'OS_GERENCIAR') setOsViewMode('LISTA');
-                if (subId === 'CTR_LOCACOES' || subId === 'CTR_SERVICOS' || subId === 'CTR_ASSINATURAS' || subId === 'CTR_AUXILIARES') {
+                if (subId === 'CTR_TODOS') {
+                  setContractsSubFilter('TODOS');
+                } else if (subId === 'CTR_LOCACOES' || subId === 'CTR_SERVICOS' || subId === 'CTR_ASSINATURAS' || subId === 'CTR_AUXILIARES') {
                   setContractsSubFilter(subId);
                 }
               }
@@ -3828,10 +3897,35 @@ export default function ErpGestaoClickTab({
 
           {activeSection === 'CADASTROS' && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+              <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-slate-100">
+                {[
+                  { id: 'CLIENTES', subId: 'CAD_CLIENTES', label: `Clientes (${companies.length})` },
+                  { id: 'FORNECEDORES', subId: 'CAD_FORNECEDORES', label: `Fornecedores (${suppliers.length})` },
+                  { id: 'FUNCIONARIOS', subId: 'CAD_FUNCIONARIOS', label: `Funcionários (${employees.length})` },
+                  { id: 'TRANSPORTADORAS', subId: 'CAD_TRANSPORTADORAS', label: 'Transportadoras' },
+                  { id: 'AUXILIARES', subId: 'CAD_AUXILIARES', label: 'Opções Auxiliares' },
+                ].map((tb) => (
+                  <button
+                    key={tb.id}
+                    type="button"
+                    onClick={() => {
+                      setCadastrosSubTab(tb.id as typeof cadastrosSubTab);
+                      setActiveSubId(tb.subId);
+                    }}
+                    className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
+                      cadastrosSubTab === tb.id
+                        ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {tb.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    ERP &gt; Cadastros &gt; {cadastrosSubTab} (Navegação na Barra Vertical Esquerda)
+                    ERP &gt; Cadastros &gt; {cadastrosSubTab}
                   </span>
                   <h2 className="text-base font-extrabold text-slate-900">
                     {cadastrosSubTab === 'CLIENTES'
@@ -3968,11 +4062,23 @@ export default function ErpGestaoClickTab({
                         onChange={(e) => setCustomerStatusFilter(e.target.value)}
                         className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
                       >
-                        <option value="TODOS">Situação: Todos</option>
+                        <option value="TODOS">Situação: Todos ({companies.length})</option>
                         <option value="ATIVO">Ativos / Em dia</option>
                         <option value="NOVO">Novos</option>
                         <option value="INATIVO">Inativos</option>
                       </select>
+                      {(customerSearchQuery.trim() !== '' || customerStatusFilter !== 'TODOS') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomerSearchQuery('');
+                            setCustomerStatusFilter('TODOS');
+                          }}
+                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                        >
+                          Limpar filtros
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -4599,17 +4705,55 @@ export default function ErpGestaoClickTab({
                           </button>
                         ) : null;
                       })()}
-                      <span className="text-[11px] text-slate-500">
-                        💡 Sub-itens (<strong>Produtos</strong> / <strong>Serviços</strong>) na barra vertical esquerda. Clique em qualquer item para editar.
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          { id: 'ITENS_TODOS', label: `Todos os Itens (${catalog.length})` },
+                          { id: 'ITENS_PRODUTOS', label: `Produtos & Locação (${catalog.filter((i) => !isServiceCatItem(i)).length})` },
+                          { id: 'ITENS_SERVICOS', label: `Serviços LC 116 / SCM (${catalog.filter((i) => isServiceCatItem(i)).length})` },
+                          { id: 'ITENS_AUXILIARES', label: 'Opções Auxiliares' },
+                        ].map((tb) => {
+                          const isAct =
+                            tb.id === 'ITENS_TODOS'
+                              ? activeSubId !== 'ITENS_PRODUTOS' && activeSubId !== 'ITENS_SERVICOS' && activeSubId !== 'ITENS_AUXILIARES'
+                              : activeSubId === tb.id;
+                          return (
+                            <button
+                              key={tb.id}
+                              type="button"
+                              onClick={() => setActiveSubId(tb.id)}
+                              className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
+                                isAct
+                                  ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              }`}
+                            >
+                              {tb.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <input
-                      type="text"
-                      value={itensSearch}
-                      onChange={(e) => setItensSearch(e.target.value)}
-                      placeholder="Buscar por SKU, descrição, NCM ou CFOP..."
-                      className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={itensSearch}
+                        onChange={(e) => setItensSearch(e.target.value)}
+                        placeholder="Buscar por SKU, descrição, NCM ou CFOP..."
+                        className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                      />
+                      {(itensSearch.trim() !== '' || activeSubId === 'ITENS_PRODUTOS' || activeSubId === 'ITENS_SERVICOS') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setItensSearch('');
+                            setActiveSubId('ITENS_TODOS');
+                          }}
+                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                        >
+                          Limpar filtros
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <table className="w-full text-left text-xs">
@@ -4733,7 +4877,8 @@ export default function ErpGestaoClickTab({
                 const srvMatches = salesOrders.filter(isServiceSale);
                 if (srvMatches.length > 0 && !isServiceSale(v)) return false;
               }
-              if (activeSubId === 'VENDAS_PRODUTOS' && isReturnOrder(v)) return false;
+              if (activeSubId === 'VENDAS_PRODUTOS' && (isReturnOrder(v) || isServiceSale(v))) return false;
+              if (activeSubId !== 'VENDAS_DEVOLUCOES' && isReturnOrder(v)) return false;
               if (vendasSearch.trim()) {
                 const q = vendasSearch
                   .normalize('NFD')
@@ -4752,16 +4897,54 @@ export default function ErpGestaoClickTab({
               <div className="space-y-4">
                 {activeSubId !== 'VENDAS_BALCAO' && (
                   <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-slate-600">
-                      Alterne entre <strong>Produtos</strong>, <strong>Serviços</strong> e <strong>Devoluções</strong> na barra vertical esquerda.
-                    </span>
-                    <input
-                      type="text"
-                      value={vendasSearch}
-                      onChange={(e) => setVendasSearch(e.target.value)}
-                      placeholder="Buscar por cliente, código ou vendedor..."
-                      className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
-                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[
+                        { id: 'VENDAS_TODAS', label: `Todas as Vendas (${salesOrders.filter((v) => !isReturnOrder(v)).length})` },
+                        { id: 'VENDAS_PRODUTOS', label: `Vendas de Produtos (${salesOrders.filter((v) => !isReturnOrder(v) && !isServiceSale(v)).length})` },
+                        { id: 'VENDAS_SERVICOS', label: `Vendas de Serviços (${salesOrders.filter((v) => !isReturnOrder(v) && isServiceSale(v)).length})` },
+                        { id: 'VENDAS_DEVOLUCOES', label: `Devoluções & Trocas (${salesOrders.filter((v) => isReturnOrder(v)).length})` },
+                      ].map((tb) => {
+                        const isAct =
+                          tb.id === 'VENDAS_TODAS'
+                            ? activeSubId !== 'VENDAS_PRODUTOS' && activeSubId !== 'VENDAS_SERVICOS' && activeSubId !== 'VENDAS_DEVOLUCOES' && activeSubId !== 'VENDAS_AUXILIARES'
+                            : activeSubId === tb.id;
+                        return (
+                          <button
+                            key={tb.id}
+                            type="button"
+                            onClick={() => setActiveSubId(tb.id)}
+                            className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
+                              isAct
+                                ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            {tb.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={vendasSearch}
+                        onChange={(e) => setVendasSearch(e.target.value)}
+                        placeholder="Buscar por cliente, código ou vendedor..."
+                        className="px-3 py-1.5 rounded border border-slate-300 text-xs w-64"
+                      />
+                      {(vendasSearch.trim() !== '' || activeSubId === 'VENDAS_PRODUTOS' || activeSubId === 'VENDAS_SERVICOS' || activeSubId === 'VENDAS_DEVOLUCOES') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVendasSearch('');
+                            setActiveSubId('VENDAS_TODAS');
+                          }}
+                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                        >
+                          Limpar filtros
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -5078,6 +5261,19 @@ export default function ErpGestaoClickTab({
                       <option value="Concluída">Concluída</option>
                       <option value="Cancelada">Cancelada</option>
                     </select>
+                    {(osSearch.trim() !== '' || osStatusFilter !== 'TODOS' || osTechFilter !== 'TODOS') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOsSearch('');
+                          setOsStatusFilter('TODOS');
+                          setOsTechFilter('TODOS');
+                        }}
+                        className="w-full px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-extrabold cursor-pointer"
+                      >
+                        Limpar filtros de O.S.
+                      </button>
+                    )}
                   </div>
                 </div>
 

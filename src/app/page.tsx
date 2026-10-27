@@ -1245,6 +1245,44 @@ export default function HubSpotProCrmApp() {
                 setActiveModule('SERVICE_DESK');
               }
             }}
+            onNavigateToCategory={(cat) => {
+              if (cat === 'CONTACTS') {
+                setContactsInitialSubView('CONTACTS');
+                setContactsNavTrigger((n) => n + 1);
+                setLastCrmSubModule('CONTACTS_COMPANIES');
+                setActiveModule('CONTACTS_COMPANIES');
+              } else if (cat === 'COMPANIES') {
+                setContactsInitialSubView('COMPANIES');
+                setContactsNavTrigger((n) => n + 1);
+                setLastCrmSubModule('CONTACTS_COMPANIES');
+                setActiveModule('CONTACTS_COMPANIES');
+              } else if (cat === 'DEALS') {
+                setLastCrmSubModule('DEALS_KANBAN');
+                setActiveModule('DEALS_KANBAN');
+              } else if (cat === 'PROPOSALS') {
+                setErpInitialSection('ORCAMENTOS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'PRODUCTS') {
+                setErpInitialSection('ITENS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'CONTRACTS') {
+                setErpInitialSection('CONTRATOS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'INVOICES') {
+                setErpInitialSection('FISCAL');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'SERVICE_ORDERS') {
+                setErpInitialSection('ORDENS_SERVICOS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'TICKETS') {
+                setActiveModule('SERVICE_DESK');
+              }
+            }}
           />
 
           {/* Right Status & Profile Controls */}

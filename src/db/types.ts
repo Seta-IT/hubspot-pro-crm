@@ -534,6 +534,50 @@ export interface ErpProposalInstallment {
   notes?: string;
 }
 
+export interface ErpProposalVersionSnapshot {
+  title: string;
+  status: ErpProposalStatus;
+  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO';
+  companyId: string | null;
+  companyName: string;
+  companyCnpj: string;
+  contactId: string | null;
+  contactName: string;
+  careOf?: string;
+  contactEmail?: string;
+  sellerName: string;
+  contractMonths: number;
+  readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
+  paymentCondition: string;
+  validUntil: string;
+  deliveryForecast?: string;
+  shippingCarrier?: string;
+  shippingCost?: number;
+  deliveryAddress?: string;
+  discountAmount?: number;
+  discountPercentGlobal?: number;
+  productsSubtotal?: number;
+  servicesSubtotal?: number;
+  monthlyRecurringTotal: number;
+  oneTimeSetupTotal: number;
+  totalContractValue: number;
+  commercialNotes: string;
+  technicalClauses: string;
+  internalNotes?: string;
+  installments?: ErpProposalInstallment[];
+  items: ErpProposalItem[];
+}
+
+export interface ErpProposalVersionEntry {
+  version: number;
+  versionLabel: string;
+  savedAt: string;
+  savedBy: string;
+  changedFields: string[];
+  changeSummary: string;
+  snapshot: ErpProposalVersionSnapshot;
+}
+
 export interface ErpCommercialProposal {
   id: string;
   code: string;
@@ -584,6 +628,8 @@ export interface ErpCommercialProposal {
   convertedContractId?: string | null;
   convertedInvoiceId?: string | null;
   digitalSignature?: ErpProposalDigitalSignature | null;
+  version?: number;
+  versionHistory?: ErpProposalVersionEntry[];
   createdAt: string;
   updatedAt: string;
 }

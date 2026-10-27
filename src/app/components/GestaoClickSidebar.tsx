@@ -59,9 +59,9 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Itens',
     icon: Barcode,
     subItems: [
+      { id: 'ITENS_TODOS', label: 'Todos os itens' },
       { id: 'ITENS_PRODUTOS', label: 'Produtos' },
       { id: 'ITENS_SERVICOS', label: 'Serviços' },
-      { id: 'ITENS_TODOS', label: 'Todos os itens' },
       { id: 'ITENS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },
@@ -81,6 +81,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Vendas',
     icon: ShoppingBasket,
     subItems: [
+      { id: 'VENDAS_TODAS', label: 'Todas as vendas' },
       { id: 'VENDAS_PRODUTOS', label: 'Produtos' },
       { id: 'VENDAS_SERVICOS', label: 'Serviços' },
       { id: 'VENDAS_DEVOLUCOES', label: 'Devoluções' },
@@ -128,6 +129,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Fiscal',
     icon: Receipt,
     subItems: [
+      { id: 'FIS_TODAS', label: 'Todas as notas e faturas' },
       { id: 'FIS_PRODUTOS', label: 'Notas de produtos' },
       { id: 'FIS_SERVICOS', label: 'Notas de serviços' },
       { id: 'FIS_CONSUMIDOR', label: 'Notas do consumidor' },
@@ -140,6 +142,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     label: 'Contratos',
     icon: FileSignature,
     subItems: [
+      { id: 'CTR_TODOS', label: 'Todos os contratos' },
       { id: 'CTR_LOCACOES', label: 'Locações' },
       { id: 'CTR_SERVICOS', label: 'Serviços' },
       { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },

@@ -24,6 +24,8 @@ import {
   Workflow,
   WorkflowExecution,
   ErpCommercialProposal,
+  ErpProposalVersionEntry,
+  ErpProposalVersionSnapshot,
   ErpProposalDigitalSignature,
   ErpOfxTransactionItem,
   ErpOfxReconciliationResult,
@@ -100,6 +102,155 @@ import {
   computeContactNextBestAction,
   normalizeAndClassifyJobTitle,
 } from '../modules/enrichment/enrichment-service';
+
+export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpProposalVersionSnapshot {
+  return {
+    title: p.title || '',
+    status: p.status || 'ENVIADA',
+    budgetType: p.budgetType,
+    companyId: p.companyId ?? null,
+    companyName: p.companyName || '',
+    companyCnpj: p.companyCnpj || '',
+    contactId: p.contactId ?? null,
+    contactName: p.contactName || '',
+    careOf: p.careOf || p.contactName || '',
+    contactEmail: p.contactEmail,
+    sellerName: p.sellerName || 'Marcelo Lopes Mira',
+    contractMonths: Number(p.contractMonths || 24),
+    readjustmentIndex: p.readjustmentIndex || 'IPCA',
+    paymentCondition: p.paymentCondition || '',
+    validUntil: p.validUntil || '',
+    deliveryForecast: p.deliveryForecast || '',
+    shippingCarrier: p.shippingCarrier || '',
+    shippingCost: Number(p.shippingCost || 0),
+    deliveryAddress: p.deliveryAddress || '',
+    discountAmount: Number(p.discountAmount || 0),
+    discountPercentGlobal: Number(p.discountPercentGlobal || 0),
+    productsSubtotal: Number(p.productsSubtotal || 0),
+    servicesSubtotal: Number(p.servicesSubtotal || 0),
+    monthlyRecurringTotal: Number(p.monthlyRecurringTotal || 0),
+    oneTimeSetupTotal: Number(p.oneTimeSetupTotal || 0),
+    totalContractValue: Number(p.totalContractValue || 0),
+    commercialNotes: p.commercialNotes || '',
+    technicalClauses: p.technicalClauses || '',
+    internalNotes: p.internalNotes || '',
+    installments: Array.isArray(p.installments) ? structuredClone(p.installments) : [],
+    items: Array.isArray(p.items) ? structuredClone(p.items) : [],
+  };
+}
+
+export function computeProposalChangedFields(
+  prev: ErpCommercialProposal,
+  next: ErpCommercialProposal
+): string[] {
+  const changed: string[] = [];
+
+  if (
+    (prev.technicalClauses || '').trim() !== (next.technicalClauses || '').trim() ||
+    prev.slaResponseHours !== next.slaResponseHours ||
+    prev.slaAvailabilityPercent !== next.slaAvailabilityPercent
+  ) {
+    changed.push('SLA / Cláusulas Técnicas');
+  }
+
+  if (Number(prev.contractMonths || 0) !== Number(next.contractMonths || 0)) {
+    changed.push(`Tempo de Contrato (${prev.contractMonths || 0}m → ${next.contractMonths || 0}m)`);
+  }
+
+  if ((prev.readjustmentIndex || 'IPCA') !== (next.readjustmentIndex || 'IPCA')) {
+    changed.push(`Índice de Reajuste (${prev.readjustmentIndex || 'IPCA'} → ${next.readjustmentIndex || 'IPCA'})`);
+  }
+
+  const prevInst = JSON.stringify(prev.installments || []);
+  const nextInst = JSON.stringify(next.installments || []);
+  if ((prev.paymentCondition || '').trim() !== (next.paymentCondition || '').trim() || prevInst !== nextInst) {
+    changed.push(`Forma de Pagamento (${next.paymentCondition || 'Atualizada'})`);
+  }
+
+  const normItems = (arr: ErpCommercialProposal['items']) =>
+    JSON.stringify(
+      (arr || []).map((i) => ({
+        sku: i.sku,
+        description: i.description,
+        quantity: Number(i.quantity || 1),
+        unitPrice: Number(i.unitPrice || 0),
+        discountPercent: Number(i.discountPercent || 0),
+        discountAmount: Number(i.discountAmount || 0),
+        isRecurring: i.isRecurring !== false,
+      }))
+    );
+
+  if (normItems(prev.items) !== normItems(next.items)) {
+    changed.push(`Produtos / Serviços (${(prev.items || []).length} → ${(next.items || []).length} item(ns))`);
+  }
+
+  if (
+    Math.abs(Number(prev.monthlyRecurringTotal || 0) - Number(next.monthlyRecurringTotal || 0)) > 0.009 ||
+    Math.abs(Number(prev.oneTimeSetupTotal || 0) - Number(next.oneTimeSetupTotal || 0)) > 0.009 ||
+    Math.abs(Number(prev.totalContractValue || 0) - Number(next.totalContractValue || 0)) > 0.009 ||
+    Math.abs(Number(prev.discountAmount || 0) - Number(next.discountAmount || 0)) > 0.009 ||
+    Math.abs(Number(prev.discountPercentGlobal || 0) - Number(next.discountPercentGlobal || 0)) > 0.009 ||
+    Math.abs(Number(prev.shippingCost || 0) - Number(next.shippingCost || 0)) > 0.009
+  ) {
+    changed.push(
+      `Valores (MRR R$ ${Number(prev.monthlyRecurringTotal || 0).toFixed(2)} → R$ ${Number(next.monthlyRecurringTotal || 0).toFixed(2)} | Total R$ ${Number(next.totalContractValue || 0).toFixed(2)})`
+    );
+  }
+
+  if (
+    (prev.validUntil || '').trim() !== (next.validUntil || '').trim() ||
+    (prev.deliveryForecast || '').trim() !== (next.deliveryForecast || '').trim() ||
+    (prev.shippingCarrier || '').trim() !== (next.shippingCarrier || '').trim() ||
+    (prev.deliveryAddress || '').trim() !== (next.deliveryAddress || '').trim()
+  ) {
+    changed.push('Prazo de Entrega / Validade / Frete');
+  }
+
+  if (
+    (prev.commercialNotes || '').trim() !== (next.commercialNotes || '').trim() ||
+    (prev.internalNotes || '').trim() !== (next.internalNotes || '').trim() ||
+    (prev.introductionText || '').trim() !== (next.introductionText || '').trim()
+  ) {
+    changed.push('Observações Comerciais / Fiscais');
+  }
+
+  if (prev.status !== next.status) {
+    changed.push(`Situação (${prev.status} → ${next.status})`);
+  }
+
+  if (
+    (prev.companyName || '').trim() !== (next.companyName || '').trim() ||
+    (prev.companyCnpj || '').trim() !== (next.companyCnpj || '').trim() ||
+    (prev.careOf || '').trim() !== (next.careOf || '').trim() ||
+    (prev.title || '').trim() !== (next.title || '').trim()
+  ) {
+    changed.push('Cliente / Destinatário / Título');
+  }
+
+  return changed;
+}
+
+export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): ErpCommercialProposal {
+  if (!Array.isArray(p.versionHistory) || p.versionHistory.length === 0) {
+    const initialVer = Number(p.version || 1);
+    const snap = buildProposalVersionSnapshot(p);
+    p.version = initialVer;
+    p.versionHistory = [
+      {
+        version: initialVer,
+        versionLabel: `v${initialVer}.0`,
+        savedAt: p.createdAt || p.updatedAt || new Date().toISOString(),
+        savedBy: p.sellerName || 'Marcelo Lopes Mira',
+        changedFields: ['Emissão Inicial da Proposta'],
+        changeSummary: `Versão inicial da Proposta Comercial #${p.code} (v${initialVer}.0)`,
+        snapshot: snap,
+      },
+    ];
+  } else if (!p.version) {
+    p.version = p.versionHistory[p.versionHistory.length - 1]?.version || p.versionHistory.length;
+  }
+  return p;
+}
 
 export function normalizeSearchText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -2182,6 +2333,9 @@ export class CrmRepository {
     ) {
       this.state.erp.gestaoClickConfig.companyCnpj = '14.806.925/0001-32';
     }
+    if (Array.isArray(this.state.erp.proposals)) {
+      this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
+    }
     return this.state.erp;
   }
 
@@ -2412,10 +2566,13 @@ export class CrmRepository {
         `SLA 99,95% Seta Telecom com substituição expressa de hardware. Vigência contratual de ${contractMonths} meses.`,
       convertedContractId: input.convertedContractId ?? null,
       convertedInvoiceId: input.convertedInvoiceId ?? null,
+      version: 1,
+      versionHistory: [],
       createdAt: input.createdAt || now,
       updatedAt: now,
     };
 
+    ensureProposalInitializedWithVersion(proposal);
     erp.proposals.unshift(proposal);
     this.save();
     return proposal;
@@ -2441,10 +2598,49 @@ export class CrmRepository {
       return created;
     }
 
-    const current = erp.proposals[idx];
-    const items = Array.isArray(patch.items) ? patch.items : current.items;
+    const current = ensureProposalInitializedWithVersion(erp.proposals[idx]);
+    const rawItems = Array.isArray(patch.items) ? patch.items : current.items;
+    const items = rawItems.map((it) => {
+      const itemType =
+        it.itemType ||
+        (it.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+        it.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+          ? 'SERVICE'
+          : 'PRODUCT');
+      const qty = Math.max(1, Number(it.quantity || 1));
+      const unitPrice = Math.max(0, Number(it.unitPrice || 0));
+      const discPct = Math.max(0, Math.min(100, Number(it.discountPercent || 0)));
+      const discAmt = Math.max(0, Number(it.discountAmount || 0));
+      const gross = qty * unitPrice;
+      const net =
+        it.subtotal !== undefined && patch.items === undefined
+          ? Number(it.subtotal)
+          : Math.max(0, Math.round((gross * (1 - discPct / 100) - discAmt) * 100) / 100);
+      return {
+        ...it,
+        itemType,
+        quantity: qty,
+        unitPrice,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        subtotal: net,
+        totalMonthly: net,
+      };
+    });
+
     const contractMonths = Number(patch.contractMonths ?? current.contractMonths ?? 24);
     const discountAmount = Number(patch.discountAmount ?? current.discountAmount ?? 0);
+    const discountPercentGlobal = Number(
+      patch.discountPercentGlobal ?? current.discountPercentGlobal ?? 0
+    );
+    const shippingCost = Number(patch.shippingCost ?? current.shippingCost ?? 0);
+
+    const productsSubtotal = items
+      .filter((i) => i.itemType === 'PRODUCT')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
+    const servicesSubtotal = items
+      .filter((i) => i.itemType === 'SERVICE')
+      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
 
     const computedMonthly = items
       .filter((i) => i.isRecurring !== false)
@@ -2454,17 +2650,33 @@ export class CrmRepository {
       .reduce((sum, i) => sum + Number(i.totalMonthly ?? Number(i.quantity || 1) * Number(i.unitPrice || 0)), 0);
 
     const monthlyRecurringTotal =
-      patch.monthlyRecurringTotal !== undefined
+      patch.monthlyRecurringTotal !== undefined && patch.items === undefined
         ? Number(patch.monthlyRecurringTotal)
-        : Math.max(0, computedMonthly - discountAmount);
+        : computedMonthly > 0
+          ? Math.max(
+              0,
+              Math.round(
+                (computedMonthly - discountAmount - (computedMonthly * discountPercentGlobal) / 100) * 100
+              ) / 100
+            )
+          : 0;
     const oneTimeSetupTotal =
-      patch.oneTimeSetupTotal !== undefined ? Number(patch.oneTimeSetupTotal) : computedSetup;
+      patch.oneTimeSetupTotal !== undefined && patch.items === undefined
+        ? Number(patch.oneTimeSetupTotal)
+        : computedMonthly > 0
+          ? Math.max(0, Math.round((computedSetup + shippingCost) * 100) / 100)
+          : Math.max(
+              0,
+              Math.round(
+                (computedSetup - discountAmount - (computedSetup * discountPercentGlobal) / 100 + shippingCost) * 100
+              ) / 100
+            );
     const totalContractValue =
-      patch.totalContractValue !== undefined
+      patch.totalContractValue !== undefined && patch.items === undefined && patch.contractMonths === undefined
         ? Number(patch.totalContractValue)
-        : monthlyRecurringTotal * contractMonths + oneTimeSetupTotal;
+        : Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal) * 100) / 100;
 
-    const updated: ErpCommercialProposal = {
+    const candidate: ErpCommercialProposal = {
       ...current,
       ...patch,
       id: current.id,
@@ -2473,9 +2685,19 @@ export class CrmRepository {
       companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
       companyCnpj: patch.companyCnpj !== undefined ? String(patch.companyCnpj).trim() : current.companyCnpj,
       contactName: patch.contactName !== undefined ? String(patch.contactName).trim() : current.contactName,
+      careOf:
+        patch.careOf !== undefined
+          ? String(patch.careOf).trim()
+          : patch.contactName !== undefined
+            ? String(patch.contactName).trim()
+            : current.careOf,
       sellerName: patch.sellerName !== undefined ? String(patch.sellerName).trim() : current.sellerName,
       contractMonths,
       discountAmount,
+      discountPercentGlobal,
+      shippingCost,
+      productsSubtotal,
+      servicesSubtotal,
       items,
       monthlyRecurringTotal,
       oneTimeSetupTotal,
@@ -2483,9 +2705,66 @@ export class CrmRepository {
       updatedAt: nowIso,
     };
 
-    erp.proposals[idx] = updated;
+    const prevHistory = Array.isArray(current.versionHistory) ? [...current.versionHistory] : [];
+    const detectedChanges = computeProposalChangedFields(current, candidate);
+    const changedFields =
+      detectedChanges.length > 0 ? detectedChanges : ['Revisão e salvamento da proposta comercial'];
+    const nextVersion = Math.max(
+      (current.version || 1) + 1,
+      (prevHistory[prevHistory.length - 1]?.version || 1) + 1
+    );
+    const savedBy = String(
+      (patch as Record<string, unknown>).updatedBy ||
+        candidate.sellerName ||
+        current.sellerName ||
+        'Marcelo Lopes Mira'
+    );
+    const customSummary =
+      typeof (patch as Record<string, unknown>).versionChangeSummary === 'string' &&
+      String((patch as Record<string, unknown>).versionChangeSummary).trim()
+        ? String((patch as Record<string, unknown>).versionChangeSummary).trim()
+        : `Revisão v${nextVersion}.0 — Alterações: ${changedFields.join(' • ')}`;
+
+    const versionEntry: ErpProposalVersionEntry = {
+      version: nextVersion,
+      versionLabel: `v${nextVersion}.0`,
+      savedAt: nowIso,
+      savedBy,
+      changedFields,
+      changeSummary: customSummary,
+      snapshot: buildProposalVersionSnapshot(candidate),
+    };
+
+    candidate.version = nextVersion;
+    candidate.versionHistory = [...prevHistory, versionEntry];
+
+    erp.proposals[idx] = candidate;
     this.save();
-    return updated;
+    return candidate;
+  }
+
+  restoreProposalVersion(
+    idOrCode: string,
+    targetVersion: number,
+    restoredBy?: string
+  ): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const found = erp.proposals.find(
+      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+    );
+    if (!found) return null;
+    ensureProposalInitializedWithVersion(found);
+    const targetEntry = (found.versionHistory || []).find(
+      (v) => Number(v.version) === Number(targetVersion)
+    );
+    if (!targetEntry) return null;
+
+    const snap = targetEntry.snapshot;
+    return this.updateProposal(found.id, {
+      ...snap,
+      updatedBy: restoredBy || found.sellerName || 'Marcelo Lopes Mira',
+      versionChangeSummary: `Restaurado a partir da revisão ${targetEntry.versionLabel} (${new Date(targetEntry.savedAt).toLocaleDateString('pt-BR')})`,
+    } as Partial<ErpCommercialProposal>);
   }
 
   deleteProposal(idOrCode: string): boolean {

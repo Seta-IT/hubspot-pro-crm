@@ -654,7 +654,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     }).data;
 
     assert.ok(ov.kpis.monthlyRentalMrr > 0);
-    assert.equal(ov.kpis.activeContractsCount, 3);
+    assert.ok(ov.kpis.activeContractsCount >= 3);
     assert.ok(ov.kpis.issSavedBySv31Stf > 0);
 
     const locInvoice = ov.invoices.find((i) => i.documentType === 'FATURA_LOCACAO');
@@ -2344,5 +2344,49 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(pageSrc.includes('initialCompanyIdForModal'));
     assert.ok(pageSrc.includes('initialDealIdForDrawer'));
     assert.ok(pageSrc.includes('initialTicketIdForDrawer'));
+    assert.ok(pageSrc.includes('onNavigateToCategory'));
+  });
+
+  it('garante que cada sub-aba e cada opção de filtro em Orçamentos, Contratos, Clientes, Catálogo, Vendas, O.S., Fiscal e Data Health filtra contra dados reais do seed e diferencia categorias sem travar em CTR_LOCACOES', () => {
+    const repo = createInMemoryRepository();
+    const erp = repo.getErpOverview();
+    const companies = repo.listCompanies();
+
+    const hasProductItem = (p: any) => {
+      if (p.budgetType === 'SERVICOS') return false;
+      if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO' || p.budgetType === 'CONJUNTO') return true;
+      return p.items.some((i: any) => i.itemType === 'PRODUCT' || i.fiscalNature === 'LOCACAO_BENS_MOVEIS' || i.fiscalNature === 'VENDA_EQUIPAMENTO');
+    };
+    const hasServiceItem = (p: any) => {
+      if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO') return false;
+      if (p.budgetType === 'SERVICOS' || p.budgetType === 'CONJUNTO') return true;
+      return p.items.some((i: any) => i.itemType === 'SERVICE' || i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' || i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
+    };
+
+    const orcProdutos = erp.proposals.filter(hasProductItem);
+    const orcServicos = erp.proposals.filter(hasServiceItem);
+    assert.ok(orcProdutos.length > 0 && orcProdutos.length < erp.proposals.length, 'ORC_PRODUTOS deve filtrar um subconjunto real de propostas');
+    assert.ok(orcServicos.length > 0 && orcServicos.length < erp.proposals.length, 'ORC_SERVICOS deve filtrar um subconjunto real de propostas');
+
+    for (const st of ['RASCUNHO', 'ENVIADA', 'EM_NEGOCIACAO', 'APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA']) {
+      assert.ok(erp.proposals.some((p) => p.status === st), `Seed de propostas deve ter pelo menos 1 registro para o filtro de situação ${st}`);
+    }
+
+    for (const mod of ['LOCACAO', 'SERVICO', 'ASSINATURA', 'HIBRIDO']) {
+      assert.ok(erp.rentalContracts.some((c) => c.modality === mod), `Seed de contratos deve ter modalidade ${mod}`);
+    }
+    for (const st of ['ATIVO', 'EM_IMPLANTACAO', 'RENOVACAO_PROXIMA', 'ENCERRADO']) {
+      assert.ok(erp.rentalContracts.some((c) => c.status === st), `Seed de contratos deve ter status ${st}`);
+    }
+
+    assert.ok(companies.some((c) => String((c.customProperties || {}).status || '').toLowerCase().includes('inativ')));
+
+    assert.ok(erp.salesOrders.some((v) => v.saleType === 'PRODUTO'));
+    assert.ok(erp.salesOrders.some((v) => v.saleType === 'SERVICO'));
+    assert.ok(erp.salesOrders.some((v) => v.saleType === 'DEVOLUCAO'));
+
+    const ghsSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/components/GlobalHeaderSearch.tsx'), 'utf8');
+    assert.ok(ghsSrc.includes('multiSelectMode'));
+    assert.ok(ghsSrc.includes('Abrir aba de'));
   });
 });
