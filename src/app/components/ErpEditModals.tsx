@@ -50,6 +50,15 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalVersionUrl, computeProposalTotals, inferProposalItemType, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import {
+  loadContractAuxiliaryOptions,
+  computeCustomDueDateClient,
+  matchInvoicesForContract,
+  computeUpcomingRecurringCycles,
+  downloadInvoicePdfOnDemand,
+  downloadContractInvoicesCsvOnDemand,
+  downloadContractBillingHistoryReportOnDemand,
+} from '../lib/contract-billing-utils';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -2620,14 +2629,16 @@ export function ContractEditModal({
   onGenerateRemessaNfe,
   onOpenPartialReturn,
   onShowToast,
+  invoices = [],
 }: {
   contract: ErpRentalContract;
+  invoices?: ErpFiscalInvoice[];
   initialTab?: ContractModalTabId;
   readOnly?: boolean;
   onClose: () => void;
   onSave: (updated: ErpRentalContract) => Promise<void>;
   onDelete?: (contract: ErpRentalContract) => Promise<void>;
-  onGenerateInvoice?: (contractId: string) => Promise<void>;
+  onGenerateInvoice?: (contractId: string, options?: Record<string, unknown>) => Promise<void>;
   onGenerateRemessaNfe?: (contractId: string) => Promise<void>;
   onOpenPartialReturn?: (contract: ErpRentalContract) => void;
   onShowToast?: (msg: string) => void;
@@ -2674,6 +2685,56 @@ export function ContractEditModal({
 
   const sumEquipmentsPatrimony = (equipments: ErpRentalEquipmentItem[]) =>
     equipments.reduce((sum, eq) => sum + Number(eq.assetValueBrl || 0), 0);
+
+  // ===== Faturamento do Contrato (campos GestaoClick) =====
+  const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
+  const [recipientEmailsText, setRecipientEmailsText] = useState<string>(
+    (contract.billingRecipientEmails || []).join(', ')
+  );
+  const contractInvoices = matchInvoicesForContract(draft, invoices || []);
+  const upcomingCycles = computeUpcomingRecurringCycles(draft, 4);
+  const dueRulePreview = computeCustomDueDateClient({
+    offsetDays: draft.customDueOffsetDays ?? 45,
+    targetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY',
+  });
+  const lblCls = 'block font-bold text-slate-700 mb-1';
+  const inpCls = 'w-full px-3 py-2 rounded border border-slate-300';
+  const numOrUndef = (v: string): number | undefined => (v === '' ? undefined : Number(v) || 0);
+  const computedInvoiceTotal = (c: ErpRentalContract): number => {
+    const base = c.productsSubtotalBrl ?? sumEquipmentsMonthly(c.equipments || []);
+    const pctDisc = c.discountPercent ? (base * c.discountPercent) / 100 : 0;
+    const freight = c.includeFreightInInvoice ? Number(c.freightValueBrl || 0) : 0;
+    return Math.max(0, Math.round((base + Number(c.additionValueBrl || 0) - Number(c.discountValueBrl || 0) - pctDisc + freight) * 100) / 100);
+  };
+  const updateTotals = (patch: Partial<ErpRentalContract>) => {
+    setDraft((prev) => {
+      const next = { ...prev, ...patch };
+      return autoSyncMonthly ? { ...next, monthlyValue: computedInvoiceTotal(next) } : next;
+    });
+  };
+  const renderContractDataBlock = () => (
+    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
+      <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+        1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)
+      </span>
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-bold`} /></div>
+        <div><label className={lblCls}>CNPJ</label><input type="text" value={draft.companyCnpj} onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })} className={`${inpCls} font-mono`} /></div>
+        <div><label className={lblCls}>Contrato n.</label><input type="text" value={draft.contractNumber} onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })} className={`${inpCls} font-mono`} /></div>
+        <div><label className={lblCls}>Nº Contrato Externo</label><input type="text" value={draft.externalContractNumber || ''} onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })} className={inpCls} /></div>
+        <div><label className={lblCls}>Proposta Vinculada</label><input type="text" value={draft.proposalNumber || ''} onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })} className={inpCls} /></div>
+        <div><label className={lblCls}>NF-e de Remessa / CFOP</label><div className="flex gap-1"><input type="text" value={draft.remessaNfeNumber || ''} onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })} className={`${inpCls} font-mono`} /><input type="text" value={draft.remessaCfop || ''} onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value } as ErpRentalContract)} className={`${inpCls} font-mono w-20`} /></div></div>
+        <div><label className={lblCls}>Prazo do Contrato</label><input type="text" value={draft.contractTermLabel || `${draft.contractMonths || ''} meses`} onChange={(e) => setDraft({ ...draft, contractTermLabel: e.target.value })} className={inpCls} /></div>
+        <div><label className={lblCls}>Vendedor</label><input type="text" value={draft.sellerName || ''} onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })} className={inpCls} /></div>
+        <div><label className={lblCls}>Centro de Custo</label><input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} className={inpCls} /><datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist></div>
+        <div><label className={lblCls}>Plano de Contas</label><input list="ctr-chart-accounts" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} className={inpCls} /><datalist id="ctr-chart-accounts">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist></div>
+        <div><label className={lblCls}>Nº Pedido do Cliente (PO)</label><input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono`} /></div>
+        <div><label className={lblCls}>Nº Boletim de Medição (BM)</label><input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} placeholder="BM-11/2026-453" className={`${inpCls} font-mono`} /></div>
+        <div><label className={lblCls}>Período de Medição (BM)</label><input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={inpCls} /></div>
+        <div className="sm:col-span-4"><label className={lblCls}>Observações da Medição (BM)</label><textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={inpCls} /></div>
+      </div>
+    </div>
+  );
 
   const updateEquipments = (nextEquipments: ErpRentalEquipmentItem[]) => {
     const computedMonthly = sumEquipmentsMonthly(nextEquipments);
@@ -2865,6 +2926,7 @@ export function ContractEditModal({
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
           {activeTab === 'DADOS_GERAIS' && (
             <fieldset disabled={isReadOnly} className="space-y-4">
+              {renderContractDataBlock()}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
@@ -3338,98 +3400,298 @@ export function ContractEditModal({
           )}
 
           {activeTab === 'FATURAMENTO_RECIBOS' && (
-            <div className="space-y-4">
+            <div className="space-y-4" data-testid="contract-billing-tab">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
-                  REVISÃO PARA EMISSÃO DE FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF) OU NF-E REMESSA
+                  FATURAMENTO DO CONTRATO — FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF), NFS-E OU NF-E REMESSA
                 </span>
                 <h4 className="text-sm font-extrabold text-slate-900">
-                  Confira e edite se necessário os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
+                  Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
                 </h4>
+              </div>
 
+              {renderContractDataBlock()}
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                  2. Confira o Total da Locação / Faturamento (Produtos, Acréscimo, Desconto e Frete)
+                </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Locatária / Cliente</label>
-                    <input
-                      type="text"
-                      value={draft.companyName}
-                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                    />
+                    <label className={lblCls}>Competência (MM/AAAA)</label>
+                    <input type="text" value={billingCompetence} onChange={(e) => { setBillingCompetence(e.target.value); setDraft({ ...draft, lastBilledCompetence: e.target.value }); }} className={`${inpCls} font-mono font-bold`} />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                    <input
-                      type="text"
-                      value={draft.companyCnpj}
-                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                    />
+                    <label className={lblCls}>Produtos / Serviços (Soma R$)</label>
+                    <input type="number" step="0.01" value={draft.productsSubtotalBrl ?? ''} onChange={(e) => updateTotals({ productsSubtotalBrl: numOrUndef(e.target.value) })} className={inpCls} />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Competência (MM/AAAA)</label>
-                    <input
-                      type="text"
-                      value={billingCompetence}
-                      onChange={(e) => {
-                        setBillingCompetence(e.target.value);
-                        setDraft({ ...draft, lastBilledCompetence: e.target.value });
-                      }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                    />
+                    <label className={lblCls}>Acréscimo (R$)</label>
+                    <input type="number" step="0.01" value={draft.additionValueBrl ?? ''} onChange={(e) => updateTotals({ additionValueBrl: numOrUndef(e.target.value) })} className={inpCls} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={lblCls}>Desconto (R$)</label>
+                      <input type="number" step="0.01" value={draft.discountValueBrl ?? ''} onChange={(e) => updateTotals({ discountValueBrl: numOrUndef(e.target.value) })} className={inpCls} />
+                    </div>
+                    <div>
+                      <label className={lblCls}>Desconto (%)</label>
+                      <input type="number" step="0.01" value={draft.discountPercent ?? ''} onChange={(e) => updateTotals({ discountPercent: numOrUndef(e.target.value) })} className={inpCls} />
+                    </div>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor da Fatura (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={draft.monthlyValue}
-                      onChange={(e) =>
-                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
-                      }
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
-                    />
+                    <label className={lblCls}>Modalidade do Frete</label>
+                    <select value={draft.freightModality || 'SEM_FRETE'} onChange={(e) => setDraft({ ...draft, freightModality: e.target.value as ErpRentalContract['freightModality'] })} className={inpCls}>
+                      <option value="CIF_EMITENTE">CIF — por conta do emitente</option>
+                      <option value="FOB_DESTINATARIO">FOB — por conta do destinatário</option>
+                      <option value="TERCEIROS">Por conta de terceiros</option>
+                      <option value="PROPRIO_SETA">Transporte próprio Seta</option>
+                      <option value="SEM_FRETE">Sem frete</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={lblCls}>Valor do Frete (R$)</label>
+                    <input type="number" step="0.01" value={draft.freightValueBrl ?? ''} onChange={(e) => updateTotals({ freightValueBrl: numOrUndef(e.target.value) })} className={inpCls} />
+                  </div>
+                  <div>
+                    <label className={lblCls}>Frete de Retorno (R$)</label>
+                    <input type="number" step="0.01" value={draft.returnFreightValueBrl ?? ''} onChange={(e) => setDraft({ ...draft, returnFreightValueBrl: numOrUndef(e.target.value) })} className={inpCls} />
+                  </div>
+                  <div>
+                    <label className={lblCls}>Código de Rastreio</label>
+                    <input type="text" value={draft.freightTrackingCode || ''} onChange={(e) => setDraft({ ...draft, freightTrackingCode: e.target.value })} className={`${inpCls} font-mono`} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-4">
+                  <label className="inline-flex items-center gap-2 font-bold text-slate-700">
+                    <input type="checkbox" checked={Boolean(draft.includeFreightInInvoice)} onChange={(e) => updateTotals({ includeFreightInInvoice: e.target.checked })} className="w-4 h-4" />
+                    Incluir Frete na Fatura
+                  </label>
+                  <label className="inline-flex items-center gap-2 font-bold text-slate-700">
+                    <input type="checkbox" checked={autoSyncMonthly} onChange={(e) => setAutoSyncMonthly(e.target.checked)} className="w-4 h-4" />
+                    Recalcular total automaticamente
+                  </label>
+                  <div className="ml-auto">
+                    <label className={lblCls}>Valor Líquido / Total da Fatura (R$)</label>
+                    <input type="number" step="0.01" value={draft.monthlyValue} onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })} className={`${inpCls} font-extrabold text-emerald-700`} />
+                    <span className="text-[10px] text-slate-500">Calculado: {formatBRL(computedInvoiceTotal(draft))}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                  3. Regra de Vencimento Customizada, Recorrência, Forma de Pagamento e Automação de E-mails
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className={lblCls}>Periodicidade de Cobrança</label>
+                    <select value={draft.billingRecurrence || 'MENSAL'} onChange={(e) => setDraft({ ...draft, billingRecurrence: e.target.value as ErpRentalContract['billingRecurrence'] })} className={inpCls}>
+                      {auxOptions.recurrenceOptions.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={lblCls}>Término da Recorrência</label>
+                    <select value={draft.recurrenceEndMode || 'SEM_TERMINO'} onChange={(e) => setDraft({ ...draft, recurrenceEndMode: e.target.value as ErpRentalContract['recurrenceEndMode'] })} className={inpCls}>
+                      <option value="SEM_TERMINO">Sem término</option>
+                      <option value="ATE_UMA_DATA">Até uma data (fim da vigência)</option>
+                      <option value="POR_VEZES">Por número de vezes</option>
+                    </select>
+                    {draft.recurrenceEndMode === 'POR_VEZES' && (
+                      <input type="number" min={1} value={draft.recurrenceOccurrencesLimit ?? ''} onChange={(e) => setDraft({ ...draft, recurrenceOccurrencesLimit: numOrUndef(e.target.value) })} placeholder="Qtd. de vezes" className={`${inpCls} mt-1`} />
+                    )}
+                  </div>
+                  <div>
+                    <label className={lblCls}>Forma de Pagamento</label>
+                    <input list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={inpCls} />
+                    <datalist id="ctr-payment-methods">{auxOptions.paymentMethods.map((p) => (<option key={p} value={p} />))}</datalist>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={lblCls}>Próximo Vencimento</label>
+                      <input type="date" value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={inpCls} />
+                    </div>
+                    <div>
+                      <label className={lblCls}>Gerar fatura (dias antes)</label>
+                      <select value={String(draft.autoGenerateInvoiceDaysBeforeDue ?? 0)} onChange={(e) => setDraft({ ...draft, autoGenerateInvoiceDaysBeforeDue: Number(e.target.value) })} className={inpCls}>
+                        {auxOptions.invoiceAdvanceDaysOptions.map((d) => (<option key={d} value={d}>{d} dias</option>))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 pt-2">
-                  {onGenerateInvoice && (
-                    <button
-                      type="button"
-                      disabled={billingIssuing}
-                      onClick={async () => {
-                        setBillingIssuing(true);
-                        try {
-                          await onSave(draft);
-                          await onGenerateInvoice(draft.id);
-                        } finally {
-                          setBillingIssuing(false);
-                        }
-                      }}
-                      className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
-                    >
-                      Confirmar e Emitir Fatura / Recibo de Locação do Mês
-                    </button>
-                  )}
-                  {onGenerateRemessaNfe && (
-                    <button
-                      type="button"
-                      disabled={billingIssuing}
-                      onClick={async () => {
-                        setBillingIssuing(true);
-                        try {
-                          await onSave(draft);
-                          await onGenerateRemessaNfe(draft.id);
-                        } finally {
-                          setBillingIssuing(false);
-                        }
-                      }}
-                      className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
-                    >
-                      Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
-                    </button>
+                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/60 space-y-2">
+                  <label className="inline-flex items-center gap-2 font-extrabold text-slate-800">
+                    <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
+                    Ativar Regra de Vencimento Customizada (ex.: 45 dias + próxima quarta-feira)
+                  </label>
+                  {draft.customDueRuleEnabled && (
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                      <div>
+                        <label className={lblCls}>Preset rápido</label>
+                        <select value="" onChange={(e) => { const p = auxOptions.customDueDateRules.find((r) => r.id === e.target.value); if (p) setDraft({ ...draft, customDueOffsetDays: p.offsetDays, customDueTargetWeekday: p.targetWeekday, customDueRuleLabel: p.label }); }} className={inpCls}>
+                          <option value="">Selecionar preset...</option>
+                          {auxOptions.customDueDateRules.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={lblCls}>Prazo em Dias (Offset)</label>
+                        <input type="number" min={0} value={draft.customDueOffsetDays ?? 0} onChange={(e) => setDraft({ ...draft, customDueOffsetDays: Number(e.target.value) || 0, customDueRuleLabel: undefined })} className={inpCls} />
+                      </div>
+                      <div>
+                        <label className={lblCls}>Dia da Semana Alvo</label>
+                        <select value={draft.customDueTargetWeekday || 'NONE'} onChange={(e) => setDraft({ ...draft, customDueTargetWeekday: e.target.value as ErpRentalContract['customDueTargetWeekday'], customDueRuleLabel: undefined })} className={inpCls}>
+                          <option value="NONE">Nenhum (dias corridos)</option>
+                          <option value="MONDAY">Segunda-feira</option>
+                          <option value="TUESDAY">Terça-feira</option>
+                          <option value="WEDNESDAY">Quarta-feira</option>
+                          <option value="THURSDAY">Quinta-feira</option>
+                          <option value="FRIDAY">Sexta-feira</option>
+                        </select>
+                      </div>
+                      <div className="p-2 rounded bg-white border border-amber-300">
+                        <div className="text-[10px] font-black uppercase text-amber-800">Vencimento calculado</div>
+                        <div className="font-extrabold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
+                        <div className="text-[10px] text-slate-600">{dueRulePreview.ruleLabel}</div>
+                        <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-amber-600 text-white text-[10px] font-extrabold cursor-pointer">
+                          Aplicar no Próximo Vencimento
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className={lblCls}>Automação de Envio de E-mail</label>
+                    <select value={draft.emailAutomationMode || ''} onChange={(e) => setDraft({ ...draft, emailAutomationMode: e.target.value })} className={inpCls}>
+                      <option value="">Selecionar...</option>
+                      {auxOptions.emailAutomationOptions.map((o) => (<option key={o} value={o}>{o}</option>))}
+                    </select>
+                    <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.autoSendEmailOnBilling)} onChange={(e) => setDraft({ ...draft, autoSendEmailOnBilling: e.target.checked })} /> Enviar e-mail automaticamente ao faturar</label>
+                    <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.dunningRuleEnabled)} onChange={(e) => setDraft({ ...draft, dunningRuleEnabled: e.target.checked })} /> Régua de Cobrança / Dunning</label>
+                    <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.generateNextInvoiceOnSave)} onChange={(e) => setDraft({ ...draft, generateNextInvoiceOnSave: e.target.checked })} /> Gerar próxima fatura ao salvar contrato</label>
+                  </div>
+                  <div>
+                    <label className={lblCls}>Destinatários de E-mail de Faturamento (múltiplos e-mails separados por vírgula)</label>
+                    <textarea rows={4} value={recipientEmailsText} onChange={(e) => { setRecipientEmailsText(e.target.value); setDraft({ ...draft, billingRecipientEmails: e.target.value.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) }); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                  4. Logística de Entrega e Retirada e Observações Impressas na Fatura
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div><label className={lblCls}>Cidade de Entrega</label><input type="text" value={draft.deliveryCity || ''} onChange={(e) => setDraft({ ...draft, deliveryCity: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-2"><label className={lblCls}>Endereço de Entrega</label><input type="text" value={draft.deliveryAddress || ''} onChange={(e) => setDraft({ ...draft, deliveryAddress: e.target.value })} className={inpCls} /></div>
+                  <div><label className={lblCls}>Transportadora</label><input type="text" value={draft.deliveryCarrier || ''} onChange={(e) => setDraft({ ...draft, deliveryCarrier: e.target.value })} className={inpCls} /></div>
+                  <div><label className={lblCls}>Data de Entrega</label><input type="date" value={(draft.deliveryDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, deliveryDate: e.target.value })} className={inpCls} /></div>
+                  <div><label className={lblCls}>Data de Retirada</label><input type="date" value={(draft.pickupDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, pickupDate: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-3"><label className={lblCls}>Observações de Entrega</label><textarea rows={2} value={draft.deliveryNotes || ''} onChange={(e) => setDraft({ ...draft, deliveryNotes: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-3"><label className={lblCls}>Observações Impressas na Fatura / Contrato</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => setDraft({ ...draft, contractNotes: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-3"><label className={lblCls}>Observações Internas</label><textarea rows={2} value={draft.internalNotes || ''} onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })} className={inpCls} /></div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                  5. Próximos Ciclos Previstos e Histórico de Faturas do Contrato (PDF / CSV sob demanda — 0 MB em disco)
+                </span>
+                <table className="w-full text-left text-xs">
+                  <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Parcela</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Regra</th><th className="text-right">Valor</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {upcomingCycles.map((c) => (
+                      <tr key={c.cycleIndex}><td className="py-1 font-mono">{c.cycleIndex}</td><td>{c.competenceMonth}</td><td className="font-bold">{c.dueDateBr}</td><td>{c.recurrenceLabel}</td><td>{c.ruleLabel || '—'}</td><td className="text-right font-bold">{formatBRL(c.expectedAmountBrl)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(draft, contractInvoices)} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer hover:bg-slate-50">Exportar Histórico CSV</button>
+                  <button type="button" onClick={() => downloadContractBillingHistoryReportOnDemand(draft, contractInvoices, 'PRINT')} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer hover:bg-slate-50">Relatório Completo de Faturas (A4)</button>
+                </div>
+                {contractInvoices.length === 0 ? (
+                  <div className="text-xs text-slate-500 italic">Nenhuma fatura emitida para este contrato ainda.</div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Documento</th><th>Competência</th><th>Emissão</th><th>Vencimento</th><th>Situação</th><th className="text-right">Valor</th><th className="text-right">Ações</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {contractInvoices.map((inv) => (
+                        <tr key={inv.id}>
+                          <td className="py-1 font-mono font-bold">{inv.documentNumber}</td>
+                          <td>{inv.competenceMonth}</td>
+                          <td>{(inv.issueDate || '').slice(0, 10)}</td>
+                          <td>{(inv.dueDate || '').slice(0, 10)}</td>
+                          <td>{inv.status}</td>
+                          <td className="text-right font-bold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
+                          <td className="text-right whitespace-nowrap">
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-bold cursor-pointer mr-1">Imprimir / PDF Fatura A4</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-bold cursor-pointer">Baixar Fatura HTML</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {onGenerateInvoice && (
+                  <button
+                    type="button"
+                    disabled={billingIssuing}
+                    onClick={async () => {
+                      setBillingIssuing(true);
+                      try {
+                        await onSave(draft);
+                        await onGenerateInvoice(draft.id, {
+                          competenceMonth: billingCompetence,
+                          dueDate: draft.nextBillingDate || draft.nextDueDate,
+                          customAmountBrl: draft.monthlyValue,
+                          additionValueBrl: draft.additionValueBrl,
+                          discountValueBrl: draft.discountValueBrl,
+                          discountPercent: draft.discountPercent,
+                          freightValueBrl: draft.freightValueBrl,
+                          includeFreightInInvoice: draft.includeFreightInInvoice,
+                          customerPurchaseOrderNumber: draft.customerPurchaseOrderNumber,
+                          measurementNumber: draft.measurementNumber,
+                          measurementPeriod: draft.measurementPeriod,
+                          measurementNotes: draft.measurementNotes,
+                          customDueRuleEnabled: draft.customDueRuleEnabled,
+                          customDueOffsetDays: draft.customDueOffsetDays,
+                          customDueTargetWeekday: draft.customDueTargetWeekday,
+                          customDueRuleLabel: draft.customDueRuleLabel || (draft.customDueRuleEnabled ? dueRulePreview.ruleLabel : undefined),
+                          billingRecipientEmails: draft.billingRecipientEmails,
+                          contractNotes: draft.contractNotes,
+                        });
+                      } finally {
+                        setBillingIssuing(false);
+                      }
+                    }}
+                    className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                  >
+                    Confirmar e Emitir Fatura / Recibo de Locação do Mês
+                  </button>
+                )}
+                {onGenerateRemessaNfe && (
+                  <button
+                    type="button"
+                    disabled={billingIssuing}
+                    onClick={async () => {
+                      setBillingIssuing(true);
+                      try {
+                        await onSave(draft);
+                        await onGenerateRemessaNfe(draft.id);
+                      } finally {
+                        setBillingIssuing(false);
+                      }
+                    }}
+                    className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                  >
+                    Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
+                  </button>
+                )}
               </div>
             </div>
           )}

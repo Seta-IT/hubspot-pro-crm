@@ -43,6 +43,7 @@ import {
   ErpContractPartialReturnEntry,
   ErpContractPartialReturnItem,
   ErpRentalContract,
+  ErpContractVersionEntry,
   ErpFiscalInvoice,
   ErpCatalogItem,
   ErpFinancialEntry,
@@ -473,6 +474,101 @@ export interface RepositoryOptions {
   initialState?: CrmDatabaseState;
 }
 
+
+
+export function buildContractVersionSnapshot(c: ErpRentalContract): Omit<ErpRentalContract, 'versionHistory'> {
+  const clone = structuredClone(c) as ErpRentalContract;
+  delete clone.versionHistory;
+  return clone;
+}
+
+export function ensureContractInitializedWithVersion(contract: ErpRentalContract): void {
+  if (!contract.version || contract.version < 1) {
+    contract.version = 1;
+  }
+  if (!contract.versionLabel) {
+    contract.versionLabel = `v${contract.version}.0`;
+  }
+  if (!Array.isArray(contract.versionHistory) || contract.versionHistory.length === 0) {
+    contract.versionHistory = [
+      {
+        versionNumber: contract.version,
+        versionLabel: contract.versionLabel,
+        savedAt: contract.updatedAt || contract.createdAt || new Date().toISOString(),
+        savedBy: contract.sellerName || 'Marcelo Mira',
+        changeSummary: `Versão inicial do contrato ${contract.contractNumber} (Metadados JSON leves — 0 MB PDF em disco)`,
+        changedFields: ['criacao_inicial'],
+        snapshot: buildContractVersionSnapshot(contract),
+      },
+    ];
+  }
+}
+
+export function appendContractVersionOnMutation(
+  previous: ErpRentalContract,
+  updated: ErpRentalContract,
+  customSummary?: string,
+  savedBy?: string
+): ErpRentalContract {
+  ensureContractInitializedWithVersion(previous);
+  const trackedKeys: Array<{ key: keyof ErpRentalContract; label: string }> = [
+    { key: 'monthlyValue', label: 'Valor Mensal' },
+    { key: 'productsSubtotalBrl', label: 'Soma dos Produtos' },
+    { key: 'additionValueBrl', label: 'Acréscimo (R$)' },
+    { key: 'discountValueBrl', label: 'Desconto (R$)' },
+    { key: 'discountPercent', label: 'Desconto (%)' },
+    { key: 'freightValueBrl', label: 'Frete (R$)' },
+    { key: 'equipments', label: 'Produtos Locados / S/N' },
+    { key: 'endDate', label: 'Fim de Vigência' },
+    { key: 'contractMonths', label: 'Prazo (Meses)' },
+    { key: 'readjustmentIndex', label: 'Índice de Reajuste' },
+    { key: 'paymentMethod', label: 'Forma de Pagamento' },
+    { key: 'customDueRuleLabel', label: 'Regra de Vencimento' },
+    { key: 'nextBillingDate', label: 'Próximo Vencimento' },
+    { key: 'billingRecurrence', label: 'Periodicidade Recorrência' },
+    { key: 'recurrenceEndMode', label: 'Término da Recorrência' },
+    { key: 'emailAutomationMode', label: 'Automação de E-mail' },
+    { key: 'billingRecipientEmails', label: 'Destinatários de E-mail' },
+    { key: 'customerPurchaseOrderNumber', label: 'Pedido do Cliente (PO)' },
+    { key: 'measurementNumber', label: 'Boletim de Medição (BM)' },
+    { key: 'costCenter', label: 'Centro de Custo' },
+    { key: 'chartOfAccounts', label: 'Plano de Contas' },
+    { key: 'deliveryCity', label: 'Cidade de Entrega' },
+    { key: 'status', label: 'Situação Contratual' },
+  ];
+
+  const changedFields: string[] = [];
+  for (const item of trackedKeys) {
+    const prevVal = JSON.stringify(previous[item.key] ?? null);
+    const nextVal = JSON.stringify(updated[item.key] ?? null);
+    if (prevVal !== nextVal) {
+      changedFields.push(item.label);
+    }
+  }
+  if (changedFields.length === 0) {
+    changedFields.push('Revisão cadastral');
+  }
+
+  const nextVer = Math.max(1, Number(previous.version || 1)) + 1;
+  const nextLabel = `v${nextVer}.0`;
+  updated.version = nextVer;
+  updated.versionLabel = nextLabel;
+
+  const entry: ErpContractVersionEntry = {
+    versionNumber: nextVer,
+    versionLabel: nextLabel,
+    savedAt: updated.updatedAt || new Date().toISOString(),
+    savedBy: savedBy || updated.sellerName || previous.sellerName || 'Marcelo Mira',
+    changeSummary:
+      customSummary ||
+      `Revisão ${nextLabel}: ${changedFields.join(', ')} (Mensalidade R$ ${Number(updated.monthlyValue || 0).toFixed(2)})`,
+    changedFields,
+    snapshot: buildContractVersionSnapshot(updated),
+  };
+
+  updated.versionHistory = [entry, ...(previous.versionHistory || [])];
+  return updated;
+}
 
 export function computeCustomDueDateFromRule(params: {
   baseDate?: string;
@@ -3926,6 +4022,7 @@ export class CrmRepository {
       return null;
     }
     const current = erp.rentalContracts[idx];
+    ensureContractInitializedWithVersion(current);
     const updated: ErpRentalContract = {
       ...current,
       ...patch,
@@ -3937,6 +4034,7 @@ export class CrmRepository {
         patch.contractMonths !== undefined ? Number(patch.contractMonths) : current.contractMonths,
       updatedAt: new Date().toISOString(),
     };
+    appendContractVersionOnMutation(current, updated);
     erp.rentalContracts[idx] = updated;
     if (patch.generateNextInvoiceOnSave === true) {
       this.generateMonthlyRentalInvoice(updated.id, updated.lastBilledCompetence || undefined, {
@@ -3946,6 +4044,53 @@ export class CrmRepository {
     }
     this.save();
     return updated;
+  }
+
+
+  getRentalContractVersions(idOrNum: string): ErpContractVersionEntry[] {
+    const erp = this.ensureErp();
+    const found = erp.rentalContracts.find(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (!found) return [];
+    ensureContractInitializedWithVersion(found);
+    return [...(found.versionHistory || [])];
+  }
+
+  restoreRentalContractVersion(
+    idOrNum: string,
+    targetVersion: number,
+    restoredBy?: string
+  ): ErpRentalContract | null {
+    const erp = this.ensureErp();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNum || c.contractNumber.toLowerCase() === idOrNum.toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.rentalContracts[idx];
+    ensureContractInitializedWithVersion(current);
+    const targetEntry = (current.versionHistory || []).find(
+      (v) => Number(v.versionNumber) === Number(targetVersion)
+    );
+    if (!targetEntry) return null;
+
+    const restored: ErpRentalContract = {
+      ...structuredClone(targetEntry.snapshot),
+      id: current.id,
+      version: current.version,
+      versionLabel: current.versionLabel,
+      versionHistory: current.versionHistory,
+      updatedAt: new Date().toISOString(),
+    };
+    appendContractVersionOnMutation(
+      current,
+      restored,
+      `Restaurado a partir da revisão ${targetEntry.versionLabel} (${new Date(targetEntry.savedAt).toLocaleDateString('pt-BR')})`,
+      restoredBy || current.sellerName || 'Marcelo Mira'
+    );
+    erp.rentalContracts[idx] = restored;
+    this.save();
+    return restored;
   }
 
   renewRentalContract(idOrNum: string, extraMonths = 12): ErpRentalContract | null {
@@ -3968,6 +4113,7 @@ export class CrmRepository {
     nextEnd.setUTCMonth(nextEnd.getUTCMonth() + monthsToAdd);
     const nextEndDateStr = nextEnd.toISOString().slice(0, 10);
 
+    ensureContractInitializedWithVersion(current);
     const updated: ErpRentalContract = {
       ...current,
       endDate: nextEndDateStr,
@@ -3975,6 +4121,11 @@ export class CrmRepository {
       status: 'ATIVO',
       updatedAt: nowIso,
     };
+    appendContractVersionOnMutation(
+      current,
+      updated,
+      `Renovação de vigência por +${monthsToAdd} meses (até ${nextEndDateStr})`
+    );
     erp.rentalContracts[idx] = updated;
 
     if (current.companyId || current.dealId || current.contactId) {
@@ -4038,6 +4189,7 @@ export class CrmRepository {
         `Reajuste contratual anual (${index} +${percentage.toFixed(2)}%): de R$ ${previousMonthlyValue.toFixed(2)} para R$ ${newMonthlyValue.toFixed(2)}`,
     };
 
+    ensureContractInitializedWithVersion(current);
     const updated: ErpRentalContract = {
       ...current,
       readjustmentIndex: index,
@@ -4048,6 +4200,11 @@ export class CrmRepository {
       readjustmentHistory: [historyEntry, ...(current.readjustmentHistory || [])],
       updatedAt: nowIso,
     };
+    appendContractVersionOnMutation(
+      current,
+      updated,
+      `Reajuste anual ${index} (+${percentage.toFixed(2)}%): de R$ ${previousMonthlyValue.toFixed(2)} para R$ ${newMonthlyValue.toFixed(2)}`
+    );
 
     erp.rentalContracts[idx] = updated;
 
@@ -4319,6 +4476,7 @@ export class CrmRepository {
       (e) => e.assetStatus !== 'DEVOLVIDO' && e.quantity > 0
     );
 
+    ensureContractInitializedWithVersion(current);
     const updatedContract: ErpRentalContract = {
       ...current,
       status: hasRemainingActiveItems ? 'ATIVO' : 'ENCERRADO',
@@ -4327,6 +4485,11 @@ export class CrmRepository {
       partialReturns: [returnEntry, ...(current.partialReturns || [])],
       updatedAt: nowIso,
     };
+    appendContractVersionOnMutation(
+      current,
+      updatedContract,
+      `Devolução parcial com rateio pro-rata (${cycleDaysUsed}/30 dias) — Nova mensalidade R$ ${newRecurringMonthlyValue.toFixed(2)}`
+    );
 
     erp.rentalContracts[idx] = updatedContract;
 
@@ -5039,6 +5202,7 @@ export class CrmRepository {
       updatedAt: nowIso,
     };
 
+    ensureContractInitializedWithVersion(contract);
     erp.rentalContracts.unshift(contract);
     if (input.generateNextInvoiceOnSave === true) {
       this.generateMonthlyRentalInvoice(contract.id, contract.lastBilledCompetence || undefined, {

@@ -581,6 +581,8 @@ export function createSeedErpState(): ErpDatabaseState {
   const rentalContracts: ErpDatabaseState['rentalContracts'] = [
     {
       id: 'ctr-loc-453',
+      version: 2,
+      versionLabel: 'v2.0',
       gestaoClickCode: '453',
       contractNumber: '453',
       title: 'Contrato de Locação de Equipamentos de TI & Telecom (Aluguel HaaS) — Casa Fortis',
@@ -667,6 +669,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-loc-452',
+      version: 1,
+      versionLabel: 'v1.0',
       gestaoClickCode: '452',
       contractNumber: '452',
       title: 'Contrato de Locação de Infraestrutura de Voz IP & Switch PoE — Locar Guindastes',
@@ -713,6 +717,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-loc-101',
+      version: 2,
+      versionLabel: 'v2.0',
       contractNumber: 'LOC-2026-101',
       title: 'Contrato de Locação de Ativos Telecom & SD-WAN — Nubank',
       modality: 'LOCACAO',
@@ -821,6 +827,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-loc-102',
+      version: 1,
+      versionLabel: 'v1.0',
       contractNumber: 'LOC-2026-102',
       title: 'Contrato de Locação de Infraestrutura de Voz IP & Switch PoE — RD Station',
       modality: 'HIBRIDO',
@@ -926,6 +934,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-loc-103',
+      version: 2,
+      versionLabel: 'v2.0',
       contractNumber: 'LOC-2026-103',
       title: 'Contrato de Locação de Roteadores SD-WAN & Redundância — VTEX Brasil',
       modality: 'LOCACAO',
@@ -995,6 +1005,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-srv-104',
+      version: 1,
+      versionLabel: 'v1.0',
       contractNumber: 'SRV-2026-104',
       title: 'Contrato de Suporte Técnico NOC 24x7 & Engenharia Telecom — TOTVS S.A.',
       modality: 'SERVICO',
@@ -1021,6 +1033,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-sub-105',
+      version: 1,
+      versionLabel: 'v1.0',
       contractNumber: 'SUB-2026-105',
       title: 'Assinatura Link Dedicado Fibra 1 Gbps + Tronco SIP 60 Canais (SCM) — Creditas',
       modality: 'ASSINATURA',
@@ -1062,6 +1076,8 @@ export function createSeedErpState(): ErpDatabaseState {
     },
     {
       id: 'ctr-enc-106',
+      version: 1,
+      versionLabel: 'v1.0',
       contractNumber: 'LOC-2024-089',
       title: 'Contrato Histórico de Locação PABX Legado — Asaas Gestão Financeira',
       modality: 'LOCACAO',
@@ -1087,6 +1103,51 @@ export function createSeedErpState(): ErpDatabaseState {
       updatedAt: daysAgoIso(45),
     },
   ];
+
+  for (const ctr of rentalContracts) {
+    const baseSnapshot = { ...ctr };
+    delete (baseSnapshot as { versionHistory?: unknown }).versionHistory;
+    if ((ctr.version || 1) >= 2) {
+      const v1Snap = {
+        ...baseSnapshot,
+        version: 1,
+        versionLabel: 'v1.0',
+        monthlyValue: Math.round(ctr.monthlyValue * 0.95 * 100) / 100,
+      };
+      ctr.versionHistory = [
+        {
+          versionNumber: 2,
+          versionLabel: 'v2.0',
+          savedAt: ctr.updatedAt,
+          savedBy: ctr.sellerName || 'Marcelo Mira',
+          changeSummary: 'Revisão v2.0: Atualização de Valor Mensal, Regra de Vencimento e Destinatários de E-mail (0 MB PDF em disco)',
+          changedFields: ['Valor Mensal', 'Regra de Vencimento', 'Destinatários de E-mail'],
+          snapshot: baseSnapshot,
+        },
+        {
+          versionNumber: 1,
+          versionLabel: 'v1.0',
+          savedAt: ctr.createdAt,
+          savedBy: ctr.sellerName || 'Marcelo Mira',
+          changeSummary: `Versão inicial v1.0 do contrato ${ctr.contractNumber} (Metadados JSON leves — 0 MB PDF em disco)`,
+          changedFields: ['criacao_inicial'],
+          snapshot: v1Snap,
+        },
+      ];
+    } else {
+      ctr.versionHistory = [
+        {
+          versionNumber: 1,
+          versionLabel: 'v1.0',
+          savedAt: ctr.createdAt,
+          savedBy: ctr.sellerName || 'Marcelo Mira',
+          changeSummary: `Versão inicial v1.0 do contrato ${ctr.contractNumber} (Metadados JSON leves — 0 MB PDF em disco)`,
+          changedFields: ['criacao_inicial'],
+          snapshot: baseSnapshot,
+        },
+      ];
+    }
+  }
 
   const taxNubankLocacao = calculateBrazilianTaxBreakdown({
     grossAmount: 12000,

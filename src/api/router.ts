@@ -3282,6 +3282,36 @@ export class CrmApiRouter {
         return { status: 201, body: { data: nfe } };
       }
 
+
+      const ctrVersionsMatch = cleanPath.match(
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)\/versions$/
+      );
+      if (ctrVersionsMatch && method === 'GET') {
+        const ctrId = decodeURIComponent(ctrVersionsMatch[1]);
+        const versions = this.repo.getRentalContractVersions(ctrId);
+        return { status: 200, body: { data: versions } };
+      }
+
+      const ctrRestoreVerMatch = cleanPath.match(
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)\/restore-version$/
+      );
+      if (ctrRestoreVerMatch && method === 'POST') {
+        const ctrId = decodeURIComponent(ctrRestoreVerMatch[1]);
+        const targetVer = Number(body.targetVersion ?? body.versionNumber ?? body.version ?? 1);
+        const restored = this.repo.restoreRentalContractVersion(
+          ctrId,
+          targetVer,
+          typeof body.restoredBy === 'string' ? body.restoredBy : undefined
+        );
+        if (!restored) {
+          return {
+            status: 404,
+            body: { error: 'Contrato ou versão solicitada não encontrada.' },
+          };
+        }
+        return { status: 200, body: { data: restored } };
+      }
+
       const renewCtrMatch = cleanPath.match(
         /^\/api\/erp\/(?:rental-contracts|contracts)\/([^/]+)\/renew$/
       );

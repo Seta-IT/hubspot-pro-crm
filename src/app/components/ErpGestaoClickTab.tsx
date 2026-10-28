@@ -815,13 +815,13 @@ export default function ErpGestaoClickTab({
     );
   };
 
-  const handleGenerateContractInvoice = async (contractId: string) => {
+  const handleGenerateContractInvoice = async (contractId: string, options?: Record<string, unknown>) => {
     setBusyId(contractId);
     try {
       const res = await fetch(`/api/erp/rental-contracts/${contractId}/generate-invoice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ competenceMonth: '11/2026' }),
+        body: JSON.stringify({ competenceMonth: '11/2026', ...(options || {}) }),
       });
       if (res.ok) {
         const j = await res.json();
@@ -2760,6 +2760,11 @@ export default function ErpGestaoClickTab({
       setContractA4PreviewModal({ contract: ctr, modality, html });
       if (custom) { printOrDownloadContractA4(ctr, modality, custom); } else { printOrDownloadContractA4(ctr, modality); }
     }
+    function openContractBilling(ctr: ErpRentalContract) {
+      setEditingContractReadOnly(false);
+      setEditingContractTab('FATURAMENTO_RECIBOS');
+      setEditingContract(ctr);
+    }
     function buildContractRowActions(ctr: ErpRentalContract, modality: ErpContractModality) {
       const renewLabel = modality === "SERVICO" ? "Renovar locação / contrato" : modality === "ASSINATURA" ? "Renovar locação / assinatura" : "Renovar locação";
       return [
@@ -2777,7 +2782,8 @@ export default function ErpGestaoClickTab({
           });
         } },
         { key: "ENVIAR_WHATSAPP", label: "Enviar por WhatsApp", icon: ArrowUpRight, run: () => { const txt = `Contrato ${ctr.contractNumber} - ${ctr.companyName}\nValor: ${formatBRL(ctr.monthlyValue)}/mês\nPróximo vencimento: ${fmtBrDate(ctr.nextDueDate)}\nCobrança: ${contractChargeLink(ctr)}\nAssinatura: ${contractSignLink(ctr)}`; window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank"); } },
-        { key: "GERAR_FATURA", label: "Gerar próxima fatura", icon: Receipt, run: () => handleGenerateContractInvoice(ctr.id) },
+        { key: "FATURAMENTO_CONTRATO", label: "Faturamento do Contrato", icon: Receipt, run: () => openContractBilling(ctr) },
+        { key: "GERAR_FATURA", label: "Gerar próxima fatura", icon: Receipt, run: () => openContractBilling(ctr) },
         { key: "DEVOLUCAO", label: "Devolução de produtos", icon: RotateCcw, run: () => setContractReturnFor(ctr) },
         { key: "RENOVAR", label: renewLabel, icon: RefreshCw, run: () => handleRenewContract(ctr, 12) },
         { key: "AGENDAR", label: "Agendar compromisso", icon: Calendar, run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
@@ -3480,16 +3486,28 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
                           {fmtBrDate(ctr.startDate)}
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{fmtBrDate(ctr.nextDueDate)}</td>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                          {fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}
+                          {ctr.customDueRuleEnabled && ctr.customDueRuleLabel && (<div className="text-[10px] text-amber-700 font-bold">{ctr.customDueRuleLabel}</div>)}
+                          {(ctr.customerPurchaseOrderNumber || ctr.measurementNumber) && (
+                            <div className="text-[10px] font-mono text-slate-500">
+                              {ctr.customerPurchaseOrderNumber ? `PO ${ctr.customerPurchaseOrderNumber}` : ''}
+                              {ctr.customerPurchaseOrderNumber && ctr.measurementNumber ? ' | ' : ''}
+                              {ctr.measurementNumber ? `BM ${ctr.measurementNumber}` : ''}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{ctr.periodicityLabel || "A cada 1 mês"}</td>
                         <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            onClick={() => setContractStatusPickerFor(ctr)}
+                            onClick={() => openContractBilling(ctr)}
+                            title="Abrir Faturamento do Contrato"
                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold cursor-pointer ${statusMeta.cls}`}
                           >
                             • {statusMeta.label}
                           </button>
+                          <button type="button" onClick={() => setContractStatusPickerFor(ctr)} className="ml-1 text-[10px] text-slate-500 underline cursor-pointer" title="Alterar situação">alterar</button>
                         </td>
                         <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
                           {(Number(ctr.monthlyValue) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -6539,6 +6557,7 @@ export default function ErpGestaoClickTab({
       {editingContract && (
         <ContractEditModal
           contract={editingContract}
+          invoices={invoices}
           initialTab={editingContractTab}
           readOnly={editingContractReadOnly}
           onClose={() => setEditingContract(null)}

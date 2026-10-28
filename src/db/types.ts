@@ -1049,7 +1049,20 @@ export interface ErpContractPartialReturnEntry {
   generatedProRataInvoiceId?: string;
 }
 
+export interface ErpContractVersionEntry {
+  versionNumber: number;
+  versionLabel: string;
+  savedAt: string;
+  savedBy: string;
+  changeSummary: string;
+  changedFields: string[];
+  snapshot: Omit<ErpRentalContract, 'versionHistory'>;
+}
+
 export interface ErpRentalContract {
+  version?: number;
+  versionLabel?: string;
+  versionHistory?: ErpContractVersionEntry[];
   id: string;
   contractNumber: string;
   title: string;

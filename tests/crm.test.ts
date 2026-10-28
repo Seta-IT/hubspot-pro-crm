@@ -4098,4 +4098,16 @@ describe('15. Contratos GestãoClick: 12 ações no final do contrato (3 pontos)
     assert.ok(utils.buildStandaloneContractA4Html(c453, 'LOCACAO', 'Cláusula extra XYZ').includes('Cláusula extra XYZ'));
     assert.equal(Object.keys(utils.CONTRACT_DOCUMENT_TEMPLATES).length, 3);
   });
+
+  it('ContractEditModal (FATURAMENTO_RECIBOS) exibe todos os novos campos de Faturamento do Contrato', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpEditModals.tsx'), 'utf8');
+    const start = src.indexOf("activeTab === 'FATURAMENTO_RECIBOS'");
+    assert.ok(start > 0);
+    const fields = ['customerPurchaseOrderNumber', 'measurementNumber', 'measurementPeriod', 'customDueRuleEnabled', 'customDueOffsetDays', 'customDueTargetWeekday', 'billingRecipientEmails', 'costCenter', 'chartOfAccounts', 'paymentMethod', 'additionValueBrl', 'discountValueBrl', 'freightValueBrl', 'deliveryCity', 'deliveryCarrier', 'downloadInvoicePdfOnDemand'];
+    for (const f of fields) assert.ok(src.includes(f), `campo ausente: ${f}`);
+    assert.ok(src.includes('renderContractDataBlock()'));
+    const tab = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    assert.ok(tab.includes('invoices={invoices}'));
+    assert.ok(tab.includes("setEditingContractTab('FATURAMENTO_RECIBOS')"));
+  });
 });
