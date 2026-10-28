@@ -2673,7 +2673,7 @@ export class CrmApiRouter {
             author: body.author ? String(body.author) : "Avaliação CSAT do Cliente",
             authorRole: "CUSTOMER",
             isInternal: false,
-            body: `⭐ Avaliação CSAT: ${Math.round(score)}/5 — ${String(body.feedback).trim()}`,
+            body: `Avaliação CSAT: ${Math.round(score)}/5 — ${String(body.feedback).trim()}`,
           });
         }
         const refreshed = this.repo.getServiceTicketById(idOrKey) || updated!;
@@ -3870,7 +3870,7 @@ export class CrmApiRouter {
             author: 'Marcelo Lopes Mira (E-mail STI-hub)',
             authorRole: 'AGENT',
             isInternal: false,
-            body: `✉️ E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
+            body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
           });
         }
 

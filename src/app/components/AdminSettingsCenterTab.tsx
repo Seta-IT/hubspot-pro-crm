@@ -463,7 +463,7 @@ export default function AdminSettingsCenterTab({
             </span>
           </div>
           <h1 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-            ⚙️ Central de Administração, Campos Customizáveis, Modelos de E-mail &amp; Permissões RBAC
+            Central de Administração, Campos Customizáveis, Modelos de E-mail &amp; Permissões RBAC
           </h1>
           <p className="text-xs text-slate-500">
             Configure o disparo de e-mails (SMTP/Resend), gerencie todas as propriedades customizadas do HubSpot e do ERP, edite templates e defina permissões granulares por usuário.
@@ -474,11 +474,11 @@ export default function AdminSettingsCenterTab({
         <div className="flex flex-wrap items-center gap-1.5">
           {(
             [
-              ['EMAIL_CONFIG', '✉️ E-mail & Validação', Mail],
-              ['CUSTOM_FIELDS', `🧩 Campos Customizáveis (${customFields.length})`, Sliders],
-              ['EMAIL_TEMPLATES', `📝 Modelos de E-mail (${templates.length})`, FileText],
-              ['USERS_RBAC', `🔐 Permissões RBAC & MFA (${users.length})`, ShieldCheck],
-              ['DOMAINS_SUBDOMAIN', '🌐 Subdomínio & DNS', Globe],
+              ['EMAIL_CONFIG', 'E-mail & Validação', Mail],
+              ['CUSTOM_FIELDS', `Campos Customizáveis (${customFields.length})`, Sliders],
+              ['EMAIL_TEMPLATES', `Modelos de E-mail (${templates.length})`, FileText],
+              ['USERS_RBAC', `Permissões RBAC & MFA (${users.length})`, ShieldCheck],
+              ['DOMAINS_SUBDOMAIN', 'Subdomínio & DNS', Globe],
             ] as const
           ).map(([id, label, Icon]) => {
             const active = subTab === id;
@@ -585,15 +585,15 @@ export default function AdminSettingsCenterTab({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
                   <span className="font-bold">SPF Record</span>
-                  <span className="text-emerald-700 font-extrabold">✓ Verificado</span>
+                  <span className="text-emerald-700 font-extrabold">Verificado</span>
                 </div>
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
                   <span className="font-bold">DKIM 2048-bit</span>
-                  <span className="text-emerald-700 font-extrabold">✓ Assinado</span>
+                  <span className="text-emerald-700 font-extrabold">Assinado</span>
                 </div>
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
                   <span className="font-bold">DMARC Policy</span>
-                  <span className="text-emerald-700 font-extrabold">✓ Ativo</span>
+                  <span className="text-emerald-700 font-extrabold">Ativo</span>
                 </div>
               </div>
             </div>
@@ -632,7 +632,7 @@ export default function AdminSettingsCenterTab({
                   onClick={handleRunEmailValidationTest}
                   className="px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shrink-0"
                 >
-                  {testingEmail ? 'Testando...' : '🧪 Validar Disparo Agora'}
+                  {testingEmail ? 'Testando...' : 'Validar Disparo Agora'}
                 </button>
               </div>
 
@@ -889,7 +889,7 @@ export default function AdminSettingsCenterTab({
                   onClick={() => setEditingTemplate(null)}
                   className="text-slate-400 hover:text-slate-700 font-bold"
                 >
-                  Cancelar ✕
+                  Cancelar
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -999,7 +999,7 @@ export default function AdminSettingsCenterTab({
                       onClick={() => setEditingTemplate(tpl)}
                       className="px-2.5 py-1 rounded bg-amber-500 text-white font-bold cursor-pointer"
                     >
-                      ✏️ Editar
+                      Editar
                     </button>
                     <button
                       type="button"
@@ -1023,7 +1023,7 @@ export default function AdminSettingsCenterTab({
                       }
                       className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white font-bold cursor-pointer"
                     >
-                      ✉️ Usar Modelo
+                      Usar Modelo
                     </button>
                   </div>
                 </div>
@@ -1363,7 +1363,7 @@ export default function AdminSettingsCenterTab({
                       onClick={() => setShowAddUserModal(false)}
                       className="px-3 py-1 rounded border border-slate-300 font-bold text-slate-600 cursor-pointer"
                     >
-                      Fechar ✕
+                      Fechar
                     </button>
                   </div>
 
@@ -1531,7 +1531,7 @@ export default function AdminSettingsCenterTab({
                       onClick={() => setConfiguringMfaUser(null)}
                       className="px-2.5 py-1 rounded border border-slate-300 font-bold cursor-pointer"
                     >
-                      Fechar ✕
+                      Fechar
                     </button>
                   </div>
 
@@ -1611,7 +1611,7 @@ export default function AdminSettingsCenterTab({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-base font-extrabold text-slate-900">
-                🌐 Subdomínios Oficiais Configurados — STI-hub (Seta Telecom)
+                Subdomínios Oficiais Configurados — STI-hub (Seta Telecom)
               </h2>
               <p className="text-slate-500">
                 Subdomínios ativos na Vercel com certificado SSL/TLS automático e proteção de rotas via Middleware MFA.

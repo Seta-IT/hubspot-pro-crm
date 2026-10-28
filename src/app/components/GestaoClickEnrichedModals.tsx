@@ -399,7 +399,7 @@ export function GestaoClickCustomerEditModal({
           </div>
           <div className="flex items-center gap-4">
             <div className="text-xs text-slate-500 hidden sm:flex items-center gap-1.5">
-              <span>🏠 Início</span>
+              <span>Início</span>
               <span>&gt;</span>
               <span>Clientes</span>
               <span>&gt;</span>
@@ -1149,7 +1149,7 @@ export function GestaoClickCustomerEditModal({
                 }}
                 className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
               >
-                📁 Selecione uma foto
+                Selecione uma foto
               </button>
             </div>
           </div>
@@ -1176,7 +1176,7 @@ export function GestaoClickCustomerEditModal({
                     className="flex items-center justify-between px-3 py-2 rounded bg-slate-50 border border-slate-200"
                   >
                     <span className="font-mono text-xs font-bold text-[#1e3a6e]">
-                      📎 {att.name} ({att.sizeKb} KB — {att.uploadedAt})
+                      {att.name} ({att.sizeKb} KB — {att.uploadedAt})
                     </span>
                     <button
                       type="button"
@@ -1543,7 +1543,7 @@ export function GestaoClickProductEditModal({
           </div>
           <div className="flex items-center gap-4">
             <div className="text-xs text-slate-500 hidden sm:flex items-center gap-1.5">
-              <span>🏠 Início</span>
+              <span>Início</span>
               <span>&gt;</span>
               <span>Produtos</span>
               <span>&gt;</span>
@@ -1602,7 +1602,7 @@ export function GestaoClickProductEditModal({
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
                       <h3 className="text-sm font-bold text-slate-800">
-                        ✏️ Informe os <span className="text-[#1e3a6e]">dados principais</span> do produto
+                        Informe os <span className="text-[#1e3a6e]">dados principais</span> do produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
                         Defina nome, códigos, grupo e configurações gerais do item
@@ -1734,7 +1734,7 @@ export function GestaoClickProductEditModal({
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
                       <h3 className="text-sm font-bold text-slate-800">
-                        ⚖️ Defina a <span className="text-[#1e3a6e]">unidade de medida</span> do produto
+                        Defina a <span className="text-[#1e3a6e]">unidade de medida</span> do produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
                         Configure como o produto é medido na compra e na venda
@@ -1783,7 +1783,7 @@ export function GestaoClickProductEditModal({
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
                       <h3 className="text-sm font-bold text-slate-800">
-                        📄 Confira as <span className="text-[#1e3a6e]">referências de NF-e</span> deste produto
+                        Confira as <span className="text-[#1e3a6e]">referências de NF-e</span> deste produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
                         Usadas na importação de XML: quando o nome do produto no sistema difere do nome na nota, a referência faz o vínculo
@@ -1810,7 +1810,7 @@ export function GestaoClickProductEditModal({
                                   }
                                   className="px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-600 text-white font-bold cursor-pointer"
                                 >
-                                  ✕
+                                  Remover
                                 </button>
                               </td>
                             </tr>
@@ -1847,7 +1847,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
                     <h3 className="text-sm font-bold text-slate-800">
-                      📐 Pesos, <span className="text-[#1e3a6e]">dimensões e campos extras</span>
+                      Pesos, <span className="text-[#1e3a6e]">dimensões e campos extras</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Especificações físicas para cálculo de frete, garantia e rastreabilidade por S/N
@@ -1969,7 +1969,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
                     <h3 className="text-sm font-bold text-slate-800">
-                      💰 Custo, <span className="text-[#1e3a6e]">margem de lucro e valores de locação / venda</span>
+                      Custo, <span className="text-[#1e3a6e]">margem de lucro e valores de locação / venda</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Configure o preço de custo de aquisição, venda avulsa, locação recorrente mensal e valor patrimonial p/ NF-e de Remessa
@@ -2072,7 +2072,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
                     <h3 className="text-sm font-bold text-slate-800">
-                      📦 Quantidades, <span className="text-[#1e3a6e]">limites por loja e movimentações (Entrada / Saída / Locação)</span>
+                      Quantidades, <span className="text-[#1e3a6e]">limites por loja e movimentações (Entrada / Saída / Locação)</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Controle de saldo em almoxarifado, unidades locadas em clientes e livro kardex de entradas/saídas
@@ -2159,10 +2159,10 @@ export function GestaoClickProductEditModal({
                           }
                           className="w-full px-2.5 py-1.5 rounded border bg-white font-bold"
                         >
-                          <option value="ENTRADA">➕ Entrada de Compra (NF-e)</option>
-                          <option value="SAIDA">➖ Saída / Baixa de Venda</option>
-                          <option value="REMESSA_LOCACAO">🚚 Remessa p/ Locação (CFOP 5.908)</option>
-                          <option value="RETORNO_LOCACAO">↩️ Retorno de Locação (CFOP 5.909)</option>
+                          <option value="ENTRADA">Entrada de Compra (NF-e)</option>
+                          <option value="SAIDA">Saída / Baixa de Venda</option>
+                          <option value="REMESSA_LOCACAO">Remessa p/ Locação (CFOP 5.908)</option>
+                          <option value="RETORNO_LOCACAO">Retorno de Locação (CFOP 5.909)</option>
                         </select>
                       </div>
                       <div className="sm:col-span-2">
@@ -2252,7 +2252,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
                     <h3 className="text-sm font-bold text-slate-800">
-                      🖼️ Imagens <span className="text-[#1e3a6e]">do produto</span>
+                      Imagens <span className="text-[#1e3a6e]">do produto</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Fotos exibidas no catálogo comercial, PDV Balcão e propostas em PDF
@@ -2278,7 +2278,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
                     <h3 className="text-sm font-bold text-slate-800">
-                      🧾 NCM, CEST, <span className="text-[#1e3a6e]">origem e regras fiscais (LC 116 / SV 31 STF / RICMS)</span>
+                      NCM, CEST, <span className="text-[#1e3a6e]">origem e regras fiscais (LC 116 / SV 31 STF / RICMS)</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Parametrização tributária inspirada no motor OCA/l10n-brazil &amp; ERPNext Fiscal BR
@@ -2433,7 +2433,7 @@ export function GestaoClickProductEditModal({
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div>
                       <h3 className="text-sm font-bold text-slate-800">
-                        🚚 Quem <span className="text-[#1e3a6e]">fornece este produto</span>
+                        Quem <span className="text-[#1e3a6e]">fornece este produto</span>
                       </h3>
                       <p className="text-[11px] text-slate-400">
                         Fornecedores homologados, código SKU no fornecedor e último custo de nota de entrada
@@ -3176,7 +3176,7 @@ export function BatchRentalBillingAndEmailModal({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900 text-white uppercase text-[10px]">
                 <tr>
-                  <th className="py-2.5 px-3 w-10 text-center">✓</th>
+                  <th className="py-2.5 px-3 w-10 text-center">Sel.</th>
                   <th className="py-2.5 px-3">Contrato &amp; Cliente</th>
                   <th className="py-2.5 px-3 text-right">Aluguel Base (R$)</th>
                   <th className="py-2.5 px-3 text-right">Acréscimo / Rateio (R$)</th>

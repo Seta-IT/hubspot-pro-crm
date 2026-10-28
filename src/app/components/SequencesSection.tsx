@@ -480,7 +480,7 @@ export default function SequencesSection({
                         }`}
                       >
                         {isPausedOnReply
-                          ? '✓ PAUSED_ON_REPLY (Pausado Automaticamente — Lead Respondeu!)'
+                          ? 'PAUSED_ON_REPLY (Pausado Automaticamente — Lead Respondeu!)'
                           : `Status: ${enr.status}`}
                       </span>
                       <span className="text-xs font-bold text-slate-900">

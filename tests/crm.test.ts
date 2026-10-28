@@ -3414,6 +3414,11 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(erpTabSrc.includes("Histórico de situações"));
     assert.ok(erpTabSrc.includes("Histórico de versões da proposta"));
     assert.ok(erpTabSrc.includes("handleConfirmChangeProposalStatus"));
+    assert.ok(pageSrc.includes("Abrir Tela da Versão"));
+    assert.ok(pageSrc.includes("Baixar / Imprimir PDF"));
+    assert.ok(pageSrc.includes("Restaurar esta versão"));
+    assert.equal(typeof share.buildProposalVersionUrl, "function");
+    assert.equal(typeof share.proposalFromVersionSnapshot, "function");
   });
   it("valida fluxo stateless completo de EMAIL_OTP entre /api/auth/send-email-otp e /api/auth/verify-mfa (mesmo quando verify-mfa cai em outra instância Lambda sem estado em memória) e exibe devOtpPreview na tela de login em modo contingência", async () => {
     const repoA = createInMemoryRepository();
@@ -3521,6 +3526,43 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.equal(emojiRegex.test(gcSidebarSrc), false);
     assert.equal(emojiRegex.test(erpTabSrc), false);
     assert.equal(emojiRegex.test(sdSrc), false);
+  });
+  it("garante varredura 100% livre de emojis (\\p{Extended_Pictographic}) em todos os arquivos .ts e .tsx de src/ e remoção da barra de busca/enriquecimento duplicada em ContactsCompaniesTab", () => {
+    const rootDir = process.cwd();
+    const walkFiles = (dir: string): string[] => {
+      let out: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          out = out.concat(walkFiles(full));
+        } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+          out.push(full);
+        }
+      }
+      return out;
+    };
+
+    const allSrcFiles = walkFiles(path.join(rootDir, "src"));
+    assert.ok(allSrcFiles.length >= 40, "Deve varrer todos os arquivos .ts e .tsx em src/");
+    const emojiRe = /[\p{Extended_Pictographic}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{FE0F}]/u;
+
+    for (const file of allSrcFiles) {
+      const content = fs.readFileSync(file, "utf8");
+      const rel = path.relative(rootDir, file);
+      assert.equal(emojiRe.test(content), false, `Arquivo ${rel} não deve conter nenhum emoji Unicode`);
+    }
+
+    const ccSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ContactsCompaniesTab.tsx"), "utf8");
+    assert.equal(
+      ccSrc.includes("Pesquisar empresa por razão social, domínio, CNPJ, cidade ou setor..."),
+      false,
+      "Barra de pesquisa/filtro duplicada deve ter sido removida de ContactsCompaniesTab"
+    );
+    assert.equal(
+      ccSrc.includes("Enriquecer domínio (ex: @totvs.com.br)"),
+      false,
+      "Formulário de enriquecer domínio na barra superior deve ter sido removido de ContactsCompaniesTab"
+    );
   });
 });
 

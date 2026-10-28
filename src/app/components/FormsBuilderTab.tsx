@@ -503,7 +503,7 @@ export default function FormsBuilderTab({
                 HubSpot API v3 &amp; Ponte Bidirecional GestãoClick ERP (#118887)
               </span>
               <h2 className="text-lg font-extrabold text-slate-900 mt-2">
-                Assistente de Migração &amp; Sincronização HubSpot ↔ STI-hub ↔ GestãoClick
+                Assistente de Migração &amp; Sincronização HubSpot - STI-hub - GestãoClick
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
                 Importa Contatos (`firstname`, `lastname`, `email`), Empresas (`domain`, `cnpj`),
@@ -552,7 +552,7 @@ export default function FormsBuilderTab({
               {/* Matriz de Mapeamento Triplo */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                 <div className="font-extrabold text-slate-800 uppercase tracking-wider text-[11px]">
-                  Matriz de Sincronização (HubSpot v3 ↔ STI-hub ↔ GestãoClick ERP)
+                  Matriz de Sincronização (HubSpot v3 - STI-hub - GestãoClick ERP)
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 border-b border-slate-200 pb-1">
                   <span>HubSpot CRM</span>
@@ -623,7 +623,7 @@ export default function FormsBuilderTab({
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900">
-                  Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — GestãoClick #118887 ↔ HubSpot v3
+                  Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — GestãoClick #118887 - HubSpot v3
                 </h3>
                 <p className="text-xs text-slate-600">
                   Mapeamento 1:1 de todas as tabelas, campos raiz, sub-objetos aninhados e contagens reais da Seta Telecom (GET /api/erp/gestaoclick/schema).

@@ -20,12 +20,18 @@ import {
   CreditCard,
   History,
   Clock,
+  RotateCcw,
+  ExternalLink,
   X,
 } from 'lucide-react';
-import { ErpCommercialProposal, ErpProposalDigitalSignature } from '../../../db/types';
+import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL } from '../../components/ui-helpers';
 import {
+  appendClientProposalVersion,
+  buildProposalVersionUrl,
   buildPublicProposalUrl,
+  buildSnapshotFromProposal,
+  proposalFromVersionSnapshot,
   computeProposalTotals,
   decodeProposalFromQueryParam,
   encodeProposalToQueryParam,
@@ -52,12 +58,18 @@ function PublicProposalPrintContent() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const rawId = decodeURIComponent(String(params?.id || ''));
-  const encodedData = searchParams?.get('d');
-  const autoPrint = searchParams?.get('print') === '1';
+  const encodedData = searchParams?.get("d");
+  const versionParam = searchParams?.get("v");
+  const autoPrint = searchParams?.get("print") === "1";
 
   const [proposal, setProposal] = useState<ErpCommercialProposal | null>(() =>
     decodeProposalFromQueryParam(encodedData)
   );
+  const [viewingVersionNum, setViewingVersionNum] = useState<number | null>(() =>
+    versionParam ? Number(versionParam) || null : null
+  );
+  const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const [restoredBannerMsg, setRestoredBannerMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(!proposal);
   const [copied, setCopied] = useState(false);
 
@@ -72,14 +84,17 @@ function PublicProposalPrintContent() {
   } | null>(null);
   const [showIcpSignatureModal, setShowIcpSignatureModal] = useState(false);
   const [signatureVerifiedBanner, setSignatureVerifiedBanner] = useState<string | null>(null);
-  const [signerName, setSignerName] = useState('');
-  const [signerCpf, setSignerCpf] = useState('284.910.538-09');
-  const [signerRole, setSignerRole] = useState('Diretor / Representante Legal');
+  const [signerName, setSignerName] = useState("");
+  const [signerCpf, setSignerCpf] = useState("284.910.538-09");
+  const [signerRole, setSignerRole] = useState("Diretor / Representante Legal");
   const [signatureModality, setSignatureModality] = useState<
-    'ICP_BRASIL_A1' | 'ICP_BRASIL_A3' | 'GOV_BR_OURO'
-  >('ICP_BRASIL_A1');
+    "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
+  >("ICP_BRASIL_A1");
 
   useEffect(() => {
+    const requestedVer = versionParam ? Number(versionParam) || null : null;
+    setViewingVersionNum(requestedVer);
+
     const journal = loadDurableJournal();
     const localFound = (journal.upsertedProposals || []).find(
       (p) =>
@@ -94,22 +109,62 @@ function PublicProposalPrintContent() {
         ? {
             ...localFound,
             ...decoded,
-            templateStyle: decoded.templateStyle || localFound.templateStyle || "CLEAN_CORPORATE_LIGHT",
+            templateStyle:
+              decoded.templateStyle || localFound.templateStyle || "CLEAN_CORPORATE_LIGHT",
             slaTier: decoded.slaTier || localFound.slaTier,
             setupFee: decoded.setupFee ?? localFound.setupFee,
             sellerEmail: decoded.sellerEmail || localFound.sellerEmail,
             sellerPhone: decoded.sellerPhone || localFound.sellerPhone,
-            status: localFound.status === "CONVERTIDA_CONTRATO" ? "CONVERTIDA_CONTRATO" : decoded.status,
-            convertedContractId: decoded.convertedContractId || localFound.convertedContractId || null,
+            status:
+              localFound.status === "CONVERTIDA_CONTRATO"
+                ? "CONVERTIDA_CONTRATO"
+                : decoded.status,
+            convertedContractId:
+              decoded.convertedContractId || localFound.convertedContractId || null,
             digitalSignature: decoded.digitalSignature || localFound.digitalSignature || null,
+            version: localFound.version || decoded.version || 1,
             versionHistory: localFound.versionHistory || decoded.versionHistory,
           }
         : decoded;
       setProposal(computeProposalTotals(merged));
       setLoading(false);
+
+      // Hydrate versionHistory from API if not present in localStorage
+      if (!Array.isArray(merged.versionHistory) || merged.versionHistory.length === 0) {
+        fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
+          .then((r) => r.json())
+          .then((json) => {
+            const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
+            if (apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.length > 0) {
+              setProposal((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      version: apiProp.version || prev.version || apiProp.versionHistory!.length,
+                      versionHistory: apiProp.versionHistory,
+                    }
+                  : prev
+              );
+            }
+          })
+          .catch(() => null);
+      }
       return;
     }
-    if (localFound) {
+
+    if (localFound && Array.isArray(localFound.versionHistory) && localFound.versionHistory.length > 0) {
+      if (requestedVer) {
+        const entry = localFound.versionHistory.find((v) => Number(v.version) === requestedVer);
+        if (entry) {
+          setProposal({
+            ...proposalFromVersionSnapshot(localFound, entry),
+            version: localFound.version,
+            versionHistory: localFound.versionHistory,
+          });
+          setLoading(false);
+          return;
+        }
+      }
       setProposal(computeProposalTotals(localFound));
       setLoading(false);
       return;
@@ -120,30 +175,48 @@ function PublicProposalPrintContent() {
       .then((r) => r.json())
       .then((json) => {
         if (!active) return;
-        if (json?.data && !Array.isArray(json.data)) {
-          setProposal(computeProposalTotals(json.data as ErpCommercialProposal));
-          setLoading(false);
-          return;
+        const apiData: ErpCommercialProposal | null =
+          json?.data && !Array.isArray(json.data)
+            ? (json.data as ErpCommercialProposal)
+            : (Array.isArray(json?.data) ? (json.data as ErpCommercialProposal[]) : []).find(
+                (p) =>
+                  p.id === rawId ||
+                  p.code.toLowerCase() === rawId.toLowerCase() ||
+                  p.id.toLowerCase() === rawId.toLowerCase()
+              ) ||
+              localFound ||
+              null;
+
+        if (apiData) {
+          if (requestedVer && Array.isArray(apiData.versionHistory)) {
+            const entry = apiData.versionHistory.find((v) => Number(v.version) === requestedVer);
+            if (entry) {
+              setProposal({
+                ...proposalFromVersionSnapshot(apiData, entry),
+                version: apiData.version,
+                versionHistory: apiData.versionHistory,
+              });
+              setLoading(false);
+              return;
+            }
+          }
+          setProposal(computeProposalTotals(apiData));
+        } else {
+          setProposal(null);
         }
-        const list: ErpCommercialProposal[] = Array.isArray(json?.data) ? json.data : [];
-        const match =
-          list.find(
-            (p) =>
-              p.id === rawId ||
-              p.code.toLowerCase() === rawId.toLowerCase() ||
-              p.id.toLowerCase() === rawId.toLowerCase()
-          ) || null;
-        setProposal(match ? computeProposalTotals(match) : null);
         setLoading(false);
       })
       .catch(() => {
-        if (active) setLoading(false);
+        if (active) {
+          if (localFound) setProposal(computeProposalTotals(localFound));
+          setLoading(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [rawId, encodedData]);
+  }, [rawId, encodedData, versionParam]);
 
   useEffect(() => {
     if (proposal && autoPrint && !isEditing) {
@@ -160,28 +233,107 @@ function PublicProposalPrintContent() {
       updatedAt: new Date().toISOString(),
     });
 
-    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(computed.id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(computed),
-    });
-    const finalProposal: ErpCommercialProposal = res.ok
-      ? computeProposalTotals((await res.json())?.data || computed)
+    const clientVersioned = proposal
+      ? appendClientProposalVersion(proposal, computed)
       : computed;
+
+    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(computed.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(computed),
+    }).catch(() => null);
+
+    let finalProposal: ErpCommercialProposal = clientVersioned;
+    if (res && res.ok) {
+      const json = await res.json().catch(() => null);
+      if (json?.data) {
+        finalProposal = computeProposalTotals(json.data);
+      }
+    }
 
     recordUpsertedProposal(finalProposal);
     setProposal(finalProposal);
+    setViewingVersionNum(null);
     setIsEditing(false);
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       const newEncoded = encodeProposalToQueryParam(finalProposal);
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set('d', newEncoded);
-      window.history.replaceState({}, '', url.toString());
+      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("v");
+      window.history.replaceState({}, "", url.toString());
     }
 
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 3500);
+  };
+
+  const handleOpenVersionInPage = (entry: ErpProposalVersionEntry, latestVer: number) => {
+    if (!proposal) return;
+    const snapProp = {
+      ...proposalFromVersionSnapshot(proposal, entry),
+      version: latestVer,
+      versionHistory: proposal.versionHistory,
+    };
+    setProposal(snapProp);
+    setViewingVersionNum(entry.version === latestVer ? null : entry.version);
+    setShowInternalVersionsModal(false);
+    if (typeof window !== "undefined") {
+      const url = buildProposalVersionUrl(proposal, entry);
+      window.history.replaceState({}, "", url);
+    }
+  };
+
+  const handleRestoreVersionInPage = async (entry: ErpProposalVersionEntry) => {
+    if (!proposal) return;
+    setRestoringVersion(entry.version);
+    try {
+      const snapProp = proposalFromVersionSnapshot(proposal, entry);
+      let restoredProposal = appendClientProposalVersion(
+        proposal,
+        snapProp,
+        `Restaurada a partir da Versão ${entry.version}`
+      );
+
+      const res = await fetch(
+        `/api/erp/proposals/${encodeURIComponent(proposal.id)}/restore-version`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetVersion: entry.version,
+            restoredBy: proposal.sellerName || "Marcelo Lopes Mira",
+          }),
+        }
+      ).catch(() => null);
+
+      if (res && res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json?.data) {
+          restoredProposal = computeProposalTotals(json.data);
+        }
+      }
+
+      recordUpsertedProposal(restoredProposal);
+      setProposal(restoredProposal);
+      setViewingVersionNum(null);
+      setShowInternalVersionsModal(false);
+
+      if (typeof window !== "undefined") {
+        const newEncoded = encodeProposalToQueryParam(restoredProposal);
+        const url = new URL(window.location.href);
+        if (newEncoded) url.searchParams.set("d", newEncoded);
+        url.searchParams.delete("v");
+        window.history.replaceState({}, "", url.toString());
+      }
+
+      setRestoredBannerMsg(
+        `Versão ${entry.version} restaurada com sucesso! A proposta agora está ativa com os dados restaurados.`
+      );
+      setTimeout(() => setRestoredBannerMsg(null), 5000);
+    } finally {
+      setRestoringVersion(null);
+    }
   };
 
   const handleSlaTierChange = async (newSlaId: string) => {
@@ -221,8 +373,8 @@ function PublicProposalPrintContent() {
     const isHashValid = typeof sig.signatureHashSha256 === "string" && sig.signatureHashSha256.length === 64;
     setSignatureVerifiedBanner(
       isHashValid
-        ? `✓ Assinatura Digital Validada: Signatário ${sig.signerName} (${sig.signerCpf}) • Protocolo ${sig.timestampToken} • Hash SHA-256 íntegro.`
-        : "✓ Assinatura Digital registrada e verificada."
+        ? `Assinatura Digital Validada: Signatário ${sig.signerName} (${sig.signerCpf}) • Protocolo ${sig.timestampToken} • Hash SHA-256 íntegro.`
+        : "Assinatura Digital registrada e verificada."
     );
   };
 
@@ -326,7 +478,7 @@ function PublicProposalPrintContent() {
           invoiceNumber: json?.data?.invoice?.documentNumber || 'FAT-LOC-2026',
         });
         setSignatureVerifiedBanner(
-          `✓ Assinatura Digital (${sig?.modality || signatureModality}) validada com sucesso! Protocolo ${sig?.timestampToken || "ACT-ITI"} • Hash SHA-256 registrado.`
+          `Assinatura Digital (${sig?.modality || signatureModality}) validada com sucesso! Protocolo ${sig?.timestampToken || "ACT-ITI"} • Hash SHA-256 registrado.`
         );
         setShowIcpSignatureModal(false);
       }
@@ -572,7 +724,7 @@ function PublicProposalPrintContent() {
               </span>
               {savedNotice && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
-                  ✓ Proposta Atualizada!
+                  Proposta Atualizada!
                 </span>
               )}
             </div>
@@ -590,7 +742,7 @@ function PublicProposalPrintContent() {
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
           >
             <Edit3 className="w-4 h-4" />
-            ✏️ Editar Proposta antes de Imprimir
+            Editar Proposta antes de Imprimir
           </button>
 
           <button
@@ -614,11 +766,14 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => setShowInternalVersionsModal(true)}
-            title="Opção interna para consultas futuras de versões (não consta na proposta do cliente)"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-indigo-950/90 hover:bg-indigo-900 border border-indigo-400/40 text-amber-200 text-xs font-extrabold transition cursor-pointer"
+            title="Consultas Internas / Versões"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-extrabold transition cursor-pointer"
           >
             <History className="w-4 h-4 text-amber-300" />
-            Consultas Internas / Versões
+            <span>
+              Versões ({(proposal.versionHistory || []).length || 1})
+            </span>
+            <span className="sr-only">Consultas Internas / Versões</span>
           </button>
 
           <select
@@ -638,20 +793,20 @@ function PublicProposalPrintContent() {
             ))}
           </select>
 
-          {proposal.status !== 'CONVERTIDA_CONTRATO' && !proposal.convertedContractId ? (
+          {proposal.status !== "CONVERTIDA_CONTRATO" && !proposal.convertedContractId ? (
             <button
               type="button"
               disabled={approvingContract}
               onClick={() => {
                 if (!signerName.trim()) {
-                  setSignerName(proposal.careOf || proposal.contactName || 'Representante Legal');
+                  setSignerName(proposal.careOf || proposal.contactName || "Representante Legal");
                 }
                 setShowIcpSignatureModal(true);
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className="w-4 h-4" />
-              {approvingContract ? 'Assinando...' : 'Assinar ICP-Brasil / Gov.br & Aprovar'}
+              {approvingContract ? "Assinando..." : "Assinar ICP-Brasil / Gov.br & Aprovar"}
             </button>
           ) : (
             <a
@@ -673,6 +828,86 @@ function PublicProposalPrintContent() {
           </button>
         </div>
       </div>
+
+      {/* BANNER DE VERSÃO RESTAURADA */}
+      {restoredBannerMsg && (
+        <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-emerald-800 text-white border border-emerald-400 flex items-center justify-between gap-3 text-xs shadow-md print:hidden">
+          <div className="flex items-center gap-2 font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>{restoredBannerMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRestoredBannerMsg(null)}
+            className="text-emerald-200 hover:text-white cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* BANNER QUANDO ESTIVER VISUALIZANDO UMA VERSÃO ANTERIOR */}
+      {(() => {
+        const allVers =
+          Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0
+            ? [...proposal.versionHistory].sort((a, b) => b.version - a.version)
+            : [];
+        const latestEntry = allVers[0];
+        const latestVerNum = latestEntry?.version || proposal.version || 1;
+        if (!viewingVersionNum || viewingVersionNum === latestVerNum) return null;
+        const currentViewedEntry =
+          allVers.find((v) => Number(v.version) === Number(viewingVersionNum)) || null;
+        return (
+          <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-amber-50 border-2 border-amber-400 text-amber-950 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm print:hidden">
+            <div className="flex items-center gap-2.5">
+              <History className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <div className="font-extrabold text-sm text-amber-950">
+                  Você está visualizando a Versão {viewingVersionNum}{" "}
+                  {currentViewedEntry?.savedAt
+                    ? `de ${new Date(currentViewedEntry.savedAt).toLocaleString("pt-BR")}`
+                    : ""}
+                </div>
+                <div className="text-[11px] text-amber-800">
+                  Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
+                  <strong>{proposal.contractMonths} meses</strong> •{" "}
+                  <strong>{(proposal.items || []).length} item(ns)</strong>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-bold cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#ff7a59]" />
+                Baixar / Imprimir PDF desta Versão
+              </button>
+              {currentViewedEntry && (
+                <button
+                  type="button"
+                  disabled={restoringVersion === currentViewedEntry.version}
+                  onClick={() => handleRestoreVersionInPage(currentViewedEntry)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
+                  Restaurar esta versão
+                </button>
+              )}
+              {latestEntry && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenVersionInPage(latestEntry, latestVerNum)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 font-bold cursor-pointer"
+                >
+                  Voltar p/ Versão Atual (Versão {latestVerNum})
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {signatureVerifiedBanner && (
         <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-emerald-900 text-white border border-emerald-400 flex items-center justify-between gap-3 text-xs shadow-md print:hidden">
@@ -701,96 +936,194 @@ function PublicProposalPrintContent() {
         </div>
       )}
 
-      {/* MODAL DE CONSULTAS FUTURAS INTERNAS DE VERSIONAMENTO (HIDDEN ON PRINT) */}
+      {/* MODAL SIMPLES E DIRETO DE VERSÕES DA PROPOSTA (HIDDEN ON PRINT) */}
       {showInternalVersionsModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-3xl w-full overflow-hidden">
-            <div className="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-amber-300" />
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 print:hidden"
+          onClick={() => setShowInternalVersionsModal(false)}
+        >
+          <div
+            className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <History className="w-5 h-5 text-emerald-300" />
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase text-amber-300 block">
-                    Consulta Futura Interna • Não consta na proposta do cliente
-                  </span>
-                  <h3 className="text-sm font-extrabold">
-                    Histórico Interno de Revisões ({proposal.code})
+                  <h3 className="text-base font-extrabold">
+                    Versões da Proposta ({proposal.code})
                   </h3>
+                  <p className="text-[11px] text-slate-200">
+                    Escolha qualquer versão abaixo para abrir na tela, baixar o PDF A4 ou restaurar em 1 clique.
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowInternalVersionsModal(false)}
-                className="text-slate-300 hover:text-white cursor-pointer"
+                className="text-slate-300 hover:text-white cursor-pointer p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-              <div className="p-3 rounded bg-indigo-50 border border-indigo-200 text-indigo-950 flex items-center justify-between">
-                <span>
-                  O histórico de versões é mantido exclusivamente para consulta interna e não é exibido nem impresso na proposta comercial.
-                </span>
-                <span className="px-2 py-0.5 rounded bg-indigo-900 text-white font-mono font-bold">
-                  Interno: v{proposal.version || 1}.0
-                </span>
-              </div>
-              {Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0 ? (
-                <table className="w-full text-left text-[11px] border border-slate-200 rounded overflow-hidden">
-                  <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                    <tr>
-                      <th className="py-2 px-3 w-20">Revisão</th>
-                      <th className="py-2 px-3 w-36">Data / Hora</th>
-                      <th className="py-2 px-3 w-40">Responsável</th>
-                      <th className="py-2 px-3">Alterações Internas</th>
-                      <th className="py-2 px-3 text-right w-32">MRR / Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {[...proposal.versionHistory]
-                      .sort((a, b) => b.version - a.version)
-                      .map((ver) => (
-                        <tr key={`${ver.version}-${ver.savedAt}`}>
-                          <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
-                            {ver.versionLabel || `v${ver.version}.0`}
-                          </td>
-                          <td className="py-2 px-3 text-slate-600">
-                            {ver.savedAt ? new Date(ver.savedAt).toLocaleString("pt-BR") : "—"}
-                          </td>
-                          <td className="py-2 px-3 font-semibold text-slate-800">
-                            {ver.savedBy || proposal.sellerName}
-                          </td>
-                          <td className="py-2 px-3 text-slate-700">
-                            <div className="font-semibold">{ver.changeSummary}</div>
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono">
-                            <div className="font-bold text-emerald-700">
-                              {formatBRL(ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal)}/mês
-                            </div>
-                          </td>
+
+            <div className="p-6 space-y-4 max-h-[78vh] overflow-y-auto text-xs">
+              {(() => {
+                const versionsList: ErpProposalVersionEntry[] =
+                  Array.isArray(proposal.versionHistory) && proposal.versionHistory.length > 0
+                    ? [...proposal.versionHistory].sort((a, b) => b.version - a.version)
+                    : [
+                        {
+                          version: proposal.version || 1,
+                          versionLabel: `v${proposal.version || 1}.0`,
+                          savedAt: proposal.updatedAt || proposal.createdAt || new Date().toISOString(),
+                          savedBy: proposal.sellerName || "Marcelo Lopes Mira",
+                          changedFields: ["Versão Atual"],
+                          changeSummary: "Versão atual da proposta comercial",
+                          snapshot: buildSnapshotFromProposal(proposal),
+                        },
+                      ];
+                const latestVer = versionsList[0]?.version || proposal.version || 1;
+
+                return (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="py-3 px-4 w-36">Versão</th>
+                          <th className="py-3 px-4 w-48">Data / Hora &amp; Responsável</th>
+                          <th className="py-3 px-4">Valor Mensal / Resumo</th>
+                          <th className="py-3 px-4 text-right">Ações da Versão</th>
                         </tr>
-                      ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="p-4 text-center text-slate-500 border border-slate-200 rounded">
-                  Versão inicial registrada internamente.
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowInternalVersionsModal(false);
-                    setIsEditing(true);
-                  }}
-                  className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
-                >
-                  Abrir Editor &amp; Restaurar Versão
-                </button>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {versionsList.map((ver) => {
+                          const isLatest = ver.version === latestVer;
+                          const isCurrentlyViewing =
+                            viewingVersionNum === ver.version ||
+                            (!viewingVersionNum && isLatest);
+                          const verScreenUrl = buildProposalVersionUrl(proposal, ver);
+                          const verPdfUrl = buildProposalVersionUrl(proposal, ver, {
+                            autoPrint: true,
+                          });
+                          const mrrVal =
+                            ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal;
+                          const itemsCount = (ver.snapshot?.items || proposal.items || []).length;
+                          const monthsVal =
+                            ver.snapshot?.contractMonths ?? proposal.contractMonths;
+
+                          return (
+                            <tr
+                              key={`${ver.version}-${ver.savedAt}`}
+                              className={
+                                isCurrentlyViewing ? "bg-emerald-50/50" : "hover:bg-slate-50"
+                              }
+                            >
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-extrabold text-sm text-[#0d2b4e]">
+                                    Versão {ver.version}
+                                  </span>
+                                  {isLatest ? (
+                                    <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold">
+                                      ATUAL
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold">
+                                      ANTERIOR
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-slate-600">
+                                <div className="font-semibold text-slate-800">
+                                  {ver.savedAt
+                                    ? new Date(ver.savedAt).toLocaleString("pt-BR")
+                                    : "—"}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {ver.savedBy || proposal.sellerName}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4">
+                                <div className="font-extrabold text-emerald-700 text-xs">
+                                  {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
+                                  {itemsCount === 1 ? "item" : "itens"} • {monthsVal} meses
+                                </div>
+                                <div className="text-[11px] text-slate-600 mt-0.5">
+                                  {ver.changeSummary}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-right">
+                                <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                                  {/* 1. Abrir Tela da Versão */}
+                                  <a
+                                    href={verScreenUrl}
+                                    onClick={(e) => {
+                                      if (!e.metaKey && !e.ctrlKey) {
+                                        e.preventDefault();
+                                        handleOpenVersionInPage(ver, latestVer);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-extrabold cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>Abrir Tela da Versão</span>
+                                  </a>
+
+                                  {/* 2. Baixar / Imprimir PDF */}
+                                  <a
+                                    href={verPdfUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                    <span>Baixar / Imprimir PDF</span>
+                                  </a>
+
+                                  {/* 3. Restaurar esta versão */}
+                                  {!isLatest ? (
+                                    <button
+                                      type="button"
+                                      disabled={restoringVersion === ver.version}
+                                      onClick={() => handleRestoreVersionInPage(ver)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
+                                      <span>
+                                        {restoringVersion === ver.version
+                                          ? "Restaurando..."
+                                          : "Restaurar esta versão"}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span className="px-2.5 py-1.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
+                                      Versão Ativa
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                <span className="text-[11px] text-slate-500">
+                  Dica: Ao editar e salvar a proposta, uma nova versão é gravada automaticamente.
+                </span>
                 <button
                   type="button"
                   onClick={() => setShowInternalVersionsModal(false)}
-                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -828,8 +1161,8 @@ function PublicProposalPrintContent() {
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{' '}
-                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{' '}
+                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{" "}
+                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
                   <strong>{proposal.contractMonths} meses</strong>
                 </div>
               </div>
@@ -879,7 +1212,7 @@ function PublicProposalPrintContent() {
                     value={signatureModality}
                     onChange={(e) =>
                       setSignatureModality(
-                        e.target.value as 'ICP_BRASIL_A1' | 'ICP_BRASIL_A3' | 'GOV_BR_OURO'
+                        e.target.value as "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
                       )
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
@@ -913,8 +1246,8 @@ function PublicProposalPrintContent() {
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   {approvingContract
-                    ? 'Gerando Hash SHA-256 & Contrato...'
-                    : 'Confirmar Assinatura ICP-Brasil & Gerar Contrato'}
+                    ? "Gerando Hash SHA-256 & Contrato..."
+                    : "Confirmar Assinatura ICP-Brasil & Gerar Contrato"}
                 </button>
               </div>
             </div>

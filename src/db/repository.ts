@@ -2982,7 +2982,7 @@ export class CrmRepository {
     }
     ticket.comments.push({
       id: `cmt-os-${Date.now()}`,
-      author: 'Integração NOC ↔ GestãoClick ERP',
+      author: 'Integração NOC - GestãoClick ERP',
       authorRole: 'AGENT',
       isInternal: true,
       body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no GestãoClick ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
@@ -5605,7 +5605,7 @@ export class CrmRepository {
     if (updated && (updated.contactId || updated.companyId || updated.dealId)) {
       this.createTimelineEvent({
         type: "TASK",
-        title: `✅ Tarefa concluída: ${updated.title}`,
+        title: `Tarefa concluída: ${updated.title}`,
         body: `Fila: ${updated.queueName} • Concluída por ${updated.assignedTo}.`,
         contactId: updated.contactId,
         companyId: updated.companyId,
@@ -5797,7 +5797,7 @@ export class CrmRepository {
 
     const timelineEvent = this.createTimelineEvent({
       type: "EMAIL",
-      title: `✉️ E-mail enviado: ${input.subject.trim()}`,
+      title: `E-mail enviado: ${input.subject.trim()}`,
       body: `${recipientsHeader} • Protocolo: ${protocol}\n\n${input.body}`,
       contactId: resolvedContactId,
       companyId: resolvedCompanyId,
@@ -5826,7 +5826,7 @@ export class CrmRepository {
         contact.isUnworked = false;
         this.createTimelineEvent({
           type: "EMAIL",
-          title: `✉️ E-mail enviado (Destinatário vinculado): ${input.subject.trim()}`,
+          title: `E-mail enviado (Destinatário vinculado): ${input.subject.trim()}`,
           body: `${recipientsHeader} • Protocolo: ${protocol}\n\n${input.body}`,
           contactId: contact.id,
           companyId: contact.companyId || resolvedCompanyId,

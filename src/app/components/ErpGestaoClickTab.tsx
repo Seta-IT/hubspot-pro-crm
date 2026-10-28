@@ -59,6 +59,7 @@ import {
   ErpFiscalNature,
   ErpFinancialEntry,
   ErpProposalItem,
+  ErpProposalVersionEntry,
   ErpPurchaseOrder,
   ErpRentalContract,
   ErpSaleOrder,
@@ -91,7 +92,7 @@ import {
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
 } from '../lib/durable-storage';
-import { buildPublicProposalUrl } from '../lib/proposal-share';
+import { appendClientProposalVersion, buildProposalVersionUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
@@ -1535,6 +1536,47 @@ export default function ErpGestaoClickTab({
         )}
       </div>
     );
+  };
+
+  const handleRestoreProposalVersionFromModal = async (
+    prop: ErpCommercialProposal,
+    entry: ErpProposalVersionEntry
+  ) => {
+    setSavingProposalStatus(true);
+    try {
+      const snapProp = proposalFromVersionSnapshot(prop, entry);
+      let restoredProposal = appendClientProposalVersion(
+        prop,
+        snapProp,
+        `Restaurada a partir da Versão ${entry.version}`
+      );
+
+      const res = await fetch(
+        `/api/erp/proposals/${encodeURIComponent(prop.id)}/restore-version`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetVersion: entry.version,
+            restoredBy: activeUser?.name || prop.sellerName || "Marcelo Lopes Mira",
+          }),
+        }
+      ).catch(() => null);
+
+      if (res && res.ok) {
+        const j = await res.json().catch(() => null);
+        if (j?.data) {
+          restoredProposal = j.data;
+        }
+      }
+
+      recordUpsertedProposal(restoredProposal);
+      setStatusModalProposal(restoredProposal);
+      onShowToast(`Versão ${entry.version} restaurada com sucesso no orçamento ${prop.code}!`);
+      await onRefresh();
+    } finally {
+      setSavingProposalStatus(false);
+    }
   };
 
   const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
@@ -7062,11 +7104,28 @@ export default function ErpGestaoClickTab({
                 );
               })()}
 
-              {/* Acordeão 2: Histórico de versões da proposta (movido da listagem para dentro do histórico da proposta) */}
+              {/* Acordeão 2: Histórico de versões da proposta (com os 3 botões diretos: Abrir Tela, PDF e Restaurar) */}
               {(() => {
-                const versions = Array.isArray(statusModalProposal.versionHistory)
-                  ? [...statusModalProposal.versionHistory].sort((a, b) => b.version - a.version)
-                  : [];
+                const versions: ErpProposalVersionEntry[] =
+                  Array.isArray(statusModalProposal.versionHistory) &&
+                  statusModalProposal.versionHistory.length > 0
+                    ? [...statusModalProposal.versionHistory].sort((a, b) => b.version - a.version)
+                    : [
+                        {
+                          version: statusModalProposal.version || 1,
+                          versionLabel: `v${statusModalProposal.version || 1}.0`,
+                          savedAt:
+                            statusModalProposal.updatedAt ||
+                            statusModalProposal.createdAt ||
+                            new Date().toISOString(),
+                          savedBy: statusModalProposal.sellerName || "Marcelo Lopes Mira",
+                          changedFields: ["Versão Atual"],
+                          changeSummary: "Versão atual da proposta comercial",
+                          snapshot: buildSnapshotFromProposal(statusModalProposal),
+                        },
+                      ];
+                const latestVer = versions[0]?.version || statusModalProposal.version || 1;
+
                 return (
                   <div className="border-t border-slate-200 pt-3">
                     <button
@@ -7077,8 +7136,9 @@ export default function ErpGestaoClickTab({
                       <span className="inline-flex items-center gap-2">
                         <FileText className="w-4 h-4 text-[#1e3a6e]" />
                         <span>Histórico de versões da proposta</span>
-                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-mono font-extrabold">
-                          v{statusModalProposal.version || 1}.0 ({versions.length || 1} rev.)
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 text-[10px] font-extrabold">
+                          Versão Atual: Versão {latestVer} ({versions.length}{" "}
+                          {versions.length === 1 ? "versão" : "versões"})
                         </span>
                       </span>
                       <ChevronRight
@@ -7090,45 +7150,122 @@ export default function ErpGestaoClickTab({
 
                     {statusModalVersionsOpen && (
                       <div className="mt-2 border border-slate-200 rounded-md overflow-hidden">
-                        {versions.length > 0 ? (
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                              <tr>
-                                <th className="py-2 px-3 w-20">Versão</th>
-                                <th className="py-2 px-3 w-36">Data</th>
-                                <th className="py-2 px-3">Alterações Registradas</th>
-                                <th className="py-2 px-3 w-36">Responsável</th>
-                                <th className="py-2 px-3 text-right w-28">Valor Mensal</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {versions.map((ver) => (
-                                <tr key={`${ver.version}-${ver.savedAt}`} className="hover:bg-slate-50/70">
-                                  <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
-                                    {ver.versionLabel || `v${ver.version}.0`}
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <tr>
+                              <th className="py-2 px-3 w-32">Versão</th>
+                              <th className="py-2 px-3 w-40">Data &amp; Responsável</th>
+                              <th className="py-2 px-3">Valor Mensal / Resumo</th>
+                              <th className="py-2 px-3 text-right">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {versions.map((ver) => {
+                              const isLatest = ver.version === latestVer;
+                              const screenUrl = buildProposalVersionUrl(statusModalProposal, ver);
+                              const pdfUrl = buildProposalVersionUrl(statusModalProposal, ver, {
+                                autoPrint: true,
+                              });
+                              const mrrVal =
+                                ver.snapshot?.monthlyRecurringTotal ??
+                                statusModalProposal.monthlyRecurringTotal;
+                              const itemsCount = (
+                                ver.snapshot?.items ||
+                                statusModalProposal.items ||
+                                []
+                              ).length;
+                              const monthsVal =
+                                ver.snapshot?.contractMonths ?? statusModalProposal.contractMonths;
+
+                              return (
+                                <tr
+                                  key={`${ver.version}-${ver.savedAt}`}
+                                  className={
+                                    isLatest ? "bg-emerald-50/40" : "hover:bg-slate-50/70"
+                                  }
+                                >
+                                  <td className="py-2.5 px-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-extrabold text-[#1e3a6e]">
+                                        Versão {ver.version}
+                                      </span>
+                                      {isLatest ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-extrabold">
+                                          ATUAL
+                                        </span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-bold">
+                                          ANTERIOR
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
-                                  <td className="py-2 px-3 font-mono text-[11px] text-slate-600">
-                                    {ver.savedAt ? new Date(ver.savedAt).toLocaleString("pt-BR") : "—"}
+                                  <td className="py-2.5 px-3 text-[11px] text-slate-600">
+                                    <div className="font-semibold text-slate-800">
+                                      {ver.savedAt
+                                        ? new Date(ver.savedAt).toLocaleString("pt-BR")
+                                        : "—"}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500">
+                                      {ver.savedBy || statusModalProposal.sellerName}
+                                    </div>
                                   </td>
-                                  <td className="py-2 px-3 text-slate-700">{ver.changeSummary}</td>
-                                  <td className="py-2 px-3 text-slate-800 font-medium">
-                                    {ver.savedBy || statusModalProposal.sellerName}
+                                  <td className="py-2.5 px-3">
+                                    <div className="font-bold text-emerald-700">
+                                      {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
+                                      {itemsCount === 1 ? "item" : "itens"} • {monthsVal}m
+                                    </div>
+                                    <div className="text-[11px] text-slate-600">
+                                      {ver.changeSummary}
+                                    </div>
                                   </td>
-                                  <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                                    {formatBRL(
-                                      ver.snapshot?.monthlyRecurringTotal ??
-                                        statusModalProposal.monthlyRecurringTotal
-                                    )}
+                                  <td className="py-2.5 px-3 text-right">
+                                    <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                                      <a
+                                        href={screenUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[10px] font-extrabold"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        <span>Abrir Tela da Versão</span>
+                                      </a>
+                                      <a
+                                        href={pdfUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-extrabold"
+                                      >
+                                        <Printer className="w-3 h-3" />
+                                        <span>PDF</span>
+                                      </a>
+                                      {!isLatest ? (
+                                        <button
+                                          type="button"
+                                          disabled={savingProposalStatus}
+                                          onClick={() =>
+                                            handleRestoreProposalVersionFromModal(
+                                              statusModalProposal,
+                                              ver
+                                            )
+                                          }
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer disabled:opacity-50"
+                                        >
+                                          <RefreshCw className="w-3 h-3 text-emerald-300" />
+                                          <span>Restaurar</span>
+                                        </button>
+                                      ) : (
+                                        <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                                          Ativa
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <div className="p-3 text-slate-500 text-center">
-                            Versão inicial v1.0 registrada no histórico da proposta.
-                          </div>
-                        )}
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>

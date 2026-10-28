@@ -588,7 +588,7 @@ function CustomerPortalContent() {
                           </div>
                           {activeTicket.csatScore && (
                             <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold">
-                              Nota Registrada: {activeTicket.csatScore} / 5 ★
+                              Nota Registrada: {activeTicket.csatScore} / 5
                             </span>
                           )}
                         </div>
@@ -606,7 +606,7 @@ function CustomerPortalContent() {
                                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
                               }`}
                             >
-                              {star} ★
+                              {star}
                             </button>
                           ))}
                           <input

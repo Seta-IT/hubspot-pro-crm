@@ -3,6 +3,8 @@ import {
   ErpProposalDigitalSignature,
   ErpProposalInstallment,
   ErpProposalItem,
+  ErpProposalVersionEntry,
+  ErpProposalVersionSnapshot,
 } from '../../db/types';
 
 export interface ProposalSlaOptionSpec {
@@ -885,3 +887,161 @@ export function buildPublicProposalUrl(
 export const normalizeProposalTemplateStyle = resolveProposalLayoutKind;
 export const PROPOSAL_DELIVERY_LEAD_TIME_OPTIONS = PROPOSAL_DELIVERY_SUGGESTIONS;
 export const SETA_TELECOM_INSTITUTIONAL_PILLARS = SETA_TELECOM_PORTFOLIO_PILLARS;
+
+
+export function buildSnapshotFromProposal(prop: ErpCommercialProposal): ErpProposalVersionSnapshot {
+  const c = computeProposalTotals(prop);
+  return {
+    title: c.title || "",
+    status: c.status || "ENVIADA",
+    budgetType: c.budgetType,
+    companyId: c.companyId ?? null,
+    companyName: c.companyName || "",
+    companyCnpj: c.companyCnpj || "",
+    contactId: c.contactId ?? null,
+    contactName: c.contactName || "",
+    careOf: c.careOf || c.contactName || "",
+    contactEmail: c.contactEmail,
+    sellerName: c.sellerName || "Marcelo Lopes Mira",
+    sellerEmail: c.sellerEmail,
+    sellerPhone: c.sellerPhone,
+    contractMonths: Number(c.contractMonths || 24),
+    readjustmentIndex: c.readjustmentIndex || "IPCA",
+    paymentCondition: c.paymentCondition || "",
+    validUntil: c.validUntil || "",
+    deliveryLeadTime: c.deliveryLeadTime ?? c.deliveryForecast ?? "",
+    deliveryForecast: c.deliveryForecast ?? c.deliveryLeadTime ?? "",
+    shippingCarrier: c.shippingCarrier || "",
+    shippingCost: Number(c.shippingCost || 0),
+    setupFee: Number(c.setupFee || 0),
+    templateStyle: c.templateStyle,
+    slaTier: c.slaTier,
+    slaResponseHours: c.slaResponseHours,
+    slaAvailabilityPercent: c.slaAvailabilityPercent,
+    deliveryAddress: c.deliveryAddress || "",
+    discountAmount: Number(c.discountAmount || 0),
+    discountPercentGlobal: Number(c.discountPercentGlobal || 0),
+    productsSubtotal: Number(c.productsSubtotal || 0),
+    servicesSubtotal: Number(c.servicesSubtotal || 0),
+    monthlyRecurringTotal: Number(c.monthlyRecurringTotal || 0),
+    oneTimeSetupTotal: Number(c.oneTimeSetupTotal || 0),
+    totalContractValue: Number(c.totalContractValue || 0),
+    commercialNotes: c.commercialNotes || "",
+    technicalClauses: c.technicalClauses || "",
+    internalNotes: c.internalNotes || "",
+    installments: Array.isArray(c.installments) ? structuredClone(c.installments) : [],
+    items: Array.isArray(c.items) ? structuredClone(c.items) : [],
+  };
+}
+
+export function proposalFromVersionSnapshot(
+  baseProposal: ErpCommercialProposal,
+  entry: ErpProposalVersionEntry
+): ErpCommercialProposal {
+  const s = entry.snapshot;
+  return computeProposalTotals({
+    ...baseProposal,
+    version: entry.version,
+    title: s.title || baseProposal.title,
+    status: s.status || baseProposal.status,
+    budgetType: s.budgetType || baseProposal.budgetType,
+    companyId: s.companyId ?? baseProposal.companyId,
+    companyName: s.companyName || baseProposal.companyName,
+    companyCnpj: s.companyCnpj || baseProposal.companyCnpj,
+    contactId: s.contactId ?? baseProposal.contactId,
+    contactName: s.contactName || baseProposal.contactName,
+    careOf: s.careOf || s.contactName || baseProposal.careOf,
+    contactEmail: s.contactEmail ?? baseProposal.contactEmail,
+    sellerName: s.sellerName || baseProposal.sellerName,
+    sellerEmail: s.sellerEmail ?? baseProposal.sellerEmail,
+    sellerPhone: s.sellerPhone ?? baseProposal.sellerPhone,
+    contractMonths: Number(s.contractMonths || baseProposal.contractMonths || 24),
+    readjustmentIndex: s.readjustmentIndex || baseProposal.readjustmentIndex || "IPCA",
+    paymentCondition: s.paymentCondition ?? baseProposal.paymentCondition,
+    validUntil: s.validUntil || baseProposal.validUntil,
+    deliveryLeadTime: s.deliveryLeadTime ?? s.deliveryForecast ?? baseProposal.deliveryLeadTime,
+    deliveryForecast: s.deliveryForecast ?? s.deliveryLeadTime ?? baseProposal.deliveryForecast,
+    shippingCarrier: s.shippingCarrier ?? baseProposal.shippingCarrier,
+    shippingCost: Number(s.shippingCost ?? baseProposal.shippingCost ?? 0),
+    setupFee: s.setupFee !== undefined ? Number(s.setupFee) : baseProposal.setupFee,
+    templateStyle: s.templateStyle || baseProposal.templateStyle || "CLEAN_CORPORATE_LIGHT",
+    slaTier: s.slaTier || baseProposal.slaTier,
+    slaResponseHours: s.slaResponseHours ?? baseProposal.slaResponseHours,
+    slaAvailabilityPercent: s.slaAvailabilityPercent ?? baseProposal.slaAvailabilityPercent,
+    deliveryAddress: s.deliveryAddress ?? baseProposal.deliveryAddress,
+    discountAmount: Number(s.discountAmount ?? 0),
+    discountPercentGlobal: Number(s.discountPercentGlobal ?? 0),
+    productsSubtotal: s.productsSubtotal,
+    servicesSubtotal: s.servicesSubtotal,
+    monthlyRecurringTotal: Number(s.monthlyRecurringTotal || 0),
+    oneTimeSetupTotal: Number(s.oneTimeSetupTotal || 0),
+    totalContractValue: Number(s.totalContractValue || 0),
+    commercialNotes: s.commercialNotes ?? baseProposal.commercialNotes,
+    technicalClauses: s.technicalClauses ?? baseProposal.technicalClauses,
+    internalNotes: s.internalNotes ?? baseProposal.internalNotes,
+    installments: Array.isArray(s.installments) ? structuredClone(s.installments) : [],
+    items: Array.isArray(s.items) ? structuredClone(s.items) : [],
+  });
+}
+
+export function buildProposalVersionUrl(
+  baseProposal: ErpCommercialProposal,
+  entry: ErpProposalVersionEntry,
+  options?: { autoPrint?: boolean; origin?: string }
+): string {
+  const baseOrigin =
+    options?.origin ||
+    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
+  const snapProposal = proposalFromVersionSnapshot(baseProposal, entry);
+  const encoded = encodeProposalToQueryParam(snapProposal);
+  const params = new URLSearchParams();
+  if (encoded) params.set("d", encoded);
+  params.set("v", String(entry.version));
+  if (options?.autoPrint) params.set("print", "1");
+  return `${baseOrigin}/proposta/${encodeURIComponent(baseProposal.id)}?${params.toString()}`;
+}
+
+
+export function appendClientProposalVersion(
+  prev: ErpCommercialProposal,
+  next: ErpCommercialProposal,
+  customSummary?: string
+): ErpCommercialProposal {
+  const computedNext = computeProposalTotals(next);
+  const existingHistory: ErpProposalVersionEntry[] =
+    Array.isArray(prev.versionHistory) && prev.versionHistory.length > 0
+      ? [...prev.versionHistory]
+      : [
+          {
+            version: prev.version || 1,
+            versionLabel: `v${prev.version || 1}.0`,
+            savedAt: prev.createdAt || prev.updatedAt || new Date().toISOString(),
+            savedBy: prev.sellerName || "Marcelo Lopes Mira",
+            changedFields: ["Versão Original"],
+            changeSummary: `Versão 1 (Original) — ${prev.contractMonths || 24} meses`,
+            snapshot: buildSnapshotFromProposal(prev),
+          },
+        ];
+
+  const maxVer = existingHistory.reduce((m, e) => Math.max(m, Number(e.version || 1)), Number(prev.version || 1));
+  const nextVer = maxVer + 1;
+  const nowIso = new Date().toISOString();
+  const newEntry: ErpProposalVersionEntry = {
+    version: nextVer,
+    versionLabel: `v${nextVer}.0`,
+    savedAt: nowIso,
+    savedBy: computedNext.sellerName || prev.sellerName || "Marcelo Lopes Mira",
+    changedFields: ["Revisão da Proposta"],
+    changeSummary:
+      customSummary ||
+      `Versão ${nextVer} — ${computedNext.contractMonths} meses • ${(computedNext.items || []).length} item(ns)`,
+    snapshot: buildSnapshotFromProposal(computedNext),
+  };
+
+  return {
+    ...computedNext,
+    version: nextVer,
+    versionHistory: [...existingHistory, newEntry],
+    updatedAt: nowIso,
+  };
+}

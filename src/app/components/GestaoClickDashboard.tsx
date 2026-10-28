@@ -275,7 +275,7 @@ export default function GestaoClickDashboard({
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar GestãoClick'}
           </button>
-          <span className="text-xs text-slate-500">🏠 Início</span>
+          <span className="text-xs text-slate-500">Início</span>
         </div>
       </div>
 

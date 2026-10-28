@@ -207,7 +207,7 @@ export default function ContactDetailDrawer({
                 {contactDetail?.buyingRole && getBuyingRoleBadge(contactDetail.buyingRole)}
                 {contactDetail?.isUnworked && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-950">
-                    🔥 Lead Intocado
+                    Lead Intocado
                   </span>
                 )}
               </div>
@@ -232,7 +232,7 @@ export default function ContactDetailDrawer({
                   }`}
                 >
                   <Pencil className="w-3.5 h-3.5" />
-                  {isEditing ? 'Fechar Edição' : '✏️ Editar Contato'}
+                  {isEditing ? 'Fechar Edição' : 'Editar Contato'}
                 </button>
                 <button
                   type="button"
@@ -482,7 +482,7 @@ export default function ContactDetailDrawer({
                         onChange={(e) => setIsUnworked(e.target.checked)}
                         className="rounded border-amber-400 text-[#ff7a59] focus:ring-[#ff7a59]"
                       />
-                      <span>🔥 Lead Intocado (Unworked)</span>
+                      <span>Lead Intocado (Unworked)</span>
                     </label>
                   </div>
 
@@ -638,9 +638,9 @@ export default function ContactDetailDrawer({
                     >
                       {contactDetail.isValidEmail
                         ? contactDetail.isCorporateEmail
-                          ? '✓ Corporativo Válido'
-                          : '✓ Pessoal Válido'
-                        : '✕ E-mail Inválido/Descartável'}
+                          ? 'Corporativo Válido'
+                          : 'Pessoal Válido'
+                        : 'E-mail Inválido/Descartável'}
                     </span>
                   </div>
 
@@ -674,7 +674,7 @@ export default function ContactDetailDrawer({
                         : <span className="font-semibold text-slate-700">{getBuyingRoleLabel(contactDetail.buyingRole)}</span>}
                       {contactDetail.isUnworked && (
                         <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
-                          🔥 Intocado
+                          Intocado
                         </span>
                       )}
                     </div>
@@ -698,7 +698,7 @@ export default function ContactDetailDrawer({
                       <div className="flex flex-wrap items-center gap-1 mt-0.5">
                         {contactDetail.company.isTargetAccount && (
                           <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-bold">
-                            🎯 Conta Alvo ABM
+                            Conta Alvo ABM
                           </span>
                         )}
                         {contactDetail.company.icpTier && getIcpTierBadge(contactDetail.company.icpTier)}

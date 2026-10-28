@@ -1,6 +1,6 @@
 // ============================================================================
 // STI-hub — Catálogo Completo de Menus, Tabelas (76 Recursos) e Campos da API
-// GestãoClick ERP (Loja Matriz #118887) ↔ HubSpot CRM v3 ↔ STI-hub
+// GestãoClick ERP (Loja Matriz #118887) - HubSpot CRM v3 - STI-hub
 // ============================================================================
 
 export interface GestaoClickResourceSchema {

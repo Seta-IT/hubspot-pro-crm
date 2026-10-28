@@ -36,7 +36,7 @@ interface CrmSidebarProps {
   activeModule: CrmModuleId;
   pipelines: EnrichedPipeline[];
   selectedPipelineId: string;
-  contactsSubView: 'CONTACTS' | 'COMPANIES';
+  contactsSubView: 'CONTACTS' | 'COMPANIES' | 'TASKS';
   dataHealthScope: 'CRM' | 'ERP';
   contactsCount: number;
   companiesCount: number;
@@ -49,7 +49,7 @@ interface CrmSidebarProps {
   onCloseMobileDrawer?: () => void;
   onSelectOverview?: () => void;
   onSelectPipeline: (pipelineId: string) => void;
-  onSelectContactsSubView: (sub: 'CONTACTS' | 'COMPANIES') => void;
+  onSelectContactsSubView: (sub: 'CONTACTS' | 'COMPANIES' | 'TASKS') => void;
   onSelectForms: () => void;
   onSelectAutomations: () => void;
   onSelectDataHealth: (scope: 'CRM' | 'ERP') => void;
@@ -331,6 +331,20 @@ export default function CrmSidebar({
                   >
                     <span>Empresas CRM</span>
                     <span className="text-[10px] font-bold text-slate-400">({companiesCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectContactsSubView('TASKS');
+                      closeMobileIfOpen();
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                    }`}
+                  >
+                    <span>Tarefas &amp; Follow-up</span>
                   </button>
                 </div>
               )}

@@ -114,7 +114,7 @@ export default function HubSpotProCrmApp() {
   const [erpInitialSection, setErpInitialSection] = useState<GestaoClickMenuSection>('INICIO');
   const [autoOpenNewProposalTrigger, setAutoOpenNewProposalTrigger] = useState<number>(0);
   const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
-  const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES'>('CONTACTS');
+  const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>('CONTACTS');
   const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
   const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
   const [crmMobileDrawerOpen, setCrmMobileDrawerOpen] = useState(false);
@@ -122,6 +122,7 @@ export default function HubSpotProCrmApp() {
   const [serviceDeskInitialTab, setServiceDeskInitialTab] = useState<"OPERATIONS" | "DASHBOARD_CHAMADOS" | "DATA_HEALTH_CHAMADOS">("OPERATIONS");
   const [serviceDeskNavTrigger, setServiceDeskNavTrigger] = useState<number>(0);
   const [openNewTicketTrigger, setOpenNewTicketTrigger] = useState<number>(0);
+  const [openNewDealTrigger, setOpenNewDealTrigger] = useState<number>(0);
   const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
@@ -1148,7 +1149,9 @@ export default function HubSpotProCrmApp() {
             : activeModule === 'CONTACTS_COMPANIES'
               ? contactsInitialSubView === 'COMPANIES'
                 ? 'Empresas CRM'
-                : 'Contatos CRM'
+                : contactsInitialSubView === 'TASKS'
+                  ? 'Tarefas & Follow-up'
+                  : 'Contatos CRM'
               : activeModule === 'MARKETING_FORMS'
                 ? 'Formulários & Leads'
                 : activeModule === 'AUTOMATIONS'
@@ -1747,16 +1750,19 @@ export default function HubSpotProCrmApp() {
                   Enviar E-mail ao Cliente
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLastCrmSubModule("DEALS_KANBAN");
-                    setActiveModule("DEALS_KANBAN");
-                  }}
-                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
-                >
-                  + Novo Negócio (Deal)
-                </button>
+                {activeModule !== "DEALS_KANBAN" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLastCrmSubModule("DEALS_KANBAN");
+                      setActiveModule("DEALS_KANBAN");
+                      setOpenNewDealTrigger((n) => n + 1);
+                    }}
+                    className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                  >
+                    + Novo Negócio (Deal)
+                  </button>
+                )}
               </>
             )}
 
@@ -2123,6 +2129,7 @@ export default function HubSpotProCrmApp() {
                     onSelectPipeline={(id) => setSelectedPipelineId(id)}
                     initialSelectedDealId={initialDealIdForDrawer}
                     onClearInitialDeal={() => setInitialDealIdForDrawer(null)}
+                    openNewDealTrigger={openNewDealTrigger}
                     onUpdateDeal={handleUpdateDeal}
                     onDeleteDeal={handleDeleteDeal}
                     onNavigateToErp={() => {
@@ -2145,6 +2152,7 @@ export default function HubSpotProCrmApp() {
                     initialSelectedCompanyId={initialCompanyIdForModal}
                     onClearInitialCompany={() => setInitialCompanyIdForModal(null)}
                     initialSubView={contactsInitialSubView}
+                    onSubViewChange={(sub) => setContactsInitialSubView(sub)}
                     navigationTrigger={contactsNavTrigger}
                     onCreateContact={handleCreateContact}
                     onUpdateContact={handleUpdateContact}

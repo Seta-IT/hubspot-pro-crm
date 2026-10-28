@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import {
   ArrowRight,
-  Plus,
   Settings,
   TrendingUp,
   Users,
@@ -449,7 +448,7 @@ export default function OverviewAiCopilotTab({
 
   return (
     <div className="space-y-5">
-      {/* 1. HEADER EXCLUSIVO DO DASHBOARD CRM */}
+      {/* 1. HEADER EXCLUSIVO DO DASHBOARD CRM (Ação + Novo Negócio (Deal) centralizada na barra superior do CRM) */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -471,13 +470,6 @@ export default function OverviewAiCopilotTab({
           >
             <Settings className="w-3.5 h-3.5 text-[#0091ae]" />
             Personalizar Gráficos CRM ({Object.values(enabledCharts).filter(Boolean).length}/8)
-          </button>
-          <button
-            type="button"
-            onClick={onNavigateToDeals}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5" /> + Novo Negócio (Deal)
           </button>
         </div>
       </div>

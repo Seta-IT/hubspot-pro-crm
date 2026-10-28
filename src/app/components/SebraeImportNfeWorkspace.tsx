@@ -475,7 +475,7 @@ export default function SebraeImportNfeWorkspace({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-black uppercase tracking-wide">
-                📤 PASSO 1 — ENVIAR ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI)
+                PASSO 1 — ENVIAR ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI)
               </span>
               <span className="text-xs font-extrabold text-emerald-950">
                 Arraste e solte seu arquivo aqui ou clique no botão ao lado para selecionar do computador!
@@ -488,7 +488,7 @@ export default function SebraeImportNfeWorkspace({
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <label className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-black shadow-md cursor-pointer transition">
-              <Upload className="w-5 h-5" /> 📂 Selecionar Arquivo .TXT ou .XML do Computador
+              <Upload className="w-5 h-5" /> Selecionar Arquivo .TXT ou .XML do Computador
               <input
                 type="file"
                 accept=".txt,.xml,text/plain,text/xml,application/xml"
@@ -501,7 +501,7 @@ export default function SebraeImportNfeWorkspace({
               onClick={() => setShowPasteBox((v) => !v)}
               className="px-3.5 py-3 rounded-lg bg-white hover:bg-slate-100 text-slate-900 text-xs font-extrabold border border-slate-300 cursor-pointer"
             >
-              📋 {showPasteBox ? "Ocultar Colagem" : "Colar Conteúdo TXT / XML"}
+              {showPasteBox ? "Ocultar Colagem" : "Colar Conteúdo TXT / XML"}
             </button>
           </div>
         </div>
@@ -518,7 +518,7 @@ export default function SebraeImportNfeWorkspace({
             }
             className="px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
           >
-            📄 Carregar Exemplo TXT NE000007
+            Carregar Exemplo TXT NE000007
           </button>
           <button
             type="button"
@@ -530,7 +530,7 @@ export default function SebraeImportNfeWorkspace({
             }
             className="px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-800 text-xs font-extrabold border border-slate-300 cursor-pointer"
           >
-            📄 Carregar Exemplo TXT NE000012
+            Carregar Exemplo TXT NE000012
           </button>
           <button
             type="button"
@@ -542,7 +542,7 @@ export default function SebraeImportNfeWorkspace({
             }
             className="px-3 py-1.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-extrabold border border-indigo-200 cursor-pointer"
           >
-            🧾 Carregar Exemplo XML 4.00
+            Carregar Exemplo XML 4.00
           </button>
         </div>
 
@@ -607,7 +607,7 @@ export default function SebraeImportNfeWorkspace({
                         key={idx}
                         className="px-2 py-0.5 rounded bg-amber-400/20 border border-amber-300/40 text-amber-200 text-[10px] font-bold"
                       >
-                        ✓ Auto-Fix [{f.record}]: {f.message}
+                        Auto-Fix [{f.record}]: {f.message}
                       </span>
                     ))}
                 </div>
@@ -1705,7 +1705,7 @@ export default function SebraeImportNfeWorkspace({
                     onClick={() => onEditInvoice(inv)}
                     className="px-2.5 py-2 rounded bg-amber-500 text-white font-bold cursor-pointer"
                   >
-                    ✏️
+                    Editar
                   </button>
                   <button
                     type="button"

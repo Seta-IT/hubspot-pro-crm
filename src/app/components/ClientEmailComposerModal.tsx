@@ -51,27 +51,27 @@ const DOC_TYPE_META: Record<
   { label: string; badge: string; defaultCc: string }
 > = {
   PROPOSAL: {
-    label: '📄 Proposta Comercial / Orçamento (com Link PDF A4)',
+    label: 'Proposta Comercial / Orçamento (com Link PDF A4)',
     badge: 'ORÇAMENTO / PROPOSTA',
     defaultCc: 'comercial@setatelecom.com.br',
   },
   TICKET_REPLY: {
-    label: '🎧 Resposta de Chamado / Atualização de Ticket (Service Desk)',
+    label: 'Resposta de Chamado / Atualização de Ticket (Service Desk)',
     badge: 'ATENDIMENTO / SLA',
     defaultCc: 'suporte@setatelecom.com.br',
   },
   BOLETO: {
-    label: '🏦 Boleto Bancário + QR Code Pix (Banco Inter / Itaú)',
+    label: 'Boleto Bancário + QR Code Pix (Banco Inter / Itaú)',
     badge: 'COBRANÇA / BOLETO PIX',
     defaultCc: 'financeiro@setatelecom.com.br',
   },
   RENTAL_RECEIPT: {
-    label: '📑 Recibo / Fatura de Locação (LC 116/03 + SV 31 STF — 0% ISS)',
+    label: 'Recibo / Fatura de Locação (LC 116/03 + SV 31 STF — 0% ISS)',
     badge: 'FATURA DE LOCAÇÃO',
     defaultCc: 'faturamento@setatelecom.com.br',
   },
   FISCAL_INVOICE: {
-    label: '🧾 Nota Fiscal Eletrônica (NFS-e Serviços / NF-e Remessa CFOP 5.908)',
+    label: 'Nota Fiscal Eletrônica (NFS-e Serviços / NF-e Remessa CFOP 5.908)',
     badge: 'DOCUMENTO FISCAL',
     defaultCc: 'fiscal@setatelecom.com.br',
   },
@@ -117,7 +117,7 @@ Segue para sua avaliação e aprovação a nossa Proposta Comercial / Orçamento
 • Valor Total: ${valStr}
 • Enquadramento Fiscal: Dispensa legal de ISSQN em locação de bens móveis (LC 116/2003 e Súmula Vinculante 31 do STF).
 
-🔗 LINK OFICIAL PARA VISUALIZAR E IMPRIMIR O PDF (A4):
+LINK OFICIAL PARA VISUALIZAR E IMPRIMIR O PDF (A4):
 ${pdfLink}
 
 Ficamos à inteira disposição para quaisquer esclarecimentos técnicos ou comerciais.
@@ -158,7 +158,7 @@ ${p.boletoLine || '34191.79001 01043.510047 91020.150008 7 98900000432000'}
 • Código PIX Copia e Cola (CNPJ Seta Telecom):
 ${p.pixCode || '00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865802BR5917SETA TELECOM LTDA6009SAO PAULO'}
 
-🔗 Link para 2ª Via / Recibo em PDF:
+Link para 2ª Via / Recibo em PDF:
 ${pdfLink}
 
 Atenciosamente,
@@ -178,7 +178,7 @@ Segue a Fatura / Recibo de Locação de Equipamentos Nº ${code} da SETA TELECOM
 • Amparo Legal Tributário: Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF (0% ISS).
 • Linha Digitável Boleto: ${p.boletoLine || '34191.79001 01043.510047 91020.150008 8 98650001200000'}
 
-🔗 Link Oficial da Fatura / Recibo de Locação para Impressão PDF:
+Link Oficial da Fatura / Recibo de Locação para Impressão PDF:
 ${pdfLink}
 
 Atenciosamente,
@@ -195,7 +195,7 @@ Encaminhamos a Nota Fiscal Eletrônica Nº ${code} emitida pela SETA TELECOM LTD
 • Valor do Documento: ${valStr}
 • Enquadramento: NFS-e Serviço Técnico (LC 116/03 Item 01.07) / NF-e Remessa de Locação (CFOP 5.908 — Não incidência de ICMS/IPI).
 
-🔗 Link para Visualização e Impressão do DANFE / Espelho Fiscal em PDF:
+Link para Visualização e Impressão do DANFE / Espelho Fiscal em PDF:
 ${pdfLink}
 
 Atenciosamente,
@@ -359,11 +359,11 @@ export default function ClientEmailComposerModal({
               <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5">
                 {(
                   [
-                    ['PROPOSAL', '📄 Proposta PDF', FileText],
-                    ['TICKET_REPLY', '🎧 Chamado', Headphones],
-                    ['BOLETO', '🏦 Boleto / Pix', Landmark],
-                    ['RENTAL_RECEIPT', '📑 Recibo Loc.', ShieldCheck],
-                    ['FISCAL_INVOICE', '🧾 Nota Fiscal', Receipt],
+                    ['PROPOSAL', 'Proposta PDF', FileText],
+                    ['TICKET_REPLY', 'Chamado', Headphones],
+                    ['BOLETO', 'Boleto / Pix', Landmark],
+                    ['RENTAL_RECEIPT', 'Recibo Loc.', ShieldCheck],
+                    ['FISCAL_INVOICE', 'Nota Fiscal', Receipt],
                   ] as const
                 ).map(([typeKey, shortTitle, IconComp]) => {
                   const active = docType === typeKey;
@@ -488,7 +488,7 @@ export default function ClientEmailComposerModal({
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  {sending ? 'Enviando E-mail...' : '🚀 Enviar E-mail Agora'}
+                  {sending ? 'Enviando E-mail...' : 'Enviar E-mail Agora'}
                 </button>
               </div>
             </div>

@@ -604,6 +604,27 @@ export interface FormSubmission {
 
 export type MarketingSendingProvider = 'MARKETING_ESP' | 'OUTLOOK_M365';
 
+export interface MarketingEmailBroadcast {
+  id: string;
+  name: string;
+  subject: string;
+  preheader?: string;
+  status: 'SENT' | 'DRAFT' | 'SCHEDULED' | 'ARCHIVED';
+  emailType: 'REGULAR' | 'AUTOMATED' | 'FOLLOW_UP' | 'ABM_CAMPAIGN';
+  sendingProvider: MarketingSendingProvider;
+  deliveredCount: number;
+  openRatePercent: number;
+  clickRatePercent: number;
+  updatedAtDisplay: string;
+  updatedBy: string;
+  publishedAtDisplay: string;
+  campaignId?: string | null;
+  segmentId?: string | null;
+  bodyPreview?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MarketingCampaign {
   id: string;
   name: string;
@@ -1856,6 +1877,7 @@ export interface CrmDatabaseState {
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
   snippets?: CrmSnippet[];
+  marketingEmails?: MarketingEmailBroadcast[];
   marketingCampaigns?: MarketingCampaign[];
   marketingSegments?: MarketingSegment[];
   marketingLandingPages?: MarketingLandingPage[];

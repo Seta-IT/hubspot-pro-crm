@@ -1703,7 +1703,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'ERP_PROPOSAL',
     subjectTemplate: '[Seta Telecom] Proposta Comercial #{{proposta.numero}} — {{empresa.razao_social}}',
     bodyTemplate:
-      'Olá, {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue para sua avaliação e aprovação a nossa Proposta Comercial Nº #{{proposta.numero}}, elaborada pela SETA TELECOM LTDA (SETA | IT).\n\n• Valor Total: {{proposta.valor_total}}\n• Validade: {{proposta.validade}}\n• Enquadramento Fiscal: Dispensa legal de ISSQN em locação de bens móveis (LC 116/2003 e Súmula Vinculante 31 do STF).\n\n🔗 Link Oficial para Visualizar e Imprimir o PDF (A4):\n{{proposta.link_pdf}}\n\nAtenciosamente,\nMarcelo Lopes Mira — Diretoria Seta Telecom (11) 3958-4929',
+      'Olá, {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue para sua avaliação e aprovação a nossa Proposta Comercial Nº #{{proposta.numero}}, elaborada pela SETA TELECOM LTDA (SETA | IT).\n\n• Valor Total: {{proposta.valor_total}}\n• Validade: {{proposta.validade}}\n• Enquadramento Fiscal: Dispensa legal de ISSQN em locação de bens móveis (LC 116/2003 e Súmula Vinculante 31 do STF).\n\nLink Oficial para Visualizar e Imprimir o PDF (A4):\n{{proposta.link_pdf}}\n\nAtenciosamente,\nMarcelo Lopes Mira — Diretoria Seta Telecom (11) 3958-4929',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}', '{{proposta.numero}}', '{{proposta.valor_total}}', '{{proposta.validade}}', '{{proposta.link_pdf}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },

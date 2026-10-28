@@ -515,7 +515,7 @@ export default function DataHealthTab({
                   onClick={() => onNavigateToErpSection?.('ITENS', 'ITENS_PRODUTOS')}
                   className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-bold cursor-pointer"
                 >
-                  ✏️ Editar Itens no ERP
+                  Editar Itens no ERP
                 </button>
               </div>
               <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
@@ -746,7 +746,7 @@ export default function DataHealthTab({
           </p>
           {reassignMsg && (
             <div className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg inline-block mt-1">
-              ✅ {reassignMsg}
+              {reassignMsg}
             </div>
           )}
         </div>
@@ -986,7 +986,7 @@ export default function DataHealthTab({
                     <ShieldCheck className="w-5 h-5 text-indigo-600" />
                     <div>
                       <h3 className="text-sm font-extrabold text-slate-900">
-                        🛡️ Trava Fiscal Ativa: Empresas com CNPJs Diferentes Não Podem Ser Unificadas
+                        Trava Fiscal Ativa: Empresas com CNPJs Diferentes Não Podem Ser Unificadas
                       </h3>
                       <p className="text-xs text-slate-500">
                         Mesmo que compartilhem o mesmo domínio corporativo ou razão social (ex: Matriz <code>/0001-</code> e Filial <code>/0002-</code>), CNPJs distintos possuem personalidade jurídica e faturamento próprios.
@@ -994,7 +994,7 @@ export default function DataHealthTab({
                     </div>
                   </div>
                   <span className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-indigo-50 text-indigo-800 border border-indigo-200">
-                    🛡️ CNPJs Distintos — Unificação Bloqueada (Matriz/Filial)
+                    CNPJs Distintos — Unificação Bloqueada (Matriz/Filial)
                   </span>
                 </div>
 
@@ -1020,7 +1020,7 @@ export default function DataHealthTab({
                           disabled
                           className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 text-xs font-extrabold cursor-not-allowed"
                         >
-                          🛡️ CNPJs Distintos — Unificação Bloqueada
+                          CNPJs Distintos — Unificação Bloqueada
                         </button>
                       </div>
                     ))}

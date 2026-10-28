@@ -112,6 +112,7 @@ interface DealsKanbanTabProps {
   onSelectPipeline?: (pipelineId: string) => void;
   initialSelectedDealId?: string | null;
   onClearInitialDeal?: () => void;
+  openNewDealTrigger?: number;
   onUpdateDeal?: (dealId: string, patch: Record<string, unknown>) => Promise<void>;
   onDeleteDeal?: (dealId: string) => Promise<void>;
   onNavigateToErp?: () => void;
@@ -155,6 +156,7 @@ export default function DealsKanbanTab({
   onSelectPipeline,
   initialSelectedDealId,
   onClearInitialDeal,
+  openNewDealTrigger,
   onUpdateDeal,
   onDeleteDeal,
   onNavigateToErp,
@@ -204,6 +206,12 @@ export default function DealsKanbanTab({
   useEffect(() => {
     setMobileStageFilter('ALL');
   }, [currentPipelineId]);
+
+  useEffect(() => {
+    if (openNewDealTrigger && openNewDealTrigger > 0) {
+      openCreateDealModal(stages[0]?.id || 'stage-discovery');
+    }
+  }, [openNewDealTrigger]);
 
   useEffect(() => {
     if (initialSelectedDealId) {

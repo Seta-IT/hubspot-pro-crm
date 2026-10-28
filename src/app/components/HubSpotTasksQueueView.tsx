@@ -221,10 +221,10 @@ export default function HubSpotTasksQueueView({
         <div className="flex flex-wrap items-center gap-3">
           {[
             { id: 'ALL', label: `Todas (${tasks.length})`, tone: 'slate' },
-            { id: 'OVERDUE', label: `⚠️ Atrasadas (${overdueCount})`, tone: 'rose' },
-            { id: 'TODAY', label: `⏰ Vencem Hoje (${todayCount})`, tone: 'amber' },
-            { id: 'UPCOMING', label: `📅 Próximos Dias (${Math.max(0, openCount - overdueCount - todayCount)})`, tone: 'indigo' },
-            { id: 'COMPLETED', label: `✅ Concluídas (${completedCount})`, tone: 'emerald' },
+            { id: 'OVERDUE', label: `Atrasadas (${overdueCount})`, tone: 'rose' },
+            { id: 'TODAY', label: `Vencem Hoje (${todayCount})`, tone: 'amber' },
+            { id: 'UPCOMING', label: `Próximos Dias (${Math.max(0, openCount - overdueCount - todayCount)})`, tone: 'indigo' },
+            { id: 'COMPLETED', label: `Concluídas (${completedCount})`, tone: 'emerald' },
           ].map((b) => {
             const active = dueFilter === b.id;
             return (
@@ -257,7 +257,7 @@ export default function HubSpotTasksQueueView({
             <Play className="w-3.5 h-3.5" />
             {playingQueue
               ? 'Encerrar Fila HubSpot'
-              : `▶ Iniciar Fila (${playableTasks.length} Tarefas)`}
+              : `Iniciar Fila (${playableTasks.length} Tarefas)`}
           </button>
 
           <button
@@ -277,7 +277,7 @@ export default function HubSpotTasksQueueView({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full bg-[#0091ae] text-white text-[10px] font-extrabold uppercase">
-                ▶ HubSpot Queue Player Ativo • Tarefa {currentQueueIndex + 1} de {playableTasks.length}
+                HubSpot Queue Player Ativo • Tarefa {currentQueueIndex + 1} de {playableTasks.length}
               </span>
               <span className="text-xs font-bold text-slate-300">
                 Fila: {activeQueueTask.queueName} • Vencimento: {activeQueueTask.dueDate} às {activeQueueTask.dueTime}
@@ -288,7 +288,7 @@ export default function HubSpotTasksQueueView({
               onClick={() => setPlayingQueue(false)}
               className="text-xs text-slate-300 hover:text-white cursor-pointer"
             >
-              Fechar Player ✕
+              Fechar Player
             </button>
           </div>
 
@@ -301,12 +301,12 @@ export default function HubSpotTasksQueueView({
               <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-300 pt-1">
                 {activeQueueTask.contact && (
                   <span>
-                    👤 Contato: <strong>{activeQueueTask.contact.firstName} {activeQueueTask.contact.lastName}</strong> ({activeQueueTask.contact.email})
+                    Contato: <strong>{activeQueueTask.contact.firstName} {activeQueueTask.contact.lastName}</strong> ({activeQueueTask.contact.email})
                   </span>
                 )}
                 {activeQueueTask.company && (
                   <span>
-                    🏢 Empresa: <strong>{activeQueueTask.company.name}</strong>
+                    Empresa: <strong>{activeQueueTask.company.name}</strong>
                   </span>
                 )}
               </div>
@@ -369,9 +369,9 @@ export default function HubSpotTasksQueueView({
           className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
         >
           <option value="ALL">Tipo: Todos (Ligação, E-mail, A fazer)</option>
-          <option value="CALL">📞 Ligação (Call)</option>
-          <option value="EMAIL">✉️ E-mail</option>
-          <option value="TODO">📌 A fazer (To-do)</option>
+          <option value="CALL">Ligação (Call)</option>
+          <option value="EMAIL">E-mail</option>
+          <option value="TODO">A fazer (To-do)</option>
         </select>
 
         <select
@@ -380,9 +380,9 @@ export default function HubSpotTasksQueueView({
           className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
         >
           <option value="ALL">Prioridade: Todas</option>
-          <option value="HIGH">🔴 Alta Prioridade</option>
-          <option value="MEDIUM">🟡 Média Prioridade</option>
-          <option value="LOW">🔵 Baixa Prioridade</option>
+          <option value="HIGH">Alta Prioridade</option>
+          <option value="MEDIUM">Média Prioridade</option>
+          <option value="LOW">Baixa Prioridade</option>
         </select>
 
         <select
@@ -465,10 +465,10 @@ export default function HubSpotTasksQueueView({
                         <div className="flex flex-col items-start gap-1">
                           <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">
                             {task.type === 'CALL'
-                              ? '📞 Ligação'
+                              ? 'Ligação'
                               : task.type === 'EMAIL'
-                                ? '✉️ E-mail'
-                                : '📌 A fazer'}
+                                ? 'E-mail'
+                                : 'A fazer'}
                           </span>
                           <span className="px-2 py-0.5 rounded bg-[#eaf0f6] text-[#0091ae] font-bold text-[10px]">
                             {task.queueName}
@@ -484,7 +484,7 @@ export default function HubSpotTasksQueueView({
                               onClick={() => onOpenContactDrawer(task.contact!.id)}
                               className="font-bold text-[#0091ae] hover:underline block text-left cursor-pointer"
                             >
-                              👤 {task.contact.firstName} {task.contact.lastName}
+                              {task.contact.firstName} {task.contact.lastName}
                             </button>
                           ) : null}
                           {task.company ? (
@@ -493,7 +493,7 @@ export default function HubSpotTasksQueueView({
                               onClick={() => onOpenCompanyDrawer(task.company!.id)}
                               className="text-[11px] font-semibold text-slate-700 hover:underline block text-left cursor-pointer"
                             >
-                              🏢 {task.company.name}
+                              {task.company.name}
                             </button>
                           ) : null}
                           {!task.contact && !task.company && (
@@ -514,10 +514,10 @@ export default function HubSpotTasksQueueView({
                             }`}
                           >
                             {task.priority === 'HIGH'
-                              ? '🔴 Alta'
+                              ? 'Alta'
                               : task.priority === 'MEDIUM'
-                                ? '🟡 Média'
-                                : '🔵 Baixa'}
+                                ? 'Média'
+                                : 'Baixa'}
                           </span>
                           <span
                             className={`text-[11px] font-bold ${
@@ -528,7 +528,7 @@ export default function HubSpotTasksQueueView({
                                   : 'text-slate-600'
                             }`}
                           >
-                            {isOverdue ? '⚠️ Atrasada: ' : isToday ? '⏰ Hoje: ' : '📅 '}
+                            {isOverdue ? 'Atrasada: ' : isToday ? 'Hoje: ' : ''}
                             {task.dueDate} às {task.dueTime}
                           </span>
                         </div>
@@ -617,9 +617,9 @@ export default function HubSpotTasksQueueView({
                     onChange={(e) => setType(e.target.value as CrmTaskType)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
                   >
-                    <option value="CALL">📞 Ligação</option>
-                    <option value="EMAIL">✉️ E-mail</option>
-                    <option value="TODO">📌 A fazer</option>
+                    <option value="CALL">Ligação</option>
+                    <option value="EMAIL">E-mail</option>
+                    <option value="TODO">A fazer</option>
                   </select>
                 </div>
                 <div>
@@ -631,9 +631,9 @@ export default function HubSpotTasksQueueView({
                     onChange={(e) => setPriority(e.target.value as CrmTaskPriority)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
                   >
-                    <option value="HIGH">🔴 Alta</option>
-                    <option value="MEDIUM">🟡 Média</option>
-                    <option value="LOW">🔵 Baixa</option>
+                    <option value="HIGH">Alta</option>
+                    <option value="MEDIUM">Média</option>
+                    <option value="LOW">Baixa</option>
                   </select>
                 </div>
                 <div>

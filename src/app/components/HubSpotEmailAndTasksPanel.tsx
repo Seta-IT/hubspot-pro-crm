@@ -338,7 +338,7 @@ export function HubSpotCardEmailComposer({
           ? ` + Tarefa de Follow-up agendada para ${data.followUpTask.dueDate} às ${data.followUpTask.dueTime} (${data.followUpTask.queueName})!`
           : '!';
         setFeedback(
-          `✅ E-mail enviado para ${toEmails} (Protocolo ${data?.protocol})${taskMsg}`
+          `E-mail enviado para ${toEmails} (Protocolo ${data?.protocol})${taskMsg}`
         );
         setSubject('');
         setBody('');
@@ -428,7 +428,7 @@ export function HubSpotCardEmailComposer({
                     title="Clique para adicionar/remover em Para (To)"
                     className="cursor-pointer hover:underline text-left"
                   >
-                    {isLinked ? '🔗 ' : ''}
+                    {isLinked ? '[Vinculado] ' : ''}
                     {c.firstName} {c.lastName} &lt;{c.email}&gt;
                   </button>
                   <button
@@ -736,9 +736,9 @@ export function HubSpotCardEmailComposer({
                   onChange={(e) => setFollowUpType(e.target.value as CrmTaskType)}
                   className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
                 >
-                  <option value="EMAIL">✉️ E-mail de Follow-up</option>
-                  <option value="CALL">📞 Ligação Telefônica</option>
-                  <option value="TODO">📌 A fazer (To-do)</option>
+                  <option value="EMAIL">E-mail de Follow-up</option>
+                  <option value="CALL">Ligação Telefônica</option>
+                  <option value="TODO">A fazer (To-do)</option>
                 </select>
               </div>
               <div>
@@ -762,9 +762,9 @@ export function HubSpotCardEmailComposer({
                   onChange={(e) => setFollowUpPriority(e.target.value as CrmTaskPriority)}
                   className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
                 >
-                  <option value="HIGH">🔴 Alta</option>
-                  <option value="MEDIUM">🟡 Média</option>
-                  <option value="LOW">🔵 Baixa</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="MEDIUM">Média</option>
+                  <option value="LOW">Baixa</option>
                 </select>
               </div>
             </div>
@@ -987,9 +987,9 @@ export function HubSpotRecordTasksSection({
                 onChange={(e) => setType(e.target.value as CrmTaskType)}
                 className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
-                <option value="CALL">📞 Ligação</option>
-                <option value="EMAIL">✉️ E-mail</option>
-                <option value="TODO">📌 A fazer</option>
+                <option value="CALL">Ligação</option>
+                <option value="EMAIL">E-mail</option>
+                <option value="TODO">A fazer</option>
               </select>
             </div>
             <div>
@@ -1001,9 +1001,9 @@ export function HubSpotRecordTasksSection({
                 onChange={(e) => setPriority(e.target.value as CrmTaskPriority)}
                 className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
-                <option value="HIGH">🔴 Alta</option>
-                <option value="MEDIUM">🟡 Média</option>
-                <option value="LOW">🔵 Baixa</option>
+                <option value="HIGH">Alta</option>
+                <option value="MEDIUM">Média</option>
+                <option value="LOW">Baixa</option>
                 <option value="NONE">Sem prioridade</option>
               </select>
             </div>
@@ -1151,10 +1151,10 @@ export function HubSpotRecordTasksSection({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
                         {task.type === 'CALL'
-                          ? '📞 Ligação'
+                          ? 'Ligação'
                           : task.type === 'EMAIL'
-                            ? '✉️ E-mail'
-                            : '📌 A fazer'}
+                            ? 'E-mail'
+                            : 'A fazer'}
                       </span>
                       <span
                         className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1176,17 +1176,17 @@ export function HubSpotRecordTasksSection({
                       </span>
                       {isOverdue && (
                         <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-extrabold">
-                          ⚠️ Atrasada ({task.dueDate})
+                          Atrasada ({task.dueDate})
                         </span>
                       )}
                       {isToday && (
                         <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-extrabold">
-                          ⏰ Vence Hoje às {task.dueTime}
+                          Vence Hoje às {task.dueTime}
                         </span>
                       )}
                       {!isOverdue && !isToday && (
                         <span className="text-[11px] text-slate-500 font-medium">
-                          📅 {task.dueDate} às {task.dueTime}
+                          {task.dueDate} às {task.dueTime}
                         </span>
                       )}
                     </div>

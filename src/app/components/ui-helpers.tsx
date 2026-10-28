@@ -43,37 +43,37 @@ export function getBuyingRoleBadge(role: BuyingRoleType | string | null | undefi
   if (!role) return null;
   const map: Record<string, { label: string; bg: string; text: string; border: string }> = {
     DECISOR: {
-      label: '🎯 Decisor',
+      label: 'Decisor',
       bg: 'bg-purple-50',
       text: 'text-purple-800',
       border: 'border-purple-200',
     },
     COMPRADOR_ECONOMICO: {
-      label: '💰 Comprador Econômico',
+      label: 'Comprador Econômico',
       bg: 'bg-emerald-50',
       text: 'text-emerald-800',
       border: 'border-emerald-200',
     },
     INFLUENCIADOR_TECNICO: {
-      label: '⚙️ Influenciador Técnico',
+      label: 'Influenciador Técnico',
       bg: 'bg-sky-50',
       text: 'text-sky-800',
       border: 'border-sky-200',
     },
     CAMPEAO: {
-      label: '🏆 Campeão',
+      label: 'Campeão',
       bg: 'bg-amber-50',
       text: 'text-amber-800',
       border: 'border-amber-200',
     },
     BLOQUEADOR: {
-      label: '🛡️ Bloqueador',
+      label: 'Bloqueador',
       bg: 'bg-rose-50',
       text: 'text-rose-800',
       border: 'border-rose-200',
     },
     OPERACIONAL: {
-      label: '👤 Operacional',
+      label: 'Operacional',
       bg: 'bg-slate-100',
       text: 'text-slate-700',
       border: 'border-slate-200',

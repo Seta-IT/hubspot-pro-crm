@@ -68,6 +68,7 @@ interface ContactsCompaniesTabProps {
   initialSelectedCompanyId?: string | null;
   onClearInitialCompany?: () => void;
   initialSubView?: 'CONTACTS' | 'COMPANIES' | 'TASKS';
+  onSubViewChange?: (sub: 'CONTACTS' | 'COMPANIES' | 'TASKS') => void;
   navigationTrigger?: number;
   onCreateContact: (payload: {
     email?: string;
@@ -122,6 +123,7 @@ export default function ContactsCompaniesTab({
   initialSelectedCompanyId,
   onClearInitialCompany,
   initialSubView,
+  onSubViewChange,
   navigationTrigger,
   onCreateContact,
   onUpdateContact,
@@ -631,7 +633,7 @@ export default function ContactsCompaniesTab({
             <div className="inline-flex rounded-[4px] bg-[#eaf0f6] p-0.5 border border-[#cbd6e2]">
               <button
                 type="button"
-                onClick={() => setSubView("CONTACTS")}
+                onClick={() => { setSubView("CONTACTS"); onSubViewChange?.("CONTACTS"); }}
                 className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
                   subView === "CONTACTS"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
@@ -643,7 +645,7 @@ export default function ContactsCompaniesTab({
               </button>
               <button
                 type="button"
-                onClick={() => setSubView("COMPANIES")}
+                onClick={() => { setSubView("COMPANIES"); onSubViewChange?.("COMPANIES"); }}
                 className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
                   subView === "COMPANIES"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
@@ -655,7 +657,7 @@ export default function ContactsCompaniesTab({
               </button>
               <button
                 type="button"
-                onClick={() => setSubView("TASKS")}
+                onClick={() => { setSubView("TASKS"); onSubViewChange?.("TASKS"); }}
                 className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-bold transition cursor-pointer ${
                   subView === "TASKS"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
@@ -762,167 +764,6 @@ export default function ContactsCompaniesTab({
           </div>
         )}
 
-        {/* HubSpot Filter & Search Toolbar (#f5f8fa) */}
-        <div className="px-5 py-3 bg-[#f5f8fa] grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-center">
-          <div className="lg:col-span-5 relative">
-            <Search className="w-3.5 h-3.5 text-[#516f90] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                subView === "CONTACTS"
-                  ? "Pesquisar contato por nome, e-mail, telefone, cargo, empresa ou CNPJ..."
-                  : "Pesquisar empresa por razão social, domínio, CNPJ, cidade ou setor..."
-              }
-              className="w-full pl-9 pr-8 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] placeholder-[#516f90] focus:outline-none focus:border-[#0091ae]"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                title="Limpar busca"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#516f90] hover:text-[#33475b] text-xs font-bold"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {subView === "CONTACTS" ? (
-            <div className="lg:col-span-3 flex items-center gap-2">
-              <select
-                value={stageFilter}
-                onChange={(e) => setStageFilter(e.target.value)}
-                className="flex-1 px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value="ALL">Lifecycle: Todos</option>
-                <option value="LEAD">Lead</option>
-                <option value="MQL">MQL</option>
-                <option value="SQL">SQL Qualificado</option>
-                <option value="OPPORTUNITY">Oportunidade</option>
-                <option value="CUSTOMER">Cliente Ativo</option>
-              </select>
-
-              <select
-                value={buyingRoleFilter}
-                onChange={(e) => setBuyingRoleFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value="ALL">Papel ABM: Todos</option>
-                {BUYING_ROLE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={minScoreFilter}
-                onChange={(e) => setMinScoreFilter(Number(e.target.value))}
-                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value={0}>Score: Todos</option>
-                <option value={80}>Score ≥ 80</option>
-                <option value={60}>Score ≥ 60</option>
-              </select>
-            </div>
-          ) : (
-            <div className="lg:col-span-3 flex items-center gap-2">
-              <select
-                aria-label="Filtrar Empresas por Tier / ABM"
-                value={companyTierFilter}
-                onChange={(e) => setCompanyTierFilter(e.target.value)}
-                className="flex-1 px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value="ALL">Tier / ABM: Todos</option>
-                <option value="TARGET_ABM">Contas Alvo ABM</option>
-                <option value="TIER_1">ICP Tier 1 (Enterprise)</option>
-                <option value="TIER_2">ICP Tier 2 (Mid-Market)</option>
-                <option value="TIER_3">ICP Tier 3</option>
-              </select>
-
-              <select
-                aria-label="Filtrar Empresas por Setor"
-                value={companySectorFilter}
-                onChange={(e) => setCompanySectorFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value="ALL">Setor: Todos</option>
-                <option value="TELECOM">Telecom &amp; Conectividade</option>
-                <option value="TI">Software &amp; TI</option>
-                <option value="FINANCEIRO">Fintech &amp; Financeiro</option>
-              </select>
-
-              <select
-                aria-label="Filtrar Empresas por UF"
-                value={companyStateFilter}
-                onChange={(e) => setCompanyStateFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs font-semibold text-[#33475b] bg-white focus:outline-none focus:border-[#0091ae]"
-              >
-                <option value="ALL">UF: Todas</option>
-                <option value="SP">SP</option>
-                <option value="RJ">RJ</option>
-                <option value="MG">MG</option>
-                <option value="SC">SC</option>
-              </select>
-            </div>
-          )}
-
-          <form onSubmit={handleLookupDomain} className="lg:col-span-4 flex items-center gap-2">
-            <div className="relative flex-1">
-              <Globe className="w-3.5 h-3.5 text-[#0091ae] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={domainInput}
-                onChange={(e) => setDomainInput(e.target.value)}
-                placeholder="Enriquecer domínio (ex: @totvs.com.br)"
-                className="w-full pl-8 pr-3 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] placeholder-[#516f90] focus:outline-none focus:border-[#0091ae]"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={lookingUpDomain}
-              className="px-3 py-1.5 rounded-[4px] bg-[#0091ae] hover:bg-[#007a94] text-white text-xs font-semibold shrink-0 transition cursor-pointer"
-            >
-              {lookingUpDomain ? "..." : "Consultar"}
-            </button>
-          </form>
-        </div>
-
-        {domainPreview && (
-          <div className="p-3.5 bg-[#213343] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-[#33475b]">
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-[3px] text-[10px] font-bold uppercase bg-[#0091ae] text-white">
-                  {domainPreview.isCorporate ? "Domínio Corporativo B2B" : "Provedor Pessoal"}
-                </span>
-                <span className="text-xs font-bold text-white">{domainPreview.domain}</span>
-                {domainPreview.adapterName && (
-                  <span className="text-[11px] text-[#99acc2]">Fonte: {domainPreview.adapterName}</span>
-                )}
-              </div>
-              {domainPreview.profile ? (
-                <p className="text-xs text-[#cbd6e2]">
-                  <strong>{domainPreview.profile.name}</strong> • Setor: {domainPreview.profile.industry} • Porte:{" "}
-                  {domainPreview.profile.size} • Receita Est.: {formatBRL(domainPreview.profile.annualRevenue)} •{" "}
-                  {domainPreview.profile.city}/{domainPreview.profile.state}
-                </p>
-              ) : (
-                <p className="text-xs text-[#cbd6e2]">
-                  Nenhum perfil corporativo encontrado para este domínio.
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setDomainPreview(null)}
-              className="text-xs text-[#99acc2] hover:text-white self-end sm:self-center"
-            >
-              Fechar
-            </button>
-          </div>
-        )}
       </div>
 
       {subView === 'CONTACTS' && (
@@ -958,7 +799,7 @@ export default function ContactsCompaniesTab({
                       {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
                       {contact.isUnworked && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                          🔥 Intocado
+                          Intocado
                         </span>
                       )}
                       <span className={`text-xs font-extrabold ${scoreStyle.text}`}>
@@ -976,7 +817,7 @@ export default function ContactsCompaniesTab({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-bold text-xs shadow-xs transition"
                     >
                       <Pencil className="w-3.5 h-3.5" />
-                      ✏️ Editar Contato
+                      Editar Contato
                     </button>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -1037,7 +878,7 @@ export default function ContactsCompaniesTab({
                               {contact.firstName} {contact.lastName}
                               {newlySavedContactIds.includes(contact.id) && (
                                 <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-extrabold">
-                                  ✨ Salvo Agora
+                                  Salvo Agora
                                 </span>
                               )}
                               {!contact.isValidEmail && (
@@ -1079,7 +920,7 @@ export default function ContactsCompaniesTab({
                             {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
                             {contact.isUnworked && (
                               <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
-                                🔥 Intocado
+                                Intocado
                               </span>
                             )}
                           </div>
@@ -1404,7 +1245,7 @@ export default function ContactsCompaniesTab({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    {enrichingId === companyDetail.id ? 'Enriquecendo...' : '⚡ Enriquecer CNPJ/Domínio'}
+                    {enrichingId === companyDetail.id ? 'Enriquecendo...' : 'Enriquecer CNPJ/Domínio'}
                   </button>
                 )}
                 <button
@@ -1593,7 +1434,7 @@ export default function ContactsCompaniesTab({
                           onChange={(e) => setEditCompTargetAccount(e.target.checked)}
                           className="rounded border-orange-300 text-[#ff7a59] focus:ring-[#ff7a59]"
                         />
-                        <span>🎯 Conta Alvo ABM (Target Account)</span>
+                        <span>Conta Alvo ABM (Target Account)</span>
                       </label>
                     </div>
 
@@ -1939,7 +1780,7 @@ export default function ContactsCompaniesTab({
                   onChange={(e) => setCIsUnworked(e.target.checked)}
                   className="rounded border-amber-400 text-[#ff7a59]"
                 />
-                <span>🔥 Marcar como Lead Intocado (Unworked — Prioridade de 1º Atendimento)</span>
+                <span>Marcar como Lead Intocado (Unworked — Prioridade de 1º Atendimento)</span>
               </label>
 
               {!cCompanyId && (

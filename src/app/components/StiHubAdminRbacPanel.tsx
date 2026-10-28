@@ -1101,7 +1101,7 @@ export default function StiHubAdminRbacPanel({
               </div>
               {lastTestProtocol && (
                 <div className="p-2.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[11px] font-bold">
-                  ✓ E-mail validado com sucesso! Protocolo: {lastTestProtocol}
+                  E-mail validado com sucesso! Protocolo: {lastTestProtocol}
                 </div>
               )}
             </div>
@@ -1330,7 +1330,7 @@ export default function StiHubAdminRbacPanel({
             <div className="space-y-2">
               <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
                 <div className="font-extrabold text-emerald-950">
-                  ✓ Etapa Obrigatória MFA 2FA (TOTP 6 Dígitos)
+                  Etapa Obrigatória MFA 2FA (TOTP 6 Dígitos)
                 </div>
                 <p className="text-[11px] text-emerald-800 mt-0.5">
                   Sessão emitida em cookie <code>HttpOnly</code> (<code>stihub_session</code>, TTL{' '}
@@ -2077,7 +2077,7 @@ export default function StiHubAdminRbacPanel({
                   }}
                   className="px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
-                  Fechar ✕
+                  Fechar
                 </button>
               </div>
 
