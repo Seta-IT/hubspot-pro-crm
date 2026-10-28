@@ -25,13 +25,22 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
       'Suporte técnico conforme condições comerciais contratadas.',
   },
   {
+    id: 'CORPORATIVO_8X5_NBD',
+    label: 'SLA 8x5 NBD',
+    shortLabel: 'SLA 8x5 NBD',
+    slaAvailabilityPercent: '99,50%',
+    slaResponseHours: 4,
+    defaultClauseSnippet:
+      'SLA 8x5 NBD — Atendimento comercial 8x5 com reposição NBD (Next Business Day).',
+  },
+  {
     id: 'PADRAO_COMERCIAL_8H',
-    label: 'SLA Padrão Comercial — Horário Comercial 8x5 (Atend. em até 8h úteis)',
-    shortLabel: 'SLA Padrão Comercial (Atend. até 8h úteis)',
+    label: 'SLA 8x5 NBD',
+    shortLabel: 'SLA 8x5 NBD',
     slaAvailabilityPercent: '99,00%',
     slaResponseHours: 8,
     defaultClauseSnippet:
-      'SLA Padrão Comercial (8x5, Seg-Sex das 08h às 18h) com atendimento remoto e presencial em até 8 horas úteis.',
+      'SLA 8x5 NBD — Atendimento comercial 8x5 com suporte técnico e reposição NBD.',
   },
   {
     id: 'SLA_ESTENDIDO_6H',
@@ -41,15 +50,6 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
     slaResponseHours: 6,
     defaultClauseSnippet:
       'SLA Estendido 8x5 com atendimento técnico em até 6 horas úteis.',
-  },
-  {
-    id: 'CORPORATIVO_8X5_NBD',
-    label: 'SLA Corporativo 8x5 — Atendimento até 4h úteis / Reposição NBD (Dia Útil Seguinte)',
-    shortLabel: 'SLA Corporativo 8x5 (Atend. 4h úteis / NBD)',
-    slaAvailabilityPercent: '99,50%',
-    slaResponseHours: 4,
-    defaultClauseSnippet:
-      'SLA Corporativo 8x5 (Seg-Sex 08h às 18h) com atendimento em até 4h úteis e reposição NBD (Next Business Day).',
   },
   {
     id: 'SLA_PRIORITARIO_4H',
@@ -67,7 +67,7 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
     slaAvailabilityPercent: '99,98%',
     slaResponseHours: 2,
     defaultClauseSnippet:
-      'SLA Missão Crítica 24x7 com primeiro atendimento em até 2h e Advance Replacement.',
+      'SLA Missão Crítica 24x7 com primeiro atendimento em até 2h.',
   },
   {
     id: 'SEM_SLA_AVULSO',
@@ -404,6 +404,20 @@ export function cleanProposalPaymentCondition(raw: string | undefined): string {
     .trim();
 }
 
+export function cleanProposalTechnicalClauses(raw: string | undefined): string {
+  if (!raw) return '';
+  return raw
+    .replace(
+      /SLA\s*99,95%\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\s*\(Advance\s*Replacement\s*em\s*at[eé]\s*4h\s*na\s*Grande\s*SP\)\.\s*Vig[eê]ncia\s*de\s*24\s*meses\s*com\s*reajuste\s*anual\s*pelo\s*IPCA\.?/gi,
+      ''
+    )
+    .replace(
+      /SLA\s*99,95%\s*Seta\s*Telecom\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\.\s*Vig[eê]ncia\s*contratual\s*de\s*\d+\s*meses\.?/gi,
+      ''
+    )
+    .trim();
+}
+
 export function resolveProposalSlaOption(
   prop: Partial<ErpCommercialProposal>
 ): ProposalSlaOptionSpec {
@@ -544,6 +558,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
   const resolvedSla = resolveProposalSlaOption(next);
   const sellerInfo = resolveProposalSellerContact(next);
   const cleanedPaymentCondition = cleanProposalPaymentCondition(next.paymentCondition);
+  const cleanedTechnicalClauses = cleanProposalTechnicalClauses(next.technicalClauses);
   const resolvedDeliveryLeadTime = resolveProposalDeliveryLeadTime(next);
 
   return {
@@ -552,6 +567,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     sellerEmail: next.sellerEmail ? sellerInfo.email : sellerInfo.email,
     sellerPhone: next.sellerPhone ? sellerInfo.phone : sellerInfo.phone,
     paymentCondition: cleanedPaymentCondition || next.paymentCondition || '',
+    technicalClauses: cleanedTechnicalClauses,
     deliveryLeadTime: resolvedDeliveryLeadTime,
     deliveryForecast: resolvedDeliveryLeadTime,
     templateStyle: next.templateStyle || 'CLEAN_CORPORATE_LIGHT',
@@ -839,9 +855,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       commercialNotes:
         p.no ||
         'Faturamento mensal mediante Fatura/Recibo de Locação de Bens Móveis (dispensa legal de ISS conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
-      technicalClauses:
-        p.tc ||
-        'Condições comerciais e técnicas conforme escopo contratado.',
+      technicalClauses: cleanProposalTechnicalClauses(p.tc),
       convertedContractId: p.ci || null,
       convertedInvoiceId: null,
       digitalSignature: p.ds || null,

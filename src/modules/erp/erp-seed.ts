@@ -263,9 +263,9 @@ export function createSeedErpState(): ErpDatabaseState {
       budgetType: 'LOCACAO',
       modality: 'RENTAL',
       templateStyle: 'LOCACAO_DETALHADA_SLA',
-      slaTier: 'PADRAO_COMERCIAL_8H',
-      slaAvailabilityPercent: '99,00%',
-      slaResponseHours: 8,
+      slaTier: 'CORPORATIVO_8X5_NBD',
+      slaAvailabilityPercent: '99,50%',
+      slaResponseHours: 4,
       setupFee: 0,
       shippingCost: 0,
       readjustmentIndex: 'IPCA',
@@ -315,8 +315,7 @@ export function createSeedErpState(): ErpDatabaseState {
       totalContractValue: 288000,
       commercialNotes:
         'Faturamento mensal mediante Fatura/Recibo de Locação de Bens Móveis (dispensa legal de ISS conforme LC 116/2003 e Súmula Vinculante 31 do STF). Equipamentos enviados com NF-e de Remessa de Locação CFOP 5.908.',
-      technicalClauses:
-        'SLA 99,95% com substituição expressa de hardware (Advance Replacement em até 4h na Grande SP). Vigência de 24 meses com reajuste anual pelo IPCA.',
+      technicalClauses: '',
       convertedContractId: 'ctr-loc-101',
       convertedInvoiceId: 'inv-loc-0001',
       createdAt: daysAgoIso(18),

@@ -317,6 +317,14 @@ export default function ErpGestaoClickTab({
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+  const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
+  const [expandedProposalSubmenu, setExpandedProposalSubmenu] = useState<"IMPRIMIR" | "COMPARTILHAR" | "GERAR" | null>(null);
+  const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
+  const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
+  const [statusModalObservation, setStatusModalObservation] = useState<string>("");
+  const [statusModalHistoryOpen, setStatusModalHistoryOpen] = useState<boolean>(true);
+  const [statusModalVersionsOpen, setStatusModalVersionsOpen] = useState<boolean>(true);
+  const [savingProposalStatus, setSavingProposalStatus] = useState<boolean>(false);
   const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
@@ -1010,6 +1018,518 @@ export default function ErpGestaoClickTab({
         : `Orçamento ${saved.code} salvo na Versão v${verNum}.0 (${revCount} revisão(ões) registradas no histórico)!`
     );
     await onRefresh();
+  };
+
+  const openProposalStatusModal = (prop: ErpCommercialProposal, expandVersions = true) => {
+    setOpenProposalMenuId(null);
+    setExpandedProposalSubmenu(null);
+    setStatusModalProposal(prop);
+    setStatusModalSelectedStatus(prop.status);
+    setStatusModalObservation("");
+    setStatusModalHistoryOpen(true);
+    setStatusModalVersionsOpen(expandVersions);
+  };
+
+  const getGestaoClickSituationSpec = (status: ErpCommercialProposal["status"]) => {
+    switch (status) {
+      case "RASCUNHO":
+        return { label: "Em aberto", dotClass: "bg-amber-600", badgeClass: "bg-amber-50 text-amber-900 border border-amber-200" };
+      case "EM_NEGOCIACAO":
+        return { label: "Em andamento", dotClass: "bg-blue-600", badgeClass: "bg-blue-50 text-blue-900 border border-blue-200" };
+      case "ENVIADA":
+        return { label: "Enviado", dotClass: "bg-sky-600", badgeClass: "bg-sky-50 text-sky-900 border border-sky-200" };
+      case "APROVADA":
+      case "CONVERTIDA_CONTRATO":
+        return { label: "Concretizado", dotClass: "bg-emerald-600", badgeClass: "bg-emerald-50 text-emerald-900 border border-emerald-200" };
+      case "RECUSADA":
+        return { label: "Cancelado", dotClass: "bg-rose-600", badgeClass: "bg-rose-50 text-rose-900 border border-rose-200" };
+      default:
+        return { label: "Em aberto", dotClass: "bg-slate-500", badgeClass: "bg-slate-100 text-slate-800 border border-slate-200" };
+    }
+  };
+
+  const isRentalProposal = (prop: ErpCommercialProposal): boolean => {
+    if (prop.budgetType === "LOCACAO" || prop.modality === "RENTAL" || prop.modality === "HYBRID") {
+      return true;
+    }
+    return (prop.items || []).some(
+      (i) => i.fiscalNature === "LOCACAO_BENS_MOVEIS" || i.isRecurring !== false
+    );
+  };
+
+  const handleConfirmChangeProposalStatus = async () => {
+    if (!statusModalProposal) return;
+    setSavingProposalStatus(true);
+    try {
+      const prop = statusModalProposal;
+      const obs = statusModalObservation.trim();
+      const approving =
+        statusModalSelectedStatus === "APROVADA" ||
+        statusModalSelectedStatus === "CONVERTIDA_CONTRATO";
+
+      // REGRA OBRIGATÓRIA: Para orçamentos de locação, ao aprovar já entra em contrato para seguir com faturamento
+      if (approving && isRentalProposal(prop)) {
+        const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            statusObservation:
+              obs || "Proposta aprovada — Contrato de Locação e Faturamento gerados automaticamente",
+            proposal: prop,
+          }),
+        });
+        if (res.ok) {
+          const j = await res.json();
+          if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
+          if (j.data?.contract) {
+            recordUpsertedContract(j.data.contract);
+            setHighlightedContractId(j.data.contract.id);
+          }
+          if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
+          const ctrNum = j.data?.contract?.contractNumber || "LOC";
+          const invNum = j.data?.invoice?.documentNumber || "FAT-LOC";
+          onShowToast(
+            `Situação alterada para Concretizado! Contrato ${ctrNum} e Fatura ${invNum} gerados para faturamento.`
+          );
+          setStatusModalProposal(null);
+          await onRefresh();
+          setActiveSection("CONTRATOS");
+          setContractsSubFilter("TODOS");
+          return;
+        }
+      }
+
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: statusModalSelectedStatus,
+          statusObservation:
+            obs ||
+            `Situação alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}`,
+          updatedBy: activeUser?.name || prop.sellerName || "Marcelo Lopes Mira",
+        }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const saved: ErpCommercialProposal = j?.data || {
+          ...prop,
+          status: statusModalSelectedStatus,
+        };
+        recordUpsertedProposal(saved);
+        onShowToast(
+          `Situação do orçamento ${prop.code} alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}!`
+        );
+        setStatusModalProposal(saved);
+        setStatusModalObservation("");
+        await onRefresh();
+      }
+    } finally {
+      setSavingProposalStatus(false);
+    }
+  };
+
+  const handleDuplicateProposal = async (prop: ErpCommercialProposal) => {
+    setOpenProposalMenuId(null);
+    setExpandedProposalSubmenu(null);
+    const nextNum = proposals.length + 1;
+    const copyPayload: Partial<ErpCommercialProposal> = {
+      ...prop,
+      id: `prop-copy-${Date.now()}`,
+      code: `${prop.code}-COPIA-${nextNum}`,
+      title: `${prop.title} (Cópia)`,
+      status: "RASCUNHO",
+      convertedContractId: null,
+      convertedInvoiceId: null,
+      digitalSignature: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await fetch("/api/erp/proposals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(copyPayload),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      if (j.data) recordUpsertedProposal(j.data);
+      onShowToast(`Cópia do orçamento ${prop.code} gerada com sucesso!`);
+      await onRefresh();
+    }
+  };
+
+  const handleGenerateFromProposalMenu = async (
+    prop: ErpCommercialProposal,
+    target: "E_ASSINATURA" | "COPIA" | "VENDA" | "OS" | "CONTRATO" | "LOCACAO" | "PRODUCAO"
+  ) => {
+    setOpenProposalMenuId(null);
+    setExpandedProposalSubmenu(null);
+    const publicUrl = buildPublicProposalUrl(prop);
+
+    if (target === "E_ASSINATURA") {
+      window.open(publicUrl, "_blank", "noopener,noreferrer");
+      onShowToast(`Proposta ${prop.code} aberta para e-Assinatura ICP-Brasil / Gov.br!`);
+      return;
+    }
+    if (target === "COPIA") {
+      await handleDuplicateProposal(prop);
+      return;
+    }
+    if (target === "CONTRATO" || target === "LOCACAO") {
+      await handleApproveProposal(prop.id);
+      return;
+    }
+    if (target === "VENDA") {
+      const salePayload = {
+        id: `so-from-${prop.id}-${Date.now()}`,
+        code: `PV-${prop.code}`,
+        customerName: prop.companyName,
+        customerCnpj: prop.companyCnpj,
+        sellerName: prop.sellerName || "Marcelo Lopes Mira",
+        status: "FATURADO",
+        saleType: "PRODUTO",
+        paymentMethod: prop.paymentCondition || "Boleto / PIX",
+        totalAmount: prop.totalContractValue || prop.monthlyRecurringTotal,
+        createdAt: new Date().toISOString().slice(0, 10),
+        itemsSummary: prop.items.map((i) => `${i.quantity}x ${i.description}`).join(", "),
+      };
+      await fetch("/api/erp/records/salesOrders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(salePayload),
+      }).catch(() => null);
+      onShowToast(`Pedido de Venda PV-${prop.code} gerado a partir do orçamento!`);
+      await onRefresh();
+      return;
+    }
+    if (target === "OS") {
+      const osPayload = {
+        id: `os-from-${prop.id}-${Date.now()}`,
+        code: `OS-${prop.code}`,
+        customerName: prop.companyName,
+        customerCnpj: prop.companyCnpj,
+        technicianName: "Equipe Engenharia & NOC Seta Telecom",
+        equipmentSummary: prop.items.map((i) => `${i.quantity}x ${i.description}`).join(" • "),
+        serviceDescription: `Implantação e ativação referente ao Orçamento ${prop.code} (${prop.title})`,
+        status: "ABERTA",
+        priority: "ALTA",
+        slaTargetHours: 4,
+        openedAt: new Date().toISOString().slice(0, 10),
+        totalAmount: prop.servicesSubtotal || prop.oneTimeSetupTotal || 0,
+      };
+      await fetch("/api/erp/records/serviceOrders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(osPayload),
+      }).catch(() => null);
+      onShowToast(`Ordem de Serviço OS-${prop.code} gerada a partir do orçamento!`);
+      await onRefresh();
+      return;
+    }
+    if (target === "PRODUCAO") {
+      await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: prop.status === "RASCUNHO" ? "EM_NEGOCIACAO" : prop.status,
+          statusObservation: "Enviado para Produção / Separação Técnica de Hardware e Bancada",
+        }),
+      }).catch(() => null);
+      onShowToast(`Orçamento ${prop.code} encaminhado para Produção / Bancada Técnica!`);
+      await onRefresh();
+    }
+  };
+
+  const renderProposalGestaoClickActions = (
+    prop: ErpCommercialProposal,
+    publicUrl: string,
+    printUrl: string
+  ) => {
+    const isMenuOpen = openProposalMenuId === prop.id;
+    return (
+      <div className="relative inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        {/* 1. Botão Lupa (Visualizar proposta e histórico) */}
+        <button
+          type="button"
+          onClick={() => openProposalStatusModal(prop, true)}
+          title="Visualizar detalhes e histórico da proposta"
+          className="w-8 h-8 rounded border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 inline-flex items-center justify-center transition cursor-pointer shadow-2xs"
+        >
+          <Search className="w-3.5 h-3.5" />
+        </button>
+
+        {/* 2. Botão Lápis (Editar orçamento) */}
+        <button
+          type="button"
+          onClick={() => {
+            setOpenProposalMenuId(null);
+            setIsCreatingProposalModal(false);
+            setEditingProposal(prop);
+          }}
+          title="Editar orçamento"
+          className="w-8 h-8 rounded border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 inline-flex items-center justify-center transition cursor-pointer shadow-2xs"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+
+        {/* 3. Botão Menu 3 Pontos Verticais GestãoClick */}
+        <button
+          type="button"
+          onClick={() => {
+            if (isMenuOpen) {
+              setOpenProposalMenuId(null);
+              setExpandedProposalSubmenu(null);
+            } else {
+              setOpenProposalMenuId(prop.id);
+              setExpandedProposalSubmenu(null);
+            }
+          }}
+          title="Mais opções do orçamento (GestãoClick)"
+          className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
+            isMenuOpen
+              ? "bg-[#1b2559] text-white border-[#1b2559]"
+              : "border-slate-200 bg-white text-slate-700 hover:bg-[#1b2559] hover:text-white hover:border-[#1b2559]"
+          }`}
+        >
+          <span className="font-black text-sm leading-none select-none">&#8942;</span>
+        </button>
+
+        {isMenuOpen && (
+          <div className="absolute right-0 top-9 w-56 bg-white rounded-md border border-slate-200 shadow-xl py-1.5 z-50 text-left text-xs text-slate-700">
+            {/* Ver proposta */}
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setOpenProposalMenuId(null)}
+              className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 font-medium"
+            >
+              <FileText className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span>Ver proposta</span>
+            </a>
+
+            {/* Alterar situação */}
+            <button
+              type="button"
+              onClick={() => openProposalStatusModal(prop, true)}
+              className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 font-medium cursor-pointer text-left"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span>Alterar situação</span>
+            </button>
+
+            {/* Imprimir > */}
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedProposalSubmenu((prev) => (prev === "IMPRIMIR" ? null : "IMPRIMIR"))
+                }
+                className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium cursor-pointer text-left"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <Printer className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Imprimir</span>
+                </span>
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                    expandedProposalSubmenu === "IMPRIMIR" ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+              {expandedProposalSubmenu === "IMPRIMIR" && (
+                <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
+                  <a
+                    href={printUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setOpenProposalMenuId(null)}
+                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                  >
+                    Formato A4
+                  </a>
+                  <a
+                    href={`${printUrl}&format=cupom`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setOpenProposalMenuId(null)}
+                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                  >
+                    Cupom
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Compartilhar > */}
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedProposalSubmenu((prev) =>
+                    prev === "COMPARTILHAR" ? null : "COMPARTILHAR"
+                  )
+                }
+                className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium cursor-pointer text-left"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Compartilhar</span>
+                </span>
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                    expandedProposalSubmenu === "COMPARTILHAR" ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+              {expandedProposalSubmenu === "COMPARTILHAR" && (
+                <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(publicUrl);
+                      setOpenProposalMenuId(null);
+                      setEmailModalPayload({
+                        docType: "PROPOSAL",
+                        recipientName: prop.careOf || prop.contactName || prop.companyName,
+                        recipientEmail: prop.contactEmail || "",
+                        companyName: prop.companyName,
+                        companyCnpj: prop.companyCnpj,
+                        documentCode: prop.code,
+                        amountBrl: prop.monthlyRecurringTotal,
+                        publicPdfUrl: publicUrl,
+                        proposalId: prop.id,
+                        customSubject: `Proposta Comercial ${prop.code} — Seta Telecom (${prop.companyName})`,
+                      });
+                      onShowToast(`Link público de ${prop.code} copiado para envio por e-mail!`);
+                    }}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    Por e-mail
+                  </button>
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(
+                      `Olá! Segue o link da Proposta Comercial ${prop.code} da Seta Telecom (${prop.companyName}): ${publicUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(publicUrl);
+                      setOpenProposalMenuId(null);
+                    }}
+                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                  >
+                    Por WhatsApp
+                  </a>
+                  <a
+                    href={`sms:?&body=${encodeURIComponent(
+                      `Seta Telecom - Proposta Comercial ${prop.code}: ${publicUrl}`
+                    )}`}
+                    onClick={() => {
+                      navigator.clipboard?.writeText(publicUrl);
+                      setOpenProposalMenuId(null);
+                      onShowToast(`Link copiado para envio por SMS!`);
+                    }}
+                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                  >
+                    Por SMS
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Gerar > */}
+            <div>
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedProposalSubmenu((prev) => (prev === "GERAR" ? null : "GERAR"))
+                }
+                className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium cursor-pointer text-left"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Gerar</span>
+                </span>
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                    expandedProposalSubmenu === "GERAR" ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+              {expandedProposalSubmenu === "GERAR" && (
+                <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "E_ASSINATURA")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    e-Assinatura
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "COPIA")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    Cópia
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "VENDA")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    Venda
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "OS")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    Ordem de serviço
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "CONTRATO")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-emerald-800 cursor-pointer"
+                  >
+                    Contrato
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "LOCACAO")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-[#1e3a6e] cursor-pointer"
+                  >
+                    Locação
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateFromProposalMenu(prop, "PRODUCAO")}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                  >
+                    Produção
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="my-1 border-t border-slate-100" />
+
+            {/* Excluir */}
+            <button
+              type="button"
+              onClick={() => {
+                setOpenProposalMenuId(null);
+                handleDeleteProposal(prop);
+              }}
+              className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center gap-2.5 text-rose-600 font-semibold cursor-pointer text-left"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              <span>Excluir</span>
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
@@ -1904,12 +2424,6 @@ export default function ErpGestaoClickTab({
                           className="py-2.5 px-3"
                         >
                           <div className="font-mono font-bold text-[#1e3a6e] underline">{prop.code}</div>
-                          <span
-                            title={`Versão v${prop.version || 1}.0 • ${(prop.versionHistory || []).length || 1} revisão(ões) salva(s) no histórico`}
-                            className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono text-[10px] font-extrabold"
-                          >
-                            v{prop.version || 1}.0 ({(prop.versionHistory || []).length || 1} rev.)
-                          </span>
                         </td>
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <button
@@ -1955,10 +2469,15 @@ export default function ErpGestaoClickTab({
                             {prop.salesChannel || 'Comercial B2B'}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${stBadge.cls}`}>
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => openProposalStatusModal(prop, true)}
+                            title="Clique para alterar a situação ou consultar o histórico da proposta"
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold cursor-pointer hover:opacity-85 transition ${stBadge.cls}`}
+                          >
                             {stBadge.label}
-                          </span>
+                          </button>
                         </td>
                         <td className="py-2.5 px-3 text-right text-[11px]">
                           <div>Prod: {formatBRL(prdSub)}</div>
@@ -1984,50 +2503,7 @@ export default function ErpGestaoClickTab({
                           </span>
                         </td>
                         <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsCreatingProposalModal(false);
-                                setEditingProposal(prop);
-                              }}
-                              title="Editar Orçamento"
-                              className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-extrabold cursor-pointer"
-                            >
-                              Editar
-                            </button>
-                            <a
-                              href={printUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              title="Imprimir PDF A4"
-                              className="px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-bold"
-                            >
-                              PDF
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard?.writeText(publicUrl);
-                                onShowToast(`Link público de ${prop.code} copiado!`);
-                              }}
-                              title="Copiar Link Público"
-                              className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-[11px] font-bold cursor-pointer"
-                            >
-                              Copiar
-                            </button>
-                            {!isConverted && (
-                              <button
-                                type="button"
-                                disabled={busyId === prop.id}
-                                onClick={() => openGenerateContractFromProposal(prop)}
-                                title="Aprovar e Gerar Contrato"
-                                className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer"
-                              >
-                                Aprovar
-                              </button>
-                            )}
-                          </div>
+                          {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
                         </td>
                       </tr>
                     );
@@ -2112,87 +2588,7 @@ export default function ErpGestaoClickTab({
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCreatingProposalModal(false);
-                        setEditingProposal(prop);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Editar Orçamento
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteProposal(prop)}
-                      title="Excluir Proposta"
-                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(publicUrl);
-                        onShowToast(`Link da proposta ${prop.code} copiado para enviar ao cliente!`);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800 cursor-pointer"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-[#1e3a6e]" /> Copiar Link p/ Cliente
-                    </button>
-
-                    <a
-                      href={publicUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" /> Abrir Link / PDF
-                    </a>
-
-                    <a
-                      href={printUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold"
-                    >
-                      <Printer className="w-3.5 h-3.5" /> Imprimir PDF
-                    </a>
-
-                    {isConverted && (linkedContract || prop.convertedContractId) ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetId = linkedContract?.id || prop.convertedContractId || null;
-                          setHighlightedContractId(targetId);
-                          setContractsSubFilter('TODOS');
-                          setActiveSubId('CTR_LOCACOES');
-                          setActiveSection('CONTRATOS');
-                          onShowToast(
-                            `Visualizando contrato gerado: ${
-                              linkedContract?.contractNumber || prop.convertedContractId
-                            }`
-                          );
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-indigo-950 hover:bg-indigo-900 text-emerald-300 text-xs font-extrabold cursor-pointer shadow-xs"
-                      >
-                        <FileCheck2 className="w-4 h-4" />
-                        Ver Contrato Gerado (
-                        {linkedContract?.contractNumber || prop.convertedContractId})
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busyId === prop.id}
-                        onClick={() => handleApproveProposal(prop.id)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        {busyId === prop.id ? 'Convertendo...' : 'Aprovar & Gerar Contrato'}
-                      </button>
-                    )}
+                    {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
                   </div>
                 </div>
 
@@ -6490,6 +6886,277 @@ export default function ErpGestaoClickTab({
                     {formatBRL(selectedPurchaseForPrint.totalAmount)}
                   </strong>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GESTÃOCLICK: ALTERAR SITUAÇÃO + HISTÓRICO DE SITUAÇÕES E VERSÕES DA PROPOSTA */}
+      {statusModalProposal && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setStatusModalProposal(null)}
+        >
+          <div
+            className="bg-white rounded-lg border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden my-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-base font-bold text-slate-900">Alterar situação</h3>
+                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs font-bold">
+                  Orçamento #{statusModalProposal.code}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusModalProposal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-5 text-xs text-slate-700 max-h-[78vh] overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-800 mb-1.5">
+                    Situação<span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={statusModalSelectedStatus}
+                    onChange={(e) =>
+                      setStatusModalSelectedStatus(
+                        e.target.value as ErpCommercialProposal["status"]
+                      )
+                    }
+                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:border-[#1b2559]"
+                  >
+                    <option value="RASCUNHO">Em aberto</option>
+                    <option value="EM_NEGOCIACAO">Em andamento</option>
+                    <option value="ENVIADA">Enviado</option>
+                    <option value="APROVADA">Concretizado</option>
+                    <option value="CONVERTIDA_CONTRATO">
+                      Concretizado (Em Contrato / Faturamento)
+                    </option>
+                    <option value="RECUSADA">Cancelado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-800 mb-1.5">
+                    Observação
+                  </label>
+                  <input
+                    type="text"
+                    value={statusModalObservation}
+                    onChange={(e) => setStatusModalObservation(e.target.value)}
+                    placeholder="Opcional: fica no histórico"
+                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#1b2559]"
+                  />
+                </div>
+              </div>
+
+              {(statusModalSelectedStatus === "APROVADA" ||
+                statusModalSelectedStatus === "CONVERTIDA_CONTRATO") &&
+                isRentalProposal(statusModalProposal) && (
+                  <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2 text-[11px] font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      <strong>Regra Automática de Locação Seta Telecom:</strong> Ao confirmar a situação como{" "}
+                      <strong>Concretizado</strong>, este orçamento de locação gera automaticamente o{" "}
+                      <strong>Contrato de Locação</strong> e a <strong>Fatura</strong> para seguir com o faturamento.
+                    </span>
+                  </div>
+                )}
+
+              {/* Acordeão 1: Histórico de situações */}
+              {(() => {
+                const statusEntries =
+                  Array.isArray(statusModalProposal.statusHistory) &&
+                  statusModalProposal.statusHistory.length > 0
+                    ? statusModalProposal.statusHistory
+                    : [
+                        {
+                          id: "sh-fallback-1",
+                          date: statusModalProposal.createdAt || new Date().toISOString(),
+                          notes: "Orçamento cadastrado",
+                          status: statusModalProposal.status,
+                          statusLabel: getGestaoClickSituationSpec(statusModalProposal.status).label,
+                          employeeName: statusModalProposal.sellerName || "Marcelo Lopes Mira",
+                        },
+                      ];
+                return (
+                  <div className="border-t border-slate-200 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setStatusModalHistoryOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between py-1.5 text-left font-bold text-slate-800 cursor-pointer"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <History className="w-4 h-4 text-slate-600" />
+                        <span>Histórico de situações</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-extrabold">
+                          {statusEntries.length}
+                        </span>
+                      </span>
+                      <ChevronRight
+                        className={`w-4 h-4 text-slate-500 transition-transform ${
+                          statusModalHistoryOpen ? "-rotate-90" : "rotate-90"
+                        }`}
+                      />
+                    </button>
+
+                    {statusModalHistoryOpen && (
+                      <div className="mt-2 border border-slate-200 rounded-md overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <tr>
+                              <th className="py-2 px-3">Data</th>
+                              <th className="py-2 px-3">Observação</th>
+                              <th className="py-2 px-3">Situação</th>
+                              <th className="py-2 px-3">Funcionário</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {statusEntries.map((entry) => {
+                              const spec = getGestaoClickSituationSpec(entry.status);
+                              const dateFormatted = entry.date.includes("T")
+                                ? new Date(entry.date).toLocaleString("pt-BR")
+                                : entry.date;
+                              return (
+                                <tr key={entry.id} className="hover:bg-slate-50/70">
+                                  <td className="py-2.5 px-3 font-mono text-[11px] text-slate-700">
+                                    {dateFormatted}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-700">{entry.notes}</td>
+                                  <td className="py-2.5 px-3">
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-bold ${spec.badgeClass}`}
+                                    >
+                                      <span className={`w-2 h-2 rounded-full ${spec.dotClass}`} />
+                                      {entry.statusLabel || spec.label}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-800 font-medium">
+                                    {entry.employeeName}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Acordeão 2: Histórico de versões da proposta (movido da listagem para dentro do histórico da proposta) */}
+              {(() => {
+                const versions = Array.isArray(statusModalProposal.versionHistory)
+                  ? [...statusModalProposal.versionHistory].sort((a, b) => b.version - a.version)
+                  : [];
+                return (
+                  <div className="border-t border-slate-200 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setStatusModalVersionsOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between py-1.5 text-left font-bold text-slate-800 cursor-pointer"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-[#1e3a6e]" />
+                        <span>Histórico de versões da proposta</span>
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-mono font-extrabold">
+                          v{statusModalProposal.version || 1}.0 ({versions.length || 1} rev.)
+                        </span>
+                      </span>
+                      <ChevronRight
+                        className={`w-4 h-4 text-slate-500 transition-transform ${
+                          statusModalVersionsOpen ? "-rotate-90" : "rotate-90"
+                        }`}
+                      />
+                    </button>
+
+                    {statusModalVersionsOpen && (
+                      <div className="mt-2 border border-slate-200 rounded-md overflow-hidden">
+                        {versions.length > 0 ? (
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                              <tr>
+                                <th className="py-2 px-3 w-20">Versão</th>
+                                <th className="py-2 px-3 w-36">Data</th>
+                                <th className="py-2 px-3">Alterações Registradas</th>
+                                <th className="py-2 px-3 w-36">Responsável</th>
+                                <th className="py-2 px-3 text-right w-28">Valor Mensal</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {versions.map((ver) => (
+                                <tr key={`${ver.version}-${ver.savedAt}`} className="hover:bg-slate-50/70">
+                                  <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
+                                    {ver.versionLabel || `v${ver.version}.0`}
+                                  </td>
+                                  <td className="py-2 px-3 font-mono text-[11px] text-slate-600">
+                                    {ver.savedAt ? new Date(ver.savedAt).toLocaleString("pt-BR") : "—"}
+                                  </td>
+                                  <td className="py-2 px-3 text-slate-700">{ver.changeSummary}</td>
+                                  <td className="py-2 px-3 text-slate-800 font-medium">
+                                    {ver.savedBy || statusModalProposal.sellerName}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                                    {formatBRL(
+                                      ver.snapshot?.monthlyRecurringTotal ??
+                                        statusModalProposal.monthlyRecurringTotal
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="p-3 text-slate-500 text-center">
+                            Versão inicial v1.0 registrada no histórico da proposta.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer idêntico ao GestãoClick */}
+            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setStatusModalProposal(null)}
+                className="px-4 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={buildPublicProposalUrl(statusModalProposal)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Ver Proposta A4
+                </a>
+                <button
+                  type="button"
+                  disabled={savingProposalStatus}
+                  onClick={handleConfirmChangeProposalStatus}
+                  className="px-5 py-2 rounded-md bg-[#1b2559] hover:bg-[#11183b] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {savingProposalStatus ? "Salvando..." : "Alterar"}
+                </button>
               </div>
             </div>
           </div>

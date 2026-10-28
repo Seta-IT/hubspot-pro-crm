@@ -733,6 +733,15 @@ export interface ErpProposalVersionSnapshot {
   items: ErpProposalItem[];
 }
 
+export interface ErpProposalStatusHistoryEntry {
+  id: string;
+  date: string;
+  notes: string;
+  status: ErpProposalStatus;
+  statusLabel: string;
+  employeeName: string;
+}
+
 export interface ErpProposalVersionEntry {
   version: number;
   versionLabel: string;
@@ -809,6 +818,7 @@ export interface ErpCommercialProposal {
   digitalSignature?: ErpProposalDigitalSignature | null;
   version?: number;
   versionHistory?: ErpProposalVersionEntry[];
+  statusHistory?: ErpProposalStatusHistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }

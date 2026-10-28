@@ -31,6 +31,7 @@ import {
   encodeProposalToQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
+  cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
   resolveProposalSlaOption,
@@ -957,73 +958,79 @@ function PublicProposalPrintContent() {
 
       {/* A4 DOCUMENT CONTAINER */}
       <div className={`max-w-4xl mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:shadow-none print:border-0 print:rounded-none`}>
-        {/* CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT (COM TEMPO DE CONTRATO E SEM VERSIONAMENTO) */}
-        <div className={`${headerBgClass} px-7 py-5`}>
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-            <div className="flex items-start gap-4">
+        {/* CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT (REPAGINADO EM 2 FAIXAS EQUILIBRADAS, SEM BADGE DE OPÇÃO E SEM CORTE LATERAL) */}
+        <div className={`${headerBgClass} px-7 py-5 space-y-3.5`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3.5 border-b border-slate-200/80">
+            <div className="flex items-center gap-3.5 min-w-0">
               {/* OFFICIAL SETA | IT LOGO CARD */}
-              <div className="bg-white rounded-md px-3.5 py-2.5 flex items-center gap-2 shrink-0 border border-slate-200">
+              <div className="bg-white rounded-md px-3.5 py-2.5 flex items-center gap-2 shrink-0 border border-slate-200 shadow-2xs">
                 <span className="text-xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
                 <span className="w-[2px] h-5 bg-[#f26522] inline-block" />
                 <span className="text-xl font-black tracking-tight text-[#f26522]">IT</span>
               </div>
 
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-slate-900">
-                    SETA TELECOM LTDA
-                  </h1>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${headerBadgeClass}`}>
-                    {activeLayoutSpec?.shortLabel || "Opção 1 • Clean Corporate Light"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 mt-1">
-                  Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-lg font-black tracking-tight text-[#0d2b4e]">
+                  SETA TELECOM LTDA
+                </h1>
+                <p className="text-[11px] font-semibold text-slate-600">
+                  Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
-                <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 mt-1">
-                  {sellerContact.phone && (
-                    <span className="inline-flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-emerald-600" /> WhatsApp: {sellerContact.phone}
-                    </span>
-                  )}
-                  {sellerContact.email && (
-                    <span className="inline-flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-[#1e3a6e]" /> {sellerContact.email}
-                    </span>
-                  )}
-                  <span className="text-slate-500">Alphaville, Campinas/SP • Atendimento Brasil</span>
-                </div>
+                <p className="text-[11px] text-slate-500">
+                  Alphaville, Campinas/SP • Estoque Próprio de Spare Parts (+500 SKUs) • Atendimento Brasil
+                </p>
               </div>
             </div>
 
-            <div className={`${metaBoxClass} rounded-lg px-4 py-3 text-right shrink-0 space-y-1`}>
+            <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 sm:text-right shrink-0`}>
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
-              <div className="text-xl font-black text-slate-900">
+              <div className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight mt-0.5">
                 {proposal.code}
               </div>
-              <div className="text-[11px] text-slate-600">
+              <div className="text-[11px] text-slate-600 mt-0.5">
                 Emissão: <strong className="text-slate-900">{issueDateStr}</strong> • Validade: <strong className="text-slate-900">{validUntilStr}</strong>
               </div>
-              <div className="pt-1 flex flex-wrap items-center justify-end gap-1.5">
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
-                  <Calendar className="w-3 h-3 text-emerald-700" />
-                  Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-[11px]">
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700">
+              <span>
+                Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
+              </span>
+              {sellerContact.phone && (
+                <span className="inline-flex items-center gap-1">
+                  <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span>WhatsApp: <strong className="text-slate-800">{sellerContact.phone}</strong></span>
                 </span>
-                {deliveryLeadTime && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
-                    <Clock className="w-3 h-3 text-[#1e3a6e]" />
-                    Prazo de Entrega: {deliveryLeadTime}
-                  </span>
-                )}
-                {hasSelectedSla && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
-                    <Clock className="w-3 h-3 text-emerald-700" />
-                    {resolvedSla.shortLabel}
-                  </span>
-                )}
-              </div>
+              )}
+              {sellerContact.email && (
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="w-3 h-3 text-[#1e3a6e] shrink-0" />
+                  <span className="text-slate-700">{sellerContact.email}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center md:justify-end gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+                <Calendar className="w-3 h-3 text-emerald-700 shrink-0" />
+                Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
+              </span>
+              {deliveryLeadTime && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white text-slate-700 border border-slate-200 text-[10px] font-bold">
+                  <Clock className="w-3 h-3 text-[#1e3a6e] shrink-0" />
+                  Prazo de Entrega: {deliveryLeadTime}
+                </span>
+              )}
+              {hasSelectedSla && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-extrabold">
+                  <ShieldCheck className="w-3 h-3 text-[#1e3a6e] shrink-0" />
+                  {resolvedSla.shortLabel}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -1098,8 +1105,8 @@ function PublicProposalPrintContent() {
 
           <div className="flex items-center gap-3 py-0.5">
             <span className="flex-1 h-px bg-slate-200" />
-            <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#1e3a6e]">
-              FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL
+            <span className="text-[11px] font-extrabold tracking-widest text-[#1e3a6e]">
+              PROPOSTA COMERCIAL - Solução
             </span>
             <span className="flex-1 h-px bg-slate-200" />
           </div>
@@ -1109,7 +1116,7 @@ function PublicProposalPrintContent() {
             <div className="space-y-1">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#1e3a6e]" />
-                Dados da Empresa Cliente (Proponente / Locatária)
+                DADOS DA EMPRESA:
               </div>
               <div className="text-sm sm:text-base font-extrabold text-slate-900">{proposal.companyName}</div>
               <div className="text-xs text-slate-600">
@@ -1129,7 +1136,7 @@ function PublicProposalPrintContent() {
             <div className="space-y-1 md:border-l md:border-slate-200 md:pl-4">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
-                Condições Gerais &amp; Executivo Seta Telecom
+                CONDIÇÕES GERAIS:
               </div>
               <div className="text-sm font-extrabold text-slate-900">
                 {sellerContact.name}
@@ -1166,7 +1173,7 @@ function PublicProposalPrintContent() {
           </div>
 
           {/* 3. FAIXA EXECUTIVA LEVE DE TEMPO DE CONTRATO, SLA E INVESTIMENTO */}
-          <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6" : "sm:grid-cols-5"} gap-2.5 p-3.5 rounded-lg ${stripBoxClass} text-xs`}>
+          <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-2.5 p-3.5 rounded-lg ${stripBoxClass} text-xs`}>
             <div className="sm:border-r sm:border-slate-200 sm:pr-2">
               <span className="text-[10px] uppercase text-slate-500 font-bold block">
                 Valor Mensal
@@ -1201,20 +1208,12 @@ function PublicProposalPrintContent() {
                 </strong>
               </div>
             )}
-            <div className="sm:border-r sm:border-slate-200 sm:pr-2">
-              <span className="text-[10px] uppercase text-slate-500 font-bold block">
-                Frete (Isolado)
-              </span>
-              <strong className="font-bold text-slate-800">
-                {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00 (Cortesia)"}
-              </strong>
-            </div>
             <div>
               <span className="text-[10px] uppercase text-slate-500 font-bold block">
-                Valor Global ({contractDurationMonths}m)
+                FRETE R$:
               </span>
-              <strong className="font-extrabold text-slate-900 text-sm">
-                {formatBRL(proposal.totalContractValue)}
+              <strong className="font-bold text-slate-800">
+                {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </strong>
             </div>
           </div>
@@ -1245,12 +1244,11 @@ function PublicProposalPrintContent() {
                   <th className="py-2 px-3 text-center w-24 font-extrabold">Quantidade</th>
                   <th className="py-2 px-3 text-right w-28 font-extrabold">Vlr. Unitário</th>
                   <th className="py-2 px-2 text-right w-28 font-extrabold">Desconto</th>
-                  <th className="py-2 px-3 text-right w-32 font-extrabold">Subtotal Líquido</th>
+                  <th className="py-2 px-3 text-right w-32 font-extrabold">Subtotal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
                 {proposal.items.map((item, idx) => {
-                  const isSrv = inferProposalItemType(item) === "SERVICE";
                   const hasDisc =
                     (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
                   return (
@@ -1258,12 +1256,6 @@ function PublicProposalPrintContent() {
                       <td className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e] text-[11px]">{item.sku}</td>
                       <td className="py-2.5 px-3">
                         <div className="font-bold text-slate-900">{item.description}</div>
-                        <div className="text-[10px] text-slate-500">
-                          {isSrv ? "Serviço Técnico" : "Produto / Equipamento"} •{" "}
-                          {item.isRecurring !== false
-                            ? "Mensal Recorrente (MRR)"
-                            : "Cobrança Única (Setup / Venda)"}
-                        </div>
                       </td>
                       <td className="py-2.5 px-3 text-center font-bold text-slate-900">
                         {item.quantity} {item.quantity === 1 ? "un" : "un"}
@@ -1332,7 +1324,7 @@ function PublicProposalPrintContent() {
             )}
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                Frete / Transporte
+                Frete
               </span>
               <strong className="text-sm font-extrabold text-slate-900">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
@@ -1353,30 +1345,16 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* 7. QUADRO DE AMPARO LEGAL E TOTAIS LEVES (MRR / TCV) */}
+          {/* 7. QUADRO FISCAL E TOTAIS LEVES */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2 p-4 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2 text-xs">
-              <div className="flex items-center gap-2 font-extrabold text-emerald-900 uppercase text-[11px]">
+              <div className="flex items-center gap-2 font-extrabold text-emerald-900 text-xs">
                 <Scale className="w-4 h-4 text-emerald-700 shrink-0" />
-                Amparo Legal &amp; Segregação Tributária (LC 116/2003 + STF SV 31)
+                <span>Fiscal</span>
               </div>
               <p className="text-slate-700 leading-relaxed text-[11px]">
                 {proposal.commercialNotes}
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-emerald-200/80 text-[11px]">
-                <div>
-                  <span className="text-emerald-700 block">Parcela Locação (0% ISS):</span>
-                  <strong className="text-emerald-950">{formatBRL(locacaoTotal)}/mês</strong>
-                </div>
-                <div>
-                  <span className="text-emerald-700 block">Parcela Serviços (NFS-e):</span>
-                  <strong className="text-emerald-950">{formatBRL(servicoTotal)}/mês</strong>
-                </div>
-                <div>
-                  <span className="text-emerald-700 block">Economia Tributária ISS:</span>
-                  <strong className="text-emerald-950">{formatBRL(issSavedMonthly)}/mês</strong>
-                </div>
-              </div>
             </div>
 
             <div className={`p-4 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3`}>
@@ -1398,18 +1376,9 @@ function PublicProposalPrintContent() {
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span>Frete (Isolado):</span>
+                    <span>FRETE R$:</span>
                     <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
                   </div>
-                </div>
-              </div>
-
-              <div className="pt-2.5 border-t border-slate-200">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                  Valor Global do Orçamento ({proposal.contractMonths} meses)
-                </span>
-                <div className="text-lg font-black text-slate-900">
-                  {formatBRL(proposal.totalContractValue)}
                 </div>
               </div>
             </div>
@@ -1474,18 +1443,22 @@ function PublicProposalPrintContent() {
                 </div>
               </div>
               <div className="font-bold text-slate-800">
-                Frete: {shippingCost > 0 ? formatBRL(shippingCost) : "Isento / Cortesia"}
+                FRETE R$: {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </div>
             </div>
           )}
 
-          <div className={`p-4 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
-            <div className="font-extrabold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
-              Condições Técnicas, Remessa CFOP 5.908 &amp; Acordo de Nível de Serviço (SLA)
+          {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
+            <div className={`p-4 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
+              <div className="font-extrabold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
+                Condições Técnicas, Remessa CFOP 5.908 &amp; Acordo de Nível de Serviço (SLA)
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                {cleanProposalTechnicalClauses(proposal.technicalClauses)}
+              </p>
             </div>
-            <p className="text-slate-600 leading-relaxed">{proposal.technicalClauses}</p>
-          </div>
+          )}
 
           {/* 10. SEÇÃO DE APROVAÇÃO DA PROPOSTA + 7 ETAPAS DO FLUXO DE CONTRATAÇÃO DE LOCAÇÃO */}
           <div className="pt-5 mt-3 border-t border-slate-200 space-y-4">

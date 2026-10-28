@@ -3359,7 +3359,8 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(pageSrc.includes("SETA_TELECOM_INSTITUTIONAL_SUMMARY"));
     assert.ok(pageSrc.includes("SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.map"));
     assert.ok(pageSrc.includes("SETA_TELECOM_PORTFOLIO_PILLARS.map"));
-    assert.ok(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"));
+    assert.ok(pageSrc.includes("PROPOSTA COMERCIAL - Solução"));
+    assert.equal(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"), false);
 
     // 4. Fluxo de contratação de locação em 7 etapas no final da proposta
     assert.equal(
@@ -3370,8 +3371,48 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(pageSrc.includes("SETA_TELECOM_HIRING_FLOW_TITLE"));
     assert.ok(pageSrc.includes("SETA_TELECOM_HIRING_FLOW_STEPS.map"));
 
-    // 5. Documento A4 leve (sem border-2 border-slate-900 no container do documento)
+    // 5. Valida os 14 ajustes finos solicitados pelo Marcéllo na proposta A4
+    assert.equal(share.resolveProposalSlaOption({ slaTier: "CORPORATIVO_8X5_NBD" }).shortLabel, "SLA 8x5 NBD");
+    assert.equal(share.resolveProposalSlaOption({ slaTier: "PADRAO_COMERCIAL_8H" }).shortLabel, "SLA 8x5 NBD");
+    assert.equal(
+      share.cleanProposalTechnicalClauses(
+        "SLA 99,95% com substituição expressa de hardware (Advance Replacement em até 4h na Grande SP). Vigência de 24 meses com reajuste anual pelo IPCA."
+      ),
+      ""
+    );
+    assert.equal(pageSrc.includes("Opção 1 • Clean Corporate Light"), false);
+    assert.ok(pageSrc.includes("DADOS DA EMPRESA:"));
+    assert.ok(pageSrc.includes("CONDIÇÕES GERAIS:"));
+    assert.ok(pageSrc.includes("FRETE R$:"));
+    assert.equal(pageSrc.includes("Frete (Isolado)"), false);
+    assert.equal(pageSrc.includes("R$ 0,00 (Cortesia)"), false);
+    assert.equal(pageSrc.includes("Valor Global do Orçamento"), false);
+    assert.equal(pageSrc.includes("Subtotal Líquido"), false);
+    assert.ok(pageSrc.includes(">Subtotal</th>"));
+    assert.equal(pageSrc.includes("Produto / Equipamento"), false);
+    assert.equal(pageSrc.includes("Frete / Transporte"), false);
+    assert.ok(pageSrc.includes("<span>Fiscal</span>"));
+    assert.equal(pageSrc.includes("Amparo Legal &amp; Segregação Tributária"), false);
+    assert.equal(pageSrc.includes("Parcela Locação (0% ISS):"), false);
+    assert.equal(pageSrc.includes("Parcela Serviços (NFS-e):"), false);
+    assert.equal(pageSrc.includes("Economia Tributária ISS:"), false);
     assert.equal(pageSrc.includes("border-2 border-slate-900"), false);
+
+    // 6. Valida padrão de Ações GestãoClick (3 botões + menu dropdown completo + modal Alterar situação + Histórico de situações e versões) em ErpGestaoClickTab.tsx
+    const erpTabSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/ErpGestaoClickTab.tsx"), "utf8");
+    assert.ok(erpTabSrc.includes("renderProposalGestaoClickActions"));
+    assert.ok(erpTabSrc.includes("Ver proposta"));
+    assert.ok(erpTabSrc.includes("Alterar situação"));
+    assert.ok(erpTabSrc.includes("Formato A4"));
+    assert.ok(erpTabSrc.includes("Cupom"));
+    assert.ok(erpTabSrc.includes("Por e-mail"));
+    assert.ok(erpTabSrc.includes("Por WhatsApp"));
+    assert.ok(erpTabSrc.includes("Por SMS"));
+    assert.ok(erpTabSrc.includes("e-Assinatura"));
+    assert.ok(erpTabSrc.includes("Ordem de serviço"));
+    assert.ok(erpTabSrc.includes("Histórico de situações"));
+    assert.ok(erpTabSrc.includes("Histórico de versões da proposta"));
+    assert.ok(erpTabSrc.includes("handleConfirmChangeProposalStatus"));
   });
   it("valida fluxo stateless completo de EMAIL_OTP entre /api/auth/send-email-otp e /api/auth/verify-mfa (mesmo quando verify-mfa cai em outra instância Lambda sem estado em memória) e exibe devOtpPreview na tela de login em modo contingência", async () => {
     const repoA = createInMemoryRepository();

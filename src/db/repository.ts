@@ -256,11 +256,41 @@ export function computeProposalChangedFields(
   return changed;
 }
 
+export function mapProposalStatusToGcLabel(status: ErpCommercialProposal["status"]): string {
+  switch (status) {
+    case "RASCUNHO":
+      return "Em aberto";
+    case "EM_NEGOCIACAO":
+      return "Em andamento";
+    case "ENVIADA":
+      return "Enviado";
+    case "APROVADA":
+    case "CONVERTIDA_CONTRATO":
+      return "Concretizado";
+    case "RECUSADA":
+      return "Cancelado";
+    default:
+      return "Em aberto";
+  }
+}
+
 export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): ErpCommercialProposal {
   if (p.slaTier === "NOC_24X7_ALTA_DISP_4H") {
     p.slaTier = "SEM_SLA_ESPECIFICO";
     p.slaAvailabilityPercent = "";
     p.slaResponseHours = 0;
+  }
+  if (p.technicalClauses) {
+    p.technicalClauses = p.technicalClauses
+      .replace(
+        /SLA\s*99,95%\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\s*\(Advance\s*Replacement\s*em\s*at[eé]\s*4h\s*na\s*Grande\s*SP\)\.\s*Vig[eê]ncia\s*de\s*24\s*meses\s*com\s*reajuste\s*anual\s*pelo\s*IPCA\.?/gi,
+        ""
+      )
+      .replace(
+        /SLA\s*99,95%\s*Seta\s*Telecom\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\.\s*Vig[eê]ncia\s*contratual\s*de\s*\d+\s*meses\.?/gi,
+        ""
+      )
+      .trim();
   }
   const rawLeadTime = String(p.deliveryLeadTime ?? p.deliveryForecast ?? "").trim();
   if (
@@ -292,14 +322,42 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
         version: initialVer,
         versionLabel: `v${initialVer}.0`,
         savedAt: p.createdAt || p.updatedAt || new Date().toISOString(),
-        savedBy: p.sellerName || 'Marcelo Lopes Mira',
-        changedFields: ['Emissão Inicial da Proposta'],
+        savedBy: p.sellerName || "Marcelo Lopes Mira",
+        changedFields: ["Emissão Inicial da Proposta"],
         changeSummary: `Versão inicial da Proposta Comercial #${p.code} (v${initialVer}.0)`,
         snapshot: snap,
       },
     ];
   } else if (!p.version) {
     p.version = p.versionHistory[p.versionHistory.length - 1]?.version || p.versionHistory.length;
+  }
+  if (!Array.isArray(p.statusHistory) || p.statusHistory.length === 0) {
+    const baseDate = p.createdAt || p.updatedAt || new Date().toISOString();
+    const emp = p.sellerName || "Marcelo Lopes Mira";
+    const entries = [
+      {
+        id: `sh-${p.id}-1`,
+        date: baseDate,
+        notes: "Orçamento cadastrado",
+        status: "RASCUNHO" as ErpCommercialProposal["status"],
+        statusLabel: "Em aberto",
+        employeeName: emp,
+      },
+    ];
+    if (p.status && p.status !== "RASCUNHO") {
+      entries.push({
+        id: `sh-${p.id}-2`,
+        date: p.updatedAt || baseDate,
+        notes:
+          p.status === "CONVERTIDA_CONTRATO"
+            ? "Proposta aprovada — Contrato de Locação e Faturamento gerados automaticamente"
+            : `Situação alterada para ${mapProposalStatusToGcLabel(p.status)}`,
+        status: p.status,
+        statusLabel: mapProposalStatusToGcLabel(p.status),
+        employeeName: emp,
+      });
+    }
+    p.statusHistory = entries;
   }
   return p;
 }
@@ -574,9 +632,27 @@ export class CrmRepository {
         if (!parsed.erp || !Array.isArray(parsed.erp.proposals)) {
           return seedErp;
         }
+        const cleanedProposals = parsed.erp.proposals.map((p) => {
+          const cleanedTc = String(p.technicalClauses || "")
+            .replace(
+              /SLA\s*99,95%\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\s*\(Advance\s*Replacement\s*em\s*at[eé]\s*4h\s*na\s*Grande\s*SP\)\.\s*Vig[eê]ncia\s*de\s*24\s*meses\s*com\s*reajuste\s*anual\s*pelo\s*IPCA\.?/gi,
+              ""
+            )
+            .replace(
+              /SLA\s*99,95%\s*Seta\s*Telecom\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\.\s*Vig[eê]ncia\s*contratual\s*de\s*\d+\s*meses\.?/gi,
+              ""
+            )
+            .trim();
+          return {
+            ...p,
+            slaTier: p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
+            technicalClauses: cleanedTc,
+          };
+        });
         return {
           ...seedErp,
           ...parsed.erp,
+          proposals: cleanedProposals,
           bankAccounts:
             Array.isArray(parsed.erp.bankAccounts) && parsed.erp.bankAccounts.length > 0
               ? parsed.erp.bankAccounts
@@ -3253,7 +3329,7 @@ export class CrmRepository {
         'Locação pura de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       technicalClauses:
         input.technicalClauses ||
-        `SLA 99,95% Seta Telecom com substituição expressa de hardware. Vigência contratual de ${contractMonths} meses.`,
+        '',
       convertedContractId: input.convertedContractId ?? null,
       convertedInvoiceId: input.convertedInvoiceId ?? null,
       version: 1,
@@ -3454,6 +3530,22 @@ export class CrmRepository {
 
     candidate.version = nextVersion;
     candidate.versionHistory = [...prevHistory, versionEntry];
+
+    const prevStatusHistory = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
+    const statusObs = typeof (patch as Record<string, unknown>).statusObservation === "string"
+      ? String((patch as Record<string, unknown>).statusObservation).trim()
+      : "";
+    if (!Array.isArray(patch.statusHistory) && (patch.status !== undefined && patch.status !== current.status || statusObs)) {
+      prevStatusHistory.push({
+        id: `sh-${Date.now()}`,
+        date: nowIso,
+        notes: statusObs || `Situação alterada para ${mapProposalStatusToGcLabel(candidate.status)}`,
+        status: candidate.status,
+        statusLabel: mapProposalStatusToGcLabel(candidate.status),
+        employeeName: savedBy,
+      });
+      candidate.statusHistory = prevStatusHistory;
+    }
 
     erp.proposals[idx] = candidate;
     this.save();
@@ -4499,6 +4591,21 @@ export class CrmRepository {
 
     proposal.status = "CONVERTIDA_CONTRATO";
     proposal.convertedContractId = contract.id;
+    ensureProposalInitializedWithVersion(proposal);
+    const approveObs = typeof signatureInput?.statusObservation === "string" && String(signatureInput.statusObservation).trim()
+      ? String(signatureInput.statusObservation).trim()
+      : "Proposta aprovada — Contrato de Locação e Faturamento gerados automaticamente";
+    proposal.statusHistory = [
+      ...(proposal.statusHistory || []),
+      {
+        id: `sh-approve-${Date.now()}`,
+        date: nowIso,
+        notes: approveObs,
+        status: "CONVERTIDA_CONTRATO",
+        statusLabel: "Concretizado",
+        employeeName: proposal.sellerName || "Marcelo Lopes Mira",
+      },
+    ];
     proposal.convertedInvoiceId = invoice.id;
     proposal.digitalSignature = digitalSignature;
     proposal.updatedAt = nowIso;
