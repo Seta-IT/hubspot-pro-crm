@@ -393,7 +393,7 @@ export function GestaoClickCustomerEditModal({
         <div className="bg-white px-6 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Edit3 className="w-5 h-5 text-slate-700" />
-            <h2 className="text-lg font-bold text-slate-800">
+            <h2 className="text-lg font-semibold text-slate-800">
               {isNew ? 'Adicionar cliente' : 'Editar cliente'}
             </h2>
           </div>
@@ -403,7 +403,7 @@ export function GestaoClickCustomerEditModal({
               <span>&gt;</span>
               <span>Clientes</span>
               <span>&gt;</span>
-              <strong className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</strong>
+              <span className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</span>
             </div>
             <button
               type="button"
@@ -422,7 +422,7 @@ export function GestaoClickCustomerEditModal({
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-[#1e3a6e]" />
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">
+                  <h3 className="text-sm font-semibold text-slate-800">
                     Preencha os <span className="text-[#1e3a6e]">dados gerais</span> do cliente
                   </h3>
                   <p className="text-[11px] text-slate-400">
@@ -435,7 +435,7 @@ export function GestaoClickCustomerEditModal({
                   type="button"
                   disabled={loadingRfb}
                   onClick={() => handleLookupCnpjRfbAndSerasa(false)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer shadow-2xs disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-normal cursor-pointer shadow-2xs disabled:opacity-50"
                 >
                   <Search className="w-3.5 h-3.5" />
                   {loadingRfb ? 'Consultando RFB...' : 'Puxar Cadastro na Receita Federal (RFB)'}
@@ -450,10 +450,10 @@ export function GestaoClickCustomerEditModal({
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-emerald-300" />
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300 block">
+                      <span className="text-[10px] font-normal uppercase tracking-wider text-emerald-300 block">
                         Relatório Oficial Serasa Experian &amp; Receita Federal • Protocolo {serasaReport.protocolNumber}
                       </span>
-                      <h4 className="text-sm font-extrabold">
+                      <h4 className="text-sm font-semibold">
                         {legalName} — CNPJ {cnpj}
                       </h4>
                     </div>
@@ -461,7 +461,7 @@ export function GestaoClickCustomerEditModal({
                   <button
                     type="button"
                     onClick={() => setShowSerasaPanel(false)}
-                    className="text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
+                    className="text-slate-300 hover:text-white text-xs font-normal cursor-pointer"
                   >
                     Fechar [X]
                   </button>
@@ -470,23 +470,23 @@ export function GestaoClickCustomerEditModal({
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
                   <div className="bg-white/10 p-2.5 rounded border border-white/15">
                     <span className="text-[10px] text-slate-300 block">Serasa Score PJ</span>
-                    <strong className="text-lg font-black text-emerald-300">
+                    <span className="text-lg font-normal text-emerald-300">
                       {serasaReport.score} / 1000
-                    </strong>
+                    </span>
                     <span className="text-[10px] text-emerald-200 block">{serasaReport.riskLevel}</span>
                   </div>
                   <div className="bg-white/10 p-2.5 rounded border border-white/15">
                     <span className="text-[10px] text-slate-300 block">Protestos / PEFIN</span>
-                    <strong className="text-sm font-black text-white">
+                    <span className="text-sm font-normal text-white">
                       {serasaReport.protestosCount} Protestos
-                    </strong>
+                    </span>
                     <span className="text-[10px] text-emerald-300 block">{serasaReport.status}</span>
                   </div>
                   <div className="bg-white/10 p-2.5 rounded border border-white/15">
                     <span className="text-[10px] text-slate-300 block">Abertura / Capital RFB</span>
-                    <strong className="text-sm font-bold text-white">
+                    <span className="text-sm font-normal text-white">
                       {serasaReport.openingDate || 'Ativa'}
-                    </strong>
+                    </span>
                     <span className="text-[10px] text-slate-300 block">
                       Capital: {formatBRL(serasaReport.capitalSocialBrl || 500000)}
                     </span>
@@ -494,9 +494,9 @@ export function GestaoClickCustomerEditModal({
                   <div className="bg-white/10 p-2.5 rounded border border-white/15 sm:col-span-2 flex items-center justify-between gap-2">
                     <div>
                       <span className="text-[10px] text-slate-300 block">Limite de Crédito Sugerido</span>
-                      <strong className="text-base font-black text-amber-300">
+                      <span className="text-base font-normal text-amber-300">
                         {formatBRL(serasaReport.suggestedCreditLimitBrl)}
-                      </strong>
+                      </span>
                       <span className="text-[10px] text-slate-200 block">
                         CNAE: {serasaReport.cnaeMain || 'Tecnologia & Telecom'}
                       </span>
@@ -510,7 +510,7 @@ export function GestaoClickCustomerEditModal({
                           `Limite de crédito de ${formatBRL(serasaReport.suggestedCreditLimitBrl)} aplicado ao cadastro!`
                         );
                       }}
-                      className="px-3 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black cursor-pointer shrink-0"
+                      className="px-3 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-normal cursor-pointer shrink-0"
                     >
                       Aplicar Limite
                     </button>
@@ -521,7 +521,7 @@ export function GestaoClickCustomerEditModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-end">
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Tipo de cliente <span className="text-rose-600">*</span>
                 </label>
                 <select
@@ -540,7 +540,7 @@ export function GestaoClickCustomerEditModal({
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Situação
                 </label>
                 <select
@@ -557,7 +557,7 @@ export function GestaoClickCustomerEditModal({
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Nome fantasia <span className="text-rose-600">*</span>
                 </label>
                 <input
@@ -570,7 +570,7 @@ export function GestaoClickCustomerEditModal({
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   E-mail
                 </label>
                 <input
@@ -586,13 +586,13 @@ export function GestaoClickCustomerEditModal({
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-end">
               <div className="sm:col-span-3">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">
+                  <label className="text-[11px] font-normal text-slate-700">
                     {isPf ? 'CPF *' : 'CNPJ *'}
                   </label>
                   <div className="flex items-center gap-1">
                     {!docFeedback.isEmpty && (
                       <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-normal ${
                           docFeedback.isValid
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                             : 'bg-rose-100 text-rose-800 border border-rose-300'
@@ -606,7 +606,7 @@ export function GestaoClickCustomerEditModal({
                         type="button"
                         disabled={!docFeedback.isValid}
                         onClick={() => handleLookupCnpjRfbAndSerasa(true)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer shadow-2xs disabled:opacity-40"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-normal cursor-pointer shadow-2xs disabled:opacity-40"
                       >
                         <Sparkles className="w-2.5 h-2.5 text-amber-300" />
                         SERASA
@@ -640,24 +640,24 @@ export function GestaoClickCustomerEditModal({
                   </button>
                 </div>
                 {!docFeedback.isEmpty && !docFeedback.isValid && (
-                  <p className="text-[10px] font-bold text-rose-600 mt-1">{docFeedback.message}</p>
+                  <p className="text-[10px] font-normal text-rose-600 mt-1">{docFeedback.message}</p>
                 )}
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Razão social
                 </label>
                 <input
                   type="text"
                   value={legalName}
                   onChange={(e) => setLegalName(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                 />
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Inscrição estadual
                 </label>
                 <div className="flex">
@@ -669,7 +669,7 @@ export function GestaoClickCustomerEditModal({
                     placeholder={stateRegistrationExempt ? 'ISENTO' : 'Inscrição Estadual'}
                     className="w-full px-3 py-2 rounded-l border border-slate-300 disabled:bg-slate-50"
                   />
-                  <label className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 text-[10px] font-bold text-slate-700 cursor-pointer select-none">
+                  <label className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 text-[10px] font-normal text-slate-700 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={stateRegistrationExempt}
@@ -681,7 +681,7 @@ export function GestaoClickCustomerEditModal({
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Tipo de contribuinte
                 </label>
                 <select
@@ -699,7 +699,7 @@ export function GestaoClickCustomerEditModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Inscrição municipal
                 </label>
                 <input
@@ -710,7 +710,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Inscrição SUFRAMA
                 </label>
                 <input
@@ -721,7 +721,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Responsável
                 </label>
                 <input
@@ -732,7 +732,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Telefone comercial
                 </label>
                 <input
@@ -747,7 +747,7 @@ export function GestaoClickCustomerEditModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Telefone celular
                 </label>
                 <input
@@ -759,7 +759,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">FAX</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">FAX</label>
                 <input
                   type="text"
                   value={fax}
@@ -768,7 +768,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Site</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Site</label>
                 <input
                   type="text"
                   value={website}
@@ -778,7 +778,7 @@ export function GestaoClickCustomerEditModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Vendedor / Responsável
                 </label>
                 <div className="flex">
@@ -805,7 +805,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <MapPin className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Cadastre os <span className="text-[#1e3a6e]">endereços</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -818,7 +818,7 @@ export function GestaoClickCustomerEditModal({
               <div key={addr.id} className="space-y-3 pb-3 border-b border-slate-100 last:border-b-0">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Tipo
                     </label>
                     <input
@@ -834,7 +834,7 @@ export function GestaoClickCustomerEditModal({
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       CEP
                     </label>
                     <input
@@ -851,7 +851,7 @@ export function GestaoClickCustomerEditModal({
                     />
                   </div>
                   <div className="sm:col-span-5">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Logradouro
                     </label>
                     <input
@@ -866,7 +866,7 @@ export function GestaoClickCustomerEditModal({
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Número
                     </label>
                     <input
@@ -884,7 +884,7 @@ export function GestaoClickCustomerEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                   <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Complemento
                     </label>
                     <input
@@ -899,7 +899,7 @@ export function GestaoClickCustomerEditModal({
                     />
                   </div>
                   <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Bairro
                     </label>
                     <input
@@ -914,7 +914,7 @@ export function GestaoClickCustomerEditModal({
                     />
                   </div>
                   <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Cidade/UF
                     </label>
                     <div className="flex">
@@ -961,7 +961,7 @@ export function GestaoClickCustomerEditModal({
                   },
                 ])
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-bold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-normal cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> Adicionar endereço
             </button>
@@ -972,7 +972,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <Users className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Registre os <span className="text-[#1e3a6e]">contatos</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -984,7 +984,7 @@ export function GestaoClickCustomerEditModal({
             {extraContacts.map((ct, idx) => (
               <div key={ct.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
                 <div className="sm:col-span-3">
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Nome</label>
+                  <label className="block text-[10px] font-normal text-slate-500 mb-1">Nome</label>
                   <input
                     type="text"
                     value={ct.name}
@@ -997,7 +997,7 @@ export function GestaoClickCustomerEditModal({
                   />
                 </div>
                 <div className="sm:col-span-3">
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Cargo / Setor</label>
+                  <label className="block text-[10px] font-normal text-slate-500 mb-1">Cargo / Setor</label>
                   <input
                     type="text"
                     value={ct.role}
@@ -1010,7 +1010,7 @@ export function GestaoClickCustomerEditModal({
                   />
                 </div>
                 <div className="sm:col-span-3">
-                  <label className="block text-[10px] font-bold text-slate-500 mb-1">E-mail</label>
+                  <label className="block text-[10px] font-normal text-slate-500 mb-1">E-mail</label>
                   <input
                     type="text"
                     value={ct.email}
@@ -1024,7 +1024,7 @@ export function GestaoClickCustomerEditModal({
                 </div>
                 <div className="sm:col-span-3 flex gap-1.5">
                   <div className="flex-1">
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Telefone</label>
+                    <label className="block text-[10px] font-normal text-slate-500 mb-1">Telefone</label>
                     <input
                       type="text"
                       value={ct.phone}
@@ -1061,7 +1061,7 @@ export function GestaoClickCustomerEditModal({
                   },
                 ])
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-bold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-normal cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> Adicionar contato
             </button>
@@ -1072,7 +1072,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <ShoppingBag className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Defina o <span className="text-[#1e3a6e]">limite de crédito</span> do cliente
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1083,11 +1083,11 @@ export function GestaoClickCustomerEditModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Limite de crédito
                 </label>
                 <div className="flex">
-                  <span className="px-3 py-2 rounded-l border border-r-0 border-slate-300 bg-slate-50 text-slate-600 font-bold">
+                  <span className="px-3 py-2 rounded-l border border-r-0 border-slate-300 bg-slate-50 text-slate-600 font-normal">
                     R$
                   </span>
                   <input
@@ -1096,7 +1096,7 @@ export function GestaoClickCustomerEditModal({
                     value={creditLimitBrl}
                     onChange={(e) => setCreditLimitBrl(e.target.value)}
                     placeholder="0,00"
-                    className="w-full px-3 py-2 rounded-r border border-slate-300 font-bold"
+                    className="w-full px-3 py-2 rounded-r border border-slate-300 font-normal"
                   />
                 </div>
               </div>
@@ -1111,7 +1111,7 @@ export function GestaoClickCustomerEditModal({
                     className="w-4 h-4 accent-[#1e3a6e]"
                   />
                   <div>
-                    <span className="font-bold text-slate-800 block">
+                    <span className="font-normal text-slate-800 block">
                       Permitir exceder o limite
                     </span>
                     <span className="text-[11px] text-slate-400 block">
@@ -1128,7 +1128,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <Camera className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Adicione uma <span className="text-[#1e3a6e]">foto</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1138,7 +1138,7 @@ export function GestaoClickCustomerEditModal({
             </div>
 
             <div className="flex items-center gap-4">
-              <div className="w-24 h-24 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xl">
+              <div className="w-24 h-24 rounded border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-400 font-normal text-xl">
                 {photoUrl ? 'LOGO' : <Users className="w-10 h-10 text-slate-300" />}
               </div>
               <button
@@ -1147,7 +1147,7 @@ export function GestaoClickCustomerEditModal({
                   setPhotoUrl('logo-cliente-verificado.png');
                   onShowToast?.('Logotipo / Foto do cliente vinculado ao cadastro!');
                 }}
-                className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal cursor-pointer"
               >
                 Selecione uma foto
               </button>
@@ -1159,7 +1159,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <Paperclip className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Adicione <span className="text-[#1e3a6e]">anexos</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1175,13 +1175,13 @@ export function GestaoClickCustomerEditModal({
                     key={att.id}
                     className="flex items-center justify-between px-3 py-2 rounded bg-slate-50 border border-slate-200"
                   >
-                    <span className="font-mono text-xs font-bold text-[#1e3a6e]">
+                    <span className="font-mono text-xs font-normal text-[#1e3a6e]">
                       {att.name} ({att.sizeKb} KB — {att.uploadedAt})
                     </span>
                     <button
                       type="button"
                       onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))}
-                      className="text-rose-600 hover:underline text-xs font-bold cursor-pointer"
+                      className="text-rose-600 hover:underline text-xs font-normal cursor-pointer"
                     >
                       Remover
                     </button>
@@ -1203,7 +1203,7 @@ export function GestaoClickCustomerEditModal({
                   },
                 ])
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-bold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 text-xs font-normal cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> Adicionar anexo
             </button>
@@ -1214,7 +1214,7 @@ export function GestaoClickCustomerEditModal({
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <FileText className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Adicione <span className="text-[#1e3a6e]">observações</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">
@@ -1236,14 +1236,14 @@ export function GestaoClickCustomerEditModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold hover:bg-slate-50 cursor-pointer"
+              className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-normal hover:bg-slate-50 cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={saving || !docFeedback.isValid}
-              className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? 'Salvando...' : isNew ? 'Cadastrar Cliente' : 'Atualizar'}
             </button>
@@ -1537,7 +1537,7 @@ export function GestaoClickProductEditModal({
         <div className="bg-white px-6 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Edit3 className="w-5 h-5 text-slate-700" />
-            <h2 className="text-lg font-bold text-slate-800">
+            <h2 className="text-lg font-semibold text-slate-800">
               {isNew ? 'Adicionar produto' : 'Editar produto'}
             </h2>
           </div>
@@ -1547,7 +1547,7 @@ export function GestaoClickProductEditModal({
               <span>&gt;</span>
               <span>Produtos</span>
               <span>&gt;</span>
-              <strong className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</strong>
+              <span className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</span>
             </div>
             <button
               type="button"
@@ -1582,7 +1582,7 @@ export function GestaoClickProductEditModal({
                       }`}
                     />
                     <div>
-                      <div className="font-bold text-xs">{t.title}</div>
+                      <div className="font-normal text-xs">{t.title}</div>
                       <div
                         className={`text-[10px] ${
                           isSelected ? 'text-slate-200' : 'text-slate-400'
@@ -1601,7 +1601,7 @@ export function GestaoClickProductEditModal({
                 <>
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
-                      <h3 className="text-sm font-bold text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-800">
                         Informe os <span className="text-[#1e3a6e]">dados principais</span> do produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
@@ -1611,7 +1611,7 @@ export function GestaoClickProductEditModal({
 
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                       <div className="sm:col-span-4">
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Nome <span className="text-rose-600">*</span>
                         </label>
                         <input
@@ -1624,7 +1624,7 @@ export function GestaoClickProductEditModal({
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Código interno <span className="text-rose-600">*</span>
                         </label>
                         <div className="flex">
@@ -1642,7 +1642,7 @@ export function GestaoClickProductEditModal({
                                 `GC-EQ-${Math.floor(10000 + Math.random() * 90000)}`
                               )
                             }
-                            className="px-3 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 cursor-pointer"
+                            className="px-3 py-2 rounded-r border border-l-0 border-slate-300 bg-slate-50 hover:bg-slate-100 font-normal text-slate-700 cursor-pointer"
                           >
                             Gerar
                           </button>
@@ -1650,7 +1650,7 @@ export function GestaoClickProductEditModal({
                       </div>
 
                       <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Código de barra
                         </label>
                         <input
@@ -1662,7 +1662,7 @@ export function GestaoClickProductEditModal({
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Grupo do produto
                         </label>
                         <input
@@ -1677,7 +1677,7 @@ export function GestaoClickProductEditModal({
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Movimenta estoque?
                         </label>
                         <select
@@ -1690,7 +1690,7 @@ export function GestaoClickProductEditModal({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Habilitar nota fiscal?
                         </label>
                         <select
@@ -1703,7 +1703,7 @@ export function GestaoClickProductEditModal({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Possui variações?
                         </label>
                         <select
@@ -1716,7 +1716,7 @@ export function GestaoClickProductEditModal({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        <label className="block text-[11px] font-normal text-slate-700 mb-1">
                           Possui composição?
                         </label>
                         <select
@@ -1733,7 +1733,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
-                      <h3 className="text-sm font-bold text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-800">
                         Defina a <span className="text-[#1e3a6e]">unidade de medida</span> do produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
@@ -1749,7 +1749,7 @@ export function GestaoClickProductEditModal({
                         className="w-4 h-4 accent-[#1e3a6e]"
                       />
                       <div>
-                        <span className="font-bold text-slate-800 block">
+                        <span className="font-normal text-slate-800 block">
                           Compro em uma unidade e vendo em outra
                         </span>
                         <span className="text-[11px] text-slate-400 block">
@@ -1759,7 +1759,7 @@ export function GestaoClickProductEditModal({
                     </label>
 
                     <div className="max-w-sm">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Unidade de medida <span className="text-rose-600">*</span>
                       </label>
                       <div className="flex">
@@ -1782,7 +1782,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                     <div className="border-b border-slate-100 pb-3">
-                      <h3 className="text-sm font-bold text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-800">
                         Confira as <span className="text-[#1e3a6e]">referências de NF-e</span> deste produto
                       </h3>
                       <p className="text-[11px] text-slate-400">
@@ -1792,7 +1792,7 @@ export function GestaoClickProductEditModal({
 
                     <div className="border border-slate-200 rounded overflow-hidden">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                        <thead className="bg-slate-100 text-slate-700 font-normal border-b border-slate-200">
                           <tr>
                             <th className="py-2 px-3">Produto</th>
                             <th className="py-2 px-3 w-20 text-center">Delete</th>
@@ -1808,7 +1808,7 @@ export function GestaoClickProductEditModal({
                                   onClick={() =>
                                     setNfeReferences(nfeReferences.filter((_, i) => i !== idx))
                                   }
-                                  className="px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-600 text-white font-bold cursor-pointer"
+                                  className="px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-600 text-white font-normal cursor-pointer"
                                 >
                                   Remover
                                 </button>
@@ -1834,7 +1834,7 @@ export function GestaoClickProductEditModal({
                           setNfeReferences([...nfeReferences, newNfeRefInput.trim()]);
                           setNewNfeRefInput('');
                         }}
-                        className="px-3.5 py-1.5 rounded bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                        className="px-3.5 py-1.5 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
                       >
                         + Vincular Referência XML
                       </button>
@@ -1846,7 +1846,7 @@ export function GestaoClickProductEditModal({
               {activeTab === 'DETALHES' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-800">
                       Pesos, <span className="text-[#1e3a6e]">dimensões e campos extras</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
@@ -1856,7 +1856,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Peso Líquido (kg)
                       </label>
                       <input
@@ -1868,7 +1868,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Peso Bruto (kg)
                       </label>
                       <input
@@ -1880,7 +1880,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Largura (cm)
                       </label>
                       <input
@@ -1891,7 +1891,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Altura (cm)
                       </label>
                       <input
@@ -1902,7 +1902,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Comprimento (cm)
                       </label>
                       <input
@@ -1916,7 +1916,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Marca / Fabricante
                       </label>
                       <input
@@ -1927,7 +1927,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Modelo Técnico
                       </label>
                       <input
@@ -1938,7 +1938,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Garantia Padrão (Meses)
                       </label>
                       <input
@@ -1949,13 +1949,13 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Exige Número de Série (S/N)?
                       </label>
                       <select
                         value={controlsSerialNumber ? 'Sim' : 'Não'}
                         onChange={(e) => setControlsSerialNumber(e.target.value === 'Sim')}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                       >
                         <option value="Sim">Sim (Rastrear S/N &amp; Patrimônio)</option>
                         <option value="Não">Não</option>
@@ -1968,7 +1968,7 @@ export function GestaoClickProductEditModal({
               {activeTab === 'VALORES' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-800">
                       Custo, <span className="text-[#1e3a6e]">margem de lucro e valores de locação / venda</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
@@ -1978,7 +1978,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Valor de Custo (R$)
                       </label>
                       <input
@@ -1986,11 +1986,11 @@ export function GestaoClickProductEditModal({
                         step="0.01"
                         value={costPrice}
                         onChange={(e) => setCostPrice(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Despesas Acessórias / IPI / Frete (R$)
                       </label>
                       <input
@@ -2002,7 +2002,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Margem de Lucro Alvo (%)
                       </label>
                       <input
@@ -2010,14 +2010,14 @@ export function GestaoClickProductEditModal({
                         step="0.1"
                         value={profitMarginPercent}
                         onChange={(e) => setProfitMarginPercent(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-indigo-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-indigo-800"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 pt-2">
                     <div className="p-3 rounded bg-emerald-50 border border-emerald-200">
-                      <label className="block text-[11px] font-extrabold text-emerald-900 mb-1">
+                      <label className="block text-[11px] font-normal text-emerald-900 mb-1">
                         Locação Mensal Recorrente (R$)
                       </label>
                       <input
@@ -2025,11 +2025,11 @@ export function GestaoClickProductEditModal({
                         step="0.01"
                         value={monthlyRentalPrice}
                         onChange={(e) => setMonthlyRentalPrice(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-emerald-300 bg-white font-black text-emerald-800"
+                        className="w-full px-3 py-2 rounded border border-emerald-300 bg-white font-normal text-emerald-800"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Venda Varejo / Setup (R$)
                       </label>
                       <input
@@ -2037,11 +2037,11 @@ export function GestaoClickProductEditModal({
                         step="0.01"
                         value={saleOrSetupPrice}
                         onChange={(e) => setSaleOrSetupPrice(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Venda Atacado / Corporativo (R$)
                       </label>
                       <input
@@ -2049,11 +2049,11 @@ export function GestaoClickProductEditModal({
                         step="0.01"
                         value={wholesalePrice}
                         onChange={(e) => setWholesalePrice(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                       />
                     </div>
                     <div className="p-3 rounded bg-indigo-50 border border-indigo-200">
-                      <label className="block text-[11px] font-extrabold text-indigo-900 mb-1">
+                      <label className="block text-[11px] font-normal text-indigo-900 mb-1">
                         Valor Patrimonial Remessa CFOP 5.908
                       </label>
                       <input
@@ -2061,7 +2061,7 @@ export function GestaoClickProductEditModal({
                         step="0.01"
                         value={assetValueBrl}
                         onChange={(e) => setAssetValueBrl(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-indigo-300 bg-white font-black text-indigo-900"
+                        className="w-full px-3 py-2 rounded border border-indigo-300 bg-white font-normal text-indigo-900"
                       />
                     </div>
                   </div>
@@ -2071,7 +2071,7 @@ export function GestaoClickProductEditModal({
               {activeTab === 'ESTOQUE' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-800">
                       Quantidades, <span className="text-[#1e3a6e]">limites por loja e movimentações (Entrada / Saída / Locação)</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
@@ -2081,51 +2081,51 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div className="p-3 rounded bg-emerald-50 border border-emerald-200">
-                      <label className="block text-[10px] font-bold uppercase text-emerald-800 mb-1">
+                      <label className="block text-[10px] font-normal uppercase text-emerald-800 mb-1">
                         Disponível Matriz
                       </label>
                       <input
                         type="number"
                         value={stockAvailable}
                         onChange={(e) => setStockAvailable(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-emerald-300 bg-white font-black text-emerald-900"
+                        className="w-full px-2.5 py-1.5 rounded border border-emerald-300 bg-white font-normal text-emerald-900"
                       />
                     </div>
                     <div className="p-3 rounded bg-indigo-50 border border-indigo-200">
-                      <label className="block text-[10px] font-bold uppercase text-indigo-800 mb-1">
+                      <label className="block text-[10px] font-normal uppercase text-indigo-800 mb-1">
                         Locado em Clientes
                       </label>
                       <input
                         type="number"
                         value={stockRentedInClients}
                         onChange={(e) => setStockRentedInClients(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-indigo-300 bg-white font-black text-indigo-900"
+                        className="w-full px-2.5 py-1.5 rounded border border-indigo-300 bg-white font-normal text-indigo-900"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
-                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10px] font-normal uppercase text-slate-600 mb-1">
                         Estoque Mínimo
                       </label>
                       <input
                         type="number"
                         value={minStock}
                         onChange={(e) => setMinStock(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-normal"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
-                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10px] font-normal uppercase text-slate-600 mb-1">
                         Estoque Máximo
                       </label>
                       <input
                         type="number"
                         value={maxStock}
                         onChange={(e) => setMaxStock(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-normal"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200 col-span-2 sm:col-span-1">
-                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10px] font-normal uppercase text-slate-600 mb-1">
                         Endereçamento
                       </label>
                       <input
@@ -2138,12 +2138,12 @@ export function GestaoClickProductEditModal({
                   </div>
 
                   <div className="p-3.5 rounded bg-slate-50 border border-slate-200 space-y-2.5">
-                    <div className="font-extrabold text-slate-800 uppercase text-[11px]">
+                    <div className="font-normal text-slate-800 uppercase text-[11px]">
                       Registrar Nova Movimentação de Estoque (Entrada / Saída / Remessa / Retorno)
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
                       <div className="sm:col-span-3">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                        <label className="block text-[10px] font-normal text-slate-500 mb-1">
                           Operação
                         </label>
                         <select
@@ -2157,7 +2157,7 @@ export function GestaoClickProductEditModal({
                                 | 'RETORNO_LOCACAO'
                             )
                           }
-                          className="w-full px-2.5 py-1.5 rounded border bg-white font-bold"
+                          className="w-full px-2.5 py-1.5 rounded border bg-white font-normal"
                         >
                           <option value="ENTRADA">Entrada de Compra (NF-e)</option>
                           <option value="SAIDA">Saída / Baixa de Venda</option>
@@ -2166,17 +2166,17 @@ export function GestaoClickProductEditModal({
                         </select>
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">Qtd</label>
+                        <label className="block text-[10px] font-normal text-slate-500 mb-1">Qtd</label>
                         <input
                           type="number"
                           min={1}
                           value={newMovQty}
                           onChange={(e) => setNewMovQty(Number(e.target.value) || 1)}
-                          className="w-full px-2.5 py-1.5 rounded border bg-white font-bold"
+                          className="w-full px-2.5 py-1.5 rounded border bg-white font-normal"
                         />
                       </div>
                       <div className="sm:col-span-3">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                        <label className="block text-[10px] font-normal text-slate-500 mb-1">
                           Documento Fiscal / Ref.
                         </label>
                         <input
@@ -2187,7 +2187,7 @@ export function GestaoClickProductEditModal({
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                        <label className="block text-[10px] font-normal text-slate-500 mb-1">
                           Observação / S/N
                         </label>
                         <input
@@ -2201,7 +2201,7 @@ export function GestaoClickProductEditModal({
                         <button
                           type="button"
                           onClick={handleRegisterStockMovement}
-                          className="w-full py-1.5 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer"
+                          className="w-full py-1.5 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal cursor-pointer"
                         >
                           Lançar Kardex
                         </button>
@@ -2226,7 +2226,7 @@ export function GestaoClickProductEditModal({
                             <td className="py-2 px-3 font-mono">{m.date}</td>
                             <td className="py-2 px-3">
                               <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                className={`px-2 py-0.5 rounded text-[10px] font-normal ${
                                   m.type === 'ENTRADA' || m.type === 'RETORNO_LOCACAO'
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : 'bg-amber-100 text-amber-800'
@@ -2235,8 +2235,8 @@ export function GestaoClickProductEditModal({
                                 {m.type}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-right font-black">{m.quantity}</td>
-                            <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
+                            <td className="py-2 px-3 text-right font-normal">{m.quantity}</td>
+                            <td className="py-2 px-3 font-mono font-normal text-[#1e3a6e]">
                               {m.documentRef}
                             </td>
                             <td className="py-2 px-3 text-slate-600">{m.notes}</td>
@@ -2251,7 +2251,7 @@ export function GestaoClickProductEditModal({
               {activeTab === 'FOTOS' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-800">
                       Imagens <span className="text-[#1e3a6e]">do produto</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
@@ -2266,7 +2266,7 @@ export function GestaoClickProductEditModal({
                     <button
                       type="button"
                       onClick={() => onShowToast?.('Imagem do produto vinculada com sucesso!')}
-                      className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                      className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
                     >
                       + Enviar Imagem do Produto
                     </button>
@@ -2277,7 +2277,7 @@ export function GestaoClickProductEditModal({
               {activeTab === 'FISCAL' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="border-b border-slate-100 pb-3">
-                    <h3 className="text-sm font-bold text-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-800">
                       NCM, CEST, <span className="text-[#1e3a6e]">origem e regras fiscais (LC 116 / SV 31 STF / RICMS)</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
@@ -2287,13 +2287,13 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Natureza Fiscal Padrão
                       </label>
                       <select
                         value={fiscalNature}
                         onChange={(e) => setFiscalNature(e.target.value as ErpFiscalNature)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                       >
                         <option value="LOCACAO_BENS_MOVEIS">
                           Locação de Bens Móveis (0% ISS — SV 31 STF)
@@ -2310,18 +2310,18 @@ export function GestaoClickProductEditModal({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Código NCM (8 dígitos) / Item LC 116 *
                       </label>
                       <input
                         type="text"
                         value={ncmOrLc116}
                         onChange={(e) => setNcmOrLc116(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Código CEST
                       </label>
                       <input
@@ -2335,7 +2335,7 @@ export function GestaoClickProductEditModal({
 
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                     <div className="sm:col-span-6">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Origem da Mercadoria (Tabela A ICMS)
                       </label>
                       <select
@@ -2355,43 +2355,43 @@ export function GestaoClickProductEditModal({
                       </select>
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         CFOP Venda
                       </label>
                       <input
                         type="text"
                         value={cfopDefault}
                         onChange={(e) => setCfopDefault(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         CFOP Remessa Locação
                       </label>
                       <input
                         type="text"
                         value={cfopRemessaLocacao}
                         onChange={(e) => setCfopRemessaLocacao(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-indigo-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal text-indigo-800"
                       />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         CFOP Retorno Locação
                       </label>
                       <input
                         type="text"
                         value={cfopRetornoLocacao}
                         onChange={(e) => setCfopRetornoLocacao(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-emerald-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal text-emerald-800"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Situação Tributária ICMS (CST / CSOSN)
                       </label>
                       <input
@@ -2402,7 +2402,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         CST PIS / COFINS
                       </label>
                       <input
@@ -2413,7 +2413,7 @@ export function GestaoClickProductEditModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-normal text-slate-700 mb-1">
                         Alíquota IPI (%)
                       </label>
                       <input
@@ -2432,7 +2432,7 @@ export function GestaoClickProductEditModal({
                 <div className="bg-white rounded-md border border-slate-200 p-5 shadow-2xs space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-800">
                         Quem <span className="text-[#1e3a6e]">fornece este produto</span>
                       </h3>
                       <p className="text-[11px] text-slate-400">
@@ -2452,7 +2452,7 @@ export function GestaoClickProductEditModal({
                           },
                         ])
                       }
-                      className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                      className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
                     >
                       + Vincular Fornecedor
                     </button>
@@ -2465,7 +2465,7 @@ export function GestaoClickProductEditModal({
                         className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end p-3 rounded bg-slate-50 border border-slate-200"
                       >
                         <div className="sm:col-span-4">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          <label className="block text-[10px] font-normal text-slate-500 mb-1">
                             Razão Social do Fornecedor
                           </label>
                           <input
@@ -2476,11 +2476,11 @@ export function GestaoClickProductEditModal({
                               copy[idx] = { ...copy[idx], supplierName: e.target.value };
                               setSuppliersList(copy);
                             }}
-                            className="w-full px-2.5 py-1.5 rounded border bg-white font-bold"
+                            className="w-full px-2.5 py-1.5 rounded border bg-white font-normal"
                           />
                         </div>
                         <div className="sm:col-span-3">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          <label className="block text-[10px] font-normal text-slate-500 mb-1">
                             CNPJ
                           </label>
                           <input
@@ -2495,7 +2495,7 @@ export function GestaoClickProductEditModal({
                           />
                         </div>
                         <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                          <label className="block text-[10px] font-normal text-slate-500 mb-1">
                             Código no Fornecedor
                           </label>
                           <input
@@ -2511,7 +2511,7 @@ export function GestaoClickProductEditModal({
                         </div>
                         <div className="sm:col-span-3 flex gap-1.5">
                           <div className="flex-1">
-                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                            <label className="block text-[10px] font-normal text-slate-500 mb-1">
                               Último Custo (R$)
                             </label>
                             <input
@@ -2526,7 +2526,7 @@ export function GestaoClickProductEditModal({
                                 };
                                 setSuppliersList(copy);
                               }}
-                              className="w-full px-2.5 py-1.5 rounded border bg-white font-bold"
+                              className="w-full px-2.5 py-1.5 rounded border bg-white font-normal"
                             />
                           </div>
                           <button
@@ -2549,14 +2549,14 @@ export function GestaoClickProductEditModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer"
+                  className="px-4 py-2 rounded border border-slate-300 bg-slate-100 hover:bg-slate-200 text-slate-700 font-normal cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer shadow-sm"
+                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal cursor-pointer shadow-sm"
                 >
                   {saving ? 'Salvando...' : isNew ? 'Cadastrar Produto' : 'Atualizar'}
                 </button>
@@ -2692,10 +2692,10 @@ export function PartialEquipmentReturnProRataModal({
           <div className="flex items-center gap-2.5">
             <Scale className="w-5 h-5 text-emerald-300" />
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-300 block">
                 Rateio Proporcional de Contrato (Pro-Rata Die) • Sem Pausar a Vigência
               </span>
-              <h3 className="text-sm font-extrabold">
+              <h3 className="text-sm font-semibold">
                 Devolução Parcial de Equipamentos — {contract.contractNumber} ({contract.companyName})
               </h3>
             </div>
@@ -2712,21 +2712,21 @@ export function PartialEquipmentReturnProRataModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs max-h-[84vh] overflow-y-auto">
           <div className="p-3.5 rounded-lg bg-emerald-50/80 border border-emerald-200 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-800 block">
                 Regra Operacional Seta Telecom
               </span>
-              <p className="text-emerald-950 font-semibold">
-                O contrato permanece <strong>ATIVO</strong> para os equipamentos remanescentes. Os itens devolvidos são cobrados proporcionalmente (<strong>{daysClamped}/30 dias</strong>) neste ciclo e deduzidos das faturas futuras.
+              <p className="text-emerald-950 font-normal">
+                O contrato permanece <span>ATIVO</span> para os equipamentos remanescentes. Os itens devolvidos são cobrados proporcionalmente (<span>{daysClamped}/30 dias</span>) neste ciclo e deduzidos das faturas futuras.
               </p>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-black">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-normal">
               STATUS MANTIDO: ATIVO
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 Data da Devolução Física
               </label>
               <input
@@ -2737,7 +2737,7 @@ export function PartialEquipmentReturnProRataModal({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 Dias Utilizados no Ciclo Atual (1 a 30 dias)
               </label>
               <input
@@ -2746,11 +2746,11 @@ export function PartialEquipmentReturnProRataModal({
                 max={30}
                 value={cycleDaysUsed}
                 onChange={(e) => setCycleDaysUsed(Number(e.target.value) || 15)}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-black text-indigo-950"
+                className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-indigo-950"
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 CFOP da NF-e de Retorno Parcial
               </label>
               <input
@@ -2761,13 +2761,13 @@ export function PartialEquipmentReturnProRataModal({
                     ? '6.909 — Retorno Interestadual de Locação'
                     : '5.909 — Retorno Estadual de Locação'
                 }
-                className="w-full px-3 py-2 rounded border border-slate-200 bg-slate-50 font-mono font-bold text-slate-700"
+                className="w-full px-3 py-2 rounded border border-slate-200 bg-slate-50 font-mono font-normal text-slate-700"
               />
             </div>
           </div>
 
           <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between text-[11px] font-extrabold">
+            <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between text-[11px] font-normal">
               <span>SELECIONE OS EQUIPAMENTOS E QUANTIDADES DEVOLVIDAS PELO CLIENTE</span>
               <span>
                 Total Alocado:{" "}
@@ -2798,15 +2798,15 @@ export function PartialEquipmentReturnProRataModal({
                       className={isAlreadyReturned ? 'bg-slate-100 opacity-50' : 'hover:bg-slate-50'}
                     >
                       <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900">{eq.description}</div>
+                        <div className="font-normal text-slate-900">{eq.description}</div>
                         <div className="font-mono text-[10px] text-slate-500">
                           {eq.skuGestaoClick}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 font-mono font-bold text-indigo-950">
+                      <td className="py-2.5 px-3 font-mono font-normal text-indigo-950">
                         {eq.serialNumber}
                       </td>
-                      <td className="py-2.5 px-3 text-center font-black">{eq.quantity}</td>
+                      <td className="py-2.5 px-3 text-center font-normal">{eq.quantity}</td>
                       <td className="py-2.5 px-3 text-right">{formatBRL(eq.unitMonthlyRent)}</td>
                       <td className="py-2.5 px-3 text-center">
                         <input
@@ -2824,13 +2824,13 @@ export function PartialEquipmentReturnProRataModal({
                               ),
                             })
                           }
-                          className="w-20 px-2 py-1 rounded border border-indigo-300 text-center font-black text-indigo-950 bg-indigo-50/40"
+                          className="w-20 px-2 py-1 rounded border border-indigo-300 text-center font-normal text-indigo-950 bg-indigo-50/40"
                         />
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-amber-800">
+                      <td className="py-2.5 px-3 text-right font-normal text-amber-800">
                         {qtyRet > 0 ? formatBRL(proRata) : '—'}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-rose-700">
+                      <td className="py-2.5 px-3 text-right font-normal text-rose-700">
                         {qtyRet > 0 ? `- ${formatBRL(reduction)}/mês` : '—'}
                       </td>
                     </tr>
@@ -2846,41 +2846,41 @@ export function PartialEquipmentReturnProRataModal({
               <span className="text-[10px] uppercase text-slate-400 block">
                 Mensalidade Anterior
               </span>
-              <strong className="text-sm font-black text-white">
+              <span className="text-sm font-normal text-white">
                 {formatBRL(previousMonthlyValue)}
-              </strong>
+              </span>
             </div>
             <div>
               <span className="text-[10px] uppercase text-rose-300 block">
                 Abatimento ({totalUnitsReturned} un. devolvidas)
               </span>
-              <strong className="text-sm font-black text-rose-300">
+              <span className="text-sm font-normal text-rose-300">
                 - {formatBRL(totalMonthlyReductionBrl)}/mês
-              </strong>
+              </span>
             </div>
             <div>
               <span className="text-[10px] uppercase text-amber-300 block">
                 Pro-Rata Devolvidos ({daysClamped}/30d)
               </span>
-              <strong className="text-sm font-black text-amber-300">
+              <span className="text-sm font-normal text-amber-300">
                 + {formatBRL(totalProRataReturnedBrl)}
-              </strong>
+              </span>
             </div>
             <div className="bg-white/10 p-2 rounded border border-emerald-400/40">
-              <span className="text-[10px] uppercase text-emerald-300 font-bold block">
+              <span className="text-[10px] uppercase text-emerald-300 font-normal block">
                 Fatura Deste Mês (Com Rateio)
               </span>
-              <strong className="text-base font-black text-emerald-300">
+              <span className="text-base font-normal text-emerald-300">
                 {formatBRL(currentCycleProRataTotalBrl)}
-              </strong>
+              </span>
             </div>
             <div className="bg-white/10 p-2 rounded border border-indigo-400/40">
-              <span className="text-[10px] uppercase text-indigo-200 font-bold block">
+              <span className="text-[10px] uppercase text-indigo-200 font-normal block">
                 Novo MRR (Próximos Meses)
               </span>
-              <strong className="text-base font-black text-white">
+              <span className="text-base font-normal text-white">
                 {formatBRL(newRecurringMonthlyValue)}/mês
-              </strong>
+              </span>
             </div>
           </div>
 
@@ -2893,7 +2893,7 @@ export function PartialEquipmentReturnProRataModal({
                 className="w-4 h-4 accent-[#1e3a6e]"
               />
               <div>
-                <span className="font-bold text-slate-800 block">
+                <span className="font-normal text-slate-800 block">
                   Emitir NF-e de Retorno Parcial de Locação (CFOP 5.909 / 6.909)
                 </span>
                 <span className="text-[10px] text-slate-500">
@@ -2910,7 +2910,7 @@ export function PartialEquipmentReturnProRataModal({
                 className="w-4 h-4 accent-[#1e3a6e]"
               />
               <div>
-                <span className="font-bold text-slate-800 block">
+                <span className="font-normal text-slate-800 block">
                   Emitir Fatura de Locação Deste Mês com Rateio Pro-Rata ({formatBRL(currentCycleProRataTotalBrl)})
                 </span>
                 <span className="text-[10px] text-slate-500">
@@ -2921,7 +2921,7 @@ export function PartialEquipmentReturnProRataModal({
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">
+            <label className="block font-normal text-slate-700 mb-1">
               Motivo / Observação do Aditivo de Rateio
             </label>
             <input
@@ -2936,14 +2936,14 @@ export function PartialEquipmentReturnProRataModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded border font-bold text-slate-700 cursor-pointer"
+              className="px-4 py-2 rounded border font-normal text-slate-700 cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={submitting || totalUnitsReturned <= 0}
-              className="px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer disabled:opacity-50 shadow-sm"
+              className="px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer disabled:opacity-50 shadow-sm"
             >
               {submitting
                 ? 'Processando Rateio Pro-Rata...'
@@ -3106,10 +3106,10 @@ export function BatchRentalBillingAndEmailModal({
           <div className="flex items-center gap-2.5">
             <Zap className="w-5 h-5 text-amber-300" />
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-300 block">
                 Automação de Faturamento Recorrente &amp; Régua de Cobrança — Seta Telecom
               </span>
-              <h3 className="text-sm font-extrabold">
+              <h3 className="text-sm font-semibold">
                 Faturamento de Locação em Massa &amp; Envio de E-mails em Lote ({selectedRows.length} contratos selecionados)
               </h3>
             </div>
@@ -3126,19 +3126,19 @@ export function BatchRentalBillingAndEmailModal({
         <div className="p-6 space-y-4 text-xs max-h-[84vh] overflow-y-auto">
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-50 p-3.5 rounded-lg border border-slate-200">
             <div className="sm:col-span-3">
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 Competência do Lote (MM/AAAA)
               </label>
               <input
                 type="text"
                 value={competenceMonth}
                 onChange={(e) => setCompetenceMonth(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-mono font-black text-indigo-950"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-mono font-normal text-indigo-950"
               />
             </div>
 
             <div className="sm:col-span-5">
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 Mensagem Padrão de E-mail do Lote
               </label>
               <input
@@ -3150,7 +3150,7 @@ export function BatchRentalBillingAndEmailModal({
             </div>
 
             <div className="sm:col-span-4 flex items-center justify-between gap-2">
-              <label className="inline-flex items-center gap-2 font-bold text-slate-800 cursor-pointer">
+              <label className="inline-flex items-center gap-2 font-normal text-slate-800 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={sendEmailOnGenerate}
@@ -3165,7 +3165,7 @@ export function BatchRentalBillingAndEmailModal({
                   const allSelected = rows.every((r) => r.selected);
                   setRows(rows.map((r) => ({ ...r, selected: !allSelected })));
                 }}
-                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-[11px] font-bold cursor-pointer"
+                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-[11px] font-normal cursor-pointer"
               >
                 Marcar/Desmarcar Todos
               </button>
@@ -3209,10 +3209,10 @@ export function BatchRentalBillingAndEmailModal({
                         />
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="font-mono font-black text-indigo-950">
+                        <div className="font-mono font-normal text-indigo-950">
                           {row.contractNumber}
                         </div>
-                        <div className="font-semibold text-slate-800">{row.companyName}</div>
+                        <div className="font-normal text-slate-800">{row.companyName}</div>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <input
@@ -3227,7 +3227,7 @@ export function BatchRentalBillingAndEmailModal({
                             };
                             setRows(copy);
                           }}
-                          className="w-24 px-2 py-1 rounded border text-right font-bold"
+                          className="w-24 px-2 py-1 rounded border text-right font-normal"
                         />
                       </td>
                       <td className="py-2.5 px-3 text-right">
@@ -3259,7 +3259,7 @@ export function BatchRentalBillingAndEmailModal({
                           className="w-20 px-2 py-1 rounded border text-right text-rose-700"
                         />
                       </td>
-                      <td className="py-2.5 px-3 text-right font-black text-emerald-700">
+                      <td className="py-2.5 px-3 text-right font-normal text-emerald-700">
                         {formatBRL(netRow)}
                       </td>
                       <td className="py-2.5 px-3">
@@ -3295,10 +3295,10 @@ export function BatchRentalBillingAndEmailModal({
 
           <div className="p-4 rounded-lg bg-emerald-950 text-white flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] uppercase font-bold text-emerald-300 block">
+              <span className="text-[10px] uppercase font-normal text-emerald-300 block">
                 Resumo do Lote de Faturamento ({competenceMonth})
               </span>
-              <div className="text-base font-black">
+              <div className="text-base font-normal">
                 {selectedRows.length} Contrato(s) • Total Líquido: {formatBRL(totalNetBatchBrl)} (0% ISS — Súmula Vinculante 31 STF)
               </div>
             </div>
@@ -3307,7 +3307,7 @@ export function BatchRentalBillingAndEmailModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-white/25 text-white font-bold hover:bg-white/10 cursor-pointer"
+                className="px-4 py-2 rounded border border-white/25 text-white font-normal hover:bg-white/10 cursor-pointer"
               >
                 Cancelar
               </button>
@@ -3315,7 +3315,7 @@ export function BatchRentalBillingAndEmailModal({
                 type="button"
                 disabled={busyMode !== 'NONE'}
                 onClick={handleBatchEmailsOnly}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-amber-500 hover:bg-amber-600 text-slate-950 font-black cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-amber-500 hover:bg-amber-600 text-slate-950 font-normal cursor-pointer disabled:opacity-50"
               >
                 <Mail className="w-4 h-4" />
                 {busyMode === 'EMAIL'
@@ -3326,7 +3326,7 @@ export function BatchRentalBillingAndEmailModal({
                 type="button"
                 disabled={busyMode !== 'NONE'}
                 onClick={handleGenerateBatchInvoices}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-black cursor-pointer disabled:opacity-50 shadow-md"
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer disabled:opacity-50 shadow-md"
               >
                 <Zap className="w-4 h-4" />
                 {busyMode === 'BILLING'

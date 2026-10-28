@@ -3564,6 +3564,43 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
       "Formulário de enriquecer domínio na barra superior deve ter sido removido de ContactsCompaniesTab"
     );
   });
+  it("garante hierarquia tipografica corporativa (negrito exclusivamente em titulos h1-h6, zero font-black/font-extrabold/strong no corpo) e sanitizacao runtime stripEmojisDeep", async () => {
+    const rootDir = process.cwd();
+    const walkTsx = (dir: string): string[] => {
+      let out: string[] = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          out = out.concat(walkTsx(full));
+        } else if (entry.name.endsWith(".tsx")) {
+          out.push(full);
+        }
+      }
+      return out;
+    };
+
+    const tsxFiles = walkTsx(path.join(rootDir, "src/app"));
+    assert.ok(tsxFiles.length >= 30);
+
+    for (const file of tsxFiles) {
+      const content = fs.readFileSync(file, "utf8");
+      const rel = path.relative(rootDir, file);
+      assert.equal(/\bfont-black\b/.test(content), false, `${rel} nao deve conter font-black`);
+      assert.equal(/\bfont-extrabold\b/.test(content), false, `${rel} nao deve conter font-extrabold`);
+      assert.equal(/\bfont-bold\b/.test(content), false, `${rel} nao deve conter font-bold fora de titulos`);
+      assert.equal(/<strong(\s|>)/.test(content), false, `${rel} nao deve conter tags <strong> em textos comuns`);
+    }
+
+    const dsMod = await import("../src/app/lib/durable-storage");
+    const dirty = {
+      title: "🔥 Proposta 🚀 100%",
+      nested: ["⚡ Faturamento", { note: "✅ Concluído 📋" }],
+    };
+    const cleaned = dsMod.stripEmojisDeep(dirty);
+    assert.equal(cleaned.title.trim(), "Proposta  100%");
+    assert.equal((cleaned.nested[0] as string).trim(), "Faturamento");
+    assert.equal((cleaned.nested[1] as { note: string }).note.trim(), "Concluído");
+  });
 });
 
 
@@ -3925,12 +3962,11 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     });
     assert.equal(directLoginRes.status, 200);
     const directLoginData = (directLoginRes.body as {
-      data: { mfaRequired: boolean; authenticated: boolean; mfaVerified: boolean; sessionToken: string };
+      data: { mfaRequired: boolean; totpConfigured: boolean; totpPairing?: { qrCodeSvgDataUrl: string } };
     }).data;
-    assert.equal(directLoginData.mfaRequired, false);
-    assert.equal(directLoginData.authenticated, true);
-    assert.equal(directLoginData.mfaVerified, true);
-    assert.ok(directLoginData.sessionToken.includes("."));
+    assert.equal(directLoginData.mfaRequired, true);
+    assert.equal(directLoginData.totpConfigured, false);
+    assert.ok(directLoginData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
 
     // 6. Admin reseta o QR Code (RESET_QR) -> reativa 2FA com totpConfigured = false para exibir QR no próximo login
     const resetQrRes = await router.dispatch({

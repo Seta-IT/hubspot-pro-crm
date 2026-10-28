@@ -460,10 +460,10 @@ export default function GestaoClickCompanyModal({
           <div className="flex items-center gap-2.5">
             <Building2 className="w-5 h-5 text-emerald-300" />
             <div>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 block">
+              <span className="text-[10px] font-normal uppercase tracking-wider text-emerald-300 block">
                 Padrão Oficial GestãoClick (#118887) &amp; Receita Federal do Brasil
               </span>
-              <h2 className="text-sm sm:text-base font-extrabold">
+              <h2 className="text-sm sm:text-base font-semibold">
                 {isNew
                   ? 'Novo Cadastro de Cliente / Empresa (Em Branco)'
                   : isReadOnly
@@ -477,7 +477,7 @@ export default function GestaoClickCompanyModal({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-xs cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 <span>Habilitar Edição</span>
@@ -497,7 +497,7 @@ export default function GestaoClickCompanyModal({
           {/* VALIDATION ERROR BANNER */}
           {validationErrorBanner && (
             <div className="p-3 rounded-md bg-rose-950 text-white border border-rose-500 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-bold text-rose-200">
+              <div className="flex items-center gap-2 font-normal text-rose-200">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
                 <span>{validationErrorBanner}</span>
               </div>
@@ -514,7 +514,7 @@ export default function GestaoClickCompanyModal({
           {/* RECEITA FEDERAL CONFIRMATION BANNER */}
           {receitaStatusBanner && (
             <div className="p-3 rounded-md bg-emerald-950 text-white border border-emerald-500 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-bold text-emerald-300">
+              <div className="flex items-center gap-2 font-normal text-emerald-300">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{receitaStatusBanner}</span>
               </div>
@@ -533,7 +533,7 @@ export default function GestaoClickCompanyModal({
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   1. Dados Gerais, {isPf ? 'CPF (Pessoa Física)' : 'CNPJ (Receita Federal)'} &amp; Enquadramento Fiscal
                 </h3>
                 <p className="text-[11px] text-slate-500">
@@ -542,7 +542,7 @@ export default function GestaoClickCompanyModal({
                     : 'Digite os 14 dígitos do CNPJ (validação Módulo 11) ou clique em Consultar CNPJ na Receita Federal.'}
                 </p>
               </div>
-              <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-extrabold">
+              <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-normal">
                 Validação Módulo 11 &amp; Trava Fiscal Ativa
               </span>
             </div>
@@ -550,13 +550,13 @@ export default function GestaoClickCompanyModal({
             <div className="p-5 space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Tipo de Pessoa *
                   </label>
                   <select
                     value={personType}
                     onChange={(e) => handlePersonTypeChange(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="Pessoa Jurídica">Pessoa Jurídica (PJ)</option>
                     <option value="Pessoa Física">Pessoa Física (PF)</option>
@@ -564,13 +564,13 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Situação Cadastral
                   </label>
                   <select
                     value={situation}
                     onChange={(e) => setSituation(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="Ativo">Ativo</option>
                     <option value="Inativo">Inativo</option>
@@ -579,7 +579,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Código Interno
                   </label>
                   <input
@@ -593,12 +593,12 @@ export default function GestaoClickCompanyModal({
 
                 <div className="sm:col-span-3">
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-slate-700">
+                    <label className="text-[11px] font-normal text-slate-700">
                       {isPf ? 'CPF *' : 'CNPJ *'}
                     </label>
                     {!docFeedback.isEmpty && (
                       <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-normal ${
                           docFeedback.isValid
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                             : 'bg-rose-100 text-rose-800 border border-rose-300'
@@ -631,7 +631,7 @@ export default function GestaoClickCompanyModal({
                       }
                     }}
                     placeholder={isPf ? '000.000.000-00' : '00.000.000/0000-00'}
-                    className={`w-full px-3 py-2 rounded border font-mono font-bold transition ${
+                    className={`w-full px-3 py-2 rounded border font-mono font-normal transition ${
                       !docFeedback.isEmpty && !docFeedback.isValid
                         ? 'border-rose-500 bg-rose-50/40 text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/30'
                         : !docFeedback.isEmpty && docFeedback.isValid
@@ -640,7 +640,7 @@ export default function GestaoClickCompanyModal({
                     }`}
                   />
                   {!docFeedback.isEmpty && !docFeedback.isValid && (
-                    <p className="text-[10px] font-bold text-rose-600 mt-1">
+                    <p className="text-[10px] font-normal text-rose-600 mt-1">
                       {docFeedback.message}
                     </p>
                   )}
@@ -658,7 +658,7 @@ export default function GestaoClickCompanyModal({
                           ? 'Informe um CNPJ matematicamente válido (14 dígitos) para consultar'
                           : 'Consultar CNPJ na Receita Federal'
                     }
-                    className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Search className="w-3.5 h-3.5 text-emerald-300" />
                     {lookingUpCnpj ? 'Consultando RFB...' : 'Consultar CNPJ na Receita Federal'}
@@ -668,7 +668,7 @@ export default function GestaoClickCompanyModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <div className="sm:col-span-5">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     {isPf ? 'Nome Completo *' : 'Razão Social / Nome Empresarial *'}
                   </label>
                   <input
@@ -677,12 +677,12 @@ export default function GestaoClickCompanyModal({
                     value={legalName}
                     onChange={(e) => setLegalName(e.target.value)}
                     placeholder={isPf ? 'Digite o nome completo' : 'Digite a razão social da empresa'}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-slate-900"
                   />
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     {isPf ? 'Apelido / Nome Comercial' : 'Nome Fantasia'}
                   </label>
                   <input
@@ -695,13 +695,13 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Vendedor / Executivo Responsável
                   </label>
                   <select
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="">Selecione o responsável</option>
                     <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
@@ -714,7 +714,7 @@ export default function GestaoClickCompanyModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Indicador de IE
                   </label>
                   <select
@@ -733,7 +733,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Inscrição Estadual (IE)
                   </label>
                   <input
@@ -746,7 +746,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Inscrição Municipal (IM)
                   </label>
                   <input
@@ -759,7 +759,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     SUFRAMA
                   </label>
                   <input
@@ -772,13 +772,13 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Regime Tributário
                   </label>
                   <select
                     value={taxRegime}
                     onChange={(e) => setTaxRegime(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="">Selecione...</option>
                     <option value="Lucro Real">Lucro Real</option>
@@ -791,7 +791,7 @@ export default function GestaoClickCompanyModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     CNAE Principal
                   </label>
                   <input
@@ -804,7 +804,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Descrição da Atividade Econômica
                   </label>
                   <input
@@ -817,7 +817,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Data de Abertura
                   </label>
                   <input
@@ -830,7 +830,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Porte da Empresa
                   </label>
                   <input
@@ -843,7 +843,7 @@ export default function GestaoClickCompanyModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Capital Social (R$)
                   </label>
                   <input
@@ -851,7 +851,7 @@ export default function GestaoClickCompanyModal({
                     value={shareCapital}
                     onChange={(e) => setShareCapital(e.target.value)}
                     placeholder="0,00"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
                 </div>
               </div>
@@ -862,13 +862,13 @@ export default function GestaoClickCompanyModal({
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
               <MapPin className="w-4 h-4 text-[#1e3a6e]" />
-              <h3 className="text-sm font-bold text-slate-800">
+              <h3 className="text-sm font-semibold text-slate-800">
                 2. Endereço Comercial, Cobrança e Instalação (Com Busca Automática ViaCEP &amp; IBGE)
               </h3>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
               <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">CEP *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">CEP *</label>
                 <input
                   type="text"
                   maxLength={9}
@@ -881,11 +881,11 @@ export default function GestaoClickCompanyModal({
                     }
                   }}
                   placeholder="00000-000"
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                 />
               </div>
               <div className="sm:col-span-5">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Logradouro *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Logradouro *</label>
                 <input
                   type="text"
                   value={street}
@@ -895,7 +895,7 @@ export default function GestaoClickCompanyModal({
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Número *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Número *</label>
                 <input
                   type="text"
                   value={number}
@@ -905,7 +905,7 @@ export default function GestaoClickCompanyModal({
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Complemento</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Complemento</label>
                 <input
                   type="text"
                   value={complement}
@@ -916,7 +916,7 @@ export default function GestaoClickCompanyModal({
               </div>
 
               <div className="sm:col-span-4">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Bairro *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Bairro *</label>
                 <input
                   type="text"
                   value={neighborhood}
@@ -926,28 +926,28 @@ export default function GestaoClickCompanyModal({
                 />
               </div>
               <div className="sm:col-span-4">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Cidade *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">Cidade *</label>
                 <input
                   type="text"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   placeholder="Município"
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                 />
               </div>
               <div className="sm:col-span-1">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">UF *</label>
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">UF *</label>
                 <input
                   type="text"
                   maxLength={2}
                   value={uf}
                   onChange={(e) => setUf(e.target.value.toUpperCase())}
                   placeholder="UF"
-                  className="w-full px-2.5 py-2 rounded border border-slate-300 font-bold text-center"
+                  className="w-full px-2.5 py-2 rounded border border-slate-300 font-normal text-center"
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Código IBGE Município (NF-e)
                 </label>
                 <input
@@ -966,7 +966,7 @@ export default function GestaoClickCompanyModal({
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-[#1e3a6e]" />
-                <h3 className="text-sm font-bold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800">
                   3. Contatos, E-mail Fiscal (NF-e / Boletos) &amp; Interlocutores Adicionais
                 </h3>
               </div>
@@ -978,7 +978,7 @@ export default function GestaoClickCompanyModal({
                     { id: `ac-${Date.now()}`, name: '', role: '', email: '', phone: '' },
                   ])
                 }
-                className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white text-[11px] font-bold cursor-pointer"
+                className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white text-[11px] font-normal cursor-pointer"
               >
                 + Adicionar Contato na Empresa
               </button>
@@ -986,7 +986,7 @@ export default function GestaoClickCompanyModal({
             <div className="p-5 space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Telefone Comercial
                   </label>
                   <input
@@ -998,7 +998,7 @@ export default function GestaoClickCompanyModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Celular / WhatsApp
                   </label>
                   <input
@@ -1010,7 +1010,7 @@ export default function GestaoClickCompanyModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     E-mail Principal (Comercial)
                   </label>
                   <input
@@ -1022,7 +1022,7 @@ export default function GestaoClickCompanyModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     E-mail Financeiro / NF-e / Boletos
                   </label>
                   <input
@@ -1034,7 +1034,7 @@ export default function GestaoClickCompanyModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Site / Domínio Corporativo
                   </label>
                   <input
@@ -1049,7 +1049,7 @@ export default function GestaoClickCompanyModal({
 
               {additionalContacts.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-600 block">
+                  <span className="text-[11px] font-normal text-slate-600 block">
                     Contatos Adicionais da Empresa (Compras, Financeiro, TI / NOC):
                   </span>
                   {additionalContacts.map((ac, idx) => (
@@ -1118,14 +1118,14 @@ export default function GestaoClickCompanyModal({
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
               <Wallet className="w-4 h-4 text-[#1e3a6e]" />
-              <h3 className="text-sm font-bold text-slate-800">
+              <h3 className="text-sm font-semibold text-slate-800">
                 4. Dados Financeiros, Limite de Crédito, Banco Preferencial &amp; Observações Fiscais
               </h3>
             </div>
             <div className="p-5 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Limite de Crédito (R$)
                   </label>
                   <input
@@ -1133,17 +1133,17 @@ export default function GestaoClickCompanyModal({
                     value={creditLimitBrl}
                     onChange={(e) => setCreditLimitBrl(e.target.value)}
                     placeholder="0,00"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-emerald-700"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-emerald-700"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Condição de Pagamento Padrão
                   </label>
                   <select
                     value={defaultPaymentCondition}
                     onChange={(e) => setDefaultPaymentCondition(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="">Selecione...</option>
                     <option value="Boleto 15 DDL">Boleto 15 DDL</option>
@@ -1153,13 +1153,13 @@ export default function GestaoClickCompanyModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Banco / Conta Preferencial
                   </label>
                   <select
                     value={preferredBank}
                     onChange={(e) => setPreferredBank(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="">Selecione...</option>
                     <option value="Banco Inter">Banco Inter (#237906)</option>
@@ -1168,7 +1168,7 @@ export default function GestaoClickCompanyModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Dia Vencimento Locação
                   </label>
                   <input
@@ -1178,11 +1178,11 @@ export default function GestaoClickCompanyModal({
                     value={billingDueDay}
                     onChange={(e) => setBillingDueDay(e.target.value)}
                     placeholder="Ex.: 10"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Regra de Retenção de Impostos
                   </label>
                   <input
@@ -1196,7 +1196,7 @@ export default function GestaoClickCompanyModal({
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Observações Internas &amp; Cláusulas Fiscais do Cliente
                 </label>
                 <textarea
@@ -1221,14 +1221,14 @@ export default function GestaoClickCompanyModal({
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirmStep(true)}
-                      className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold cursor-pointer transition"
+                      className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-normal cursor-pointer transition"
                     >
                       Excluir Cadastro
                     </button>
                   ) : (
                     <div className="flex flex-wrap items-center gap-2 p-2 rounded bg-rose-50 border border-rose-300">
                       <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span className="text-xs font-extrabold text-rose-800">
+                      <span className="text-xs font-normal text-rose-800">
                         Confirma a exclusão definitiva deste cadastro?
                       </span>
                       <button
@@ -1243,14 +1243,14 @@ export default function GestaoClickCompanyModal({
                             setDeleting(false);
                           }
                         }}
-                        className="px-3 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
+                        className="px-3 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-normal cursor-pointer"
                       >
                         {deleting ? 'Excluindo...' : 'Confirmar Exclusão Definitiva'}
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowDeleteConfirmStep(false)}
-                        className="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 text-xs font-bold cursor-pointer"
+                        className="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 text-xs font-normal cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -1264,7 +1264,7 @@ export default function GestaoClickCompanyModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
               </button>
@@ -1272,7 +1272,7 @@ export default function GestaoClickCompanyModal({
                 <button
                   type="button"
                   onClick={() => setIsReadOnly(false)}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   <span>Editar Cadastro</span>
@@ -1288,7 +1288,7 @@ export default function GestaoClickCompanyModal({
                         ? 'Preencha a Razão Social / Nome Completo'
                         : 'Salvar Cadastro'
                   }
-                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {saving
                     ? 'Salvando Cadastro...'

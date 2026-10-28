@@ -30,6 +30,30 @@ import { EnrichedServiceTicket } from '../components/ServiceDeskTab';
 
 const JOURNAL_STORAGE_KEY = 'seta_crm_durable_journal_v3';
 
+const EMOJI_STRIP_REGEX = /[\p{Extended_Pictographic}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{FE0F}]/gu;
+
+export function stripEmojis(text: string): string {
+  return String(text ?? "").replace(EMOJI_STRIP_REGEX, "").replace(/\s{2,}/g, " ").trim();
+}
+
+export function stripEmojisDeep<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(EMOJI_STRIP_REGEX, "") as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => stripEmojisDeep(item)) as unknown as T;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = stripEmojisDeep(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+
 function createEmptyJournal(): Required<ClientDurableJournal> {
   return {
     upsertedContacts: [],
@@ -75,7 +99,7 @@ export function loadDurableJournal(): Required<ClientDurableJournal> {
   try {
     const raw = window.localStorage.getItem(JOURNAL_STORAGE_KEY);
     if (!raw) return createEmptyJournal();
-    const parsed = JSON.parse(raw) as ClientDurableJournal;
+    const parsed = stripEmojisDeep(JSON.parse(raw) as ClientDurableJournal);
     return {
       ...createEmptyJournal(),
       ...parsed,
@@ -88,7 +112,7 @@ export function loadDurableJournal(): Required<ClientDurableJournal> {
 export function saveDurableJournal(journal: ClientDurableJournal): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(journal));
+    window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(stripEmojisDeep(journal)));
   } catch {
     // Ignore storage quota errors
   }

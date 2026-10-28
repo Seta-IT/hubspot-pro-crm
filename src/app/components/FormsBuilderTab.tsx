@@ -389,39 +389,39 @@ export default function FormsBuilderTab({
       {/* TOP KPI STRIP */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">
+          <span className="text-xs font-normal text-slate-500">
             Formulários Ativos (Marketing &amp; Portal)
           </span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">
+          <div className="text-2xl font-normal text-slate-900 mt-1">
             {summary.activeForms} / {summary.totalForms}
           </div>
-          <span className="text-[11px] text-emerald-600 font-semibold">
+          <span className="text-[11px] text-emerald-600 font-normal">
             Conectados ao Enriquecimento &amp; Workflows
           </span>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">Visualizações Totais (Embed)</span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">
+          <span className="text-xs font-normal text-slate-500">Visualizações Totais (Embed)</span>
+          <div className="text-2xl font-normal text-slate-900 mt-1">
             {summary.totalViews.toLocaleString('pt-BR')}
           </div>
           <span className="text-[11px] text-slate-500">Site institucional + Portal do Cliente</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">Leads &amp; Chamados Convertidos</span>
-          <div className="text-2xl font-extrabold text-[#ff7a59] mt-1">
+          <span className="text-xs font-normal text-slate-500">Leads &amp; Chamados Convertidos</span>
+          <div className="text-2xl font-normal text-[#ff7a59] mt-1">
             {summary.totalSubmissions.toLocaleString('pt-BR')}
           </div>
           <span className="text-[11px] text-slate-500">Submissões auditadas na Timeline</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500">Taxa Média de Conversão</span>
-          <div className="text-2xl font-extrabold text-emerald-600 mt-1">
+          <span className="text-xs font-normal text-slate-500">Taxa Média de Conversão</span>
+          <div className="text-2xl font-normal text-emerald-600 mt-1">
             {summary.avgConversionRate}%
           </div>
-          <span className="text-[11px] text-emerald-700 font-semibold">
+          <span className="text-[11px] text-emerald-700 font-normal">
             Acima do benchmark B2B (12%)
           </span>
         </div>
@@ -433,7 +433,7 @@ export default function FormsBuilderTab({
           <button
             type="button"
             onClick={() => setSubTab('PREVIEW_SIMULATOR')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-normal transition ${
               subTab === 'PREVIEW_SIMULATOR'
                 ? 'bg-[#ff7a59] text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -446,7 +446,7 @@ export default function FormsBuilderTab({
           <button
             type="button"
             onClick={() => setSubTab('EMBED_CODE')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-normal transition ${
               subTab === 'EMBED_CODE'
                 ? 'bg-[#ff7a59] text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -459,7 +459,7 @@ export default function FormsBuilderTab({
           <button
             type="button"
             onClick={() => setSubTab('SUBMISSIONS')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-normal transition ${
               subTab === 'SUBMISSIONS'
                 ? 'bg-[#ff7a59] text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -472,7 +472,7 @@ export default function FormsBuilderTab({
           <button
             type="button"
             onClick={() => setSubTab('HUBSPOT_MIGRATION')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-normal transition ${
               subTab === 'HUBSPOT_MIGRATION'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'
@@ -486,7 +486,7 @@ export default function FormsBuilderTab({
         <button
           type="button"
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-normal shadow-sm transition"
         >
           <Plus className="w-4 h-4 text-[#ff7a59]" />
           Criar Novo Formulário
@@ -498,11 +498,11 @@ export default function FormsBuilderTab({
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
             <div>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-normal bg-indigo-50 text-indigo-700 border border-indigo-200">
                 <UploadCloud className="w-3.5 h-3.5" />
                 HubSpot API v3 &amp; Ponte Bidirecional GestãoClick ERP (#118887)
               </span>
-              <h2 className="text-lg font-extrabold text-slate-900 mt-2">
+              <h2 className="text-lg font-semibold text-slate-900 mt-2">
                 Assistente de Migração &amp; Sincronização HubSpot - STI-hub - GestãoClick
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
@@ -516,7 +516,7 @@ export default function FormsBuilderTab({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-normal text-slate-700 mb-1">
                   HubSpot Private App Token (ou Simulação de Payload Oficial v3)
                 </label>
                 <input
@@ -527,7 +527,7 @@ export default function FormsBuilderTab({
                 />
               </div>
 
-              <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+              <label className="flex items-center gap-2.5 text-xs font-normal text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={hsAutoClean}
@@ -541,7 +541,7 @@ export default function FormsBuilderTab({
                 type="button"
                 disabled={migratingHs}
                 onClick={handleRunMigration}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 ${migratingHs ? 'animate-spin' : ''}`} />
                 {migratingHs
@@ -551,10 +551,10 @@ export default function FormsBuilderTab({
 
               {/* Matriz de Mapeamento Triplo */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <div className="font-extrabold text-slate-800 uppercase tracking-wider text-[11px]">
+                <div className="font-normal text-slate-800 uppercase tracking-wider text-[11px]">
                   Matriz de Sincronização (HubSpot v3 - STI-hub - GestãoClick ERP)
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 border-b border-slate-200 pb-1">
+                <div className="grid grid-cols-3 gap-2 text-[11px] font-normal text-slate-600 border-b border-slate-200 pb-1">
                   <span>HubSpot CRM</span>
                   <span>STI-hub (Local/PG)</span>
                   <span>GestãoClick ERP</span>
@@ -583,35 +583,35 @@ export default function FormsBuilderTab({
             </div>
 
             <div className="bg-slate-900 text-slate-200 rounded-2xl p-5 space-y-3 border border-slate-800">
-              <div className="text-xs font-bold text-[#ff987f] uppercase tracking-wider">
+              <div className="text-xs font-normal text-[#ff987f] uppercase tracking-wider">
                 O que este lote sincroniza (Preview HubSpot CRM v3)
               </div>
               <ul className="text-xs space-y-2 text-slate-300">
                 <li>
-                  • <strong>Empresas Enterprise:</strong> iFood (`ifood.com.br`) e WEG (`weg.net`) com CNPJ e receita validados.
+                  • <span>Empresas Enterprise:</span> iFood (`ifood.com.br`) e WEG (`weg.net`) com CNPJ e receita validados.
                 </li>
                 <li>
-                  • <strong>Contatos Executivos:</strong> Diego Barreto (VP iFood) e Helena Zimmermann (Diretora Global TI WEG).
+                  • <span>Contatos Executivos:</span> Diego Barreto (VP iFood) e Helena Zimmermann (Diretora Global TI WEG).
                 </li>
                 <li>
-                  • <strong>Negócios no Funil Kanban:</strong> R$ 420.000 (iFood) + R$ 390.000 (WEG).
+                  • <span>Negócios no Funil Kanban:</span> R$ 420.000 (iFood) + R$ 390.000 (WEG).
                 </li>
                 <li>
-                  • <strong>Chamado no Service Desk:</strong> Ticket de migração de Webhooks com SLA ativo.
+                  • <span>Chamado no Service Desk:</span> Ticket de migração de Webhooks com SLA ativo.
                 </li>
               </ul>
 
               {migrationReport && (
                 <div className="mt-4 p-4 rounded-xl bg-emerald-950/80 border border-emerald-700/60 text-emerald-200 space-y-1.5">
-                  <div className="flex items-center gap-2 font-extrabold text-xs text-emerald-300">
+                  <div className="flex items-center gap-2 font-normal text-xs text-emerald-300">
                     <CheckCircle2 className="w-4 h-4" />
                     Migração Concluída ({migrationReport.source})
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                    <div>Empresas importadas: <strong>{migrationReport.companiesImported}</strong></div>
-                    <div>Contatos importados: <strong>{migrationReport.contactsImported}</strong></div>
-                    <div>Deals adicionados: <strong>{migrationReport.dealsImported}</strong></div>
-                    <div>Tickets JSM criados: <strong>{migrationReport.ticketsImported}</strong></div>
+                    <div>Empresas importadas: <span>{migrationReport.companiesImported}</span></div>
+                    <div>Contatos importados: <span>{migrationReport.contactsImported}</span></div>
+                    <div>Deals adicionados: <span>{migrationReport.dealsImported}</span></div>
+                    <div>Tickets JSM criados: <span>{migrationReport.ticketsImported}</span></div>
                   </div>
                 </div>
               )}
@@ -622,7 +622,7 @@ export default function FormsBuilderTab({
           <div className="pt-5 border-t border-slate-200 space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-extrabold text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
                   Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — GestãoClick #118887 - HubSpot v3
                 </h3>
                 <p className="text-xs text-slate-600">
@@ -644,7 +644,7 @@ export default function FormsBuilderTab({
                     key={m.id}
                     type="button"
                     onClick={() => setSelectedSchemaModulo(m.id)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-normal transition cursor-pointer ${
                       selectedSchemaModulo === m.id
                         ? 'bg-[#1e3a6e] text-white'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -674,14 +674,14 @@ export default function FormsBuilderTab({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs font-extrabold text-[#1e3a6e]">
+                        <span className="font-mono text-xs font-normal text-[#1e3a6e]">
                           {s.caminho}
                         </span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-normal">
                           {s.totalRegistrosLoja118887.toLocaleString('pt-BR')} reg.
                         </span>
                       </div>
-                      <div className="text-xs font-bold text-slate-800 mt-1">
+                      <div className="text-xs font-normal text-slate-800 mt-1">
                         {s.menuGroup} → {s.menuSubItem}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5 flex items-center justify-between">
@@ -703,20 +703,20 @@ export default function FormsBuilderTab({
                     <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                         <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff987f]">
+                          <span className="text-[10px] font-normal uppercase tracking-wider text-[#ff987f]">
                             Menu: {activeSchema.menuGroup} • {activeSchema.menuSubItem}
                           </span>
-                          <h4 className="text-sm font-extrabold text-white font-mono mt-0.5">
+                          <h4 className="text-sm font-semibold text-white font-mono mt-0.5">
                             {activeSchema.caminho} ({activeSchema.totalRegistrosLoja118887.toLocaleString('pt-BR')} registros na Loja #118887)
                           </h4>
                         </div>
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-300 font-mono text-[11px] font-bold">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-300 font-mono text-[11px] font-normal">
                           Ações: {activeSchema.acoes.join(', ')}
                         </span>
                       </div>
 
                       <div>
-                        <div className="text-[11px] font-bold text-slate-400 uppercase mb-1.5">
+                        <div className="text-[11px] font-normal text-slate-400 uppercase mb-1.5">
                           Todos os Campos Raiz ({activeSchema.fields.length} campos):
                         </div>
                         <div className="flex flex-wrap gap-1.5">
@@ -733,7 +733,7 @@ export default function FormsBuilderTab({
 
                       {activeSchema.nestedStructures && (
                         <div className="space-y-1.5 pt-1">
-                          <div className="text-[11px] font-bold text-slate-400 uppercase">
+                          <div className="text-[11px] font-normal text-slate-400 uppercase">
                             Sub-tabelas / Objetos Aninhados:
                           </div>
                           {Object.entries(activeSchema.nestedStructures).map(([nestedKey, nestedFields]) => (
@@ -741,7 +741,7 @@ export default function FormsBuilderTab({
                               key={nestedKey}
                               className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1"
                             >
-                              <div className="font-mono font-bold text-amber-300 text-[11px]">
+                              <div className="font-mono font-normal text-amber-300 text-[11px]">
                                 {nestedKey}
                               </div>
                               <div className="text-[11px] text-slate-300 font-mono">
@@ -755,15 +755,15 @@ export default function FormsBuilderTab({
                       <div className="pt-2 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                         <div className="p-2.5 rounded-xl bg-slate-800/70">
                           <span className="text-slate-400 block">Destino no STI-hub:</span>
-                          <strong className="text-white font-mono">
+                          <span className="text-white font-mono">
                             {activeSchema.stiHubTarget.collection} ({activeSchema.stiHubTarget.primaryKey})
-                          </strong>
+                          </span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-slate-800/70">
                           <span className="text-slate-400 block">Espelhamento HubSpot CRM v3:</span>
-                          <strong className="text-indigo-300 font-mono">
+                          <span className="text-indigo-300 font-mono">
                             {activeSchema.hubspotMapping?.object || 'ERP Nativo STI-hub'}
-                          </strong>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -777,7 +777,7 @@ export default function FormsBuilderTab({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* LEFT COLUMN: LIST OF FORMS */}
           <div className="lg:col-span-5 space-y-3">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 px-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
               Formulários Configurados ({forms.length})
             </h3>
             {forms.map((form) => {
@@ -798,7 +798,7 @@ export default function FormsBuilderTab({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-normal ${
                           form.targetType === 'SUPPORT_TICKET'
                             ? 'bg-purple-100 text-purple-800'
                             : form.targetType === 'DEMO_REQUEST'
@@ -812,9 +812,9 @@ export default function FormsBuilderTab({
                             ? 'Fundo de Funil (Cria SQL + Deal)'
                             : 'Captura Inbound (Cria MQL)'}
                       </span>
-                      <h4 className="text-sm font-extrabold text-slate-900 mt-1">{form.name}</h4>
+                      <h4 className="text-sm font-semibold text-slate-900 mt-1">{form.name}</h4>
                     </div>
-                    <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-extrabold">
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-normal">
                       {form.conversionRate}% conv.
                     </span>
                   </div>
@@ -826,7 +826,7 @@ export default function FormsBuilderTab({
                       <span>Estágio:</span>
                       {getLifecycleBadge(form.lifecycleStageOnSubmit)}
                     </div>
-                    <div className="font-semibold text-slate-700">
+                    <div className="font-normal text-slate-700">
                       {form.submissionsCount} submissões / {form.viewsCount} views
                     </div>
                   </div>
@@ -841,10 +841,10 @@ export default function FormsBuilderTab({
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
                   <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#ff7a59]">
+                    <span className="text-[11px] font-normal uppercase tracking-wider text-[#ff7a59]">
                       Simulador Interativo Conectado à API Real
                     </span>
-                    <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+                    <h3 className="text-base font-semibold text-slate-900 mt-0.5">
                       {selectedForm.title}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
@@ -856,7 +856,7 @@ export default function FormsBuilderTab({
 
                 {/* Quick Persona Presets */}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-500 mr-1">
+                  <span className="text-[11px] font-normal text-slate-500 mr-1">
                     Preencher Cenário:
                   </span>
                   {SIMULATOR_PRESETS.map((preset) => (
@@ -864,7 +864,7 @@ export default function FormsBuilderTab({
                       key={preset.label}
                       type="button"
                       onClick={() => setSimValues(preset.values)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-[#e05835] text-[11px] font-semibold text-slate-700 border border-slate-200 transition cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-[#e05835] text-[11px] font-normal text-slate-700 border border-slate-200 transition cursor-pointer"
                     >
                       {preset.label}
                     </button>
@@ -878,7 +878,7 @@ export default function FormsBuilderTab({
                         key={field.name}
                         className={field.type === 'TEXTAREA' ? 'sm:col-span-2' : ''}
                       >
-                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                        <label className="block text-xs font-normal text-slate-700 mb-1">
                           {field.label}{' '}
                           {field.required && <span className="text-rose-500">*</span>}
                         </label>
@@ -926,7 +926,7 @@ export default function FormsBuilderTab({
                   {/* Rastreamento UTM & Consentimento LGPD (Opt-in Auditado) */}
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
+                      <span className="text-[11px] font-normal uppercase tracking-wider text-[#1e3a6e]">
                         Rastreamento de Atribuição UTM &amp; Conformidade LGPD (Lei nº 13.709/2018)
                       </span>
                       <span className="text-[10px] font-mono text-slate-500">
@@ -935,7 +935,7 @@ export default function FormsBuilderTab({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        <label className="block text-[10px] font-normal text-slate-600 mb-0.5">
                           utm_source
                         </label>
                         <input
@@ -949,7 +949,7 @@ export default function FormsBuilderTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        <label className="block text-[10px] font-normal text-slate-600 mb-0.5">
                           utm_medium
                         </label>
                         <input
@@ -963,7 +963,7 @@ export default function FormsBuilderTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                        <label className="block text-[10px] font-normal text-slate-600 mb-0.5">
                           utm_campaign
                         </label>
                         <input
@@ -990,26 +990,26 @@ export default function FormsBuilderTab({
                         className="mt-0.5 rounded border-slate-300 text-[#ff7a59]"
                       />
                       <span>
-                        <strong>Consentimento LGPD (Opt-in):</strong> Autorizo o tratamento dos meus dados corporativos pela Seta Telecom LTDA para contato comercial e envio de conteúdos técnicos, com direito de gerenciar preferências ou descadastrar a qualquer momento.
+                        <span>Consentimento LGPD (Opt-in):</span> Autorizo o tratamento dos meus dados corporativos pela Seta Telecom LTDA para contato comercial e envio de conteúdos técnicos, com direito de gerenciar preferências ou descadastrar a qualquer momento.
                       </span>
                     </label>
                   </div>
 
                   <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-normal">
                         <Sparkles className="w-3.5 h-3.5 text-[#ff7a59]" />
                         Auto-Enriquecimento + Workflows Ativos
                       </span>
                       {selectedForm.autoCreateDeal && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-semibold">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-normal">
                           <Briefcase className="w-3.5 h-3.5" />
                           Cria Negócio no Kanban
                         </span>
                       )}
                       {(selectedForm.autoCreateTicket ||
                         selectedForm.targetType === 'SUPPORT_TICKET') && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-semibold">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-normal">
                           <Ticket className="w-3.5 h-3.5" />
                           Abre Chamado JSM com SLA
                         </span>
@@ -1019,7 +1019,7 @@ export default function FormsBuilderTab({
                     <button
                       type="submit"
                       disabled={submittingSim}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-sm transition disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
                     >
                       <Send className="w-3.5 h-3.5" />
                       {submittingSim ? 'Processando Submissão...' : selectedForm.submitButtonText}
@@ -1029,25 +1029,25 @@ export default function FormsBuilderTab({
 
                 {lastSimResult && (
                   <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-800">
+                    <div className="flex items-center gap-2 text-xs font-normal text-emerald-800">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                       Submissão persistida, Lead Score calculado e Workflows disparados!
                     </div>
                     <div className="text-xs text-emerald-900 space-y-1">
                       <div>
                         • Contato criado/atualizado e enriquecido:{' '}
-                        <strong>{lastSimResult.contactName}</strong>
+                        <span>{lastSimResult.contactName}</span>
                       </div>
                       {lastSimResult.dealTitle && (
                         <div className="flex items-center justify-between">
                           <span>
-                            • Oportunidade comercial aberta: <strong>{lastSimResult.dealTitle}</strong>
+                            • Oportunidade comercial aberta: <span>{lastSimResult.dealTitle}</span>
                           </span>
                           {onNavigateToDeals && (
                             <button
                               type="button"
                               onClick={onNavigateToDeals}
-                              className="inline-flex items-center gap-1 text-[#e05835] font-bold hover:underline"
+                              className="inline-flex items-center gap-1 text-[#e05835] font-normal hover:underline"
                             >
                               Ver no Kanban <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
@@ -1058,15 +1058,15 @@ export default function FormsBuilderTab({
                         <div className="flex items-center justify-between">
                           <span>
                             • Chamado Técnico criado no Service Desk:{' '}
-                            <strong className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
+                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
                               {lastSimResult.ticketKey}
-                            </strong>
+                            </span>
                           </span>
                           {onNavigateToServiceDesk && (
                             <button
                               type="button"
                               onClick={onNavigateToServiceDesk}
-                              className="inline-flex items-center gap-1 text-purple-700 font-bold hover:underline"
+                              className="inline-flex items-center gap-1 text-purple-700 font-normal hover:underline"
                             >
                               Abrir no Service Desk <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
@@ -1083,7 +1083,7 @@ export default function FormsBuilderTab({
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-900">
+                    <h3 className="text-base font-semibold text-slate-900">
                       Snippet de Incorporação Web (&lt;script&gt;)
                     </h3>
                     <p className="text-xs text-slate-500">
@@ -1094,7 +1094,7 @@ export default function FormsBuilderTab({
                   <button
                     type="button"
                     onClick={handleCopyEmbed}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-normal transition"
                   >
                     <Copy className="w-3.5 h-3.5 text-[#ff7a59]" />
                     {copiedEmbed ? 'Código Copiado!' : 'Copiar Snippet'}
@@ -1108,11 +1108,11 @@ export default function FormsBuilderTab({
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
                   <span>
                     Endpoint REST Direto:{' '}
-                    <code className="font-mono font-bold text-slate-800">
+                    <code className="font-mono font-normal text-slate-800">
                       POST /api/forms/submit
                     </code>
                   </span>
-                  <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                  <span className="inline-flex items-center gap-1 text-emerald-700 font-normal">
                     CORS Habilitado <ExternalLink className="w-3.5 h-3.5" />
                   </span>
                 </div>
@@ -1122,7 +1122,7 @@ export default function FormsBuilderTab({
             {subTab === 'SUBMISSIONS' && (
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-base font-extrabold text-slate-900">
+                  <h3 className="text-base font-semibold text-slate-900">
                     Histórico de Conversões de Formulários ({filteredSubmissions.length})
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1131,7 +1131,7 @@ export default function FormsBuilderTab({
                       <select
                         value={submissionFilterFormId}
                         onChange={(e) => setSubmissionFilterFormId(e.target.value)}
-                        className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+                        className="bg-transparent font-normal text-slate-800 focus:outline-none"
                       >
                         <option value="ALL">Todos os Formulários ({submissions.length})</option>
                         {forms.map((f) => (
@@ -1144,7 +1144,7 @@ export default function FormsBuilderTab({
                     <button
                       type="button"
                       onClick={handleExportSubmissionsCsv}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-normal transition cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5 text-[#ff7a59]" />
                       Exportar CSV
@@ -1159,12 +1159,12 @@ export default function FormsBuilderTab({
                       className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                     >
                       <div>
-                        <div className="font-extrabold text-slate-900">{sub.formName}</div>
+                        <div className="font-normal text-slate-900">{sub.formName}</div>
                         <div className="text-slate-600 mt-0.5">
                           Lead:{' '}
-                          <strong>
+                          <span>
                             {sub.values.firstName} {sub.values.lastName}
-                          </strong>{' '}
+                          </span>{' '}
                           ({sub.values.email})
                           {sub.values.companyName ? ` • ${sub.values.companyName}` : ''}
                         </div>
@@ -1175,22 +1175,22 @@ export default function FormsBuilderTab({
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-1.5 mt-1">
                           {sub.utmCampaign && (
-                            <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] font-mono font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] font-mono font-normal text-[10px]">
                               UTM: {sub.utmCampaign}
                             </span>
                           )}
                           {sub.lgpdConsent !== false && (
-                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-normal text-[10px]">
                               LGPD Opt-in
                             </span>
                           )}
                           {sub.dealId && (
-                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-normal text-[10px]">
                               Deal Criado
                             </span>
                           )}
                           {sub.ticketId && (
-                            <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-normal text-[10px]">
                               Ticket JSM Criado
                             </span>
                           )}
@@ -1209,13 +1209,13 @@ export default function FormsBuilderTab({
       {showCreateModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 my-8">
-            <h3 className="text-base font-extrabold text-slate-900">
+            <h3 className="text-base font-semibold text-slate-900">
               Novo Formulário Inteligente (Construtor Dinâmico de Campos)
             </h3>
             <form onSubmit={handleCreateNewForm} className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Nome Interno do Formulário *
                   </label>
                   <input
@@ -1229,7 +1229,7 @@ export default function FormsBuilderTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Título Público no Site
                   </label>
                   <input
@@ -1244,7 +1244,7 @@ export default function FormsBuilderTab({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Objetivo do Formulário
                   </label>
                   <select
@@ -1259,7 +1259,7 @@ export default function FormsBuilderTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Estágio ao Converter
                   </label>
                   <select
@@ -1279,7 +1279,7 @@ export default function FormsBuilderTab({
               {/* Dynamic Fields Editor */}
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold text-slate-800">
+                  <span className="text-xs font-normal text-slate-800">
                     Campos do Formulário ({customFields.length})
                   </span>
                   <span className="text-[10px] text-slate-500">
@@ -1294,12 +1294,12 @@ export default function FormsBuilderTab({
                       className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800">{f.label}</span>
+                        <span className="font-normal text-slate-800">{f.label}</span>
                         <code className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                           {f.name} ({f.type})
                         </code>
                         {f.required && (
-                          <span className="text-[10px] font-bold text-rose-600">Obrigatório</span>
+                          <span className="text-[10px] font-normal text-rose-600">Obrigatório</span>
                         )}
                       </div>
                       <button
@@ -1335,7 +1335,7 @@ export default function FormsBuilderTab({
                     <option value="SELECT">Seleção</option>
                     <option value="TEXTAREA">Texto Longo</option>
                   </select>
-                  <label className="sm:col-span-2 flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                  <label className="sm:col-span-2 flex items-center gap-1 text-[11px] font-normal text-slate-700">
                     <input
                       type="checkbox"
                       checked={draftFieldReq}
@@ -1346,7 +1346,7 @@ export default function FormsBuilderTab({
                   <button
                     type="button"
                     onClick={handleAddCustomField}
-                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                    className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-normal hover:bg-slate-800"
                   >
                     + Campo
                   </button>
@@ -1354,7 +1354,7 @@ export default function FormsBuilderTab({
               </div>
 
               <div className="space-y-2 pt-1">
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <label className="flex items-center gap-2 text-xs font-normal text-slate-700">
                   <input
                     type="checkbox"
                     checked={newAutoDeal}
@@ -1362,7 +1362,7 @@ export default function FormsBuilderTab({
                   />
                   Criar negócio automaticamente no Funil Kanban ao converter
                 </label>
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <label className="flex items-center gap-2 text-xs font-normal text-slate-700">
                   <input
                     type="checkbox"
                     checked={newAutoTicket || newTargetType === 'SUPPORT_TICKET'}
@@ -1376,13 +1376,13 @@ export default function FormsBuilderTab({
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600"
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-normal text-slate-600"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#ff7a59] text-white text-xs font-bold"
+                  className="px-4 py-2 rounded-xl bg-[#ff7a59] text-white text-xs font-normal"
                 >
                   Publicar Formulário
                 </button>

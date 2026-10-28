@@ -270,16 +270,16 @@ function CustomerPortalContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="bg-white rounded-lg px-3 py-1.5 flex items-center gap-1.5 shadow-xs">
-              <span className="text-lg font-black tracking-tight text-[#0d2b4e]">SETA</span>
+              <span className="text-lg font-normal tracking-tight text-[#0d2b4e]">SETA</span>
               <span className="w-[2px] h-4 bg-[#f26522] inline-block" />
-              <span className="text-lg font-black tracking-tight text-[#f26522]">IT</span>
+              <span className="text-lg font-normal tracking-tight text-[#f26522]">IT</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold tracking-tight">
+                <h1 className="text-base font-semibold tracking-tight">
                   Portal do Cliente &amp; Central NOC 24x7
                 </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-normal bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
                   SLA Garantido em Contrato
                 </span>
               </div>
@@ -292,7 +292,7 @@ function CustomerPortalContent() {
           <div className="flex items-center gap-2">
             <a
               href="/"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/15 transition"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-normal border border-white/15 transition"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Voltar ao Console CRM / NOC
@@ -309,7 +309,7 @@ function CustomerPortalContent() {
             <button
               type="button"
               onClick={() => setActiveTab('TRACK')}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition cursor-pointer ${
                 activeTab === 'TRACK'
                   ? 'bg-[#0d2b4e] text-white shadow-sm'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -322,7 +322,7 @@ function CustomerPortalContent() {
             <button
               type="button"
               onClick={() => setActiveTab('NEW_TICKET')}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition cursor-pointer ${
                 activeTab === 'NEW_TICKET'
                   ? 'bg-[#ff7a59] text-white shadow-sm'
                   : 'bg-orange-50 text-[#e05835] hover:bg-orange-100 border border-orange-200'
@@ -334,7 +334,7 @@ function CustomerPortalContent() {
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-500">
-            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+            <span className="inline-flex items-center gap-1 font-normal text-emerald-700">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
               Ambiente Seguro • Notas internas ocultas
             </span>
@@ -361,7 +361,7 @@ function CustomerPortalContent() {
                 </div>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-extrabold transition cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-normal transition cursor-pointer"
                 >
                   Consultar Protocolo
                 </button>
@@ -372,7 +372,7 @@ function CustomerPortalContent() {
                       setSearchInput('');
                       loadPortalTickets();
                     }}
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-normal text-slate-600 hover:bg-slate-100 cursor-pointer"
                   >
                     Limpar Filtro
                   </button>
@@ -389,7 +389,7 @@ function CustomerPortalContent() {
 
               {/* Quick 1-click protocol selector */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <span className="text-[11px] font-normal uppercase tracking-wider text-slate-400">
                   Acesso Rápido aos Protocolos Ativos:
                 </span>
                 {tickets.map((t) => {
@@ -399,7 +399,7 @@ function CustomerPortalContent() {
                       key={t.id}
                       type="button"
                       onClick={() => setSelectedKey(t.key)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-extrabold border transition cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-normal border transition cursor-pointer ${
                         isSel
                           ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'
@@ -420,7 +420,7 @@ function CustomerPortalContent() {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* LEFT COLUMN: LIST OF PROTOCOLS */}
                 <div className="lg:col-span-4 space-y-3">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 px-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
                     Protocolos Encontrados ({tickets.length})
                   </h3>
                   {tickets.map((t) => {
@@ -436,11 +436,11 @@ function CustomerPortalContent() {
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded">
+                          <span className="font-mono text-xs font-normal text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded">
                             {t.key}
                           </span>
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-normal ${
                               t.slaStatus === 'BREACHED'
                                 ? 'bg-rose-100 text-rose-700'
                                 : t.slaStatus === 'AT_RISK'
@@ -456,13 +456,13 @@ function CustomerPortalContent() {
                           </span>
                         </div>
 
-                        <h4 className="text-xs font-extrabold text-slate-900 leading-snug">
+                        <h4 className="text-xs font-semibold text-slate-900 leading-snug">
                           {t.subject}
                         </h4>
 
                         <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
                           <span>{t.company?.name || 'Cliente Seta Telecom'}</span>
-                          <span className="font-bold text-slate-700">{t.status}</span>
+                          <span className="font-normal text-slate-700">{t.status}</span>
                         </div>
                       </div>
                     );
@@ -476,16 +476,16 @@ function CustomerPortalContent() {
                     <div className="p-6 bg-[#0d2b4e] text-white space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
-                          <span className="px-3 py-1 rounded-lg bg-[#f26522] text-white font-mono text-sm font-black">
+                          <span className="px-3 py-1 rounded-lg bg-[#f26522] text-white font-mono text-sm font-normal">
                             Protocolo {activeTicket.key}
                           </span>
-                          <span className="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-bold">
+                          <span className="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-normal">
                             Prioridade {activeTicket.priority}
                           </span>
                         </div>
 
                         <div
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold ${
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-normal ${
                             activeTicket.slaStatus === 'BREACHED'
                               ? 'bg-rose-500/20 text-rose-200 border border-rose-400/40'
                               : activeTicket.slaStatus === 'AT_RISK'
@@ -508,7 +508,7 @@ function CustomerPortalContent() {
                         </div>
                       </div>
 
-                      <h2 className="text-lg font-extrabold leading-snug">{activeTicket.subject}</h2>
+                      <h2 className="text-lg font-semibold leading-snug">{activeTicket.subject}</h2>
 
                       <p className="text-xs text-slate-200 leading-relaxed">
                         {activeTicket.description}
@@ -517,32 +517,32 @@ function CustomerPortalContent() {
                       {/* Metadata chips */}
                       <div className="pt-3 border-t border-white/15 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-bold">
+                          <span className="text-[10px] uppercase text-slate-400 block font-normal">
                             Fila Especialista NOC
                           </span>
-                          <strong className="text-white">{activeTicket.assignee}</strong>
+                          <span className="text-white">{activeTicket.assignee}</span>
                         </div>
 
                         <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-bold">
+                          <span className="text-[10px] uppercase text-slate-400 block font-normal">
                             Equipamento / Circuito
                           </span>
-                          <strong className="font-mono text-emerald-300">
+                          <span className="font-mono text-emerald-300">
                             {activeTicket.equipmentSerial || 'N/A — Serviço Geral'}
-                          </strong>
+                          </span>
                         </div>
 
                         <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-bold">
+                          <span className="text-[10px] uppercase text-slate-400 block font-normal">
                             Contrato / Ordem de Serviço
                           </span>
-                          <strong className="text-amber-300">
+                          <span className="text-amber-300">
                             {activeTicket.serviceOrder
                               ? `O.S. #${activeTicket.serviceOrder.code} (${activeTicket.serviceOrder.status})`
                               : activeTicket.contract
                                 ? activeTicket.contract.contractNumber
                                 : 'Atendimento Avulso / SLA'}
-                          </strong>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -562,7 +562,7 @@ function CustomerPortalContent() {
                                   : 'bg-white border-slate-200 text-slate-400'
                               }`}
                             >
-                              <div className="font-extrabold flex items-center justify-between">
+                              <div className="font-normal flex items-center justify-between">
                                 <span>{step.label}</span>
                                 {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
                               </div>
@@ -578,7 +578,7 @@ function CustomerPortalContent() {
                       <div className="p-5 bg-amber-50/70 border-b border-amber-200 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                            <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
                               <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
                               Avalie o Atendimento do NOC Seta Telecom (Pesquisa CSAT)
                             </h4>
@@ -587,7 +587,7 @@ function CustomerPortalContent() {
                             </p>
                           </div>
                           {activeTicket.csatScore && (
-                            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold">
+                            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-normal">
                               Nota Registrada: {activeTicket.csatScore} / 5
                             </span>
                           )}
@@ -600,7 +600,7 @@ function CustomerPortalContent() {
                               type="button"
                               disabled={submittingCsat}
                               onClick={() => handleSubmitCsat(star)}
-                              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-normal border transition cursor-pointer ${
                                 (activeTicket.csatScore || csatRating) >= star
                                   ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs'
                                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
@@ -619,7 +619,7 @@ function CustomerPortalContent() {
                         </div>
 
                         {csatSubmittedNotice && (
-                          <div className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                          <div className="text-xs font-normal text-emerald-700 flex items-center gap-1">
                             <CheckCircle2 className="w-4 h-4" /> Obrigado! Sua avaliação CSAT foi gravada com sucesso.
                           </div>
                         )}
@@ -629,7 +629,7 @@ function CustomerPortalContent() {
                     {/* PUBLIC CONVERSATION HISTORY */}
                     <div className="p-6 space-y-4">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                           <MessageSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
                           Histórico de Interações Públicas ({activeTicket.comments.length})
                         </h3>
@@ -649,10 +649,10 @@ function CustomerPortalContent() {
                             }`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-extrabold flex items-center gap-2">
+                              <span className="font-normal flex items-center gap-2">
                                 {c.author}
                                 <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  className={`px-2 py-0.5 rounded text-[10px] font-normal ${
                                     c.authorRole === 'CUSTOMER'
                                       ? 'bg-slate-200 text-slate-700'
                                       : 'bg-[#0d2b4e] text-white'
@@ -699,7 +699,7 @@ function CustomerPortalContent() {
                           <button
                             type="submit"
                             disabled={sendingReply || !replyText.trim()}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-sm transition disabled:opacity-40 cursor-pointer"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-normal shadow-sm transition disabled:opacity-40 cursor-pointer"
                           >
                             <Send className="w-3.5 h-3.5" />
                             {sendingReply ? 'Enviando...' : 'Enviar Mensagem ao NOC'}
@@ -720,10 +720,10 @@ function CustomerPortalContent() {
           /* TAB 2: OPEN NEW SUPPORT TICKET OR RMA */
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm max-w-3xl mx-auto space-y-5">
             <div className="border-b border-slate-100 pb-4">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#ff7a59]">
+              <span className="text-[11px] font-normal uppercase tracking-wider text-[#ff7a59]">
                 Abertura Direta com SLA Contratual
               </span>
-              <h2 className="text-lg font-extrabold text-slate-900 mt-0.5">
+              <h2 className="text-lg font-semibold text-slate-900 mt-0.5">
                 Abrir Novo Chamado Técnico no NOC ou Solicitar RMA de Locação
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -734,7 +734,7 @@ function CustomerPortalContent() {
             {createdProtocol && (
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold text-emerald-900 flex items-center gap-1.5">
+                  <span className="text-xs font-normal text-emerald-900 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     Protocolo {createdProtocol.key} registrado com sucesso!
                   </span>
@@ -744,14 +744,14 @@ function CustomerPortalContent() {
                       setSelectedKey(createdProtocol.key);
                       setActiveTab('TRACK');
                     }}
-                    className="px-3 py-1 rounded-lg bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                    className="px-3 py-1 rounded-lg bg-emerald-700 text-white text-xs font-normal cursor-pointer"
                   >
                     Acompanhar Protocolo Agora →
                   </button>
                 </div>
                 <p className="text-xs text-emerald-800">
-                  Fila designada: <strong>{createdProtocol.assignee}</strong> • Meta de Resolução SLA:{' '}
-                  <strong>{formatDateTimeBR(createdProtocol.slaResolutionDueAt)}</strong>
+                  Fila designada: <span>{createdProtocol.assignee}</span> • Meta de Resolução SLA:{' '}
+                  <span>{formatDateTimeBR(createdProtocol.slaResolutionDueAt)}</span>
                 </p>
               </div>
             )}
@@ -759,7 +759,7 @@ function CustomerPortalContent() {
             <form onSubmit={handleCreatePortalTicket} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Seu Nome Completo *
                   </label>
                   <input
@@ -773,7 +773,7 @@ function CustomerPortalContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     E-mail Corporativo *
                   </label>
                   <input
@@ -789,7 +789,7 @@ function CustomerPortalContent() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Empresa / Razão Social
                   </label>
                   <input
@@ -802,7 +802,7 @@ function CustomerPortalContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Telefone / WhatsApp de Contato
                   </label>
                   <input
@@ -817,7 +817,7 @@ function CustomerPortalContent() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Tipo de Solicitação
                   </label>
                   <select
@@ -834,7 +834,7 @@ function CustomerPortalContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Impacto / Severidade (SLA)
                   </label>
                   <select
@@ -850,7 +850,7 @@ function CustomerPortalContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-normal text-slate-700 mb-1">
                     Serial Number / Circuito (Opcional)
                   </label>
                   <input
@@ -864,7 +864,7 @@ function CustomerPortalContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-normal text-slate-700 mb-1">
                   Assunto Resumido *
                 </label>
                 <input
@@ -878,7 +878,7 @@ function CustomerPortalContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-normal text-slate-700 mb-1">
                   Descrição Técnica / Sintomas Observados *
                 </label>
                 <textarea
@@ -895,7 +895,7 @@ function CustomerPortalContent() {
                 <button
                   type="submit"
                   disabled={creatingTicket}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-sm transition cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-normal shadow-sm transition cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-4 h-4" />
                   {creatingTicket ? 'Gerando Protocolo...' : 'Registrar Chamado com SLA Garantido'}
@@ -913,7 +913,7 @@ export default function CustomerPortalPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#f5f8fa] flex items-center justify-center text-xs font-bold text-slate-500">
+        <div className="min-h-screen bg-[#f5f8fa] flex items-center justify-center text-xs font-normal text-slate-500">
           Carregando Portal do Cliente Seta Telecom...
         </div>
       }

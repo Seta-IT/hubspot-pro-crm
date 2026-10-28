@@ -206,6 +206,147 @@ export function buildDefaultCrmPermissionsForRole(
   }
 }
 
+export function buildFullControlForModule(
+  mod: StiHubMacroModule,
+  current?: Partial<StiHubUserRecord>
+): Partial<StiHubUserRecord> {
+  const existingMods = Array.isArray(current?.enabledModules) ? current!.enabledModules! : [];
+  const nextMods = Array.from(new Set<StiHubMacroModule>([...existingMods, mod]));
+  const moduleAccess: StiHubUserModuleAccess = {
+    crm: nextMods.includes("CRM"),
+    erp: nextMods.includes("ERP"),
+    chamados: nextMods.includes("CHAMADOS"),
+  };
+
+  const prevCrmPerms: StiHubCrmPermissions = current?.crmPermissions || buildDefaultCrmPermissionsForRole((current?.roleId as StiHubRoleId) || "VENDEDOR_SALES", current?.scope);
+  const prevErpPerms: StiHubErpPermissions = current?.erpPermissions || buildDefaultErpPermissionsForRole((current?.roleId as StiHubRoleId) || "VENDEDOR_SALES");
+  const prevCrmItems = { ...(current?.crmItemPermissions || buildDefaultCrmItemPermissions((current?.crmRole as CrmAccountRole) || "CRM_SALES_REP")) };
+  const prevErpItems = { ...(current?.erpItemPermissions || buildDefaultErpItemPermissions((current?.erpRole as ErpAccountRole) || "ERP_COMMERCIAL")) };
+
+  if (mod === "CRM") {
+    for (const item of CRM_MODULE_ITEMS_CATALOG) {
+      if (item.module === "CRM" || item.module === "ADMIN") {
+        prevCrmItems[item.itemId] = { view: true, edit: true, delete: true };
+      }
+    }
+    const crmPermissions: StiHubCrmPermissions = {
+      ...prevCrmPerms,
+      crmRole: "CRM_ADMIN",
+      portfolioScope: "TODOS",
+      contactsAccess: "FULL",
+      companiesAccess: "FULL",
+      dealsFunnelAccess: "FULL",
+      ticketsServiceDeskAccess: "FULL",
+      marketingAutomationAccess: "FULL",
+      canExportCrmData: true,
+      canMergeCrmRecords: true,
+      canDeleteCrmRecords: true,
+    };
+    return {
+      scope: "TODOS",
+      crmRole: "CRM_ADMIN",
+      enabledModules: nextMods,
+      moduleAccess,
+      crmPermissions,
+      crmItemPermissions: prevCrmItems,
+      itemPermissions: { ...prevCrmItems, ...prevErpItems },
+    };
+  }
+
+  if (mod === "ERP") {
+    for (const item of ERP_MODULE_ITEMS_CATALOG) {
+      prevErpItems[item.itemId] = { view: true, edit: true, delete: true };
+    }
+    const erpPermissions: StiHubErpPermissions = {
+      ...prevErpPerms,
+      erpRole: "ERP_ADMIN",
+      financeBanksAccess: "FULL",
+      fiscalIssuanceAccess: "FULL",
+      proposalsQuotesAccess: "FULL",
+      stockOsSalesAccess: "FULL",
+      rentalContractsAccess: "FULL",
+      maxDiscountPercent: 100,
+      canViewBankBalances: true,
+      canIssueFiscalDocuments: true,
+      canApproveProposals: true,
+      canDeleteErpRecords: true,
+    };
+    return {
+      erpRole: "ERP_ADMIN",
+      enabledModules: nextMods,
+      moduleAccess,
+      erpPermissions,
+      erpItemPermissions: prevErpItems,
+      itemPermissions: { ...prevCrmItems, ...prevErpItems },
+    };
+  }
+
+  // mod === "CHAMADOS"
+  for (const item of CRM_MODULE_ITEMS_CATALOG) {
+    if (item.module === "CHAMADOS") {
+      prevCrmItems[item.itemId] = { view: true, edit: true, delete: true };
+    }
+  }
+  const crmPermissions: StiHubCrmPermissions = {
+    ...prevCrmPerms,
+    portfolioScope: "TODOS",
+    ticketsServiceDeskAccess: "FULL",
+  };
+  return {
+    scope: "TODOS",
+    enabledModules: nextMods,
+    moduleAccess,
+    crmPermissions,
+    crmItemPermissions: prevCrmItems,
+    itemPermissions: { ...prevCrmItems, ...prevErpItems },
+  };
+}
+
+export function isModuleFullControl(
+  user: Partial<StiHubUserRecord> | null | undefined,
+  mod: StiHubMacroModule
+): boolean {
+  if (!user) return false;
+  const mods = user.enabledModules || [];
+  if (!mods.includes(mod)) return false;
+  if (mod === "CRM") {
+    const c = user.crmPermissions;
+    if (!c) return false;
+    return (
+      c.contactsAccess === "FULL" &&
+      c.companiesAccess === "FULL" &&
+      c.dealsFunnelAccess === "FULL" &&
+      c.marketingAutomationAccess === "FULL" &&
+      c.canExportCrmData === true &&
+      c.canMergeCrmRecords === true &&
+      c.canDeleteCrmRecords === true
+    );
+  }
+  if (mod === "ERP") {
+    const e = user.erpPermissions;
+    if (!e) return false;
+    return (
+      e.financeBanksAccess === "FULL" &&
+      e.fiscalIssuanceAccess === "FULL" &&
+      e.proposalsQuotesAccess === "FULL" &&
+      e.stockOsSalesAccess === "FULL" &&
+      e.rentalContractsAccess === "FULL" &&
+      e.canIssueFiscalDocuments === true &&
+      e.canApproveProposals === true &&
+      e.canDeleteErpRecords === true &&
+      Number(e.maxDiscountPercent) >= 100
+    );
+  }
+  // CHAMADOS
+  const c = user.crmPermissions;
+  const items = user.crmItemPermissions || {};
+  const nocFull =
+    items["chamados.filas_noc"]?.view &&
+    items["chamados.filas_noc"]?.edit &&
+    items["chamados.filas_noc"]?.delete;
+  return Boolean(c?.ticketsServiceDeskAccess === "FULL" && (nocFull || user.crmRole === "CRM_ADMIN"));
+}
+
 export function buildDefaultErpPermissionsForRole(roleId: StiHubRoleId): StiHubErpPermissions {
   switch (roleId) {
     case "SUPER_ADMIN":

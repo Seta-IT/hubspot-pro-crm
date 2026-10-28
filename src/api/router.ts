@@ -29,7 +29,13 @@ import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs
 import { DataHealthService } from '../modules/data-health/health-service';
 import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
-import { SequenceService } from '../modules/sequences/sequence-service';
+import {
+  OFFICIAL_10_CADENCE_STATES_CATALOG,
+  OFFICIAL_13_EXIT_RULES_CATALOG,
+  resolveCanonicalEnrollmentState,
+  SequenceService,
+} from '../modules/sequences/sequence-service';
+import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
@@ -404,6 +410,7 @@ export class CrmApiRouter {
       tasks: enrichedTasks,
       emailTemplates,
       snippets,
+      marketingEmails: this.repo.listMarketingEmails(),
       marketingCampaigns: this.repo.listMarketingCampaigns(),
       marketingSegments: this.repo.listMarketingSegments(),
       marketingLandingPages: this.repo.listMarketingLandingPages(),
@@ -645,8 +652,15 @@ export class CrmApiRouter {
     body: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
-      if (body && Array.isArray((body as Record<string, unknown>).iamUsersOverride)) {
-        this.repo.applyIamUsersOverride((body as Record<string, unknown>).iamUsersOverride);
+      if (
+        body &&
+        (Array.isArray((body as Record<string, unknown>).iamUsersOverride) ||
+          Array.isArray((body as Record<string, unknown>).iamDeletedUsersOverride))
+      ) {
+        this.repo.applyIamUsersOverride(
+          (body as Record<string, unknown>).iamUsersOverride,
+          (body as Record<string, unknown>).iamDeletedUsersOverride
+        );
       }
 
       // ======================================================================
@@ -1380,13 +1394,22 @@ export class CrmApiRouter {
           const contacts = new Map(this.repo.listContacts().map((c) => [c.id, c]));
           const enrichedEnrollments = enrollments.map((e) => ({
             ...e,
+            canonicalEnrollmentState: resolveCanonicalEnrollmentState(e),
+            stepHistory: e.stepHistory || e.history,
             contact: contacts.get(e.contactId) || null,
           }));
+          const tenStatesBreakdown = this.sequenceService.getTenStatesBreakdown(
+            this.repo,
+            query.sequenceId
+          );
           return {
             status: 200,
             body: {
               data: sequences,
               enrollments: enrichedEnrollments,
+              tenStatesBreakdown,
+              officialTenStatesCatalog: OFFICIAL_10_CADENCE_STATES_CATALOG,
+              officialThirteenExitRulesCatalog: OFFICIAL_13_EXIT_RULES_CATALOG,
               total: sequences.length,
             },
           };
@@ -1400,8 +1423,38 @@ export class CrmApiRouter {
               sequenceId: String(body.sequenceId),
               contactId: String(body.contactId),
               dealId: body.dealId ? String(body.dealId) : null,
+              forceMoveFromConflicting: Boolean(body.forceMoveFromConflicting || body.forceMove),
+              allowReentryOverride: Boolean(body.allowReentryOverride),
+              recipientTimezone: body.recipientTimezone ? String(body.recipientTimezone) : undefined,
             });
             return { status: 201, body: { data: res } };
+          }
+
+          if (action === 'ENROLL_BULK') {
+            const contactIds = Array.isArray(body.contactIds)
+              ? body.contactIds.map((c) => String(c))
+              : [];
+            const res = this.sequenceService.enrollBulkContacts(this.repo, {
+              sequenceId: String(body.sequenceId),
+              contactIds,
+              dealId: body.dealId ? String(body.dealId) : null,
+              forceMoveFromConflicting: Boolean(body.forceMoveFromConflicting || body.forceMove),
+            });
+            return { status: 201, body: { data: res } };
+          }
+
+          if (action === 'PAUSE_ENROLLMENT' || action === 'PAUSE') {
+            const res = this.sequenceService.pauseEnrollment(
+              this.repo,
+              String(body.enrollmentId),
+              body.reason ? String(body.reason) : undefined
+            );
+            return { status: 200, body: { data: res } };
+          }
+
+          if (action === 'RESUME_ENROLLMENT' || action === 'RESUME') {
+            const res = this.sequenceService.resumeEnrollment(this.repo, String(body.enrollmentId));
+            return { status: 200, body: { data: res } };
           }
 
           if (action === 'ADVANCE_STEP') {
@@ -1409,15 +1462,67 @@ export class CrmApiRouter {
             return { status: 200, body: { data: res } };
           }
 
-          if (action === 'INTERACTION' || action === 'REPLY' || action === 'OPEN' || action === 'CLICK') {
+          if (action === 'TRIGGER_EXIT_RULE' || action === 'EVALUATE_EXIT_RULE') {
+            const res = this.sequenceService.evaluateExitRule(this.repo, {
+              enrollmentId: String(body.enrollmentId),
+              trigger: String(body.trigger || 'STOP_REQUESTED') as SequenceExitRuleTrigger,
+              reasonDetail: body.reasonDetail ? String(body.reasonDetail) : undefined,
+              clickedUrl: body.clickedUrl ? String(body.clickedUrl) : undefined,
+              replySnippet: body.replySnippet ? String(body.replySnippet) : undefined,
+              scopeOverride: body.scopeOverride as 'CONTACT_ONLY' | 'ENTIRE_COMPANY' | undefined,
+            });
+            return { status: 200, body: { data: res } };
+          }
+
+          if (action === 'CLONE_SEQUENCE' || action === 'CLONE') {
+            const cloned = this.repo.cloneSequence(
+              String(body.sequenceId),
+              body.newName ? String(body.newName) : undefined
+            );
+            if (!cloned) {
+              return { status: 404, body: { error: 'Cadência original não encontrada.' } };
+            }
+            return { status: 201, body: { data: cloned } };
+          }
+
+          if (action === 'UPDATE_SEQUENCE' || action === 'UPDATE') {
+            const seqId = String(body.sequenceId || body.id || '');
+            const patch = (body.updates && typeof body.updates === 'object' ? body.updates : body) as Record<string, unknown>;
+            const updated = this.repo.updateSequence(seqId, patch, { bumpVersion: true });
+            if (!updated) {
+              return { status: 404, body: { error: 'Cadência não encontrada para atualização.' } };
+            }
+            return { status: 200, body: { data: updated } };
+          }
+
+          if (action === 'CALCULATE_WINDOW') {
+            const calc = this.sequenceService.calculateNextBusinessExecutionWindow({
+              baseDate: body.baseDate ? String(body.baseDate) : undefined,
+              delayDays: body.delayDays !== undefined ? Number(body.delayDays) : undefined,
+              delayHours: body.delayHours !== undefined ? Number(body.delayHours) : undefined,
+              sendingWindow: body.sendingWindow as Record<string, unknown> | undefined,
+              recipientTimezone: body.recipientTimezone ? String(body.recipientTimezone) : undefined,
+            });
+            return { status: 200, body: { data: calc } };
+          }
+
+          if (
+            action === 'INTERACTION' ||
+            action === 'RECORD_INTERACTION' ||
+            action === 'REPLY' ||
+            action === 'OPEN' ||
+            action === 'CLICK'
+          ) {
             const interactionType =
-              action === 'INTERACTION'
+              action === 'INTERACTION' || action === 'RECORD_INTERACTION'
                 ? (String(body.interactionType || 'REPLY').toUpperCase() as 'OPEN' | 'CLICK' | 'REPLY')
                 : (action as 'OPEN' | 'CLICK' | 'REPLY');
             const res = this.sequenceService.recordInteraction(this.repo, {
               enrollmentId: String(body.enrollmentId),
               interactionType,
               replySnippet: body.replySnippet ? String(body.replySnippet) : undefined,
+              clickedUrl: body.clickedUrl ? String(body.clickedUrl) : undefined,
+              isHighIntentLink: Boolean(body.isHighIntentLink),
             });
             return { status: 200, body: { data: res } };
           }
@@ -1714,6 +1819,41 @@ export class CrmApiRouter {
       // ======================================================================
       // MARKETING HUB ENTERPRISE (/api/marketing/campaigns, /segments, /landing-pages, /preferences)
       // ======================================================================
+      if (cleanPath === '/api/marketing/emails') {
+        if (method === 'GET') {
+          const emails = this.repo.listMarketingEmails();
+          return {
+            status: 200,
+            body: {
+              data: emails,
+              total: emails.length,
+              summary: {
+                totalEmails: emails.length,
+                sentCount: emails.filter((e) => e.status === 'SENT').length,
+                draftCount: emails.filter((e) => e.status === 'DRAFT').length,
+                scheduledCount: emails.filter((e) => e.status === 'SCHEDULED').length,
+                archivedCount: emails.filter((e) => e.status === 'ARCHIVED').length,
+              },
+            },
+          };
+        }
+        if (method === 'POST') {
+          const action = String(body.action || '').toUpperCase();
+          if (action === 'CLONE' && body.emailId) {
+            const cloned = this.repo.cloneMarketingEmail(String(body.emailId));
+            if (!cloned) {
+              return { status: 404, body: { error: 'E-mail de marketing não encontrado.' } };
+            }
+            return { status: 201, body: { data: cloned } };
+          }
+          if (!body.name) {
+            return { status: 400, body: { error: 'O campo "name" é obrigatório.' } };
+          }
+          const created = this.repo.createMarketingEmail(body as { name: string });
+          return { status: 201, body: { data: created } };
+        }
+      }
+
       if (cleanPath === '/api/marketing/campaigns') {
         if (method === 'GET') {
           const campaigns = this.repo.listMarketingCampaigns();
@@ -4482,28 +4622,40 @@ export class CrmApiRouter {
         const userId = decodeURIComponent(resetMfaMatch[1]);
         const mode = String(body.mode || 'RESET_QR').toUpperCase();
         if (mode === 'DISABLE_2FA') {
+          const setup = this.repo.setupUserTotp(userId, true);
           const updated = this.repo.upsertRbacUser({
             id: userId,
             mfaEnabled: false,
+            totpConfigured: false,
           });
           return {
             status: 200,
             body: {
-              data: updated,
-              message: `Autenticador 2FA desabilitado para ${updated.name}. O usuário poderá entrar apenas com e-mail e senha.`,
+              data: {
+                ...updated,
+                otpauthUri: setup.otpauthUri,
+                qrCodeSvgDataUrl: setup.qrCodeSvgDataUrl,
+              },
+              message: `Autenticador desabilitado para ${updated.name}. No próximo login o sistema exigirá que o usuário habilite e cadastre um novo autenticador via QR Code.`,
             },
           };
         }
         if (mode === 'ENABLE_2FA') {
+          const setup = this.repo.setupUserTotp(userId, false);
           const updated = this.repo.upsertRbacUser({
             id: userId,
             mfaEnabled: true,
+            totpConfigured: false,
           });
           return {
             status: 200,
             body: {
-              data: updated,
-              message: `Autenticador 2FA reativado para ${updated.name}.`,
+              data: {
+                ...updated,
+                otpauthUri: setup.otpauthUri,
+                qrCodeSvgDataUrl: setup.qrCodeSvgDataUrl,
+              },
+              message: `Autenticador exigido para ${updated.name}. No próximo login será solicitado o cadastro do QR Code.`,
             },
           };
         }
@@ -4523,6 +4675,49 @@ export class CrmApiRouter {
               qrCodeSvgDataUrl: setup.qrCodeSvgDataUrl,
             },
             message: `Autenticador resetado para ${updated.name}. No próximo login será exibido o QR Code para novo cadastro.`,
+          },
+        };
+      }
+
+      const fullControlMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)\/full-control$/);
+      if (fullControlMatch && method === 'POST') {
+        const userId = decodeURIComponent(fullControlMatch[1]);
+        const modRaw = String(body.module || 'CRM').toUpperCase();
+        const mod = (modRaw === 'ERP' || modRaw === 'CHAMADOS' ? modRaw : 'CRM') as 'CRM' | 'ERP' | 'CHAMADOS';
+        const resFc = this.repo.applyFullControlToUserModule(userId, mod);
+        if (!resFc.ok || !resFc.user) {
+          return {
+            status: 404,
+            body: { error: resFc.error || 'Usuário não encontrado.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: resFc.user,
+            message: `Full Control aplicado no módulo ${mod} para ${resFc.user.name}.`,
+          },
+        };
+      }
+
+      const deleteUserActionMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)\/delete$/);
+      if (deleteUserActionMatch && method === 'POST') {
+        const userId = decodeURIComponent(deleteUserActionMatch[1]);
+        const actorEmail = typeof body.actorEmail === 'string' ? body.actorEmail : undefined;
+        const delRes = this.repo.deleteRbacUser(userId, actorEmail);
+        if (!delRes.ok) {
+          return {
+            status: 400,
+            body: { error: delRes.error || 'Não foi possível excluir o usuário.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: {
+              deleted: true,
+              deletedUser: delRes.deletedUser,
+            },
           },
         };
       }
@@ -4650,6 +4845,31 @@ export class CrmApiRouter {
       }
 
       const adminUserIdMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)$/);
+      if (adminUserIdMatch && method === 'DELETE') {
+        const userId = decodeURIComponent(adminUserIdMatch[1]);
+        const actorEmail =
+          typeof query.actorEmail === 'string'
+            ? query.actorEmail
+            : typeof body?.actorEmail === 'string'
+              ? body.actorEmail
+              : undefined;
+        const delRes = this.repo.deleteRbacUser(userId, actorEmail);
+        if (!delRes.ok) {
+          return {
+            status: 400,
+            body: { error: delRes.error || 'Não foi possível excluir o usuário.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: {
+              deleted: true,
+              deletedUser: delRes.deletedUser,
+            },
+          },
+        };
+      }
       if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const userId = decodeURIComponent(adminUserIdMatch[1]);
         const saved = this.repo.upsertRbacUser({

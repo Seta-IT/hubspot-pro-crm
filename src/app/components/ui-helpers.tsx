@@ -87,7 +87,7 @@ export function getBuyingRoleBadge(role: BuyingRoleType | string | null | undefi
   };
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${info.bg} ${info.text} ${info.border}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-normal border ${info.bg} ${info.text} ${info.border}`}
     >
       {info.label}
     </span>
@@ -124,7 +124,7 @@ export function getIcpTierBadge(tier: 'TIER_1' | 'TIER_2' | 'TIER_3' | string | 
   };
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${info.bg} ${info.text} ${info.border}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-normal border ${info.bg} ${info.text} ${info.border}`}
     >
       {info.label}
     </span>
@@ -225,7 +225,7 @@ export function getLifecycleBadge(stage: LifecycleStage | string) {
   };
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${info.bg} ${info.text} ${info.border}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-normal border ${info.bg} ${info.text} ${info.border}`}
     >
       {info.label}
     </span>

@@ -60,7 +60,12 @@ import {
   CrmEmailTemplate,
   CrmEmailTemplateCategory,
   CrmSnippet,
+  MarketingEmailBroadcast,
   MarketingCampaign,
+  CanonicalSequenceEnrollmentState,
+  SequenceExitRuleTrigger,
+  SendingWindowConfig,
+  SequenceExitRuleConfig,
   MarketingSegment,
   MarketingLandingPage,
   SuppressionEntry,
@@ -73,6 +78,7 @@ import {
   buildDefaultCrmPermissionsForRole,
   buildDefaultErpPermissionsForRole,
   buildDefaultModuleAccessForRole,
+  buildFullControlForModule,
   createSeedRbacState,
   normalizeUserModuleAccess,
 } from '../modules/erp/rbac-seed';
@@ -739,7 +745,7 @@ export class CrmRepository {
         }
         return {
           roles: parsed.rbac.roles.length >= 9 ? parsed.rbac.roles : seedRbac.roles,
-          users: parsed.rbac.users.length >= 22 ? parsed.rbac.users : seedRbac.users,
+          users: parsed.rbac.users.length >= 1 ? parsed.rbac.users : seedRbac.users,
           securityConfig: {
             ...seedRbac.securityConfig,
             ...(parsed.rbac.securityConfig || {}),
@@ -1921,12 +1927,58 @@ export class CrmRepository {
 
   createSequence(input: Partial<EmailSequence> & { name: string }): EmailSequence {
     const now = new Date().toISOString();
+    const defaultSeq = this.state.sequences[0];
+    const defaultWindow: SendingWindowConfig = {
+      businessHoursStart: input.sendingWindow?.businessHoursStart || '08:30',
+      businessHoursEnd: input.sendingWindow?.businessHoursEnd || '18:00',
+      businessDaysOnly: input.sendingWindow?.businessDaysOnly ?? true,
+      skipHolidays: input.sendingWindow?.skipHolidays ?? true,
+      holidayDates: input.sendingWindow?.holidayDates || [
+        '2026-01-01',
+        '2026-04-21',
+        '2026-05-01',
+        '2026-09-07',
+        '2026-10-12',
+        '2026-11-02',
+        '2026-11-15',
+        '2026-11-20',
+        '2026-12-25',
+      ],
+      respectRecipientTimezone: input.sendingWindow?.respectRecipientTimezone ?? true,
+      defaultTimezone: input.sendingWindow?.defaultTimezone || 'America/Sao_Paulo',
+      dailyMailboxSendLimit: input.sendingWindow?.dailyMailboxSendLimit || 150,
+      currentTodaySent: input.sendingWindow?.currentTodaySent || 0,
+      senderMailbox: input.sendingWindow?.senderMailbox || 'marcello@setatelecom.com.br',
+      sendingProvider: input.sendingWindow?.sendingProvider || 'OUTLOOK_M365',
+    };
+    const defaultRules: SequenceExitRuleConfig[] =
+      input.exitRules && input.exitRules.length > 0
+        ? input.exitRules
+        : defaultSeq?.exitRules
+          ? structuredClone(defaultSeq.exitRules)
+          : [];
+
     const seq: EmailSequence = {
       id: input.id || `seq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: input.name,
       description: input.description || '',
       category: input.category || 'OUTBOUND',
       isActive: input.isActive !== undefined ? input.isActive : true,
+      version: input.version || 1,
+      sendingWindow: defaultWindow,
+      preventConflictingEnrollments: input.preventConflictingEnrollments ?? true,
+      reentryPolicy: input.reentryPolicy || 'ALLOW_IF_COMPLETED',
+      reentryCooldownDays: input.reentryCooldownDays ?? 30,
+      exitScope: input.exitScope || 'CONTACT_ONLY',
+      exitRules: defaultRules,
+      leadRoutingMode: input.leadRoutingMode || 'FIXED_OWNER',
+      assignedSellers: input.assignedSellers || ['Marcelo Lopes Mira', 'Evelyn Ternero Seta Telecom'],
+      lastAssignedSellerIndex: input.lastAssignedSellerIndex || 0,
+      nurtureTargetCampaignId: input.nurtureTargetCampaignId ?? 'cmp-1',
+      highIntentUrls: input.highIntentUrls || [
+        'https://sti-hub.vercel.app/proposta',
+        'https://sti-hub.vercel.app/lp/locacao-equipamentos-ti-telecom-sv31',
+      ],
       steps: input.steps || [],
       enrolledCount: input.enrolledCount || 0,
       activeCount: input.activeCount || 0,
@@ -1947,18 +1999,72 @@ export class CrmRepository {
     return seq;
   }
 
-  updateSequence(id: string, patch: Partial<EmailSequence>): EmailSequence | null {
+  updateSequence(
+    id: string,
+    patch: Partial<EmailSequence>,
+    options?: { bumpVersion?: boolean }
+  ): EmailSequence | null {
     const idx = this.state.sequences.findIndex((s) => s.id === id);
     if (idx === -1) return null;
+    const current = this.state.sequences[idx];
+    const shouldBump =
+      options?.bumpVersion ||
+      (patch.version === undefined &&
+        (patch.steps !== undefined ||
+          patch.sendingWindow !== undefined ||
+          patch.exitRules !== undefined ||
+          patch.exitScope !== undefined ||
+          patch.reentryPolicy !== undefined));
+    const nextVersion =
+      patch.version !== undefined
+        ? patch.version
+        : shouldBump
+          ? (current.version || 1) + 1
+          : current.version || 1;
     const updated: EmailSequence = {
-      ...this.state.sequences[idx],
+      ...current,
       ...patch,
+      version: nextVersion,
       id,
       updatedAt: new Date().toISOString(),
     };
     this.state.sequences[idx] = updated;
     this.save();
     return updated;
+  }
+
+  cloneSequence(id: string, newName?: string): EmailSequence | null {
+    const source = this.getSequenceById(id);
+    if (!source) return null;
+    const now = new Date().toISOString();
+    const clonedSteps = (source.steps || []).map((st, i) => ({
+      ...structuredClone(st),
+      id: `step-${Date.now()}-${i + 1}`,
+      sentCount: 0,
+      openCount: 0,
+      clickCount: 0,
+      replyCount: 0,
+    }));
+    return this.createSequence({
+      ...structuredClone(source),
+      id: `seq-clone-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: newName?.trim() || `${source.name} (Clonar)`,
+      version: 1,
+      steps: clonedSteps,
+      enrolledCount: 0,
+      activeCount: 0,
+      completedCount: 0,
+      repliedCount: 0,
+      sentCount: 0,
+      openCount: 0,
+      clickCount: 0,
+      replyCount: 0,
+      openRate: 0,
+      clickRate: 0,
+      replyRate: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   listSequenceEnrollments(filters?: {
@@ -2103,6 +2209,68 @@ export class CrmRepository {
   // ==========================================================================
   // MARKETING HUB ENTERPRISE: CAMPAIGNS, SEGMENTS, LANDING PAGES, LGPD & ABM
   // ==========================================================================
+  listMarketingEmails(): MarketingEmailBroadcast[] {
+    if (!this.state.marketingEmails || this.state.marketingEmails.length === 0) {
+      this.state.marketingEmails = createInitialSeedState().marketingEmails || [];
+    }
+    return [...this.state.marketingEmails];
+  }
+
+  getMarketingEmailById(id: string): MarketingEmailBroadcast | undefined {
+    return this.listMarketingEmails().find((e) => e.id === id);
+  }
+
+  createMarketingEmail(
+    input: Partial<MarketingEmailBroadcast> & { name: string }
+  ): MarketingEmailBroadcast {
+    const list = this.listMarketingEmails();
+    const now = new Date().toISOString();
+    const created: MarketingEmailBroadcast = {
+      id: input.id || `mktemail-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      subject: input.subject?.trim() || input.name.trim(),
+      preheader: input.preheader || 'Comunicado Corporativo Seta Telecom',
+      status: input.status || 'DRAFT',
+      emailType: input.emailType || 'REGULAR',
+      sendingProvider: input.sendingProvider || 'MARKETING_ESP',
+      deliveredCount: input.deliveredCount ?? 0,
+      openRatePercent: input.openRatePercent ?? 0,
+      clickRatePercent: input.clickRatePercent ?? 0,
+      updatedAtDisplay: input.updatedAtDisplay || '28 de Outubro de 2026 15:58',
+      updatedBy: input.updatedBy || 'Marcelo Lopes Mira',
+      publishedAtDisplay:
+        input.status === 'SENT'
+          ? input.publishedAtDisplay || '28 de Outubro de 2026 15:58'
+          : input.publishedAtDisplay || '--',
+      campaignId: input.campaignId ?? 'cmp-1',
+      segmentId: input.segmentId ?? 'seg-abm-tier1-decisores',
+      bodyPreview:
+        input.bodyPreview ||
+        'Olá {{firstName}}, conheça as soluções de Locação de Infraestrutura TI & Telecom da Seta Telecom com 0% de ISSQN (SV 31 STF).',
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.marketingEmails = [created, ...list];
+    this.save();
+    return created;
+  }
+
+  cloneMarketingEmail(id: string): MarketingEmailBroadcast | null {
+    const source = this.getMarketingEmailById(id);
+    if (!source) return null;
+    return this.createMarketingEmail({
+      ...structuredClone(source),
+      id: undefined,
+      name: `${source.name} (Clonar)`,
+      status: 'DRAFT',
+      deliveredCount: 0,
+      openRatePercent: 0,
+      clickRatePercent: 0,
+      publishedAtDisplay: '--',
+      updatedBy: 'Marcelo Lopes Mira',
+    });
+  }
+
   listMarketingCampaigns(): MarketingCampaign[] {
     if (!this.state.marketingCampaigns) {
       this.state.marketingCampaigns = createInitialSeedState().marketingCampaigns || [];
@@ -4817,6 +4985,12 @@ export class CrmRepository {
 
     erp.invoices.unshift(invoice);
     contract.lastBilledCompetence = comp;
+    const baseDueStr = contract.nextDueDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(contract.dueDay || 10).padStart(2, '0')}`;
+    const parsedDue = new Date(`${baseDueStr.slice(0, 10)}T12:00:00Z`);
+    if (!Number.isNaN(parsedDue.getTime())) {
+      parsedDue.setUTCMonth(parsedDue.getUTCMonth() + 1);
+      contract.nextDueDate = parsedDue.toISOString().slice(0, 10);
+    }
     contract.updatedAt = nowIso;
 
     erp.financialEntries.unshift({
@@ -5911,6 +6085,8 @@ export class CrmRepository {
 
   private usedTotpCodeTracker = new Map<string, string>();
   private consumedChallengeIds = new Set<string>();
+  private deletedUserIds = new Set<string>();
+  private deletedUserEmails = new Set<string>();
 
   private ensureRbacState(): StiHubRbacState {
     if (!this.state.rbac || !Array.isArray(this.state.rbac.roles) || !Array.isArray(this.state.rbac.users)) {
@@ -5933,6 +6109,13 @@ export class CrmRepository {
         r.erpPermissions = buildDefaultErpPermissionsForRole(r.id);
       }
     }
+    if (this.deletedUserIds.size > 0 || this.deletedUserEmails.size > 0) {
+      rbac.users = rbac.users.filter(
+        (u) =>
+          !this.deletedUserIds.has(u.id) &&
+          !this.deletedUserEmails.has(u.email.toLowerCase())
+      );
+    }
     for (const u of rbac.users) {
       if (!u.enabledModules || !u.moduleAccess) {
         const mod = buildDefaultModuleAccessForRole(u.roleId, u.email);
@@ -5948,7 +6131,9 @@ export class CrmRepository {
       if (!u.totpSecret || !isValidPureBase32Secret(u.totpSecret)) {
         u.totpSecret = generateTotpSecretBase32(u.email);
       }
-      if (u.totpConfigured === undefined) {
+      if (u.mfaEnabled === false) {
+        u.totpConfigured = false;
+      } else if (u.totpConfigured === undefined) {
         u.totpConfigured = Boolean(u.totpConfiguredAt || (u.mfaEnabled && u.active));
       }
     }
@@ -6074,7 +6259,13 @@ export class CrmRepository {
       existing.roleId = roleId;
       existing.scope = input.scope || existing.scope || roleDef.defaultScope;
       if (typeof input.active === "boolean") existing.active = input.active;
-      if (typeof input.mfaEnabled === "boolean") existing.mfaEnabled = input.mfaEnabled;
+      if (typeof input.mfaEnabled === "boolean") {
+        existing.mfaEnabled = input.mfaEnabled;
+        if (input.mfaEnabled === false) {
+          existing.totpConfigured = false;
+          existing.totpConfiguredAt = null;
+        }
+      }
       if (input.mfaMethod === "TOTP_AUTHENTICATOR" || input.mfaMethod === "EMAIL_OTP") {
         existing.mfaMethod = input.mfaMethod;
       }
@@ -6438,14 +6629,119 @@ export class CrmRepository {
     };
   }
 
-  applyIamUsersOverride(overrides?: unknown): void {
+  applyIamUsersOverride(overrides?: unknown, deletedOverrides?: unknown): void {
+    if (Array.isArray(deletedOverrides) && deletedOverrides.length > 0) {
+      const rbac = this.ensureRbacState();
+      for (const rawDel of deletedOverrides) {
+        const key = String(rawDel || "").trim();
+        if (!key) continue;
+        this.deletedUserIds.add(key);
+        this.deletedUserEmails.add(key.toLowerCase());
+      }
+      rbac.users = rbac.users.filter(
+        (u) =>
+          !this.deletedUserIds.has(u.id) &&
+          !this.deletedUserEmails.has(u.email.toLowerCase())
+      );
+      this.save();
+    }
     if (!Array.isArray(overrides) || overrides.length === 0) return;
     for (const raw of overrides) {
       if (!raw || typeof raw !== "object") continue;
       const item = raw as Partial<StiHubUserRecord> & { password?: string };
       if (!item.email && !item.id) continue;
+      if (
+        (item.id && this.deletedUserIds.has(String(item.id))) ||
+        (item.email && this.deletedUserEmails.has(String(item.email).toLowerCase()))
+      ) {
+        continue;
+      }
       this.upsertRbacUser(item);
     }
+  }
+
+  deleteRbacUser(
+    userOrEmail: string,
+    actorEmail?: string
+  ): {
+    ok: boolean;
+    error?: string;
+    deletedUser?: StiHubUserRecord;
+  } {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    if (!q) {
+      return { ok: false, error: "Informe o ID ou e-mail do usuário para exclusão." };
+    }
+    const idx = rbac.users.findIndex(
+      (u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q
+    );
+    if (idx === -1) {
+      return { ok: false, error: "Usuário não encontrado na matriz IAM." };
+    }
+    const target = rbac.users[idx];
+    if (actorEmail && target.email.toLowerCase() === actorEmail.trim().toLowerCase()) {
+      return {
+        ok: false,
+        error: "Por segurança, você não pode excluir a sua própria conta ativa na sessão.",
+      };
+    }
+    if (rbac.users.length <= 1) {
+      return {
+        ok: false,
+        error: "Operação bloqueada: o sistema deve manter ao menos 1 usuário administrador ativo.",
+      };
+    }
+
+    rbac.users.splice(idx, 1);
+    this.deletedUserIds.add(target.id);
+    this.deletedUserEmails.add(target.email.toLowerCase());
+
+    this.appendSecurityAuditLog({
+      actorEmail: actorEmail || "marcelo.mira@setatelecom.com.br",
+      action: "IAM_USER_DELETED",
+      module: "IAM_RBAC",
+      resource: `/api/admin/users/${target.id}`,
+      status: "SUCCESS",
+      details: `Usuário ${target.name} (${target.email}) excluído permanentemente da matriz IAM.`,
+    });
+    this.save();
+    return {
+      ok: true,
+      deletedUser: target,
+    };
+  }
+
+  applyFullControlToUserModule(
+    userOrEmail: string,
+    mod: StiHubMacroModule
+  ): {
+    ok: boolean;
+    error?: string;
+    user?: StiHubUserRecord;
+  } {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    const found = rbac.users.find(
+      (u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q
+    );
+    if (!found) {
+      return { ok: false, error: "Usuário não encontrado na matriz IAM." };
+    }
+    const patch = buildFullControlForModule(mod, found);
+    const updated = this.upsertRbacUser({
+      ...found,
+      ...patch,
+      id: found.id,
+    });
+    this.appendSecurityAuditLog({
+      action: "IAM_USER_FULL_CONTROL_GRANTED",
+      module: "IAM_RBAC",
+      resource: `/api/admin/users/${found.id}/full-control`,
+      status: "SUCCESS",
+      details: `Permissão Full Control aplicada no módulo ${mod} para ${found.email}.`,
+    });
+    return { ok: true, user: updated };
   }
 
   createUserInvite(
@@ -7014,51 +7310,8 @@ export class CrmRepository {
       erpPermissions,
     } = this.getEffectiveUserAndRole(found.id);
 
-    // If Admin disabled 2FA (mfaEnabled === false) for this user, issue session directly on Step 1!
-    if (found.mfaEnabled === false) {
-      this.loginAttemptTracker.delete(emailClean);
-      found.lastLoginAt = new Date().toISOString();
-      this.save();
-      const ttlHours = Math.max(1, Number(rbac.securityConfig.sessionTtlHours || 24));
-      const sessionToken = signStiHubSessionToken({
-        uid: found.id,
-        email: found.email,
-        name: found.name,
-        roleId: role.id,
-        scope: found.scope,
-        enabledModules,
-        moduleAccess,
-        crmPermissions,
-        erpPermissions,
-        mfaVerified: true,
-        mfaMethod: found.mfaMethod,
-        iat: nowMs,
-        exp: nowMs + ttlHours * 3600 * 1000,
-      });
-      this.appendSecurityAuditLog({
-        actorEmail: found.email,
-        actorName: found.name,
-        actorRole: role.id,
-        action: "AUTH_LOGIN_DIRECT_MFA_DISABLED",
-        module: "AUTH_MFA",
-        resource: "/api/auth/login",
-        status: "SUCCESS",
-        ipAddress,
-        details: `Login direto concluído para ${found.email} (2FA desabilitado pelo administrador).`,
-      });
-      return {
-        ok: true,
-        mfaRequired: false,
-        sessionToken,
-        user: { ...hydratedUser, totpSecret: undefined },
-        role,
-        effectiveActionGuards,
-        enabledModules,
-        moduleAccess,
-        crmPermissions,
-        erpPermissions,
-      };
-    }
+    // Security Policy: If the authenticator is disabled (mfaEnabled === false) or not yet configured (totpConfigured === false),
+    // login MUST force the user to enable and register the authenticator (QR Code + 6-digit confirmation)!
 
     if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret)) {
       found.totpSecret = generateTotpSecretBase32(found.email);
@@ -7092,7 +7345,7 @@ export class CrmRepository {
     }
 
     const isTotpAlreadyConfigured = Boolean(
-      found.totpConfigured === true || enrolledCookieForced
+      found.mfaEnabled !== false && (found.totpConfigured === true || enrolledCookieForced)
     );
     const sanitizedUser: StiHubUserRecord = {
       ...hydratedUser,
@@ -7194,7 +7447,9 @@ export class CrmRepository {
     }
 
     const realUserRecord = rbac.users.find((u) => u.id === user.id);
-    const isTotpAlreadyConfigured = Boolean(realUserRecord?.totpConfigured === true);
+    const isTotpAlreadyConfigured = Boolean(
+      realUserRecord?.mfaEnabled !== false && realUserRecord?.totpConfigured === true
+    );
 
     const userSecret =
       user.totpSecret && isValidPureBase32Secret(user.totpSecret)
@@ -7375,6 +7630,7 @@ export class CrmRepository {
     if (realUserRecord) {
       realUserRecord.lastLoginAt = new Date().toISOString();
       if (matchedTotpSecret) {
+        realUserRecord.mfaEnabled = true;
         realUserRecord.totpSecret = matchedTotpSecret;
         realUserRecord.totpConfigured = true;
         realUserRecord.totpConfiguredAt =

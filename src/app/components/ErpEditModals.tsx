@@ -66,11 +66,11 @@ export function ProposalEditModal({
   isNew = false,
 }: {
   proposal: ErpCommercialProposal;
-  onClose: () => void;
-  onSave: (updated: ErpCommercialProposal) => Promise<void>;
-  onCustomerCreated?: (created: Company) => Promise<void> | void;
-  onGenerateContract?: (proposal: ErpCommercialProposal) => void;
-  onShowToast?: (msg: string) => void;
+  onClose: () =>void;
+  onSave: (updated: ErpCommercialProposal) =>Promise<void>;
+  onCustomerCreated?: (created: Company) =>Promise<void>| void;
+  onGenerateContract?: (proposal: ErpCommercialProposal) =>void;
+  onShowToast?: (msg: string) =>void;
   catalog?: ErpCatalogItem[];
   companies?: Company[];
   contacts?: Contact[];
@@ -86,9 +86,9 @@ export function ProposalEditModal({
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
 
-  const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
-    if (Array.isArray(draft.versionHistory) && draft.versionHistory.length > 0) {
-      return [...draft.versionHistory].sort((a, b) => b.version - a.version);
+  const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() =>{
+    if (Array.isArray(draft.versionHistory) && draft.versionHistory.length >0) {
+      return [...draft.versionHistory].sort((a, b) =>b.version - a.version);
     }
     return [
       {
@@ -135,7 +135,7 @@ export function ProposalEditModal({
     ];
   }, [draft]);
 
-  const handleLoadVersionSnapshotIntoForm = async (entry: ErpProposalVersionEntry) => {
+  const handleLoadVersionSnapshotIntoForm = async (entry: ErpProposalVersionEntry) =>{
     setRestoringVersionNum(entry.version);
     try {
       const s = entry.snapshot;
@@ -188,7 +188,7 @@ export function ProposalEditModal({
     proposal.companyName || ''
   );
   const [clientDropdownOpen, setClientDropdownOpen] = useState<boolean>(false);
-  const [validityDaysInput, setValidityDaysInput] = useState<string>(() => {
+  const [validityDaysInput, setValidityDaysInput] = useState<string>(() =>{
     if (isNew && !proposal.validUntil) return '';
     return '15 dias';
   });
@@ -218,7 +218,7 @@ export function ProposalEditModal({
   const [qcErrorMsg, setQcErrorMsg] = useState<string | null>(null);
   const [qcSaving, setQcSaving] = useState<boolean>(false);
 
-  const allAvailableCompanies = React.useMemo(() => {
+  const allAvailableCompanies = React.useMemo(() =>{
     const map = new Map<string, Company>();
     for (const c of localCreatedCompanies) map.set(c.id, c);
     for (const c of companies) {
@@ -227,12 +227,12 @@ export function ProposalEditModal({
     return Array.from(map.values());
   }, [companies, localCreatedCompanies]);
 
-  const matchingClients = React.useMemo(() => {
+  const matchingClients = React.useMemo(() =>{
     const q = clientSearchInput.trim().toLowerCase();
     const qDigits = q.replace(/\D+/g, '');
     if (!q) return allAvailableCompanies.slice(0, 12);
     return allAvailableCompanies
-      .filter((c) => {
+      .filter((c) =>{
         const cp = (c.customProperties || {}) as Record<string, unknown>;
         const trade = String(cp.tradeName || c.domain || '').toLowerCase();
         const nameMatch = c.name.toLowerCase().includes(q) || trade.includes(q);
@@ -245,9 +245,9 @@ export function ProposalEditModal({
       .slice(0, 12);
   }, [allAvailableCompanies, clientSearchInput]);
 
-  const handleSelectExistingClient = (comp: Company) => {
-    const compContact = contacts.find((ct) => ct.companyId === comp.id);
-    const compDeal = deals.find((d) => d.companyId === comp.id);
+  const handleSelectExistingClient = (comp: Company) =>{
+    const compContact = contacts.find((ct) =>ct.companyId === comp.id);
+    const compDeal = deals.find((d) =>d.companyId === comp.id);
     const contactFull = compContact
       ? `${compContact.firstName} ${compContact.lastName}`.trim()
       : draft.careOf || draft.contactName || '';
@@ -269,7 +269,7 @@ export function ProposalEditModal({
     });
   };
 
-  const handleLookupQuickClientRfb = async (rawDoc: string) => {
+  const handleLookupQuickClientRfb = async (rawDoc: string) =>{
     const digits = rawDoc.replace(/\D+/g, '');
     if (digits.length !== 14) {
       setQcErrorMsg('Informe os 14 dígitos do CNPJ para consultar automaticamente na Receita Federal.');
@@ -311,7 +311,7 @@ export function ProposalEditModal({
     }
   };
 
-  const handleOpenQuickNewClientModal = () => {
+  const handleOpenQuickNewClientModal = () =>{
     const typed = clientSearchInput.trim();
     const typedDigits = typed.replace(/\D+/g, '');
     setClientDropdownOpen(false);
@@ -330,7 +330,7 @@ export function ProposalEditModal({
     setQcState('SP');
 
     if (typedDigits.length >= 11 && typedDigits.length === typed.replace(/[.\-/\s]/g, '').length) {
-      const isCpf = typedDigits.length <= 11;
+      const isCpf = typedDigits.length<= 11;
       setQcPersonType(isCpf ? 'PF' : 'PJ');
       const formatted = isCpf ? formatCpfMask(typedDigits) : formatCnpjMask(typedDigits);
       setQcCnpjCpf(formatted);
@@ -349,7 +349,7 @@ export function ProposalEditModal({
     }
   };
 
-  const handleSaveAndLinkQuickClient = async () => {
+  const handleSaveAndLinkQuickClient = async () =>{
     if (!qcLegalName.trim()) {
       setQcErrorMsg('Informe a Razão Social / Nome Completo do cliente.');
       return;
@@ -391,7 +391,7 @@ export function ProposalEditModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() =>null);
       if (!res.ok) {
         setQcErrorMsg(json?.error || 'Não foi possível cadastrar o novo cliente.');
         return;
@@ -417,7 +417,7 @@ export function ProposalEditModal({
         updatedAt: new Date().toISOString(),
       };
 
-      setLocalCreatedCompanies((prev) => [createdCompany, ...prev]);
+      setLocalCreatedCompanies((prev) =>[createdCompany, ...prev]);
       setClientSearchInput(createdCompany.name);
       updateDraft({
         companyId: createdCompany.id,
@@ -449,17 +449,17 @@ export function ProposalEditModal({
   const [serviceSearch, setServiceSearch] = useState<string>('');
 
   const [installmentCount, setInstallmentCount] = useState<number>(() =>
-    Array.isArray(proposal.installments) && proposal.installments.length > 0
+    Array.isArray(proposal.installments) && proposal.installments.length >0
       ? proposal.installments.length
       : 1
   );
-  const [firstDueDate, setFirstDueDate] = useState<string>(() => {
+  const [firstDueDate, setFirstDueDate] = useState<string>(() =>{
     if (Array.isArray(proposal.installments) && proposal.installments[0]?.dueDate) {
       return proposal.installments[0].dueDate;
     }
     return new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
   });
-  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<string>(() => {
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<string>(() =>{
     if (Array.isArray(proposal.installments) && proposal.installments[0]?.paymentMethod) {
       return proposal.installments[0].paymentMethod;
     }
@@ -486,21 +486,21 @@ export function ProposalEditModal({
         c.gestaoClickCode.toLowerCase().includes(serviceSearch.toLowerCase()))
   );
 
-  const updateDraft = (patch: Partial<ErpCommercialProposal>) => {
-    setDraft((prev) => computeProposalTotals({ ...prev, ...patch }));
+  const updateDraft = (patch: Partial<ErpCommercialProposal>) =>{
+    setDraft((prev) =>computeProposalTotals({ ...prev, ...patch }));
   };
 
   const productItemsWithIdx = draft.items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => inferProposalItemType(item) === 'PRODUCT');
+    .map((item, idx) =>({ item, idx }))
+    .filter(({ item }) =>inferProposalItemType(item) === 'PRODUCT');
 
   const serviceItemsWithIdx = draft.items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => inferProposalItemType(item) === 'SERVICE');
+    .map((item, idx) =>({ item, idx }))
+    .filter(({ item }) =>inferProposalItemType(item) === 'SERVICE');
 
-  const handleAddProductFromCatalog = () => {
+  const handleAddProductFromCatalog = () =>{
     const found = selectedProductSku
-      ? catalog.find((c) => c.gestaoClickCode === selectedProductSku)
+      ? catalog.find((c) =>c.gestaoClickCode === selectedProductSku)
       : undefined;
     const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
     const newItem: ErpProposalItem = {
@@ -525,9 +525,9 @@ export function ProposalEditModal({
     updateDraft({ items: [...draft.items, newItem] });
   };
 
-  const handleAddServiceFromCatalog = () => {
+  const handleAddServiceFromCatalog = () =>{
     const found = selectedServiceSku
-      ? catalog.find((c) => c.gestaoClickCode === selectedServiceSku)
+      ? catalog.find((c) =>c.gestaoClickCode === selectedServiceSku)
       : undefined;
     const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
     const newItem: ErpProposalItem = {
@@ -552,11 +552,11 @@ export function ProposalEditModal({
     updateDraft({ items: [...draft.items, newItem] });
   };
 
-  const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) => {
+  const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) =>{
     const count = Math.max(1, Number(countOverride ?? installmentCount ?? 1));
     const method = methodOverride || defaultPaymentMethod || 'BOLETO';
     const baseTotal =
-      draft.totalContractValue > 0
+      draft.totalContractValue >0
         ? draft.totalContractValue
         : draft.monthlyRecurringTotal + draft.oneTimeSetupTotal + (draft.shippingCost || 0);
 
@@ -566,7 +566,7 @@ export function ProposalEditModal({
     const perInstallment = Math.floor((baseTotal / count) * 100) / 100;
     const remainder = Math.round((baseTotal - perInstallment * count) * 100) / 100;
 
-    const generated: ErpProposalInstallment[] = Array.from({ length: count }, (_, i) => {
+    const generated: ErpProposalInstallment[] = Array.from({ length: count }, (_, i) =>{
       const due = new Date(validBaseDate.getTime() + i * 30 * 86400000);
       const dueStr = due.toISOString().slice(0, 10);
       const amt = i === 0 ? Math.round((perInstallment + remainder) * 100) / 100 : perInstallment;
@@ -592,7 +592,7 @@ export function ProposalEditModal({
     });
   };
 
-  const itemDiscountsTotal = draft.items.reduce((acc, it) => {
+  const itemDiscountsTotal = draft.items.reduce((acc, it) =>{
     const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
     const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
     return acc + Math.max(0, gross - net);
@@ -607,7 +607,7 @@ export function ProposalEditModal({
     ) /
       100;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) =>{
     e.preventDefault();
     setSaving(true);
     try {
@@ -625,40 +625,40 @@ export function ProposalEditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
+<div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+<div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
         {/* TOP BLUE BAR GESTÃOCLICK */}
-        <div className="px-5 py-3 bg-[#1e3a6e] text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FileText className="w-5 h-5 text-emerald-300" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-extrabold">Seta Telecom • GestãoClick ERP</span>
-                <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
+<div className="px-5 py-3 bg-[#1e3a6e] text-white flex items-center justify-between">
+<div className="flex items-center gap-3">
+<FileText className="w-5 h-5 text-emerald-300" />
+<div>
+<div className="flex items-center gap-2">
+<span className="text-sm font-normal">Seta Telecom • GestãoClick ERP</span>
+<span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-normal uppercase">
                   {isNew ? 'Novo Orçamento' : `Editar Orçamento ${draft.code}`}
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-200 block">
+</span>
+</div>
+<span className="text-[11px] text-slate-200 block">
                 Vendedor: {draft.sellerName || 'Marcelo Lopes Mira'} • {draft.sellerEmail || 'marcelo.mira@setatelecom.com.br'}
-              </span>
-            </div>
-          </div>
-          <button
+</span>
+</div>
+</div>
+<button
             type="button"
             onClick={onClose}
             className="text-slate-200 hover:text-white cursor-pointer p-1"
           >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+<X className="w-5 h-5" />
+</button>
+</div>
 
         {/* PAGE HEADER & BREADCRUMB */}
-        <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-extrabold text-slate-800">
+<div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-2">
+<h2 className="text-base font-semibold text-slate-800">
               {isNew ? 'Novo orçamento / proposta comercial' : `Editar orçamento #${draft.code}`}
-            </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-[#1e3a6e] border border-blue-200">
+</h2>
+<span className="px-2.5 py-0.5 rounded-full text-[11px] font-normal bg-blue-50 text-[#1e3a6e] border border-blue-200">
               {draft.budgetType === 'SERVICOS'
                 ? 'Orçamento de Serviços'
                 : draft.budgetType === 'PRODUTOS'
@@ -666,123 +666,123 @@ export function ProposalEditModal({
                   : draft.budgetType === 'CONJUNTO'
                     ? 'Orçamento Conjunto (Produtos + Serviços)'
                     : 'Locação Pura & Conectividade (MRR)'}
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
+</span>
+<span className="px-2.5 py-0.5 rounded-full text-[11px] font-normal bg-emerald-100 text-emerald-900 border border-emerald-300">
               Versão Atual: v{draft.version || 1}.0 ({versionHistoryList.length}{' '}
               {versionHistoryList.length === 1 ? 'revisão' : 'revisões'})
-            </span>
+</span>
             {!isNew && (
-              <button
+<button
                 type="button"
-                onClick={() => setShowVersionHistoryPanel((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold shadow-2xs cursor-pointer"
+                onClick={() =>setShowVersionHistoryPanel((v) =>!v)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-normal shadow-2xs cursor-pointer"
               >
-                <History className="w-3.5 h-3.5 text-amber-300" />
-                <span>
+<History className="w-3.5 h-3.5 text-amber-300" />
+<span>
                   {showVersionHistoryPanel ? 'Ocultar Histórico de Versões' : `Histórico de Versões (${versionHistoryList.length})`}
-                </span>
-              </button>
+</span>
+</button>
             )}
-          </div>
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
-            <span>Início</span>
-            <span>&gt;</span>
-            <span>Orçamentos</span>
-            <span>&gt;</span>
-            <strong className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</strong>
-          </div>
-        </div>
+</div>
+<div className="text-xs text-slate-500 flex items-center gap-1.5">
+<span>Início</span>
+<span>&gt;</span>
+<span>Orçamentos</span>
+<span>&gt;</span>
+<span className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</span>
+</div>
+</div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+<form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
           {/* BLOCO 1: INFORME OS DADOS DO ORÇAMENTO (FIEL AO PRINT GESTÃOCLICK [t62u]) */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                  <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
-                  <span>
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+<div>
+<div className="text-sm font-normal text-slate-800 flex items-center gap-1.5">
+<Edit3 className="w-4 h-4 text-[#1e3a6e]" />
+<span>
                     Informe os <span className="text-[#1e3a6e]">dados</span> do orçamento
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
+</span>
+</div>
+<div className="text-[11px] text-slate-500">
                   Número, cliente, vendedor, datas e a introdução da proposta
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-bold text-slate-600">Layout / Template da Proposta:</label>
-                <select
+</div>
+</div>
+<div className="flex flex-wrap items-center gap-2">
+<label className="text-[11px] font-normal text-slate-600">Layout / Template da Proposta:</label>
+<select
                   value={resolveProposalLayoutKind(draft.templateStyle)}
                   onChange={(e) =>
                     updateDraft({
                       templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
                     })
                   }
-                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 font-extrabold text-emerald-950"
+                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 font-normal text-emerald-950"
                 >
-                  {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) => (
-                    <option key={tpl.id} value={tpl.id}>
+                  {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) =>(
+<option key={tpl.id} value={tpl.id}>
                       {tpl.label}
-                    </option>
+</option>
                   ))}
-                </select>
+</select>
 
-                <label className="text-[11px] font-bold text-slate-600">Tipo de Orçamento:</label>
-                <select
+<label className="text-[11px] font-normal text-slate-600">Tipo de Orçamento:</label>
+<select
                   value={draft.budgetType || 'LOCACAO'}
                   onChange={(e) =>
                     updateDraft({
                       budgetType: e.target.value as ErpCommercialProposal['budgetType'],
                     })
                   }
-                  className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 font-extrabold text-[#1e3a6e]"
+                  className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 font-normal text-[#1e3a6e]"
                 >
-                  <option value="PRODUTOS">Orçamento de Produtos</option>
-                  <option value="SERVICOS">Orçamento de Serviços</option>
-                  <option value="CONJUNTO">Orçamento Conjunto (Produtos + Serviços)</option>
-                  <option value="LOCACAO">Locação Pura &amp; Conectividade (MRR)</option>
-                </select>
-              </div>
-            </div>
+<option value="PRODUTOS">Orçamento de Produtos</option>
+<option value="SERVICOS">Orçamento de Serviços</option>
+<option value="CONJUNTO">Orçamento Conjunto (Produtos + Serviços)</option>
+<option value="LOCACAO">Locação Pura &amp; Conectividade (MRR)</option>
+</select>
+</div>
+</div>
 
-            <div className="p-5 space-y-4">
+<div className="p-5 space-y-4">
               {/* LINHA 1 DO GESTÃOCLICK: Número | Cliente * (Autocomplete + Botão Verde "+ Adicionar novo") | Data * | Validade */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
                 {/* Coluna 1: Número */}
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Número</label>
-                  <div className="flex">
-                    <input
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">Número</label>
+<div className="flex">
+<input
                       type="text"
                       value={draft.code}
-                      onChange={(e) => updateDraft({ code: e.target.value })}
-                      className="w-full px-3 py-2 rounded-l border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800"
+                      onChange={(e) =>updateDraft({ code: e.target.value })}
+                      className="w-full px-3 py-2 rounded-l border border-slate-300 bg-slate-100 font-mono font-normal text-slate-800"
                     />
-                    <span className="px-2.5 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r text-slate-500 flex items-center">
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
-                </div>
+<span className="px-2.5 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r text-slate-500 flex items-center">
+<Edit3 className="w-3.5 h-3.5" />
+</span>
+</div>
+</div>
 
                 {/* Coluna 2: Cliente * (Busca Autocomplete + Aviso Cliente Não Cadastrado + Botão Verde "+ Adicionar novo") */}
-                <div className="sm:col-span-3 relative">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-bold text-slate-700">
+<div className="sm:col-span-3 relative">
+<div className="flex items-center justify-between mb-1">
+<label className="block text-[11px] font-normal text-slate-700">
                       Cliente <span className="text-rose-600">*</span>
-                    </label>
+</label>
                     {draft.companyCnpj && (
-                      <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+<span className="text-[10px] font-mono font-normal text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                         CNPJ: {draft.companyCnpj}
-                      </span>
+</span>
                     )}
-                  </div>
-                  <div className="relative">
-                    <input
+</div>
+<div className="relative">
+<input
                       type="text"
                       required
                       placeholder="Digite para buscar"
                       value={clientSearchInput}
-                      onFocus={() => setClientDropdownOpen(true)}
-                      onChange={(e) => {
+                      onFocus={() =>setClientDropdownOpen(true)}
+                      onChange={(e) =>{
                         const val = e.target.value;
                         setClientSearchInput(val);
                         setClientDropdownOpen(true);
@@ -791,12 +791,12 @@ export function ProposalEditModal({
                           companyId: null,
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 focus:border-[#0091ae] focus:outline-none font-semibold text-slate-900 bg-white"
+                      className="w-full px-3 py-2 rounded border border-slate-300 focus:border-[#0091ae] focus:outline-none font-normal text-slate-900 bg-white"
                     />
                     {clientSearchInput && (
-                      <button
+<button
                         type="button"
-                        onClick={() => {
+                        onClick={() =>{
                           setClientSearchInput('');
                           setClientDropdownOpen(true);
                           updateDraft({ companyId: null, companyName: '', companyCnpj: '' });
@@ -804,108 +804,108 @@ export function ProposalEditModal({
                         title="Limpar busca de cliente"
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+<X className="w-3.5 h-3.5" />
+</button>
                     )}
 
                     {/* DROPDOWN FLUTUANTE GESTÃOCLICK */}
                     {clientDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-md border border-slate-300 shadow-2xl overflow-hidden">
-                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                          {matchingClients.length > 0 ? (
-                            matchingClients.map((comp, idx) => {
+<div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-md border border-slate-300 shadow-2xl overflow-hidden">
+<div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                          {matchingClients.length >0 ? (
+                            matchingClients.map((comp, idx) =>{
                               const cp = (comp.customProperties || {}) as Record<string, unknown>;
                               const trade = String(cp.tradeName || comp.name);
                               const isHighlighted = idx === 0 || draft.companyId === comp.id;
                               return (
-                                <button
+<button
                                   key={comp.id}
                                   type="button"
-                                  onClick={() => handleSelectExistingClient(comp)}
+                                  onClick={() =>handleSelectExistingClient(comp)}
                                   className={`w-full text-left px-3.5 py-2.5 transition cursor-pointer block ${
                                     isHighlighted
                                       ? 'bg-[#2b579a] text-white'
                                       : 'hover:bg-slate-100 text-slate-900'
                                   }`}
                                 >
-                                  <div className="font-extrabold text-xs truncate">{comp.name}</div>
-                                  <div
+<div className="font-normal text-xs truncate">{comp.name}</div>
+<div
                                     className={`text-[11px] truncate ${
                                       isHighlighted ? 'text-blue-100' : 'text-slate-500'
                                     }`}
                                   >
                                     {trade} {comp.cnpj ? `- ${comp.cnpj}` : ''}
-                                  </div>
-                                </button>
+</div>
+</button>
                               );
                             })
                           ) : (
-                            <div className="p-3.5 bg-amber-50/90 text-amber-950 space-y-1">
-                              <div className="flex items-center gap-1.5 font-extrabold text-xs text-amber-900">
-                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                                <span>
+<div className="p-3.5 bg-amber-50/90 text-amber-950 space-y-1">
+<div className="flex items-center gap-1.5 font-normal text-xs text-amber-900">
+<AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+<span>
                                   Nenhum cliente cadastrado encontrado para &ldquo;{clientSearchInput}&rdquo;.
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-amber-800">
-                                Clique no botão verde <strong>+ Adicionar novo</strong> abaixo para cadastrar este cliente agora mesmo (com busca automática de CNPJ na Receita Federal) sem sair da proposta.
-                              </p>
-                            </div>
+</span>
+</div>
+<p className="text-[11px] text-amber-800">
+                                Clique no botão verde <span>+ Adicionar novo</span> abaixo para cadastrar este cliente agora mesmo (com busca automática de CNPJ na Receita Federal) sem sair da proposta.
+</p>
+</div>
                           )}
-                        </div>
+</div>
 
                         {/* BOTÃO LARGO VERDE "+ Adicionar novo" NO RODAPÉ DO DROPDOWN (FIEL AO PRINT) */}
-                        <div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-center gap-1.5">
-                          <button
+<div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-center gap-1.5">
+<button
                             type="button"
                             onClick={handleOpenQuickNewClientModal}
-                            className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
+                            className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-normal text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
                           >
-                            <Plus className="w-4 h-4" />
-                            <span>+ Adicionar novo</span>
-                          </button>
-                          <button
+<Plus className="w-4 h-4" />
+<span>+ Adicionar novo</span>
+</button>
+<button
                             type="button"
-                            onClick={() => setClientDropdownOpen(false)}
-                            className="px-2.5 py-2 rounded border border-slate-300 bg-white text-slate-600 hover:text-slate-900 text-[11px] font-bold cursor-pointer shrink-0"
+                            onClick={() =>setClientDropdownOpen(false)}
+                            className="px-2.5 py-2 rounded border border-slate-300 bg-white text-slate-600 hover:text-slate-900 text-[11px] font-normal cursor-pointer shrink-0"
                           >
                             Fechar
-                          </button>
-                        </div>
-                      </div>
+</button>
+</div>
+</div>
                     )}
-                  </div>
-                </div>
+</div>
+</div>
 
                 {/* Coluna 3: Data * */}
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Data <span className="text-rose-600">*</span>
-                  </label>
-                  <input
+</label>
+<input
                     type="date"
                     required
                     value={
                       draft.proposalDate ||
                       (draft.createdAt ? draft.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10))
                     }
-                    onChange={(e) => updateDraft({ proposalDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    onChange={(e) =>updateDraft({ proposalDate: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                   />
-                </div>
+</div>
 
                 {/* Coluna 4: Validade */}
-                <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
-                  <input
+<div className="sm:col-span-1">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">Validade</label>
+<input
                     type="text"
                     placeholder="Ex.: 10 dias"
                     value={validityDaysInput}
-                    onChange={(e) => {
+                    onChange={(e) =>{
                       const val = e.target.value;
                       setValidityDaysInput(val);
                       const numDays = parseInt(val.replace(/\D+/g, ""), 10);
-                      if (!Number.isNaN(numDays) && numDays > 0) {
+                      if (!Number.isNaN(numDays) && numDays >0) {
                         const dt = new Date(Date.now() + numDays * 86400000)
                           .toISOString()
                           .slice(0, 10);
@@ -914,14 +914,14 @@ export function ProposalEditModal({
                     }}
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
-                </div>
+</div>
 
                 {/* Coluna 5: Prazo de Entrega */}
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
                     Prazo de Entrega
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     list="proposal-delivery-leadtime-options"
                     placeholder="Ex.: 10 dias úteis"
@@ -932,45 +932,45 @@ export function ProposalEditModal({
                         deliveryForecast: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-slate-900"
                   />
-                </div>
+</div>
 
                 {/* Coluna 6: SLA (Nível de Serviço) */}
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
                     SLA (Nível de Serviço)
-                  </label>
-                  <select
+</label>
+<select
                     value={resolveProposalSlaOption(draft).id}
-                    onChange={(e) => {
-                      const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
+                    onChange={(e) =>{
+                      const opt = PROPOSAL_SLA_OPTIONS.find((o) =>o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
                       updateDraft({
                         slaTier: opt.id,
                         slaAvailabilityPercent: opt.slaAvailabilityPercent,
                         slaResponseHours: opt.slaResponseHours,
                       });
                     }}
-                    className="w-full px-2.5 py-2 rounded border border-blue-300 bg-white font-extrabold text-[#1e3a6e]"
+                    className="w-full px-2.5 py-2 rounded border border-blue-300 bg-white font-normal text-[#1e3a6e]"
                   >
-                    {PROPOSAL_SLA_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
+                    {PROPOSAL_SLA_OPTIONS.map((opt) =>(
+<option key={opt.id} value={opt.id}>
                         {opt.shortLabel || opt.label}
-                      </option>
+</option>
                     ))}
-                  </select>
-                </div>
-              </div>
+</select>
+</div>
+</div>
 
               {/* LINHA 2 DO GESTÃOCLICK: Vendedor | E-mail do Vendedor | WhatsApp do Vendedor | Situação | Aos cuidados de */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Vendedor (Usuário do Sistema)
-                  </label>
-                  <select
+</label>
+<select
                     value={draft.sellerName || ''}
-                    onChange={(e) => {
+                    onChange={(e) =>{
                       const info = resolveProposalSellerContact({ sellerName: e.target.value });
                       updateDraft({
                         sellerName: e.target.value,
@@ -978,67 +978,67 @@ export function ProposalEditModal({
                         sellerPhone: info.phone,
                       });
                     }}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
-                    <option value="">Selecione</option>
-                    <option value="Marcelo Mira">Marcelo Mira</option>
-                    <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
-                    <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
-                    <option value="Maria Luiza">Maria Luiza</option>
-                    <option value="Michelle da Rocha">Michelle da Rocha</option>
-                    <option value="Paula Campos">Paula Campos</option>
-                  </select>
-                </div>
+<option value="">Selecione</option>
+<option value="Marcelo Mira">Marcelo Mira</option>
+<option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
+<option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
+<option value="Maria Luiza">Maria Luiza</option>
+<option value="Michelle da Rocha">Michelle da Rocha</option>
+<option value="Paula Campos">Paula Campos</option>
+</select>
+</div>
 
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     E-mail do Vendedor
-                  </label>
-                  <input
+</label>
+<input
                     type="email"
                     placeholder="vendedor@setatelecom.com.br"
                     value={draft.sellerEmail || resolveProposalSellerContact(draft).email}
-                    onChange={(e) => updateDraft({ sellerEmail: e.target.value })}
+                    onChange={(e) =>updateDraft({ sellerEmail: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
-                </div>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     WhatsApp do Vendedor
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     placeholder="(11) 99999-4929"
                     value={draft.sellerPhone || resolveProposalSellerContact(draft).phone}
-                    onChange={(e) => updateDraft({ sellerPhone: e.target.value })}
+                    onChange={(e) =>updateDraft({ sellerPhone: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
-                </div>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Situação</label>
-                  <select
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">Situação</label>
+<select
                     value={draft.status}
                     onChange={(e) =>
                       updateDraft({ status: e.target.value as ErpCommercialProposal['status'] })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-slate-800"
                   >
-                    <option value="RASCUNHO">Em Aberto</option>
-                    <option value="ENVIADA">Enviado ao Cliente</option>
-                    <option value="EM_NEGOCIACAO">Em Negociação</option>
-                    <option value="APROVADA">Aprovado</option>
-                    <option value="CONVERTIDA_CONTRATO">Convertido em Contrato</option>
-                    <option value="RECUSADA">Cancelado / Recusado</option>
-                  </select>
-                </div>
+<option value="RASCUNHO">Em Aberto</option>
+<option value="ENVIADA">Enviado ao Cliente</option>
+<option value="EM_NEGOCIACAO">Em Negociação</option>
+<option value="APROVADA">Aprovado</option>
+<option value="CONVERTIDA_CONTRATO">Convertido em Contrato</option>
+<option value="RECUSADA">Cancelado / Recusado</option>
+</select>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Aos cuidados de
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     placeholder=""
                     value={draft.careOf ?? draft.contactName ?? ''}
@@ -1047,61 +1047,61 @@ export function ProposalEditModal({
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
-                </div>
-              </div>
+</div>
+</div>
 
               {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ / CPF | Prazo Contratual */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Centro de custo
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     list="gestaoclick-cost-centers"
                     placeholder="Digite para buscar"
                     value={draft.costCenter || ''}
-                    onChange={(e) => updateDraft({ costCenter: e.target.value })}
+                    onChange={(e) =>updateDraft({ costCenter: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
-                  <datalist id="gestaoclick-cost-centers">
-                    <option value="Comercial Telecom & TI" />
-                    <option value="Locação de Ativos (MRR)" />
-                    <option value="Projetos & Engenharia NOC" />
-                    <option value="VENDAS" />
-                  </datalist>
-                </div>
+<datalist id="gestaoclick-cost-centers">
+<option value="Comercial Telecom & TI" />
+<option value="Locação de Ativos (MRR)" />
+<option value="Projetos & Engenharia NOC" />
+<option value="VENDAS" />
+</datalist>
+</div>
 
-                <div className="sm:col-span-5">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-5">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Título / Escopo Comercial da Proposta <span className="text-rose-600">*</span>
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     required
                     value={draft.title}
-                    onChange={(e) => updateDraft({ title: e.target.value })}
+                    onChange={(e) =>updateDraft({ title: e.target.value })}
                     placeholder="Ex: Locação Central PABX IP Seta Cloud + Terminais Yealink"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-slate-900"
                   />
-                </div>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ / CPF</label>
-                  <input
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">CNPJ / CPF</label>
+<input
                     type="text"
                     placeholder="00.000.000/0000-00"
                     value={draft.companyCnpj || ''}
-                    onChange={(e) => updateDraft({ companyCnpj: e.target.value })}
+                    onChange={(e) =>updateDraft({ companyCnpj: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
-                </div>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                     Tempo de Contrato (Meses) *
-                  </label>
-                  <input
+</label>
+<input
                     type="number"
                     min={1}
                     max={120}
@@ -1109,42 +1109,42 @@ export function ProposalEditModal({
                     onChange={(e) =>
                       updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-[#1e3a6e]"
                   />
-                </div>
-              </div>
+</div>
+</div>
 
               {/* LINHA DE SLA CONTRATADO, PRAZO DE ENTREGA DINÂMICO, TEMPO DE CONTRATO E TAXA DE SETUP ISOLADA */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
-                    SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
-                  </label>
-                  <select
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
+<div className="sm:col-span-4">
+<label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
+                    SLA Contratado (Acordo de Nível de Serviço)<span className="text-rose-600">*</span>
+</label>
+<select
                     value={resolveProposalSlaOption(draft).id}
-                    onChange={(e) => {
-                      const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
+                    onChange={(e) =>{
+                      const opt = PROPOSAL_SLA_OPTIONS.find((o) =>o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
                       updateDraft({
                         slaTier: opt.id,
                         slaAvailabilityPercent: opt.slaAvailabilityPercent,
                         slaResponseHours: opt.slaResponseHours,
                       });
                     }}
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-extrabold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-[#1e3a6e]"
                   >
-                    {PROPOSAL_SLA_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
+                    {PROPOSAL_SLA_OPTIONS.map((opt) =>(
+<option key={opt.id} value={opt.id}>
                         {opt.label}
-                      </option>
+</option>
                     ))}
-                  </select>
-                </div>
+</select>
+</div>
 
-                <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
                     Prazo de Entrega
-                  </label>
-                  <input
+</label>
+<input
                     type="text"
                     list="proposal-delivery-leadtime-options"
                     placeholder="Ex.: 10 dias úteis após o aceite"
@@ -1155,50 +1155,50 @@ export function ProposalEditModal({
                         deliveryForecast: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-slate-900"
                   />
-                  <datalist id="proposal-delivery-leadtime-options">
-                    {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
-                      <option key={item} value={item} />
+<datalist id="proposal-delivery-leadtime-options">
+                    {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) =>(
+<option key={item} value={item} />
                     ))}
-                  </datalist>
-                </div>
+</datalist>
+</div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
                     Vigência / Contrato
-                  </label>
-                  <select
+</label>
+<select
                     value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
-                    onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                    onChange={(e) =>updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-slate-900"
                   >
-                    <option value="1">Avulso / 1 mês</option>
-                    <option value="6">6 meses</option>
-                    <option value="12">12 meses</option>
-                    <option value="24">24 meses</option>
-                    <option value="36">36 meses</option>
-                    <option value="48">48 meses</option>
-                    <option value="60">60 meses</option>
-                  </select>
-                </div>
+<option value="1">Avulso / 1 mês</option>
+<option value="6">6 meses</option>
+<option value="12">12 meses</option>
+<option value="24">24 meses</option>
+<option value="36">36 meses</option>
+<option value="48">48 meses</option>
+<option value="60">60 meses</option>
+</select>
+</div>
 
-                <div className="sm:col-span-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[#1e3a6e] cursor-pointer">
-                      <input
+<div className="sm:col-span-3">
+<div className="flex items-center justify-between mb-1">
+<label className="inline-flex items-center gap-1.5 text-[11px] font-normal text-[#1e3a6e] cursor-pointer">
+<input
                         type="checkbox"
-                        checked={Number(draft.setupFee || 0) > 0}
+                        checked={Number(draft.setupFee || 0) >0}
                         onChange={(e) =>
-                          updateDraft({ setupFee: e.target.checked ? (Number(draft.setupFee) > 0 ? Number(draft.setupFee) : 500) : 0 })
+                          updateDraft({ setupFee: e.target.checked ? (Number(draft.setupFee) >0 ? Number(draft.setupFee) : 500) : 0 })
                         }
                         className="accent-[#1e3a6e]"
                       />
-                      <span>Incluir Setup / Ativação (R$)</span>
-                    </label>
-                  </div>
-                  {Number(draft.setupFee || 0) > 0 ? (
-                    <input
+<span>Incluir Setup / Ativação (R$)</span>
+</label>
+</div>
+                  {Number(draft.setupFee || 0) >0 ? (
+<input
                       type="number"
                       min={0}
                       step="0.01"
@@ -1207,155 +1207,155 @@ export function ProposalEditModal({
                         updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
                       }
                       placeholder="Valor do Setup (Isolado)"
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-extrabold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-normal text-slate-900"
                     />
                   ) : (
-                    <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
+<div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
                       Sem Setup (não exibido na proposta)
-                    </div>
+</div>
                   )}
-                </div>
-              </div>
+</div>
+</div>
 
               {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div>
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Introdução da proposta
-                </label>
-                <textarea
+</label>
+<textarea
                   rows={2}
                   placeholder="Valor Mensal de R$"
                   value={draft.introductionText ?? ''}
-                  onChange={(e) => updateDraft({ introductionText: e.target.value })}
+                  onChange={(e) =>updateDraft({ introductionText: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
-              </div>
-            </div>
-          </div>
+</div>
+</div>
+</div>
 
           {/* BLOCO 2 DO GESTÃOCLICK: PREENCHA OS CAMPOS EXTRAS DA SUA EMPRESA (CAPA) */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-[#1e3a6e]" />
-                <span>
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
+<div className="text-sm font-normal text-slate-800 flex items-center gap-1.5">
+<FileText className="w-4 h-4 text-[#1e3a6e]" />
+<span>
                   Preencha os <span className="text-[#1e3a6e]">campos extras</span> da sua empresa
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500">
+</span>
+</div>
+<div className="text-[11px] text-slate-500">
                 Campos que a sua empresa criou para os orçamentos
-              </div>
-            </div>
-            <div className="p-5">
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">Capa</label>
-              <input
+</div>
+</div>
+<div className="p-5">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">Capa</label>
+<input
                 type="text"
                 value={coverText}
-                onChange={(e) => setCoverText(e.target.value)}
+                onChange={(e) =>setCoverText(e.target.value)}
                 placeholder="Texto ou identificador de capa da proposta (opcional)"
                 className="w-full px-3 py-2 rounded border border-slate-300"
               />
-            </div>
-          </div>
+</div>
+</div>
 
           {/* BLOCO 2: PRODUTOS / EQUIPAMENTOS */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#1e3a6e]" />
-                <div>
-                  <div className="text-sm font-bold text-slate-800">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-2">
+<Package className="w-4 h-4 text-[#1e3a6e]" />
+<div>
+<div className="text-sm font-normal text-slate-800">
                     Adicione os <span className="text-[#1e3a6e]">produtos</span> do orçamento ({productItemsWithIdx.length})
-                  </div>
-                  <div className="text-[11px] text-slate-500">
+</div>
+<div className="text-[11px] text-slate-500">
                     Catálogo GestãoClick (786 produtos) • Locação de Bens Móveis (0% ISS — SV 31 STF) ou Venda de Hardware.
-                  </div>
-                </div>
-              </div>
+</div>
+</div>
+</div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <input
+<div className="flex flex-wrap items-center gap-2">
+<input
                   type="text"
                   value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
+                  onChange={(e) =>setProductSearch(e.target.value)}
                   placeholder="Filtrar SKU/nome nos produtos..."
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs w-48"
                 />
-                <select
+<select
                   value={selectedProductSku}
-                  onChange={(e) => setSelectedProductSku(e.target.value)}
+                  onChange={(e) =>setSelectedProductSku(e.target.value)}
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs max-w-xs"
                 >
-                  <option value="">-- Escolher produto do catálogo --</option>
-                  {catalogProducts.slice(0, 60).map((c) => (
-                    <option key={c.id} value={c.gestaoClickCode}>
+<option value="">-- Escolher produto do catálogo --</option>
+                  {catalogProducts.slice(0, 60).map((c) =>(
+<option key={c.id} value={c.gestaoClickCode}>
                       {c.gestaoClickCode} — {c.name.slice(0, 48)} ({formatBRL(c.monthlyRentalPrice)})
-                    </option>
+</option>
                   ))}
-                </select>
-                <button
+</select>
+<button
                   type="button"
                   onClick={handleAddProductFromCatalog}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> + Adicionar Produto
-                </button>
-              </div>
-            </div>
+<Plus className="w-3.5 h-3.5" />+ Adicionar Produto
+</button>
+</div>
+</div>
 
-            <div className="p-4 space-y-3">
+<div className="p-4 space-y-3">
               {productItemsWithIdx.length === 0 ? (
-                <div className="text-center py-4 text-slate-400 text-xs">
-                  Nenhum produto/equipamento adicionado neste orçamento. Clique em <strong>+ Adicionar Produto</strong> acima.
-                </div>
+<div className="text-center py-4 text-slate-400 text-xs">
+                  Nenhum produto/equipamento adicionado neste orçamento. Clique em <span>+ Adicionar Produto</span> acima.
+</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2 px-2 w-28">SKU</th>
-                        <th className="py-2 px-2">Produto / Equipamento</th>
-                        <th className="py-2 px-2 w-28">Recorrência</th>
-                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
-                        <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
-                        <th className="py-2 px-2 w-20 text-right">Desc. %</th>
-                        <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
-                        <th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
-                        <th className="py-2 px-1 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {productItemsWithIdx.map(({ item, idx }) => (
-                        <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                          <td className="py-2 px-2">
-                            <input
+<div className="overflow-x-auto">
+<table className="w-full text-left text-xs">
+<thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
+<tr>
+<th className="py-2 px-2 w-28">SKU</th>
+<th className="py-2 px-2">Produto / Equipamento</th>
+<th className="py-2 px-2 w-28">Recorrência</th>
+<th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
+<th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
+<th className="py-2 px-2 w-20 text-right">Desc. %</th>
+<th className="py-2 px-2 w-24 text-right">Desc. R$</th>
+<th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
+<th className="py-2 px-1 w-10"></th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-100">
+                      {productItemsWithIdx.map(({ item, idx }) =>(
+<tr key={item.id || idx} className="hover:bg-slate-50/70">
+<td className="py-2 px-2">
+<input
                               type="text"
                               value={item.sku}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = { ...copy[idx], sku: e.target.value };
                                 updateDraft({ items: copy });
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 font-mono text-[11px]"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="text"
                               value={item.description}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = { ...copy[idx], description: e.target.value };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 font-normal"
                             />
-                          </td>
+</td>
 
-                          <td className="py-2 px-2">
-                            <select
+<td className="py-2 px-2">
+<select
                               value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const isRec = e.target.value === 'MENSAL';
                                 const copy = [...draft.items];
                                 copy[idx] = {
@@ -1367,16 +1367,16 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
                             >
-                              <option value="MENSAL">Mensal (MRR)</option>
-                              <option value="UNICO">Único / Venda</option>
-                            </select>
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+<option value="MENSAL">Mensal (MRR)</option>
+<option value="UNICO">Único / Venda</option>
+</select>
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={1}
                               value={item.quantity}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1384,16 +1384,16 @@ export function ProposalEditModal({
                                 };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-bold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-normal"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               step="0.01"
                               value={item.unitPrice}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1401,17 +1401,17 @@ export function ProposalEditModal({
                                 };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-semibold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-normal"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               max={100}
                               step="0.1"
                               value={item.discountPercent || 0}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1421,14 +1421,14 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 text-right"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               step="0.01"
                               value={item.discountAmount || 0}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1438,139 +1438,139 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 text-right"
                             />
-                          </td>
-                          <td className="py-2 px-2 text-right font-extrabold text-slate-900">
+</td>
+<td className="py-2 px-2 text-right font-normal text-slate-900">
                             {formatBRL(item.subtotal ?? item.totalMonthly)}
-                          </td>
-                          <td className="py-2 px-1 text-right">
-                            <button
+</td>
+<td className="py-2 px-1 text-right">
+<button
                               type="button"
-                              disabled={draft.items.length <= 1}
+                              disabled={draft.items.length<= 1}
                               onClick={() =>
                                 updateDraft({
-                                  items: draft.items.filter((_, i) => i !== idx),
+                                  items: draft.items.filter((_, i) =>i !== idx),
                                 })
                               }
                               className="p-1.5 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 cursor-pointer"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
+<Trash2 className="w-3.5 h-3.5" />
+</button>
+</td>
+</tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+</tbody>
+</table>
+</div>
               )}
-              <div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
-                <span>
+<div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
+<span>
                   Subtotal Produtos / Equipamentos:{' '}
-                  <strong className="text-[#1e3a6e] text-sm">
+<span className="text-[#1e3a6e] text-sm">
                     {formatBRL(draft.productsSubtotal || 0)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
+</span>
+</span>
+</div>
+</div>
+</div>
 
           {/* BLOCO 3: SERVIÇOS TÉCNICOS & TELECOM */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-[#1e3a6e]" />
-                <div>
-                  <div className="text-sm font-bold text-slate-800">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-2">
+<Wrench className="w-4 h-4 text-[#1e3a6e]" />
+<div>
+<div className="text-sm font-normal text-slate-800">
                     3. <span className="text-[#1e3a6e]">Serviços</span> Técnicos TI / Telecom ({serviceItemsWithIdx.length})
-                  </div>
-                  <div className="text-[11px] text-slate-500">
+</div>
+<div className="text-[11px] text-slate-500">
                     Catálogo GestãoClick (39 serviços) • Enquadramento LC 116/03 (01.07, 01.03, 14.01, 21.01) e SCM/SVA.
-                  </div>
-                </div>
-              </div>
+</div>
+</div>
+</div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <input
+<div className="flex flex-wrap items-center gap-2">
+<input
                   type="text"
                   value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
+                  onChange={(e) =>setServiceSearch(e.target.value)}
                   placeholder="Filtrar serviço..."
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs w-44"
                 />
-                <select
+<select
                   value={selectedServiceSku}
-                  onChange={(e) => setSelectedServiceSku(e.target.value)}
+                  onChange={(e) =>setSelectedServiceSku(e.target.value)}
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs max-w-xs"
                 >
-                  <option value="">-- Escolher serviço do catálogo --</option>
-                  {catalogServices.map((c) => (
-                    <option key={c.id} value={c.gestaoClickCode}>
+<option value="">-- Escolher serviço do catálogo --</option>
+                  {catalogServices.map((c) =>(
+<option key={c.id} value={c.gestaoClickCode}>
                       {c.gestaoClickCode} — {c.name.slice(0, 48)} ({formatBRL(c.monthlyRentalPrice)})
-                    </option>
+</option>
                   ))}
-                </select>
-                <button
+</select>
+<button
                   type="button"
                   onClick={handleAddServiceFromCatalog}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-normal cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> + Adicionar Serviço
-                </button>
-              </div>
-            </div>
+<Plus className="w-3.5 h-3.5" />+ Adicionar Serviço
+</button>
+</div>
+</div>
 
-            <div className="p-4 space-y-3">
+<div className="p-4 space-y-3">
               {serviceItemsWithIdx.length === 0 ? (
-                <div className="text-center py-4 text-slate-400 text-xs">
-                  Nenhum serviço técnico incluído neste orçamento. Clique em <strong>+ Adicionar Serviço</strong> para incluir instalação, suporte NOC ou link SCM.
-                </div>
+<div className="text-center py-4 text-slate-400 text-xs">
+                  Nenhum serviço técnico incluído neste orçamento. Clique em <span>+ Adicionar Serviço</span> para incluir instalação, suporte NOC ou link SCM.
+</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2 px-2 w-28">Código</th>
-                        <th className="py-2 px-2">Serviço / Escopo Técnico</th>
-                        <th className="py-2 px-2 w-28">Recorrência</th>
-                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
-                        <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
-                        <th className="py-2 px-2 w-20 text-right">Desc. %</th>
-                        <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
-                        <th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
-                        <th className="py-2 px-1 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {serviceItemsWithIdx.map(({ item, idx }) => (
-                        <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                          <td className="py-2 px-2">
-                            <input
+<div className="overflow-x-auto">
+<table className="w-full text-left text-xs">
+<thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
+<tr>
+<th className="py-2 px-2 w-28">Código</th>
+<th className="py-2 px-2">Serviço / Escopo Técnico</th>
+<th className="py-2 px-2 w-28">Recorrência</th>
+<th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
+<th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
+<th className="py-2 px-2 w-20 text-right">Desc. %</th>
+<th className="py-2 px-2 w-24 text-right">Desc. R$</th>
+<th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
+<th className="py-2 px-1 w-10"></th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-100">
+                      {serviceItemsWithIdx.map(({ item, idx }) =>(
+<tr key={item.id || idx} className="hover:bg-slate-50/70">
+<td className="py-2 px-2">
+<input
                               type="text"
                               value={item.sku}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = { ...copy[idx], sku: e.target.value };
                                 updateDraft({ items: copy });
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 font-mono text-[11px]"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="text"
                               value={item.description}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = { ...copy[idx], description: e.target.value };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 font-normal"
                             />
-                          </td>
+</td>
 
-                          <td className="py-2 px-2">
-                            <select
+<td className="py-2 px-2">
+<select
                               value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const isRec = e.target.value === 'MENSAL';
                                 const copy = [...draft.items];
                                 copy[idx] = {
@@ -1582,16 +1582,16 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
                             >
-                              <option value="MENSAL">Mensal (MRR)</option>
-                              <option value="UNICO">Taxa Única / Setup</option>
-                            </select>
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+<option value="MENSAL">Mensal (MRR)</option>
+<option value="UNICO">Taxa Única / Setup</option>
+</select>
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={1}
                               value={item.quantity}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1599,16 +1599,16 @@ export function ProposalEditModal({
                                 };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-bold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-normal"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               step="0.01"
                               value={item.unitPrice}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1616,17 +1616,17 @@ export function ProposalEditModal({
                                 };
                                 updateDraft({ items: copy });
                               }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-semibold"
+                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-normal"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               max={100}
                               step="0.1"
                               value={item.discountPercent || 0}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1636,14 +1636,14 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 text-right"
                             />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
+</td>
+<td className="py-2 px-2">
+<input
                               type="number"
                               min={0}
                               step="0.01"
                               value={item.discountAmount || 0}
-                              onChange={(e) => {
+                              onChange={(e) =>{
                                 const copy = [...draft.items];
                                 copy[idx] = {
                                   ...copy[idx],
@@ -1653,60 +1653,60 @@ export function ProposalEditModal({
                               }}
                               className="w-full px-2 py-1 rounded border border-slate-300 text-right"
                             />
-                          </td>
-                          <td className="py-2 px-2 text-right font-extrabold text-indigo-900">
+</td>
+<td className="py-2 px-2 text-right font-normal text-indigo-900">
                             {formatBRL(item.subtotal ?? item.totalMonthly)}
-                          </td>
-                          <td className="py-2 px-1 text-right">
-                            <button
+</td>
+<td className="py-2 px-1 text-right">
+<button
                               type="button"
-                              disabled={draft.items.length <= 1}
+                              disabled={draft.items.length<= 1}
                               onClick={() =>
                                 updateDraft({
-                                  items: draft.items.filter((_, i) => i !== idx),
+                                  items: draft.items.filter((_, i) =>i !== idx),
                                 })
                               }
                               className="p-1.5 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 cursor-pointer"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
+<Trash2 className="w-3.5 h-3.5" />
+</button>
+</td>
+</tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+</tbody>
+</table>
+</div>
               )}
-              <div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
-                <span>
+<div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
+<span>
                   Subtotal Serviços Técnicos:{' '}
-                  <strong className="text-indigo-800 text-sm">
+<span className="text-indigo-800 text-sm">
                     {formatBRL(draft.servicesSubtotal || 0)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
+</span>
+</span>
+</div>
+</div>
+</div>
 
           {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-[#1e3a6e]" />
-              <div>
-                <div className="text-sm font-bold text-slate-800">
-                  4. Transporte / <span className="text-[#1e3a6e]">Frete e Endereço de Entrega</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
+<Truck className="w-4 h-4 text-[#1e3a6e]" />
+<div>
+<div className="text-sm font-normal text-slate-800">
+                  4. Transporte /<span className="text-[#1e3a6e]">Frete e Endereço de Entrega</span>
+</div>
+<div className="text-[11px] text-slate-500">
                   Transportadora, valor do frete, endereço de instalação e índice de reajuste contratual.
-                </div>
-              </div>
-            </div>
-            <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
-              <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+</div>
+</div>
+<div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Prazo de Entrega / Ativação
-                </label>
-                <input
+</label>
+<input
                   type="text"
                   list="proposal-delivery-leadtime-options"
                   placeholder="Informe o prazo de entrega..."
@@ -1717,29 +1717,29 @@ export function ProposalEditModal({
                       deliveryForecast: e.target.value,
                     })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                 />
-              </div>
-              <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Transportadora / Modalidade de Envio
-                </label>
-                <select
+</label>
+<select
                   value={draft.shippingCarrier || 'Frota Própria Seta Telecom'}
-                  onChange={(e) => updateDraft({ shippingCarrier: e.target.value })}
+                  onChange={(e) =>updateDraft({ shippingCarrier: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                 >
-                  <option value="Frota Própria Seta Telecom">Frota Própria Seta Telecom (Técnico)</option>
-                  <option value="Correios / SEDEX">Correios / SEDEX Empresarial</option>
-                  <option value="Transportadora Braspress">Transportadora Braspress</option>
-                  <option value="Sem Frete (Digital/Remoto)">Sem Frete (Ativação Remota / Cloud)</option>
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<option value="Frota Própria Seta Telecom">Frota Própria Seta Telecom (Técnico)</option>
+<option value="Correios / SEDEX">Correios / SEDEX Empresarial</option>
+<option value="Transportadora Braspress">Transportadora Braspress</option>
+<option value="Sem Frete (Digital/Remoto)">Sem Frete (Ativação Remota / Cloud)</option>
+</select>
+</div>
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Valor do Frete (R$)
-                </label>
-                <input
+</label>
+<input
                   type="number"
                   min={0}
                   step="0.01"
@@ -1747,63 +1747,63 @@ export function ProposalEditModal({
                   onChange={(e) =>
                     updateDraft({ shippingCost: Math.max(0, Number(e.target.value) || 0) })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 text-right font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 text-right font-normal"
                 />
-              </div>
-              <div className="sm:col-span-4">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+<div className="sm:col-span-4">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Endereço de Entrega / Instalação
-                </label>
-                <input
+</label>
+<input
                   type="text"
                   value={draft.deliveryAddress || ''}
-                  onChange={(e) => updateDraft({ deliveryAddress: e.target.value })}
+                  onChange={(e) =>updateDraft({ deliveryAddress: e.target.value })}
                   placeholder="Ex: Av. Paulista, 1000 — Bela Vista, São Paulo/SP"
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
-              </div>
+</div>
 
-            </div>
-          </div>
+</div>
+</div>
 
           {/* BLOCO 5: TOTALIZADORES E CONDIÇÃO DE PAGAMENTO / PARCELAS */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-[#1e3a6e]" />
-              <div>
-                <div className="text-sm font-bold text-slate-800">
-                  5. Totalizadores &amp; <span className="text-[#1e3a6e]">Condição de Pagamento / Parcelas</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
+<Calculator className="w-4 h-4 text-[#1e3a6e]" />
+<div>
+<div className="text-sm font-normal text-slate-800">
+                  5. Totalizadores &amp;<span className="text-[#1e3a6e]">Condição de Pagamento / Parcelas</span>
+</div>
+<div className="text-[11px] text-slate-500">
                   Resumo financeiro em tempo real e gerador automático de cronograma de parcelas.
-                </div>
-              </div>
-            </div>
+</div>
+</div>
+</div>
 
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-8 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+<div className="p-5 space-y-4">
+<div className="grid grid-cols-2 sm:grid-cols-8 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Subtotal Produtos
-                  </span>
-                  <strong className="text-xs font-extrabold text-slate-900">
+</span>
+<span className="text-xs font-normal text-slate-900">
                     {formatBRL(draft.productsSubtotal || 0)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+</span>
+</div>
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Subtotal Serviços
-                  </span>
-                  <strong className="text-xs font-extrabold text-indigo-900">
+</span>
+<span className="text-xs font-normal text-indigo-900">
                     {formatBRL(draft.servicesSubtotal || 0)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+</span>
+</div>
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Desconto Global (R$ / %)
-                  </span>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <input
+</span>
+<div className="flex items-center gap-1 mt-0.5">
+<input
                       type="number"
                       min={0}
                       step="0.01"
@@ -1814,7 +1814,7 @@ export function ProposalEditModal({
                       title="Desconto Global R$"
                       className="w-16 px-1.5 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
-                    <input
+<input
                       type="number"
                       min={0}
                       max={100}
@@ -1828,61 +1828,61 @@ export function ProposalEditModal({
                       title="Desconto Global %"
                       className="w-12 px-1 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
-                    <span className="text-[10px] text-slate-500">%</span>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+<span className="text-[10px] text-slate-500">%</span>
+</div>
+</div>
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Total Descontos
-                  </span>
-                  <strong className="text-xs font-bold text-rose-600">
+</span>
+<span className="text-xs font-normal text-rose-600">
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+</span>
+</div>
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Setup Único (Isolado)
-                  </span>
-                  <strong className="text-xs font-extrabold text-amber-800">
+</span>
+<span className="text-xs font-normal text-amber-800">
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+</span>
+</div>
+<div>
+<span className="text-[10px] uppercase font-normal text-slate-500 block">
                     Frete (Isolado)
-                  </span>
-                  <strong className="text-xs font-bold text-slate-800">
+</span>
+<span className="text-xs font-normal text-slate-800">
                     {formatBRL(draft.shippingCost || 0)}
-                  </strong>
-                </div>
-                <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
-                  <span className="text-[10px] uppercase font-extrabold text-emerald-700 block">
+</span>
+</div>
+<div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
+<span className="text-[10px] uppercase font-normal text-emerald-700 block">
                     Valor Mensal
-                  </span>
-                  <strong className="text-sm font-black text-emerald-800">
+</span>
+<span className="text-sm font-normal text-emerald-800">
                     {formatBRL(draft.monthlyRecurringTotal)}
-                  </strong>
-                </div>
-                <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
-                  <span className="text-[10px] uppercase font-bold text-emerald-300 block">
+</span>
+</div>
+<div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
+<span className="text-[10px] uppercase font-normal text-emerald-300 block">
                     Total / TCV ({draft.contractMonths}m)
-                  </span>
-                  <strong className="text-sm font-black text-white">
+</span>
+<span className="text-sm font-normal text-white">
                     {formatBRL(draft.totalContractValue)}
-                  </strong>
-                </div>
-              </div>
+</span>
+</div>
+</div>
 
               {/* GERADOR AUTOMÁTICO DE PARCELAS */}
-              <div className="border border-slate-200 rounded-lg p-3.5 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-[#1e3a6e]" />
-                    <span className="font-extrabold text-slate-800">
+<div className="border border-slate-200 rounded-lg p-3.5 space-y-3">
+<div className="flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-1.5">
+<Calendar className="w-4 h-4 text-[#1e3a6e]" />
+<span className="font-normal text-slate-800">
                       Gerador de Parcelas e Vencimentos (Padrão GestãoClick)
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
+</span>
+</div>
+<div className="flex flex-wrap items-center gap-1.5">
                     {[
                       { label: 'À Vista', n: 1 },
                       { label: '2x', n: 2 },
@@ -1891,122 +1891,122 @@ export function ProposalEditModal({
                       { label: '12x', n: 12 },
                       { label: '24x', n: 24 },
                       { label: '36x', n: 36 },
-                    ].map((preset) => (
-                      <button
+                    ].map((preset) =>(
+<button
                         key={preset.n}
                         type="button"
-                        onClick={() => handleGenerateInstallments(preset.n)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border ${
+                        onClick={() =>handleGenerateInstallments(preset.n)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-normal cursor-pointer border ${
                           installmentCount === preset.n
                             ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
                         {preset.label}
-                      </button>
+</button>
                     ))}
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Nº Parcelas
-                    </label>
-                    <input
+</label>
+<input
                       type="number"
                       min={1}
                       max={60}
                       value={installmentCount}
-                      onChange={(e) => setInstallmentCount(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 font-bold"
+                      onChange={(e) =>setInstallmentCount(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Forma de Pagamento
-                    </label>
-                    <select
+</label>
+<select
                       value={defaultPaymentMethod}
-                      onChange={(e) => setDefaultPaymentMethod(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold"
+                      onChange={(e) =>setDefaultPaymentMethod(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-normal"
                     >
-                      <option value="BOLETO">Boleto Bancário Híbrido PIX</option>
-                      <option value="PIX">PIX Empresarial</option>
-                      <option value="TED">TED / Transferência Bancária</option>
-                      <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                      <option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+<option value="BOLETO">Boleto Bancário Híbrido PIX</option>
+<option value="PIX">PIX Empresarial</option>
+<option value="TED">TED / Transferência Bancária</option>
+<option value="CARTAO_CREDITO">Cartão de Crédito</option>
+<option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
+</select>
+</div>
+<div className="sm:col-span-2">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                       1º Vencimento
-                    </label>
-                    <input
+</label>
+<input
                       type="date"
                       value={firstDueDate}
-                      onChange={(e) => setFirstDueDate(e.target.value)}
+                      onChange={(e) =>setFirstDueDate(e.target.value)}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+<div className="sm:col-span-3">
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                       Resumo da Condição de Pagamento
-                    </label>
-                    <input
+</label>
+<input
                       type="text"
                       value={draft.paymentCondition}
-                      onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
+                      onChange={(e) =>updateDraft({ paymentCondition: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <button
+</div>
+<div className="sm:col-span-2">
+<button
                       type="button"
-                      onClick={() => handleGenerateInstallments()}
-                      className="w-full px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs cursor-pointer"
+                      onClick={() =>handleGenerateInstallments()}
+                      className="w-full px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-normal text-xs cursor-pointer"
                     >
                       Gerar Parcelas
-                    </button>
-                  </div>
-                </div>
+</button>
+</div>
+</div>
 
-                {Array.isArray(draft.installments) && draft.installments.length > 0 && (
-                  <div className="overflow-x-auto pt-2">
-                    <table className="w-full text-left text-xs border border-slate-200 rounded">
-                      <thead className="bg-slate-100 text-slate-600 uppercase text-[10px]">
-                        <tr>
-                          <th className="py-1.5 px-2.5 w-16">Parcela</th>
-                          <th className="py-1.5 px-2.5 w-36">Vencimento</th>
-                          <th className="py-1.5 px-2.5 w-36">Valor (R$)</th>
-                          <th className="py-1.5 px-2.5 w-48">Forma de Pagamento</th>
-                          <th className="py-1.5 px-2.5">Observação</th>
-                          <th className="py-1.5 px-2 w-10"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {draft.installments.map((inst, idx) => (
-                          <tr key={idx}>
-                            <td className="py-1.5 px-2.5 font-mono font-bold">#{inst.number}</td>
-                            <td className="py-1.5 px-2.5">
-                              <input
+                {Array.isArray(draft.installments) && draft.installments.length >0 && (
+<div className="overflow-x-auto pt-2">
+<table className="w-full text-left text-xs border border-slate-200 rounded">
+<thead className="bg-slate-100 text-slate-600 uppercase text-[10px]">
+<tr>
+<th className="py-1.5 px-2.5 w-16">Parcela</th>
+<th className="py-1.5 px-2.5 w-36">Vencimento</th>
+<th className="py-1.5 px-2.5 w-36">Valor (R$)</th>
+<th className="py-1.5 px-2.5 w-48">Forma de Pagamento</th>
+<th className="py-1.5 px-2.5">Observação</th>
+<th className="py-1.5 px-2 w-10"></th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-100">
+                        {draft.installments.map((inst, idx) =>(
+<tr key={idx}>
+<td className="py-1.5 px-2.5 font-mono font-normal">#{inst.number}</td>
+<td className="py-1.5 px-2.5">
+<input
                                 type="date"
                                 value={inst.dueDate}
-                                onChange={(e) => {
+                                onChange={(e) =>{
                                   const copy = [...(draft.installments || [])];
                                   copy[idx] = { ...copy[idx], dueDate: e.target.value };
                                   updateDraft({ installments: copy });
                                 }}
                                 className="w-full px-2 py-1 rounded border border-slate-300"
                               />
-                            </td>
-                            <td className="py-1.5 px-2.5">
-                              <input
+</td>
+<td className="py-1.5 px-2.5">
+<input
                                 type="number"
                                 min={0}
                                 step="0.01"
                                 value={inst.amount}
-                                onChange={(e) => {
+                                onChange={(e) =>{
                                   const copy = [...(draft.installments || [])];
                                   copy[idx] = {
                                     ...copy[idx],
@@ -2014,148 +2014,148 @@ export function ProposalEditModal({
                                   };
                                   updateDraft({ installments: copy });
                                 }}
-                                className="w-full px-2 py-1 rounded border border-slate-300 text-right font-bold"
+                                className="w-full px-2 py-1 rounded border border-slate-300 text-right font-normal"
                               />
-                            </td>
-                            <td className="py-1.5 px-2.5">
-                              <select
+</td>
+<td className="py-1.5 px-2.5">
+<select
                                 value={inst.paymentMethod}
-                                onChange={(e) => {
+                                onChange={(e) =>{
                                   const copy = [...(draft.installments || [])];
                                   copy[idx] = { ...copy[idx], paymentMethod: e.target.value };
                                   updateDraft({ installments: copy });
                                 }}
                                 className="w-full px-2 py-1 rounded border border-slate-300 bg-white"
                               >
-                                <option value="BOLETO">Boleto Bancário</option>
-                                <option value="PIX">PIX Empresarial</option>
-                                <option value="TED">TED Bancária</option>
-                                <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                                <option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
-                              </select>
-                            </td>
-                            <td className="py-1.5 px-2.5">
-                              <input
+<option value="BOLETO">Boleto Bancário</option>
+<option value="PIX">PIX Empresarial</option>
+<option value="TED">TED Bancária</option>
+<option value="CARTAO_CREDITO">Cartão de Crédito</option>
+<option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
+</select>
+</td>
+<td className="py-1.5 px-2.5">
+<input
                                 type="text"
                                 value={inst.notes || ''}
-                                onChange={(e) => {
+                                onChange={(e) =>{
                                   const copy = [...(draft.installments || [])];
                                   copy[idx] = { ...copy[idx], notes: e.target.value };
                                   updateDraft({ installments: copy });
                                 }}
                                 className="w-full px-2 py-1 rounded border border-slate-300"
                               />
-                            </td>
-                            <td className="py-1.5 px-2 text-right">
-                              <button
+</td>
+<td className="py-1.5 px-2 text-right">
+<button
                                 type="button"
-                                onClick={() => {
-                                  const copy = (draft.installments || []).filter((_, i) => i !== idx);
+                                onClick={() =>{
+                                  const copy = (draft.installments || []).filter((_, i) =>i !== idx);
                                   updateDraft({ installments: copy });
                                 }}
                                 className="text-rose-600 hover:text-rose-800 cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
+<Trash2 className="w-3.5 h-3.5" />
+</button>
+</td>
+</tr>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+</tbody>
+</table>
+</div>
                 )}
-              </div>
-            </div>
-          </div>
+</div>
+</div>
+</div>
 
           {/* BLOCO 6: OBSERVAÇÕES COMERCIAIS/FISCAIS E OBSERVAÇÕES INTERNAS */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
+<div className="text-sm font-normal text-slate-800">
                 6. Observações Comerciais, <span className="text-[#1e3a6e]">Cláusulas SLA &amp; Notas Internas</span>
-              </div>
-              <div className="text-[11px] text-slate-500">
+</div>
+<div className="text-[11px] text-slate-500">
                 Observações impressas no PDF A4 do cliente e anotações de uso exclusivo interno.
-              </div>
-            </div>
-            <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+</div>
+<div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+<div>
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Observações Comerciais &amp; Fiscais (Sai no PDF)
-                </label>
-                <textarea
+</label>
+<textarea
                   rows={3}
                   value={draft.commercialNotes}
-                  onChange={(e) => updateDraft({ commercialNotes: e.target.value })}
+                  onChange={(e) =>updateDraft({ commercialNotes: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+</div>
+<div>
+<label className="block text-[11px] font-normal text-slate-700 mb-1">
                   Cláusulas Técnicas, Remessa CFOP 5.908 &amp; SLA (Sai no PDF)
-                </label>
-                <textarea
+</label>
+<textarea
                   rows={3}
                   value={draft.technicalClauses}
-                  onChange={(e) => updateDraft({ technicalClauses: e.target.value })}
+                  onChange={(e) =>updateDraft({ technicalClauses: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-amber-800 mb-1">
+</div>
+<div>
+<label className="block text-[11px] font-normal text-amber-800 mb-1">
                   Observações Internas (Uso exclusivo interno — NÃO sai no PDF)
-                </label>
-                <textarea
+</label>
+<textarea
                   rows={3}
                   value={draft.internalNotes || ''}
-                  onChange={(e) => updateDraft({ internalNotes: e.target.value })}
+                  onChange={(e) =>updateDraft({ internalNotes: e.target.value })}
                   placeholder="Anotações confidenciais da negociação, margem ou aprovação..."
                   className="w-full px-3 py-2 rounded border border-amber-300 bg-amber-50/30"
                 />
-              </div>
-            </div>
-          </div>
+</div>
+</div>
+</div>
 
           {/* BLOCO 7: VERSÕES DA PROPOSTA (SIMPLES, DIRETO E COM OS 3 BOTÕES: ABRIR TELA, PDF E RESTAURAR) */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-[#1e3a6e] text-white flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-emerald-300" />
-                <div>
-                  <div className="text-sm font-extrabold flex items-center gap-2">
-                    <span>Versões da Proposta ({versionHistoryList.length})</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black">
+<div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
+<div className="px-5 py-3 bg-[#1e3a6e] text-white flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-2">
+<History className="w-4 h-4 text-emerald-300" />
+<div>
+<div className="text-sm font-normal flex items-center gap-2">
+<span>Versões da Proposta ({versionHistoryList.length})</span>
+<span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-normal">
                       Versão Atual: Versão {draft.version || 1}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-200">
+</span>
+</div>
+<div className="text-[11px] text-slate-200">
                     Abra a tela de qualquer versão anterior, gere o PDF A4 ou restaure em 1 clique.
-                  </div>
-                </div>
-              </div>
-              <button
+</div>
+</div>
+</div>
+<button
                 type="button"
-                onClick={() => setShowVersionHistoryPanel((v) => !v)}
-                className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+                onClick={() =>setShowVersionHistoryPanel((v) =>!v)}
+                className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-normal cursor-pointer"
               >
                 {showVersionHistoryPanel ? "Ocultar Versões ▲" : `Ver Versões (${versionHistoryList.length}) ▼`}
-              </button>
-            </div>
+</button>
+</div>
 
             {showVersionHistoryPanel && (
-              <div className="p-4 space-y-3">
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2.5 px-3 w-36">Versão</th>
-                        <th className="py-2.5 px-3 w-48">Data / Hora &amp; Responsável</th>
-                        <th className="py-2.5 px-3">Valor Mensal / Resumo</th>
-                        <th className="py-2.5 px-3 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {versionHistoryList.map((ver, idx) => {
+<div className="p-4 space-y-3">
+<div className="border border-slate-200 rounded-lg overflow-hidden">
+<table className="w-full text-left text-xs">
+<thead className="bg-slate-100 text-slate-700 font-normal uppercase text-[10px] border-b border-slate-200">
+<tr>
+<th className="py-2.5 px-3 w-36">Versão</th>
+<th className="py-2.5 px-3 w-48">Data / Hora &amp; Responsável</th>
+<th className="py-2.5 px-3">Valor Mensal / Resumo</th>
+<th className="py-2.5 px-3 text-right">Ações</th>
+</tr>
+</thead>
+<tbody className="divide-y divide-slate-200">
+                      {versionHistoryList.map((ver, idx) =>{
                         const isCurrentVer = idx === 0;
                         const snap = ver.snapshot;
                         const savedDateFormatted = ver.savedAt
@@ -2165,195 +2165,195 @@ export function ProposalEditModal({
                         const pdfUrl = buildProposalVersionUrl(draft, ver, { autoPrint: true });
 
                         return (
-                          <tr
+<tr
                             key={`${ver.version}-${ver.savedAt}`}
                             className={isCurrentVer ? "bg-emerald-50/40" : "hover:bg-slate-50"}
                           >
-                            <td className="py-3 px-3">
-                              <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-xs text-[#0d2b4e]">
+<td className="py-3 px-3">
+<div className="flex items-center gap-2">
+<span className="font-normal text-xs text-[#0d2b4e]">
                                   Versão {ver.version}
-                                </span>
+</span>
                                 {isCurrentVer ? (
-                                  <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold">
+<span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-normal">
                                     ATUAL
-                                  </span>
+</span>
                                 ) : (
-                                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold">
+<span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-normal">
                                     ANTERIOR
-                                  </span>
+</span>
                                 )}
-                              </div>
-                            </td>
+</div>
+</td>
 
-                            <td className="py-3 px-3 text-slate-600">
-                              <div className="font-semibold text-slate-800">{savedDateFormatted}</div>
-                              <div className="text-[10px] text-slate-500">
+<td className="py-3 px-3 text-slate-600">
+<div className="font-normal text-slate-800">{savedDateFormatted}</div>
+<div className="text-[10px] text-slate-500">
                                 {ver.savedBy || "Marcelo Lopes Mira"}
-                              </div>
-                            </td>
+</div>
+</td>
 
-                            <td className="py-3 px-3">
-                              <div className="font-extrabold text-emerald-700">
+<td className="py-3 px-3">
+<div className="font-normal text-emerald-700">
                                 {formatBRL(snap.monthlyRecurringTotal || 0)}/mês •{" "}
                                 {(snap.items || []).length}{" "}
                                 {(snap.items || []).length === 1 ? "item" : "itens"} •{" "}
                                 {snap.contractMonths} meses
-                              </div>
-                              <div className="text-[11px] text-slate-600">{ver.changeSummary}</div>
-                            </td>
+</div>
+<div className="text-[11px] text-slate-600">{ver.changeSummary}</div>
+</td>
 
-                            <td className="py-3 px-3 text-right">
-                              <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                                <a
+<td className="py-3 px-3 text-right">
+<div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+<a
                                   href={screenUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-normal"
                                 >
-                                  <ExternalLink className="w-3 h-3" />
-                                  <span>Abrir Tela da Versão</span>
-                                </a>
+<ExternalLink className="w-3 h-3" />
+<span>Abrir Tela da Versão</span>
+</a>
 
-                                <a
+<a
                                   href={pdfUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-normal"
                                 >
-                                  <Printer className="w-3 h-3" />
-                                  <span>Baixar / Imprimir PDF</span>
-                                </a>
+<Printer className="w-3 h-3" />
+<span>Baixar / Imprimir PDF</span>
+</a>
 
-                                <button
+<button
                                   type="button"
                                   disabled={restoringVersionNum === ver.version}
-                                  onClick={() => handleLoadVersionSnapshotIntoForm(ver)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                                  onClick={() =>handleLoadVersionSnapshotIntoForm(ver)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-normal cursor-pointer disabled:opacity-50"
                                 >
-                                  <RotateCcw className="w-3 h-3 text-emerald-300" />
-                                  <span>Restaurar esta versão</span>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+<RotateCcw className="w-3 h-3 text-emerald-300" />
+<span>Restaurar esta versão</span>
+</button>
+</div>
+</td>
+</tr>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+</tbody>
+</table>
+</div>
+</div>
             )}
-          </div>
+</div>
 
           {/* RODAPÉ FIXO DO GESTÃOCLICK */}
-          <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
+<div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
+<div className="flex flex-wrap items-center gap-2">
+<button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Cancelar
-              </button>
+</button>
               {!isNew && onGenerateContract && (
-                <button
+<button
                   type="button"
-                  onClick={() => onGenerateContract(draft)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                  onClick={() =>onGenerateContract(draft)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-normal shadow-xs cursor-pointer"
                 >
-                  <FileCheck2 className="w-4 h-4" />
-                  <span>Gerar Contrato</span>
-                </button>
+<FileCheck2 className="w-4 h-4" />
+<span>Gerar Contrato</span>
+</button>
               )}
-            </div>
+</div>
 
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="text-right">
-                <span className="block text-[10px] text-slate-500">
-                  MRR Mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
-                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
-                  <strong>{formatBRL(draft.shippingCost || 0)}</strong>
-                </span>
-                <strong className="text-base font-black text-[#1e3a6e]">
+<div className="flex flex-wrap items-center gap-4">
+<div className="text-right">
+<span className="block text-[10px] text-slate-500">
+                  MRR Mensal: <span>{formatBRL(draft.monthlyRecurringTotal)}/mês</span>• Setup:{' '}
+<span>{formatBRL(draft.oneTimeSetupTotal)}</span>• Frete:{' '}
+<span>{formatBRL(draft.shippingCost || 0)}</span>
+</span>
+<span className="text-base font-normal text-[#1e3a6e]">
                   Valor Global ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
-                </strong>
-              </div>
-              <button
+</span>
+</div>
+<button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm cursor-pointer"
               >
-                <Save className="w-4 h-4" />
+<Save className="w-4 h-4" />
                 {saving
                   ? 'Salvando...'
                   : isNew
                     ? 'Cadastrar Orçamento & Gerar Link PDF A4'
                     : 'Salvar Alterações & Atualizar Link PDF'}
-              </button>
-            </div>
-          </div>
-        </form>
+</button>
+</div>
+</div>
+</form>
 
         {/* MODAL SOBREPOSTO INLINE: "+ ADICIONAR NOVO" CLIENTE DIRETO NA TELA DE PROPOSTA (SEM PERDER O ORÇAMENTO) */}
         {showQuickClientModal && (
-          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
-            <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-6 text-xs">
-              <div className="px-5 py-3.5 bg-[#10b981] text-white flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5" />
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 block">
+<div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+<div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-6 text-xs">
+<div className="px-5 py-3.5 bg-[#10b981] text-white flex items-center justify-between">
+<div className="flex items-center gap-2">
+<Building2 className="w-5 h-5" />
+<div>
+<span className="text-[10px] font-normal uppercase tracking-wider text-emerald-100 block">
                       Cadastro Rápido Integrado ao Orçamento (Receita Federal + GestãoClick)
-                    </span>
-                    <h3 className="text-sm font-extrabold">
+</span>
+<h3 className="text-sm font-semibold">
                       + Adicionar Novo Cliente e Vincular Automaticamente à Proposta
-                    </h3>
-                  </div>
-                </div>
-                <button
+</h3>
+</div>
+</div>
+<button
                   type="button"
-                  onClick={() => setShowQuickClientModal(false)}
+                  onClick={() =>setShowQuickClientModal(false)}
                   className="text-white/80 hover:text-white cursor-pointer"
                 >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+<X className="w-5 h-5" />
+</button>
+</div>
 
-              <div className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
+<div className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
                 {qcRfbBanner && (
-                  <div className="p-3 rounded bg-emerald-950 text-emerald-300 border border-emerald-500 font-bold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>{qcRfbBanner}</span>
-                  </div>
+<div className="p-3 rounded bg-emerald-950 text-emerald-300 border border-emerald-500 font-normal flex items-center gap-2">
+<CheckCircle2 className="w-4 h-4 shrink-0" />
+<span>{qcRfbBanner}</span>
+</div>
                 )}
                 {qcErrorMsg && (
-                  <div className="p-3 rounded bg-rose-50 text-rose-800 border border-rose-300 font-bold flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>{qcErrorMsg}</span>
-                  </div>
+<div className="p-3 rounded bg-rose-50 text-rose-800 border border-rose-300 font-normal flex items-center gap-2">
+<AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+<span>{qcErrorMsg}</span>
+</div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                  <div className="sm:col-span-3">
-                    <label className="block font-bold text-slate-700 mb-1">Tipo de Pessoa</label>
-                    <select
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+<div className="sm:col-span-3">
+<label className="block font-normal text-slate-700 mb-1">Tipo de Pessoa</label>
+<select
                       value={qcPersonType}
-                      onChange={(e) => setQcPersonType(e.target.value as 'PJ' | 'PF')}
-                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      onChange={(e) =>setQcPersonType(e.target.value as 'PJ' | 'PF')}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                     >
-                      <option value="PJ">Pessoa Jurídica (CNPJ)</option>
-                      <option value="PF">Pessoa Física (CPF)</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-5">
-                    <label className="block font-bold text-slate-700 mb-1">
+<option value="PJ">Pessoa Jurídica (CNPJ)</option>
+<option value="PF">Pessoa Física (CPF)</option>
+</select>
+</div>
+<div className="sm:col-span-5">
+<label className="block font-normal text-slate-700 mb-1">
                       {qcPersonType === 'PF' ? 'CPF *' : 'CNPJ *'}
-                    </label>
-                    <input
+</label>
+<input
                       type="text"
                       value={qcCnpjCpf}
-                      onChange={(e) => {
+                      onChange={(e) =>{
                         const raw = e.target.value;
                         const digits = raw.replace(/\D+/g, '');
                         const formatted =
@@ -2364,166 +2364,166 @@ export function ProposalEditModal({
                         }
                       }}
                       placeholder={qcPersonType === 'PF' ? '000.000.000-00' : '00.000.000/0001-00'}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal text-slate-900"
                     />
-                  </div>
-                  <div className="sm:col-span-4">
-                    <button
+</div>
+<div className="sm:col-span-4">
+<button
                       type="button"
                       disabled={qcLookingUpRfb || qcPersonType === 'PF'}
-                      onClick={() => handleLookupQuickClientRfb(qcCnpjCpf)}
-                      className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      onClick={() =>handleLookupQuickClientRfb(qcCnpjCpf)}
+                      className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                     >
-                      <Search className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>{qcLookingUpRfb ? 'Consultando RFB...' : 'Consultar Receita Federal'}</span>
-                    </button>
-                  </div>
-                </div>
+<Search className="w-3.5 h-3.5 text-emerald-300" />
+<span>{qcLookingUpRfb ? 'Consultando RFB...' : 'Consultar Receita Federal'}</span>
+</button>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">
                       Razão Social / Nome Completo *
-                    </label>
-                    <input
+</label>
+<input
                       type="text"
                       value={qcLegalName}
-                      onChange={(e) => setQcLegalName(e.target.value)}
+                      onChange={(e) =>setQcLegalName(e.target.value)}
                       placeholder="Ex.: Digisystem Serviços Especializados LTDA"
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-slate-900"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nome Fantasia</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nome Fantasia</label>
+<input
                       type="text"
                       value={qcTradeName}
-                      onChange={(e) => setQcTradeName(e.target.value)}
+                      onChange={(e) =>setQcTradeName(e.target.value)}
                       placeholder="Ex.: Digisystem Tecnologia"
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Inscrição Estadual</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Inscrição Estadual</label>
+<input
                       type="text"
                       value={qcIe}
-                      onChange={(e) => setQcIe(e.target.value)}
+                      onChange={(e) =>setQcIe(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Telefone / WhatsApp</label>
+<input
                       type="text"
                       value={qcPhone}
-                      onChange={(e) => setQcPhone(formatBrPhoneMask(e.target.value))}
+                      onChange={(e) =>setQcPhone(formatBrPhoneMask(e.target.value))}
                       placeholder="(11) 90000-0000"
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail Comercial / NFe</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">E-mail Comercial / NFe</label>
+<input
                       type="email"
                       value={qcEmail}
-                      onChange={(e) => setQcEmail(e.target.value)}
+                      onChange={(e) =>setQcEmail(e.target.value)}
                       placeholder="contato@empresa.com.br"
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <div className="sm:col-span-3">
-                    <label className="block font-bold text-slate-700 mb-1">CEP</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+<div className="sm:col-span-3">
+<label className="block font-normal text-slate-700 mb-1">CEP</label>
+<input
                       type="text"
                       value={qcCep}
-                      onChange={(e) => setQcCep(e.target.value)}
+                      onChange={(e) =>setQcCep(e.target.value)}
                       placeholder="00000-000"
                       className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                  </div>
-                  <div className="sm:col-span-5">
-                    <label className="block font-bold text-slate-700 mb-1">Logradouro</label>
-                    <input
+</div>
+<div className="sm:col-span-5">
+<label className="block font-normal text-slate-700 mb-1">Logradouro</label>
+<input
                       type="text"
                       value={qcStreet}
-                      onChange={(e) => setQcStreet(e.target.value)}
+                      onChange={(e) =>setQcStreet(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Número</label>
-                    <input
+</div>
+<div className="sm:col-span-2">
+<label className="block font-normal text-slate-700 mb-1">Número</label>
+<input
                       type="text"
                       value={qcNumber}
-                      onChange={(e) => setQcNumber(e.target.value)}
+                      onChange={(e) =>setQcNumber(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">UF</label>
-                    <input
+</div>
+<div className="sm:col-span-2">
+<label className="block font-normal text-slate-700 mb-1">UF</label>
+<input
                       type="text"
                       value={qcState}
-                      onChange={(e) => setQcState(e.target.value.toUpperCase())}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      onChange={(e) =>setQcState(e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Cidade</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Cidade</label>
+<input
                       type="text"
                       value={qcCity}
-                      onChange={(e) => setQcCity(e.target.value)}
+                      onChange={(e) =>setQcCity(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">
                       Aos cuidados de (Contato na Proposta)
-                    </label>
-                    <input
+</label>
+<input
                       type="text"
                       value={qcCareOf}
-                      onChange={(e) => setQcCareOf(e.target.value)}
+                      onChange={(e) =>setQcCareOf(e.target.value)}
                       placeholder="Ex.: Diretoria de TI / Compras"
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                  <button
+<div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+<button
                     type="button"
-                    onClick={() => setShowQuickClientModal(false)}
-                    className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    onClick={() =>setShowQuickClientModal(false)}
+                    className="px-4 py-2 rounded border border-slate-300 font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
                     Cancelar
-                  </button>
-                  <button
+</button>
+<button
                     type="button"
                     disabled={qcSaving}
                     onClick={handleSaveAndLinkQuickClient}
-                    className="px-5 py-2 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold shadow-sm cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-normal shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     {qcSaving ? 'Salvando e Vinculando...' : 'Salvar e Vincular à Proposta'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+</button>
+</div>
+</div>
+</div>
+</div>
         )}
-      </div>
-    </div>
+</div>
+</div>
   );
 }
 
@@ -2559,17 +2559,17 @@ export function ContractEditModal({
   contract: ErpRentalContract;
   initialTab?: ContractModalTabId;
   readOnly?: boolean;
-  onClose: () => void;
-  onSave: (updated: ErpRentalContract) => Promise<void>;
-  onDelete?: (contract: ErpRentalContract) => Promise<void>;
-  onGenerateInvoice?: (contractId: string) => Promise<void>;
-  onGenerateRemessaNfe?: (contractId: string) => Promise<void>;
-  onOpenPartialReturn?: (contract: ErpRentalContract) => void;
-  onShowToast?: (msg: string) => void;
+  onClose: () =>void;
+  onSave: (updated: ErpRentalContract) =>Promise<void>;
+  onDelete?: (contract: ErpRentalContract) =>Promise<void>;
+  onGenerateInvoice?: (contractId: string) =>Promise<void>;
+  onGenerateRemessaNfe?: (contractId: string) =>Promise<void>;
+  onOpenPartialReturn?: (contract: ErpRentalContract) =>void;
+  onShowToast?: (msg: string) =>void;
 }) {
   const [activeTab, setActiveTab] = useState<ContractModalTabId>(initialTab);
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnlyProp));
-  const [draft, setDraft] = useState<ErpRentalContract>(() => ({
+  const [draft, setDraft] = useState<ErpRentalContract>(() =>({
     ...structuredClone(contract),
     modality: contract.modality || 'LOCACAO',
   }));
@@ -2603,19 +2603,19 @@ export function ContractEditModal({
 
   const sumEquipmentsMonthly = (equipments: ErpRentalEquipmentItem[]) =>
     equipments.reduce(
-      (sum, eq) => sum + Math.max(1, Number(eq.quantity || 1)) * Number(eq.unitMonthlyRent || 0),
+      (sum, eq) =>sum + Math.max(1, Number(eq.quantity || 1)) * Number(eq.unitMonthlyRent || 0),
       0
     );
 
   const sumEquipmentsPatrimony = (equipments: ErpRentalEquipmentItem[]) =>
-    equipments.reduce((sum, eq) => sum + Number(eq.assetValueBrl || 0), 0);
+    equipments.reduce((sum, eq) =>sum + Number(eq.assetValueBrl || 0), 0);
 
-  const updateEquipments = (nextEquipments: ErpRentalEquipmentItem[]) => {
+  const updateEquipments = (nextEquipments: ErpRentalEquipmentItem[]) =>{
     const computedMonthly = sumEquipmentsMonthly(nextEquipments);
-    setDraft((prev) => ({
+    setDraft((prev) =>({
       ...prev,
       equipments: nextEquipments,
-      monthlyValue: autoSyncMonthly && computedMonthly > 0 ? computedMonthly : prev.monthlyValue,
+      monthlyValue: autoSyncMonthly && computedMonthly >0 ? computedMonthly : prev.monthlyValue,
     }));
   };
 
@@ -2624,12 +2624,12 @@ export function ContractEditModal({
     unit: 'MONTHS' | 'DAYS' | 'DATES',
     monthsStr: string,
     daysStr: string
-  ) => {
+  ) =>{
     const baseStart = draft.startDate || new Date().toISOString().slice(0, 10);
     if (preset !== 'CUSTOM') {
       const m = Number(preset);
       const nextEnd = computeContractEndDate(baseStart, m);
-      setDraft((prev) => ({
+      setDraft((prev) =>({
         ...prev,
         contractMonths: m,
         endDate: nextEnd,
@@ -2640,7 +2640,7 @@ export function ContractEditModal({
     if (unit === 'MONTHS') {
       const m = Math.max(1, Number(monthsStr) || 1);
       const nextEnd = computeContractEndDate(baseStart, m);
-      setDraft((prev) => ({
+      setDraft((prev) =>({
         ...prev,
         contractMonths: m,
         endDate: nextEnd,
@@ -2651,7 +2651,7 @@ export function ContractEditModal({
       const dt = new Date(`${baseStart.slice(0, 10)}T12:00:00Z`);
       if (!Number.isNaN(dt.getTime())) {
         dt.setUTCDate(dt.getUTCDate() + d);
-        setDraft((prev) => ({
+        setDraft((prev) =>({
           ...prev,
           contractMonths: Math.max(1, Math.round(d / 30)),
           endDate: dt.toISOString().slice(0, 10),
@@ -2661,19 +2661,19 @@ export function ContractEditModal({
     }
   };
 
-  const handleConfirmRenewalAndSave = async () => {
+  const handleConfirmRenewalAndSave = async () =>{
     setSaving(true);
     try {
       const pct = Number(renewalReadjustmentPercent) || 0;
       const updatedMonthly =
-        pct > 0
+        pct >0
           ? Math.round(draft.monthlyValue * (1 + pct / 100) * 100) / 100
           : draft.monthlyValue;
       const updatedContract: ErpRentalContract = {
         ...draft,
         monthlyValue: updatedMonthly,
         status: 'ATIVO',
-        ...(pct > 0
+        ...(pct >0
           ? {
               lastReadjustmentDate: new Date().toLocaleDateString('pt-BR'),
               lastReadjustmentPercent: pct,
@@ -2690,7 +2690,7 @@ export function ContractEditModal({
     }
   };
 
-  const handleApplyReadjustmentInsideTab = async () => {
+  const handleApplyReadjustmentInsideTab = async () =>{
     setSaving(true);
     try {
       const pct = Number(readjPercentInput) || 0;
@@ -2723,7 +2723,7 @@ export function ContractEditModal({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) =>{
     e.preventDefault();
     setSaving(true);
     try {
@@ -2733,7 +2733,7 @@ export function ContractEditModal({
     }
   };
 
-  const CONTRACT_TABS: Array<{ id: ContractModalTabId; label: string }> = [
+  const CONTRACT_TABS: Array<{ id: ContractModalTabId; label: string }>= [
     { id: 'DADOS_GERAIS', label: '1. Dados Gerais & Revisão' },
     { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
     { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
@@ -2743,188 +2743,191 @@ export function ContractEditModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
-        <div className="px-5 py-3.5 bg-[#0d2b4e] text-white flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <FileCheck2 className="w-5 h-5 text-emerald-300" />
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+<div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+<div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
+<div className="px-5 py-3.5 bg-[#0d2b4e] text-white flex flex-wrap items-center justify-between gap-2">
+<div className="flex items-center gap-2.5">
+<FileCheck2 className="w-5 h-5 text-emerald-300" />
+<div>
+<span className="text-[10px] font-normal uppercase text-emerald-300 block">
                 Central do Contrato • Seta Telecom ERP (6 Abas de Gestão e Confirmação)
-              </span>
-              <h3 className="text-sm sm:text-base font-extrabold">
+</span>
+<h3 className="text-sm sm:text-base font-semibold">
                 {draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}
-              </h3>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+</h3>
+</div>
+</div>
+<div className="flex items-center gap-2">
             {isReadOnly && (
-              <button
+<button
                 type="button"
-                onClick={() => setIsReadOnly(false)}
-                className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                onClick={() =>setIsReadOnly(false)}
+                className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
               >
                 Habilitar Edição
-              </button>
+</button>
             )}
-            <button
+<button
               type="button"
               onClick={onClose}
               className="text-slate-300 hover:text-white cursor-pointer"
             >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+<X className="w-5 h-5" />
+</button>
+</div>
+</div>
 
-        <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {CONTRACT_TABS.map((tab) => {
+<div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {CONTRACT_TABS.map((tab) =>{
             const act = activeTab === tab.id;
             return (
-              <button
+<button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                onClick={() =>setActiveTab(tab.id)}
+                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-normal transition cursor-pointer ${
                   act
                     ? 'bg-[#1e3a6e] text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
                 }`}
               >
                 {tab.label}
-              </button>
+</button>
             );
           })}
-        </div>
+</div>
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+<form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
           {activeTab === 'DADOS_GERAIS' && (
-            <fieldset disabled={isReadOnly} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                  <input
+<fieldset disabled={isReadOnly} className="space-y-4">
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nº do Contrato</label>
+<input
                     type="text"
                     value={draft.contractNumber}
-                    onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                    onChange={(e) =>setDraft({ ...draft, contractNumber: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                   />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Objeto / Título do Contrato *</label>
-                  <input
+</div>
+<div className="sm:col-span-2">
+<label className="block font-normal text-slate-700 mb-1">Objeto / Título do Contrato *</label>
+<input
                     type="text"
                     required
                     value={draft.title}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    onChange={(e) =>setDraft({ ...draft, title: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Modalidade Contratual</label>
-                  <select
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Modalidade Contratual</label>
+<select
                     value={draft.modality || 'LOCACAO'}
                     onChange={(e) =>
                       setDraft({ ...draft, modality: e.target.value as ErpContractModality })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-indigo-950"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-indigo-950"
                   >
-                    <option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
-                    <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
-                    <option value="ASSINATURA">Assinatura / Telecom SCM</option>
-                    <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
-                  </select>
-                </div>
-              </div>
+<option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
+<option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
+<option value="ASSINATURA">Assinatura / Telecom SCM</option>
+<option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
+</select>
+</div>
+</div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
-                  <input
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div className="sm:col-span-2">
+<label className="block font-normal text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
+<input
                     type="text"
                     required
                     value={draft.companyName}
-                    onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    onChange={(e) =>setDraft({ ...draft, companyName: e.target.value })}
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                  <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">CNPJ</label>
+<input
                     type="text"
                     value={draft.companyCnpj}
-                    onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                    onChange={(e) =>setDraft({ ...draft, companyCnpj: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status de Vigência</label>
-                  <select
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Status de Vigência</label>
+<select
                     value={draft.status}
                     onChange={(e) =>
                       setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
-                    <option value="ATIVO">ATIVO</option>
-                    <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
-                    <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
-                    <option value="ENCERRADO">ENCERRADO</option>
-                  </select>
-                </div>
-              </div>
+<option value="ATIVO">• Ativo</option>
+<option value="FATURAMENTO">• Faturamento</option>
+<option value="EM_IMPLANTACAO">• Em Implantação</option>
+<option value="RENOVACAO_PROXIMA">• Renovação Próxima</option>
+<option value="PENDENTE_ASSINATURA">• Pendente Assinatura</option>
+<option value="SUSPENSO">• Suspenso</option>
+<option value="ENCERRADO">• Encerrado</option>
+</select>
+</div>
+</div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Início da Vigência</label>
-                  <input
+<div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Início da Vigência</label>
+<input
                     type="date"
                     value={(draft.startDate || '').slice(0, 10)}
-                    onChange={(e) => {
+                    onChange={(e) =>{
                       const nextStart = e.target.value;
                       const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
                       setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
                     }}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prazo (Meses)</label>
-                  <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Prazo (Meses)</label>
+<input
                     type="number"
                     min={1}
                     value={draft.contractMonths}
-                    onChange={(e) => {
+                    onChange={(e) =>{
                       const nextMonths = Math.max(1, Number(e.target.value) || 24);
                       const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
                       setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd });
                     }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Fim da Vigência</label>
-                  <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Fim da Vigência</label>
+<input
                     type="date"
                     value={(draft.endDate || '').slice(0, 10)}
-                    onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+                    onChange={(e) =>setDraft({ ...draft, endDate: e.target.value })}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Dia Vencimento</label>
-                  <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Dia Vencimento</label>
+<input
                     type="number"
                     min={1}
                     max={31}
                     value={draft.dueDay}
-                    onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
+                    onChange={(e) =>setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
                     className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste</label>
-                  <select
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Índice Reajuste</label>
+<select
                     value={draft.readjustmentIndex}
                     onChange={(e) =>
                       setDraft({
@@ -2932,84 +2935,84 @@ export function ContractEditModal({
                         readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                       })
                     }
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
-                    <option value="IPCA">IPCA (IBGE)</option>
-                    <option value="IGP-M">IGP-M (FGV)</option>
-                    <option value="IST_ANATEL">IST Anatel</option>
-                    <option value="FIXO">FIXO / Negociado</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Mensalidade (R$)</label>
-                  <input
+<option value="IPCA">IPCA (IBGE)</option>
+<option value="IGP-M">IGP-M (FGV)</option>
+<option value="IST_ANATEL">IST Anatel</option>
+<option value="FIXO">FIXO / Negociado</option>
+</select>
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Mensalidade (R$)</label>
+<input
                     type="number"
                     min={0}
                     step="0.01"
                     value={draft.monthlyValue}
-                    onChange={(e) => {
+                    onChange={(e) =>{
                       setAutoSyncMonthly(false);
                       setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
                     }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-extrabold text-emerald-700"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-normal text-emerald-700"
                   />
-                </div>
-              </div>
+</div>
+</div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">NF-e Remessa Nº &amp; CFOP</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">NF-e Remessa Nº &amp; CFOP</label>
+<div className="grid grid-cols-2 gap-2">
+<input
                       type="text"
                       value={draft.remessaNfeNumber}
-                      onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
+                      onChange={(e) =>setDraft({ ...draft, remessaNfeNumber: e.target.value })}
                       placeholder="Nº NF-e Remessa"
                       className="px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                    <select
+<select
                       value={draft.remessaCfop}
                       onChange={(e) =>
                         setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })
                       }
-                      className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-bold"
+                      className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-normal"
                     >
-                      <option value="5.908">CFOP 5.908 (Estadual)</option>
-                      <option value="6.908">CFOP 6.908 (Interestadual)</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
-                  <input
+<option value="5.908">CFOP 5.908 (Estadual)</option>
+<option value="6.908">CFOP 6.908 (Interestadual)</option>
+</select>
+</div>
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
+<input
                     type="text"
                     value={draft.legalBasisNote}
-                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
+                    onChange={(e) =>setDraft({ ...draft, legalBasisNote: e.target.value })}
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
-                </div>
-              </div>
-            </fieldset>
+</div>
+</div>
+</fieldset>
           )}
 
           {activeTab === 'RENOVAR_VIGENCIA' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-[10px] font-black uppercase text-emerald-800 block">
+<div className="space-y-4">
+<div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+<div className="flex flex-wrap items-center justify-between gap-2">
+<div>
+<span className="text-[10px] font-normal uppercase text-emerald-800 block">
                       PASSO 1 • ESCOLHA O PRAZO DE RENOVAÇÃO DE VIGÊNCIA (PADRÃO OU FORA DO PADRÃO DE MERCADO)
-                    </span>
-                    <h4 className="text-sm font-extrabold text-slate-900">
+</span>
+<h4 className="text-sm font-semibold text-slate-900">
                       Selecione o tempo de renovação ou adicione um prazo personalizado fora do padrão:
-                    </h4>
-                  </div>
-                  <span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-extrabold text-xs">
+</h4>
+</div>
+<span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-normal text-xs">
                     Nova Vigência: {draft.startDate} até {draft.endDate} ({draft.contractMonths} meses)
-                  </span>
-                </div>
+</span>
+</div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+<div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                   {(
                     [
                       { id: '12', label: '12 meses (1 ano)' },
@@ -3019,13 +3022,13 @@ export function ContractEditModal({
                       { id: '60', label: '60 meses (5 anos)' },
                       { id: 'CUSTOM', label: 'Prazo Personalizado (Fora do Padrão)' },
                     ] as const
-                  ).map((opt) => {
+                  ).map((opt) =>{
                     const isSel = renewalPresetMode === opt.id;
                     return (
-                      <button
+<button
                         key={opt.id}
                         type="button"
-                        onClick={() => {
+                        onClick={() =>{
                           setRenewalPresetMode(opt.id);
                           applyRenewalDurationToDraft(
                             opt.id,
@@ -3034,52 +3037,52 @@ export function ContractEditModal({
                             customDaysValue
                           );
                         }}
-                        className={`p-2.5 rounded-lg border text-xs font-extrabold transition cursor-pointer ${
+                        className={`p-2.5 rounded-lg border text-xs font-normal transition cursor-pointer ${
                           isSel
                             ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-sm'
                             : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
                         {opt.label}
-                      </button>
+</button>
                     );
                   })}
-                </div>
+</div>
 
                 {renewalPresetMode === 'CUSTOM' && (
-                  <div className="p-3.5 rounded-lg bg-white border border-emerald-300 space-y-3">
-                    <div className="font-extrabold text-slate-800">
+<div className="p-3.5 rounded-lg bg-white border border-emerald-300 space-y-3">
+<div className="font-normal text-slate-800">
                       Configurar Tempo Fora do Padrão do Mercado (Meses, Dias Corridos ou Datas Específicas):
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">Unidade de Tempo</label>
-                        <select
+</div>
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Unidade de Tempo</label>
+<select
                           value={customDurationUnit}
-                          onChange={(e) => {
+                          onChange={(e) =>{
                             const u = e.target.value as 'MONTHS' | 'DAYS' | 'DATES';
                             setCustomDurationUnit(u);
                             applyRenewalDurationToDraft('CUSTOM', u, customMonthsValue, customDaysValue);
                           }}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                         >
-                          <option value="MONTHS">Meses Personalizados (ex.: 6, 7, 18m)</option>
-                          <option value="DAYS">Dias Corridos (ex.: 90, 180 dias)</option>
-                          <option value="DATES">Datas Específicas (Início e Término)</option>
-                        </select>
-                      </div>
+<option value="MONTHS">Meses Personalizados (ex.: 6, 7, 18m)</option>
+<option value="DAYS">Dias Corridos (ex.: 90, 180 dias)</option>
+<option value="DATES">Datas Específicas (Início e Término)</option>
+</select>
+</div>
 
                       {customDurationUnit === 'MONTHS' && (
-                        <div>
-                          <label className="block font-bold text-slate-700 mb-1">
+<div>
+<label className="block font-normal text-slate-700 mb-1">
                             Quantidade de Meses (Qualquer Prazo)
-                          </label>
-                          <input
+</label>
+<input
                             type="number"
                             min={1}
                             max={240}
                             value={customMonthsValue}
-                            onChange={(e) => {
+                            onChange={(e) =>{
                               setCustomMonthsValue(e.target.value);
                               applyRenewalDurationToDraft(
                                 'CUSTOM',
@@ -3089,22 +3092,22 @@ export function ContractEditModal({
                               );
                             }}
                             placeholder="Ex.: 18"
-                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                            className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-slate-900"
                           />
-                        </div>
+</div>
                       )}
 
                       {customDurationUnit === 'DAYS' && (
-                        <div>
-                          <label className="block font-bold text-slate-700 mb-1">
+<div>
+<label className="block font-normal text-slate-700 mb-1">
                             Quantidade de Dias Corridos
-                          </label>
-                          <input
+</label>
+<input
                             type="number"
                             min={1}
                             max={3650}
                             value={customDaysValue}
-                            onChange={(e) => {
+                            onChange={(e) =>{
                               setCustomDaysValue(e.target.value);
                               applyRenewalDurationToDraft(
                                 'CUSTOM',
@@ -3114,91 +3117,91 @@ export function ContractEditModal({
                               );
                             }}
                             placeholder="Ex.: 90"
-                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                            className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-slate-900"
                           />
-                        </div>
+</div>
                       )}
 
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Início</label>
-                        <input
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nova Data de Início</label>
+<input
                           type="date"
                           value={(draft.startDate || '').slice(0, 10)}
-                          onChange={(e) => setDraft({ ...draft, startDate: e.target.value })}
+                          onChange={(e) =>setDraft({ ...draft, startDate: e.target.value })}
                           className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                         />
-                      </div>
+</div>
 
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Término</label>
-                        <input
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nova Data de Término</label>
+<input
                           type="date"
                           value={(draft.endDate || '').slice(0, 10)}
-                          onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-emerald-800"
+                          onChange={(e) =>setDraft({ ...draft, endDate: e.target.value })}
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal text-emerald-800"
                         />
-                      </div>
-                    </div>
-                  </div>
+</div>
+</div>
+</div>
                 )}
-              </div>
+</div>
 
-              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+<div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+<div>
+<span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                     PASSO 2 • REVISÃO E CONFIRMAÇÃO DE TODAS AS INFORMAÇÕES DO CONTRATO (EDITÁVEL SE NECESSÁRIO)
-                  </span>
-                  <h4 className="text-sm font-extrabold text-slate-900">
+</span>
+<h4 className="text-sm font-semibold text-slate-900">
                     Confirme ou edite qualquer cláusula, cliente, valor mensal, reajuste ou SLA antes de efetivar a renovação:
-                  </h4>
-                </div>
+</h4>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nº do Contrato</label>
+<input
                       type="text"
                       value={draft.contractNumber}
-                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                      onChange={(e) =>setDraft({ ...draft, contractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                     />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Cliente / Razão Social</label>
-                    <input
+</div>
+<div className="sm:col-span-2">
+<label className="block font-normal text-slate-700 mb-1">Cliente / Razão Social</label>
+<input
                       type="text"
                       value={draft.companyName}
-                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      onChange={(e) =>setDraft({ ...draft, companyName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">CNPJ</label>
+<input
                       type="text"
                       value={draft.companyCnpj}
-                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      onChange={(e) =>setDraft({ ...draft, companyCnpj: e.target.value })}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor Mensal Atual / Renovado (R$)</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Valor Mensal Atual / Renovado (R$)</label>
+<input
                       type="number"
                       step="0.01"
                       value={draft.monthlyValue}
                       onChange={(e) =>
                         setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-emerald-700"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Índice de Reajuste</label>
-                    <select
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Índice de Reajuste</label>
+<select
                       value={draft.readjustmentIndex}
                       onChange={(e) =>
                         setDraft({
@@ -3206,133 +3209,133 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                     >
-                      <option value="IPCA">IPCA (IBGE)</option>
-                      <option value="IGP-M">IGP-M (FGV)</option>
-                      <option value="IST_ANATEL">IST Anatel</option>
-                      <option value="FIXO">FIXO / Negociado</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">% Reajuste na Renovação (Opcional)</label>
-                    <input
+<option value="IPCA">IPCA (IBGE)</option>
+<option value="IGP-M">IGP-M (FGV)</option>
+<option value="IST_ANATEL">IST Anatel</option>
+<option value="FIXO">FIXO / Negociado</option>
+</select>
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">% Reajuste na Renovação (Opcional)</label>
+<input
                       type="number"
                       step="0.01"
                       value={renewalReadjustmentPercent}
-                      onChange={(e) => setRenewalReadjustmentPercent(e.target.value)}
+                      onChange={(e) =>setRenewalReadjustmentPercent(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Dia de Vencimento</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Dia de Vencimento</label>
+<input
                       type="number"
                       min={1}
                       max={31}
                       value={draft.dueDay}
-                      onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
+                      onChange={(e) =>setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Objeto / Escopo do Contrato</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Objeto / Escopo do Contrato</label>
+<input
                       type="text"
                       value={draft.title}
-                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      onChange={(e) =>setDraft({ ...draft, title: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">SLA &amp; Condições Comerciais</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">SLA &amp; Condições Comerciais</label>
+<input
                       type="text"
                       value={renewalSlaText}
-                      onChange={(e) => setRenewalSlaText(e.target.value)}
+                      onChange={(e) =>setRenewalSlaText(e.target.value)}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="flex justify-end pt-2">
-                  <button
+<div className="flex justify-end pt-2">
+<button
                     type="button"
                     disabled={saving}
                     onClick={handleConfirmRenewalAndSave}
-                    className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-sm cursor-pointer"
+                    className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-normal shadow-sm cursor-pointer"
                   >
                     {saving ? 'Confirmando Renovação...' : 'Confirmar Renovação de Vigência e Salvar Alterações'}
-                  </button>
-                </div>
-              </div>
-            </div>
+</button>
+</div>
+</div>
+</div>
           )}
 
           {activeTab === 'FATURAMENTO_RECIBOS' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+<div className="space-y-4">
+<div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+<span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                   REVISÃO PARA EMISSÃO DE FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF) OU NF-E REMESSA
-                </span>
-                <h4 className="text-sm font-extrabold text-slate-900">
+</span>
+<h4 className="text-sm font-semibold text-slate-900">
                   Confira e edite se necessário os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
-                </h4>
+</h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Locatária / Cliente</label>
-                    <input
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Locatária / Cliente</label>
+<input
                       type="text"
                       value={draft.companyName}
-                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      onChange={(e) =>setDraft({ ...draft, companyName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">CNPJ</label>
+<input
                       type="text"
                       value={draft.companyCnpj}
-                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      onChange={(e) =>setDraft({ ...draft, companyCnpj: e.target.value })}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Competência (MM/AAAA)</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Competência (MM/AAAA)</label>
+<input
                       type="text"
                       value={billingCompetence}
-                      onChange={(e) => {
+                      onChange={(e) =>{
                         setBillingCompetence(e.target.value);
                         setDraft({ ...draft, lastBilledCompetence: e.target.value });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor da Fatura (R$)</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Valor da Fatura (R$)</label>
+<input
                       type="number"
                       step="0.01"
                       value={draft.monthlyValue}
                       onChange={(e) =>
                         setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal text-emerald-700"
                     />
-                  </div>
-                </div>
+</div>
+</div>
 
-                <div className="flex flex-wrap items-center gap-2 pt-2">
+<div className="flex flex-wrap items-center gap-2 pt-2">
                   {onGenerateInvoice && (
-                    <button
+<button
                       type="button"
                       disabled={billingIssuing}
-                      onClick={async () => {
+                      onClick={async () =>{
                         setBillingIssuing(true);
                         try {
                           await onSave(draft);
@@ -3341,16 +3344,16 @@ export function ContractEditModal({
                           setBillingIssuing(false);
                         }
                       }}
-                      className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer"
                     >
                       Confirmar e Emitir Fatura / Recibo de Locação do Mês
-                    </button>
+</button>
                   )}
                   {onGenerateRemessaNfe && (
-                    <button
+<button
                       type="button"
                       disabled={billingIssuing}
-                      onClick={async () => {
+                      onClick={async () =>{
                         setBillingIssuing(true);
                         try {
                           await onSave(draft);
@@ -3359,30 +3362,30 @@ export function ContractEditModal({
                           setBillingIssuing(false);
                         }
                       }}
-                      className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal cursor-pointer"
                     >
                       Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
-                    </button>
+</button>
                   )}
-                </div>
-              </div>
-            </div>
+</div>
+</div>
+</div>
           )}
 
           {activeTab === 'REAJUSTE_ADITIVOS' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-indigo-800 block">
+<div className="space-y-4">
+<div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+<span className="text-[10px] font-normal uppercase text-indigo-800 block">
                   APLICAÇÃO DE REAJUSTE ANUAL (IPCA / IGP-M / PERSONALIZADO) &amp; ADITIVOS CONTRATUAIS
-                </span>
-                <h4 className="text-sm font-extrabold text-slate-900">
+</span>
+<h4 className="text-sm font-semibold text-slate-900">
                   Revise as informações do contrato e confirme o percentual de reajuste ou devolução parcial pro-rata:
-                </h4>
+</h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Índice Contratual</label>
-                    <select
+<div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Índice Contratual</label>
+<select
                       value={draft.readjustmentIndex}
                       onChange={(e) =>
                         setDraft({
@@ -3390,27 +3393,27 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                     >
-                      <option value="IPCA">IPCA (IBGE)</option>
-                      <option value="IGP-M">IGP-M (FGV)</option>
-                      <option value="IST_ANATEL">IST Anatel</option>
-                      <option value="FIXO">FIXO / Negociado</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Percentual de Reajuste (%)</label>
-                    <input
+<option value="IPCA">IPCA (IBGE)</option>
+<option value="IGP-M">IGP-M (FGV)</option>
+<option value="IST_ANATEL">IST Anatel</option>
+<option value="FIXO">FIXO / Negociado</option>
+</select>
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Percentual de Reajuste (%)</label>
+<input
                       type="number"
                       step="0.01"
                       value={readjPercentInput}
-                      onChange={(e) => setReadjPercentInput(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      onChange={(e) =>setReadjPercentInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Mensalidade Atual (R$)</label>
-                    <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Mensalidade Atual (R$)</label>
+<input
                       type="number"
                       value={draft.monthlyValue}
                       onChange={(e) =>
@@ -3418,71 +3421,71 @@ export function ContractEditModal({
                       }
                       className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
-                    <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 font-black text-emerald-800">
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
+<div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 font-normal text-emerald-800">
                       {formatBRL(
                         Math.round(
                           draft.monthlyValue * (1 + (Number(readjPercentInput) || 0) / 100) * 100
                         ) / 100
                       )}
                       /mês
-                    </div>
-                  </div>
-                </div>
+</div>
+</div>
+</div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Justificativa / Cláusula do Aditivo</label>
-                  <input
+<div>
+<label className="block font-normal text-slate-700 mb-1">Justificativa / Cláusula do Aditivo</label>
+<input
                     type="text"
                     value={readjNoteInput}
-                    onChange={(e) => setReadjNoteInput(e.target.value)}
+                    onChange={(e) =>setReadjNoteInput(e.target.value)}
                     className="w-full px-3 py-2 rounded border border-slate-300"
                   />
-                </div>
+</div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                  <button
+<div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+<button
                     type="button"
                     disabled={saving}
                     onClick={handleApplyReadjustmentInsideTab}
-                    className="px-5 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold cursor-pointer"
+                    className="px-5 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-normal cursor-pointer"
                   >
                     Confirmar Reajuste Anual e Atualizar Contrato
-                  </button>
+</button>
 
                   {onOpenPartialReturn && (
-                    <button
+<button
                       type="button"
-                      onClick={() => {
+                      onClick={() =>{
                         onClose();
                         onOpenPartialReturn(draft);
                       }}
-                      className="px-4 py-2.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-normal cursor-pointer"
                     >
                       Abrir Devolução Parcial de Equipamentos &amp; Rateio Pro-Rata
-                    </button>
+</button>
                   )}
-                </div>
-              </div>
-            </div>
+</div>
+</div>
+</div>
           )}
 
           {activeTab === 'EQUIPAMENTOS_PATRIMONIO' && (
-            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
+<div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+<div className="flex flex-wrap items-center justify-between gap-2">
+<div>
+<span className="font-normal text-slate-800 uppercase text-[11px] block">
                     Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
-                  </span>
-                </div>
-                <button
+</span>
+<span className="text-[11px] text-slate-500">
+                    Patrimônio Total Alocado: <span>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</span>• Soma Mensal dos Itens: <span className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</span>
+</span>
+</div>
+<button
                   type="button"
-                  onClick={() => {
+                  onClick={() =>{
                     const eq: ErpRentalEquipmentItem = {
                       id: `eq-${Date.now()}`,
                       skuGestaoClick: '',
@@ -3499,123 +3502,263 @@ export function ContractEditModal({
                     };
                     updateEquipments([...draft.equipments, eq]);
                   }}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-normal cursor-pointer"
                 >
                   + Adicionar Equipamento / Patrimônio (S/N)
-                </button>
-              </div>
+</button>
+</div>
 
-              <div className="space-y-2">
-                {draft.equipments.map((eq, idx) => (
-                  <div
+<div className="space-y-2">
+                {draft.equipments.map((eq, idx) =>(
+<div
                     key={eq.id || idx}
                     className="bg-white p-3 rounded border border-slate-200 space-y-2"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">SKU</label>
-                        <input
+<div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+<div className="sm:col-span-2">
+<label className="text-[10px] text-slate-400 block">SKU</label>
+<input
                           type="text"
                           value={eq.skuGestaoClick}
-                          onChange={(e) => {
+                          onChange={(e) =>{
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], skuGestaoClick: e.target.value };
                             updateEquipments(copy);
                           }}
                           className="w-full px-2 py-1 rounded border font-mono text-xs"
                         />
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-[10px] text-slate-400 block">Descrição do Ativo</label>
-                        <input
+</div>
+<div className="sm:col-span-4">
+<label className="text-[10px] text-slate-400 block">Descrição do Ativo</label>
+<input
                           type="text"
                           value={eq.description}
-                          onChange={(e) => {
+                          onChange={(e) =>{
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], description: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-semibold text-xs"
+                          className="w-full px-2 py-1 rounded border font-normal text-xs"
                         />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
-                        <input
+</div>
+<div className="sm:col-span-3">
+<label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
+<input
                           type="text"
                           value={eq.serialNumber}
-                          onChange={(e) => {
+                          onChange={(e) =>{
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], serialNumber: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-mono font-bold text-indigo-950 text-xs"
+                          className="w-full px-2 py-1 rounded border font-mono font-normal text-indigo-950 text-xs"
                         />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
-                        <input
+</div>
+<div className="sm:col-span-2">
+<label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
+<input
                           type="number"
                           value={eq.unitMonthlyRent}
-                          onChange={(e) => {
+                          onChange={(e) =>{
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-bold text-emerald-700 text-xs"
+                          className="w-full px-2 py-1 rounded border font-normal text-emerald-700 text-xs"
                         />
-                      </div>
-                      <div className="sm:col-span-1 flex items-end justify-end pt-3">
-                        <button
+</div>
+<div className="sm:col-span-1 flex items-end justify-end pt-3">
+<button
                           type="button"
                           onClick={() =>
-                            updateEquipments(draft.equipments.filter((_, i) => i !== idx))
+                            updateEquipments(draft.equipments.filter((_, i) =>i !== idx))
                           }
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+<Trash2 className="w-4 h-4" />
+</button>
+</div>
+</div>
+</div>
                 ))}
-              </div>
-            </div>
+</div>
+</div>
           )}
 
-          {activeTab === 'DOCUMENTO_HISTORICO' && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
-                <h4 className="text-sm font-extrabold text-slate-900">
-                  Minuta Contratual &amp; Histórico de Reajustes / Devoluções Parciais
-                </h4>
-                <p className="text-xs text-slate-600">
-                  Contrato <strong>{draft.contractNumber}</strong> firmado com <strong>{draft.companyName}</strong> ({draft.companyCnpj}), vigência de <strong>{draft.startDate}</strong> a <strong>{draft.endDate}</strong> ({draft.contractMonths} meses), valor mensal de <strong>{formatBRL(draft.monthlyValue)}</strong>.
-                </p>
-                <p className="text-xs text-emerald-800 font-semibold">
-                  Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
-                </p>
-              </div>
-            </div>
-          )}
+          {activeTab === 'DOCUMENTO_HISTORICO' && (() =>{
+            const activeModel =
+              draft.contractTemplateModel ||
+              (draft.modality === 'SERVICO'
+                ? 'MODELO_PRESTACAO_SERVICOS_TI'
+                : draft.modality === 'ASSINATURA'
+                  ? 'MODELO_TERMO_ASSINATURA_CLOUD'
+                  : 'MODELO_LOCACAO_BENS_MOVEIS');
+            return (
+<div className="space-y-4">
+<div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+<div>
+<span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
+                      SELEÇÃO DE MINUTA CONTRATUAL A4 POR NATUREZA JURÍDICA (LOCAÇÃO VS. SERVIÇOS VS. ASSINATURA)
+</span>
+<div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {[
+                        {
+                          id: 'MODELO_LOCACAO_BENS_MOVEIS',
+                          label: '1. Contrato de Locação de Bens Móveis (Aluguel / SV 31 STF)',
+                        },
+                        {
+                          id: 'MODELO_PRESTACAO_SERVICOS_TI',
+                          label: '2. Contrato de Prestação de Serviços Técnicos (LC 116/03)',
+                        },
+                        {
+                          id: 'MODELO_TERMO_ASSINATURA_CLOUD',
+                          label: '3. Termo de Assinatura Recorrente & Cloud (SaaS / SCM)',
+                        },
+                      ].map((m) =>(
+<button
+                          key={m.id}
+                          type="button"
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              contractTemplateModel: m.id as any,
+                              modality:
+                                m.id === 'MODELO_PRESTACAO_SERVICOS_TI'
+                                  ? 'SERVICO'
+                                  : m.id === 'MODELO_TERMO_ASSINATURA_CLOUD'
+                                    ? 'ASSINATURA'
+                                    : 'LOCACAO',
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded text-[11px] font-normal border cursor-pointer transition ${
+                            activeModel === m.id
+                              ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          {m.label}
+</button>
+                      ))}
+</div>
+</div>
+<button
+                    type="button"
+                    onClick={() =>window.print()}
+                    className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal cursor-pointer shadow-xs"
+                  >
+                     Imprimir A4 / PDF
+</button>
+</div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
-            <div>
+<div className="p-6 rounded-xl bg-white border-2 border-slate-300 shadow-sm space-y-4 text-slate-800 leading-relaxed">
+<div className="border-b-2 border-[#1e3a6e] pb-3 flex flex-wrap items-center justify-between gap-2">
+<div>
+<span className="text-[10px] font-normal uppercase tracking-widest text-[#1e3a6e] block">
+                        SETA TELECOMUNICAÇÕES E SOLUÇÕES EM TI LTDA • CNPJ 18.456.789/0001-90
+</span>
+<h4 className="text-sm sm:text-base font-semibold text-slate-900 uppercase">
+                        {activeModel === 'MODELO_PRESTACAO_SERVICOS_TI'
+                          ? `INSTRUMENTO PARTICULAR DE CONTRATO DE PRESTAÇÃO DE SERVIÇOS TÉCNICOS DE TI E TELECOMUNICAÇÕES Nº ${draft.contractNumber}`
+                          : activeModel === 'MODELO_TERMO_ASSINATURA_CLOUD'
+                            ? `TERMO DE ASSINATURA RECORRENTE DE LICENCIAMENTO CLOUD, PABX IP E CONECTIVIDADE Nº ${draft.contractNumber}`
+                            : `INSTRUMENTO PARTICULAR DE CONTRATO DE LOCAÇÃO DE BENS MÓVEIS E EQUIPAMENTOS Nº ${draft.contractNumber}`}
+</h4>
+</div>
+<span className="px-2.5 py-1 rounded bg-slate-100 border border-slate-300 font-mono text-xs font-normal text-[#1e3a6e]">
+                      Tipo: {activeModel === 'MODELO_PRESTACAO_SERVICOS_TI' ? 'Prestação de Serviços (LC 116)' : activeModel === 'MODELO_TERMO_ASSINATURA_CLOUD' ? 'Assinatura Recorrente' : 'Aluguel / Locação Pura (SV 31)'}
+</span>
+</div>
+
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded bg-slate-50 border border-slate-200 text-xs">
+<div>
+<span className="text-[#1e3a6e] block uppercase text-[10px]">
+                        {activeModel === 'MODELO_LOCACAO_BENS_MOVEIS' ? 'LOCADORA:' : 'CONTRATADA:'}
+</span>
+<div><span>SETA TELECOMUNICAÇÕES E SOLUÇÕES EM TI LTDA</span></div>
+<div>CNPJ: 18.456.789/0001-90 • São Paulo/SP</div>
+</div>
+<div>
+<span className="text-[#1e3a6e] block uppercase text-[10px]">
+                        {activeModel === 'MODELO_LOCACAO_BENS_MOVEIS' ? 'LOCATÁRIA:' : 'CONTRATANTE:'}
+</span>
+<div><span>{draft.companyName || 'CLIENTE CONTRATANTE'}</span></div>
+<div>CNPJ: {draft.companyCnpj || '—'}</div>
+</div>
+</div>
+
+                  {activeModel === 'MODELO_LOCACAO_BENS_MOVEIS' && (
+<div className="space-y-2.5 text-xs">
+<p>
+<span>CLÁUSULA 1ª — DO OBJETO DA LOCAÇÃO DE BENS MÓVEIS (ALUGUEL HaaS):</span> O presente instrumento tem por objeto a <span>locação pura de bens móveis e equipamentos de TI/Telecomunicações</span> de propriedade da LOCADORA ({draft.title || 'Equipamentos corporativos'}), regida pelos <span>Artigos 565 a 578 do Código Civil Brasileiro (Lei nº 10.406/2002)</span>.
+</p>
+<p>
+<span>CLÁUSULA 2ª — DO ENQUADRAMENTO FISCAL E NÃO INCIDÊNCIA DE ISSQN (SÚMULA VINCULANTE 31 STF):</span> Por tratar-se de locação pura de bens móveis sem fornecimento de mão de obra exclusiva, não há incidência de ISSQN conforme a <span>Súmula Vinculante nº 31 do Supremo Tribunal Federal (STF)</span> e Veto Presidencial ao item 3.01 da LC 116/2003. A cobrança é formalizada mediante <span>Fatura Comercial / Recibo de Locação</span> acompanhada de Nota Fiscal de Remessa em Locação (CFOP {draft.remessaCfop || '5.908'} • NF nº {draft.remessaNfeNumber || 'a emitir'}).
+</p>
+<p>
+<span>CLÁUSULA 3ª — DA GUARDA, CONSERVAÇÃO, PATRIMÔNIO (S/N) E DEVOLUÇÃO:</span> A LOCATÁRIA recebe os equipamentos identificados por Número de Série (S/N) em perfeito estado de funcionamento, obrigando-se a zelar por sua guarda e integridade e a restituí-los ao término do contrato mediante Termo de Devolução de Produtos (NF-e de Retorno CFOP 5.909/6.909). A LOCADORA garante substituição técnica expressa (Advance Replacement / RMA) em caso de falha de hardware.
+</p>
+</div>
+                  )}
+
+                  {activeModel === 'MODELO_PRESTACAO_SERVICOS_TI' && (
+<div className="space-y-2.5 text-xs">
+<p>
+<span>CLÁUSULA 1ª — DO OBJETO DA PRESTAÇÃO DE SERVIÇOS TÉCNICOS:</span> O presente contrato tem por objeto a <span>prestação de serviços técnicos especializados de Tecnologia da Informação, Redes, Telefonia IP, Suporte NOC 24x7 e Manutenção Preventiva/Corretiva</span>({draft.title || 'Serviços Técnicos de TI e Telecom'}), regida pelos Artigos 593 a 609 do Código Civil.
+</p>
+<p>
+<span>CLÁUSULA 2ª — DO FATURAMENTO FISCAL (NFS-e — LEI COMPLEMENTAR Nº 116/2003):</span> Pelos serviços técnicos prestados, a CONTRATADA emitirá mensalmente <span>Nota Fiscal de Serviços Eletrônica (NFS-e)</span> enquadrada nos subitens <span>01.07 / 01.03 / 14.01 da LC 116/2003</span>, observadas as retenções tributárias na fonte quando aplicáveis (IRRF 1,5% e CSRF 4,65% — PIS/COFINS/CSLL).
+</p>
+<p>
+<span>CLÁUSULA 3ª — DO ACORDO DE NÍVEL DE SERVIÇO (SLA), OBRIGAÇÕES TÉCNICAS E LGPD:</span> A CONTRATADA assegura atendimento técnico especializado com tempo de resposta de até 4 (quatro) horas para chamados críticos, monitoramento proativo NOC, engenharia certificada e estrita observância à Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018) e sigilo de informações.
+</p>
+</div>
+                  )}
+
+                  {activeModel === 'MODELO_TERMO_ASSINATURA_CLOUD' && (
+<div className="space-y-2.5 text-xs">
+<p>
+<span>CLÁUSULA 1ª — DO OBJETO DO TERMO DE ASSINATURA RECORRENTE &amp; CLOUD:</span> O presente instrumento regula a <span>assinatura mensal recorrente de licenciamento de software, PABX IP em Nuvem (UCaaS), ramais virtuais e conectividade gerenciada SCM/SVA</span>({draft.title || 'Assinatura Cloud Seta Telecom'}).
+</p>
+<p>
+<span>CLÁUSULA 2ª — DA DISPONIBILIDADE EM NUVEM (UPTIME SLA) E ESCALABILIDADE:</span> A CONTRATADA garante disponibilidade de plataforma em nuvem de 99,9% (Alta Disponibilidade em Data Center Tier III), com atualizações automáticas de segurança, backup de configurações e possibilidade de upgrade/downgrade de licenças mediante solicitação.
+</p>
+<p>
+<span>CLÁUSULA 3ª — DO CICLO DE RENOVAÇÃO E FATURAMENTO RECORRENTE:</span> A assinatura possui cobrança recorrente ({draft.periodicityLabel || 'A cada 1 mês'}) com renovação automática por iguais períodos, emitindo-se o respectivo documento fiscal de licenciamento/comunicação (LC 116 Item 01.05 / NFCom Modelo 62).
+</p>
+</div>
+                  )}
+
+<div className="p-3 rounded bg-emerald-50/70 border border-emerald-200 text-xs space-y-1">
+<div>
+<span>CLÁUSULA 4ª — DO VALOR, PERIODICIDADE E REAJUSTE ANUAL:</span> O valor contratado é de <span>{formatBRL(draft.monthlyValue)}</span>({draft.periodicityLabel || 'A cada 1 mês'}), com vencimento todo dia <span>{draft.dueDay}</span>(próximo vencimento: <span>{draft.nextDueDate || draft.endDate}</span>), vigência de <span>{draft.startDate}</span> a <span>{draft.endDate}</span>({draft.contractMonths} meses), reajustado anualmente pelo índice <span>{draft.readjustmentIndex}</span>.
+</div>
+<div className="text-emerald-900 font-normal">
+                      Observação / Base Legal Específica: {draft.legalBasisNote || 'Conforme legislação vigente aplicável à modalidade contratada.'}
+</div>
+</div>
+</div>
+</div>
+            );
+          })()}
+
+<div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
+<div>
               {!isReadOnly && onDelete && (
                 !confirmDelete ? (
-                  <button
+<button
                     type="button"
-                    onClick={() => setConfirmDelete(true)}
-                    className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                    onClick={() =>setConfirmDelete(true)}
+                    className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-normal cursor-pointer"
                   >
                     Excluir Contrato
-                  </button>
+</button>
                 ) : (
-                  <div className="flex items-center gap-2 p-2 rounded bg-rose-50 border border-rose-300">
-                    <span className="font-extrabold text-rose-800">Confirmar exclusão definitiva?</span>
-                    <button
+<div className="flex items-center gap-2 p-2 rounded bg-rose-50 border border-rose-300">
+<span className="font-normal text-rose-800">Confirmar exclusão definitiva?</span>
+<button
                       type="button"
                       disabled={deleting}
-                      onClick={async () => {
+                      onClick={async () =>{
                         setDeleting(true);
                         try {
                           await onDelete(draft);
@@ -3624,43 +3767,43 @@ export function ContractEditModal({
                           setDeleting(false);
                         }
                       }}
-                      className="px-3 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                      className="px-3 py-1 rounded bg-rose-600 text-white font-normal cursor-pointer"
                     >
                       {deleting ? 'Excluindo...' : 'Sim, Excluir'}
-                    </button>
-                    <button
+</button>
+<button
                       type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="px-2.5 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                      onClick={() =>setConfirmDelete(false)}
+                      className="px-2.5 py-1 rounded border bg-white text-slate-700 font-normal cursor-pointer"
                     >
                       Cancelar
-                    </button>
-                  </div>
+</button>
+</div>
                 )
               )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
+</div>
+<div className="flex items-center gap-2">
+<button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded border border-slate-300 font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
-              </button>
+</button>
               {!isReadOnly && (
-                <button
+<button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shadow-sm"
+                  className="px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer shadow-sm"
                 >
                   {saving ? 'Salvando...' : 'Salvar Alterações do Contrato'}
-                </button>
+</button>
               )}
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
+</div>
+</div>
+</form>
+</div>
+</div>
   );
 }
 
@@ -3671,13 +3814,13 @@ export function InvoiceEditModal({
   onSave,
 }: {
   invoice: ErpFiscalInvoice;
-  onClose: () => void;
-  onSave: (updated: ErpFiscalInvoice) => Promise<void>;
+  onClose: () =>void;
+  onSave: (updated: ErpFiscalInvoice) =>Promise<void>;
 }) {
-  const [draft, setDraft] = useState<ErpFiscalInvoice>(() => structuredClone(invoice));
+  const [draft, setDraft] = useState<ErpFiscalInvoice>(() =>structuredClone(invoice));
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) =>{
     e.preventDefault();
     setSaving(true);
     try {
@@ -3688,123 +3831,123 @@ export function InvoiceEditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-8">
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-[#ff7a59]" />
-            <h3 className="text-sm font-extrabold">
+<div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+<div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-8">
+<div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+<div className="flex items-center gap-2">
+<Receipt className="w-5 h-5 text-[#ff7a59]" />
+<h3 className="text-sm font-semibold">
               Editar Documento Fiscal — {draft.documentNumber}
-            </h3>
-          </div>
-          <button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+</h3>
+</div>
+<button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
+<X className="w-5 h-5" />
+</button>
+</div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-3.5 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Nº Documento</label>
-              <input
+<form onSubmit={handleSubmit} className="p-6 space-y-3.5 text-xs">
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Nº Documento</label>
+<input
                 type="text"
                 value={draft.documentNumber}
-                onChange={(e) => setDraft({ ...draft, documentNumber: e.target.value })}
-                className="w-full px-3 py-2 rounded border font-mono font-bold"
+                onChange={(e) =>setDraft({ ...draft, documentNumber: e.target.value })}
+                className="w-full px-3 py-2 rounded border font-mono font-normal"
               />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Tipo Fiscal</label>
-              <select
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Tipo Fiscal</label>
+<select
                 value={draft.documentType}
                 onChange={(e) =>
                   setDraft({ ...draft, documentType: e.target.value as ErpFiscalDocumentType })
                 }
-                className="w-full px-3 py-2 rounded border bg-white font-bold"
+                className="w-full px-3 py-2 rounded border bg-white font-normal"
               >
-                <option value="FATURA_LOCACAO">FATURA DE LOCAÇÃO (0% ISS)</option>
-                <option value="NFSE_SERVICO">NFS-e SERVIÇO TÉCNICO</option>
-                <option value="NFE_REMESSA_LOCACAO">NF-e REMESSA CFOP 5.908</option>
-                <option value="NFCOM_TELECOM">NFCom TELECOM MOD. 62</option>
-              </select>
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Status</label>
-              <select
+<option value="FATURA_LOCACAO">FATURA DE LOCAÇÃO (0% ISS)</option>
+<option value="NFSE_SERVICO">NFS-e SERVIÇO TÉCNICO</option>
+<option value="NFE_REMESSA_LOCACAO">NF-e REMESSA CFOP 5.908</option>
+<option value="NFCOM_TELECOM">NFCom TELECOM MOD. 62</option>
+</select>
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Status</label>
+<select
                 value={draft.status}
                 onChange={(e) =>
                   setDraft({ ...draft, status: e.target.value as ErpFiscalInvoice['status'] })
                 }
-                className="w-full px-3 py-2 rounded border bg-white font-bold"
+                className="w-full px-3 py-2 rounded border bg-white font-normal"
               >
-                <option value="EMITIDA">EMITIDA</option>
-                <option value="PAGA">PAGA</option>
-                <option value="VENCIDA">VENCIDA</option>
-                <option value="CANCELADA">CANCELADA</option>
-              </select>
-            </div>
-          </div>
+<option value="EMITIDA">EMITIDA</option>
+<option value="PAGA">PAGA</option>
+<option value="VENCIDA">VENCIDA</option>
+<option value="CANCELADA">CANCELADA</option>
+</select>
+</div>
+</div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Cliente / Tomador *</label>
-              <input
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Cliente / Tomador *</label>
+<input
                 type="text"
                 required
                 value={draft.companyName}
-                onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                onChange={(e) =>setDraft({ ...draft, companyName: e.target.value })}
                 className="w-full px-3 py-2 rounded border"
               />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-              <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">CNPJ</label>
+<input
                 type="text"
                 value={draft.companyCnpj}
-                onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                onChange={(e) =>setDraft({ ...draft, companyCnpj: e.target.value })}
                 className="w-full px-3 py-2 rounded border font-mono"
               />
-            </div>
-          </div>
+</div>
+</div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Valor Bruto (R$)</label>
-              <input
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+<div>
+<label className="block font-normal text-slate-700 mb-1">Valor Bruto (R$)</label>
+<input
                 type="number"
                 min={0}
                 step="0.01"
                 value={draft.grossAmount}
-                onChange={(e) => setDraft({ ...draft, grossAmount: Number(e.target.value) || 0 })}
-                className="w-full px-3 py-2 rounded border font-extrabold text-slate-900"
+                onChange={(e) =>setDraft({ ...draft, grossAmount: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 rounded border font-normal text-slate-900"
               />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Competência</label>
-              <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Competência</label>
+<input
                 type="text"
                 value={draft.competenceMonth}
-                onChange={(e) => setDraft({ ...draft, competenceMonth: e.target.value })}
+                onChange={(e) =>setDraft({ ...draft, competenceMonth: e.target.value })}
                 className="w-full px-3 py-2 rounded border"
               />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Vencimento</label>
-              <input
+</div>
+<div>
+<label className="block font-normal text-slate-700 mb-1">Vencimento</label>
+<input
                 type="text"
                 value={draft.dueDate}
-                onChange={(e) => setDraft({ ...draft, dueDate: e.target.value })}
+                onChange={(e) =>setDraft({ ...draft, dueDate: e.target.value })}
                 className="w-full px-3 py-2 rounded border"
               />
-            </div>
-          </div>
+</div>
+</div>
 
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Descrição do Item Fiscal</label>
-            <textarea
+<div>
+<label className="block font-normal text-slate-700 mb-1">Descrição do Item Fiscal</label>
+<textarea
               rows={2}
               value={draft.itemsDescription[0]?.description || ''}
-              onChange={(e) => {
+              onChange={(e) =>{
                 const items = [...draft.itemsDescription];
                 items[0] = {
                   ...(items[0] || { quantity: 1, unitValue: draft.grossAmount, totalValue: draft.grossAmount }),
@@ -3814,19 +3957,19 @@ export function InvoiceEditModal({
               }}
               className="w-full px-3 py-2 rounded border"
             />
-          </div>
+</div>
 
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
+<div className="flex justify-end gap-2 pt-3 border-t">
+<button type="button" onClick={onClose} className="px-4 py-2 rounded border font-normal cursor-pointer">
               Cancelar
-            </button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer">
+</button>
+<button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-normal cursor-pointer">
               {saving ? 'Salvando...' : 'Salvar Documento Fiscal'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+</button>
+</div>
+</form>
+</div>
+</div>
   );
 }
 
@@ -3936,27 +4079,27 @@ export function GenericRecordEditModal({
   initialValues: Record<string, unknown>;
   fields: GenericFieldSpec[];
   readOnly?: boolean;
-  onClose: () => void;
-  onSave: (values: Record<string, unknown>) => Promise<void>;
-  onDelete?: () => Promise<void>;
+  onClose: () =>void;
+  onSave: (values: Record<string, unknown>) =>Promise<void>;
+  onDelete?: () =>Promise<void>;
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initialValues }));
+  const [values, setValues] = useState<Record<string, unknown>>(() =>({ ...initialValues }));
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnly));
   const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const cnpjFieldSpec = fields.find((f) => /cnpj|cpf/i.test(f.key));
+  const cnpjFieldSpec = fields.find((f) =>/cnpj|cpf/i.test(f.key));
   const rawDocVal = cnpjFieldSpec ? String(values[cnpjFieldSpec.key] ?? '') : '';
   const docDigits = rawDocVal.replace(/\D/g, '');
   const docFeedback =
-    cnpjFieldSpec && docDigits.length > 0
-      ? validateDocumentByPersonType(rawDocVal, docDigits.length <= 11 ? 'PF' : 'PJ')
+    cnpjFieldSpec && docDigits.length >0
+      ? validateDocumentByPersonType(rawDocVal, docDigits.length<= 11 ? 'PF' : 'PJ')
       : null;
   const hasInvalidDoc = Boolean(docFeedback && !docFeedback.isValid);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) =>{
     e.preventDefault();
     if (hasInvalidDoc && docFeedback) {
       setErrorMsg(`${docFeedback.message}. Corrija o documento antes de salvar.`);
@@ -3971,41 +4114,41 @@ export function GenericRecordEditModal({
     }
   };
 
-  const isWide = fields.length > 6;
+  const isWide = fields.length >6;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div
+<div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+<div
         className={`bg-white rounded-lg border border-slate-300 shadow-2xl ${
           isWide ? 'max-w-2xl' : 'max-w-lg'
         } w-full overflow-hidden my-8`}
       >
-        <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-emerald-300" />
-            <h3 className="text-sm font-extrabold">
+<div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
+<div className="flex items-center gap-2">
+<Edit3 className="w-4 h-4 text-emerald-300" />
+<h3 className="text-sm font-semibold">
               {isReadOnly ? title.replace(/^Editar/i, 'Consultar') : title}
-            </h3>
-          </div>
-          <div className="flex items-center gap-2">
+</h3>
+</div>
+<div className="flex items-center gap-2">
             {isReadOnly && (
-              <button
+<button
                 type="button"
-                onClick={() => setIsReadOnly(false)}
-                className="px-2.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                onClick={() =>setIsReadOnly(false)}
+                className="px-2.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
               >
                 Habilitar Edição
-              </button>
+</button>
             )}
-            <button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+<button type="button" onClick={onClose} className="text-slate-300 hover:text-white cursor-pointer">
+<X className="w-5 h-5" />
+</button>
+</div>
+</div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-3 text-xs max-h-[82vh] overflow-y-auto">
-          <fieldset disabled={isReadOnly} className={isWide ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
-            {fields.map((f) => {
+<form onSubmit={handleSubmit} className="p-6 space-y-3 text-xs max-h-[82vh] overflow-y-auto">
+<fieldset disabled={isReadOnly} className={isWide ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
+            {fields.map((f) =>{
               const isFullSpan =
                 f.type === 'textarea' ||
                 f.key === 'name' ||
@@ -4014,31 +4157,31 @@ export function GenericRecordEditModal({
                 f.key === 'itemsSummary' ||
                 f.key === 'nfeAccessKey';
               return (
-                <div key={f.key} className={isWide && isFullSpan ? 'sm:col-span-2' : undefined}>
-                  <label className="block font-bold text-slate-700 mb-1">{f.label}</label>
+<div key={f.key} className={isWide && isFullSpan ? 'sm:col-span-2' : undefined}>
+<label className="block font-normal text-slate-700 mb-1">{f.label}</label>
                   {f.type === 'select' && f.options ? (
-                    <select
+<select
                       value={String(values[f.key] ?? f.options[0] ?? '')}
-                      onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      onChange={(e) =>setValues({ ...values, [f.key]: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                     >
-                      {f.options.map((opt) => (
-                        <option key={opt} value={opt}>
+                      {f.options.map((opt) =>(
+<option key={opt} value={opt}>
                           {opt}
-                        </option>
+</option>
                       ))}
-                    </select>
+</select>
                   ) : f.type === 'textarea' ? (
-                    <textarea
+<textarea
                       rows={2}
                       placeholder={f.placeholder}
                       value={String(values[f.key] ?? '')}
-                      onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                      onChange={(e) =>setValues({ ...values, [f.key]: e.target.value })}
                       className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   ) : (
-                    <div>
-                      <input
+<div>
+<input
                         type={f.type === 'number' ? 'number' : 'text'}
                         step={f.type === 'number' ? '0.01' : undefined}
                         placeholder={
@@ -4050,13 +4193,13 @@ export function GenericRecordEditModal({
                               : undefined)
                         }
                         value={String(values[f.key] ?? '')}
-                        onChange={(e) => {
+                        onChange={(e) =>{
                           let nextVal: unknown =
                             f.type === 'number' ? Number(e.target.value) : e.target.value;
                           if (typeof nextVal === 'string') {
                             if (/cnpj|cpf/i.test(f.key)) {
                               const d = nextVal.replace(/\D/g, '');
-                              nextVal = d.length <= 11 && /cpf/i.test(f.label) ? formatCpfMask(d) : formatCnpjMask(d);
+                              nextVal = d.length<= 11 && /cpf/i.test(f.label) ? formatCpfMask(d) : formatCnpjMask(d);
                             } else if (/phone|telefone/i.test(f.key)) {
                               nextVal = formatBrPhoneMask(nextVal);
                             }
@@ -4076,44 +4219,44 @@ export function GenericRecordEditModal({
                         }`}
                       />
                       {/cnpj|cpf/i.test(f.key) && docFeedback && (
-                        <span
-                          className={`block text-[10px] font-bold mt-1 ${
+<span
+                          className={`block text-[10px] font-normal mt-1 ${
                             docFeedback.isValid ? 'text-emerald-700' : 'text-rose-600'
                           }`}
                         >
                           {docFeedback.message}
-                        </span>
+</span>
                       )}
-                    </div>
+</div>
                   )}
-                </div>
+</div>
               );
             })}
-          </fieldset>
+</fieldset>
 
           {errorMsg && (
-            <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs">
+<div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-normal text-xs">
               {errorMsg}
-            </div>
+</div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
-            <div>
+<div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
+<div>
               {!isReadOnly && onDelete && (
                 !confirmDelete ? (
-                  <button
+<button
                     type="button"
-                    onClick={() => setConfirmDelete(true)}
-                    className="px-3 py-1.5 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                    onClick={() =>setConfirmDelete(true)}
+                    className="px-3 py-1.5 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-normal cursor-pointer"
                   >
                     Excluir Registro
-                  </button>
+</button>
                 ) : (
-                  <div className="flex items-center gap-1.5 p-1.5 rounded bg-rose-50 border border-rose-300">
-                    <span className="font-extrabold text-rose-800">Confirmar exclusão?</span>
-                    <button
+<div className="flex items-center gap-1.5 p-1.5 rounded bg-rose-50 border border-rose-300">
+<span className="font-normal text-rose-800">Confirmar exclusão?</span>
+<button
                       type="button"
                       disabled={deleting}
-                      onClick={async () => {
+                      onClick={async () =>{
                         setDeleting(true);
                         try {
                           await onDelete();
@@ -4122,42 +4265,42 @@ export function GenericRecordEditModal({
                           setDeleting(false);
                         }
                       }}
-                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-normal cursor-pointer"
                     >
                       {deleting ? 'Excluindo...' : 'Sim, Excluir'}
-                    </button>
-                    <button
+</button>
+<button
                       type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      className="px-2 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                      onClick={() =>setConfirmDelete(false)}
+                      className="px-2 py-1 rounded border bg-white text-slate-700 font-normal cursor-pointer"
                     >
                       Não
-                    </button>
-                  </div>
+</button>
+</div>
                 )
               )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
+</div>
+<div className="flex items-center gap-2">
+<button type="button" onClick={onClose} className="px-4 py-2 rounded border font-normal cursor-pointer">
                 {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
-              </button>
+</button>
               {isReadOnly ? (
-                <button
+<button
                   type="button"
-                  onClick={() => setIsReadOnly(false)}
-                  className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                  onClick={() =>setIsReadOnly(false)}
+                  className="px-5 py-2 rounded bg-[#ff7a59] text-white font-normal cursor-pointer"
                 >
                   Editar Registro
-                </button>
+</button>
               ) : (
-                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+<button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-normal cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                   {saving ? 'Salvando...' : 'Salvar Registro'}
-                </button>
+</button>
               )}
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
+</div>
+</div>
+</form>
+</div>
+</div>
   );
 }

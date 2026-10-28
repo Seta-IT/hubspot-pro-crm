@@ -40,6 +40,7 @@ import { formatBRL } from './components/ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
   loadDurableJournal,
+  stripEmojisDeep,
   mergeCompaniesWithJournal,
   mergeContactsWithJournal,
   mergeDealsWithJournal,
@@ -195,7 +196,7 @@ export default function HubSpotProCrmApp() {
 
       if (res.ok) {
         const json = await res.json();
-        const d = json.data;
+        const d = stripEmojisDeep(json.data);
         if (d) {
           if (d.aiReport) setAiReport(d.aiReport);
           if (d.pipelines) setPipelines(d.pipelines);
@@ -1180,16 +1181,16 @@ export default function HubSpotProCrmApp() {
               className="flex items-center gap-2.5 group cursor-pointer shrink-0"
             >
               <div className="px-2 h-8 rounded-[6px] bg-white group-hover:bg-slate-100 transition flex items-center justify-center gap-1 shadow-xs">
-                <span className="font-black text-[#0d2b4e] text-xs tracking-tight">SETA</span>
+                <span className="font-normal text-[#0d2b4e] text-xs tracking-tight">SETA</span>
                 <span className="w-[1.5px] h-3.5 bg-[#f26522] inline-block" />
-                <span className="font-black text-[#f26522] text-xs tracking-tight">IT</span>
+                <span className="font-normal text-[#f26522] text-xs tracking-tight">IT</span>
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-white text-sm tracking-tight">
+                  <span className="font-normal text-white text-sm tracking-tight">
                     STI-hub
                   </span>
-                  <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-extrabold uppercase tracking-wider bg-[#ff7a59] text-white">
+                  <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-normal uppercase tracking-wider bg-[#ff7a59] text-white">
                     CRM &amp; ERP
                   </span>
                 </div>
@@ -1201,7 +1202,7 @@ export default function HubSpotProCrmApp() {
 
             <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-[#33475b] text-[11px] text-[#cbd6e2]">
               <span className="w-2 h-2 rounded-full bg-[#00bda5]" />
-              <span className="font-semibold text-white">GestãoClick ERP-GROK</span>
+              <span className="font-normal text-white">GestãoClick ERP-GROK</span>
               <span className="text-[#99acc2]">({gcStoreLabel} • MCP Online)</span>
             </div>
           </div>
@@ -1328,11 +1329,11 @@ export default function HubSpotProCrmApp() {
                     setLastCrmSubModule("DEALS_KANBAN");
                     setActiveModule("DEALS_KANBAN");
                   }}
-                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <TrendingUp className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>Forecast CRM:</span>
-                  <strong className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</strong>
+                  <span className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</span>
                 </button>
 
                 <button
@@ -1342,11 +1343,11 @@ export default function HubSpotProCrmApp() {
                     setLastCrmSubModule("DATA_HEALTH");
                     setActiveModule("DATA_HEALTH");
                   }}
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde CRM:</span>
-                  <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
+                  <span>{healthSummary?.globalHealthScore ?? 0}%</span>
                 </button>
               </>
             )}
@@ -1360,11 +1361,11 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <Receipt className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>MRR Locação:</span>
-                  <strong className="text-[#00bda5]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</strong>
+                  <span className="text-[#00bda5]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</span>
                 </button>
 
                 <button
@@ -1374,11 +1375,11 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde ERP:</span>
-                  <strong>{healthSummary?.globalHealthScore ?? 96}%</strong>
+                  <span>{healthSummary?.globalHealthScore ?? 96}%</span>
                 </button>
               </>
             )}
@@ -1392,11 +1393,11 @@ export default function HubSpotProCrmApp() {
                     setServiceDeskNavTrigger((n) => n + 1);
                     setActiveModule("SERVICE_DESK");
                   }}
-                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <Ticket className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>SLA no Prazo:</span>
-                  <strong className="text-[#00bda5]">{ticketKpis.slaComplianceRate}%</strong>
+                  <span className="text-[#00bda5]">{ticketKpis.slaComplianceRate}%</span>
                 </button>
 
                 <button
@@ -1406,11 +1407,11 @@ export default function HubSpotProCrmApp() {
                     setServiceDeskNavTrigger((n) => n + 1);
                     setActiveModule("SERVICE_DESK");
                   }}
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-normal text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde Chamados:</span>
-                  <strong>{healthSummary?.globalHealthScore ?? 98}%</strong>
+                  <span>{healthSummary?.globalHealthScore ?? 98}%</span>
                 </button>
               </>
             )}
@@ -1431,7 +1432,7 @@ export default function HubSpotProCrmApp() {
                 title="Abrir Menu da Conta, Configurar 2FA (Google Authenticator / E-mail OTP) e IAM"
                 className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] bg-[#33475b]/80 hover:bg-[#425b76] border border-[#516f90]/70 transition cursor-pointer"
               >
-                <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-bold text-[11px] flex items-center justify-center">
+                <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-normal text-[11px] flex items-center justify-center">
                   {(activeRbacUser?.name || "Marcéllo Mira")
                     .split(" ")
                     .slice(0, 2)
@@ -1440,10 +1441,10 @@ export default function HubSpotProCrmApp() {
                     .toUpperCase()}
                 </div>
                 <div className="hidden xl:block leading-tight text-left">
-                  <div className="text-[11px] font-bold text-white">
+                  <div className="text-[11px] font-normal text-white">
                     {activeRbacUser?.name || "Marcéllo Mira"}
                   </div>
-                  <div className="text-[9px] text-[#00bda5] font-extrabold">
+                  <div className="text-[9px] text-[#00bda5] font-normal">
                     {activeRbacUser?.roleId || "SUPER_ADMIN"} • Escopo: {activeRbacUser?.scope || "TODOS"}
                   </div>
                 </div>
@@ -1452,7 +1453,7 @@ export default function HubSpotProCrmApp() {
               {userMenuOpen && (
                 <div className="absolute right-0 mt-1.5 w-72 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-2xl z-50 overflow-hidden text-xs">
                   <div className="p-3 bg-[#0d2b4e] text-white space-y-1">
-                    <div className="font-extrabold truncate">
+                    <div className="font-normal truncate">
                       {activeRbacUser?.name || "Marcelo Lopes Mira"}
                     </div>
                     <div className="text-[11px] text-slate-300 font-mono truncate">
@@ -1462,12 +1463,12 @@ export default function HubSpotProCrmApp() {
                       {userEnabledModules.map((m) => (
                         <span
                           key={m}
-                          className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-black"
+                          className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-normal"
                         >
                           {m}
                         </span>
                       ))}
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-bold">
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-normal">
                         2FA Ativo
                       </span>
                     </div>
@@ -1479,7 +1480,7 @@ export default function HubSpotProCrmApp() {
                         setUserMenuOpen(false);
                         setShowUserAccountModal(true);
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-[#0d2b4e] flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-normal text-[#0d2b4e] flex items-center justify-between cursor-pointer"
                     >
                       <span>Minha Conta &amp; Parear 2FA (QR Code)</span>
                       <Lock className="w-3.5 h-3.5 text-[#ff7a59]" />
@@ -1490,7 +1491,7 @@ export default function HubSpotProCrmApp() {
                         setUserMenuOpen(false);
                         setActiveModule("ADMIN_RBAC");
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-normal text-slate-700 flex items-center justify-between cursor-pointer"
                     >
                       <span>Políticas IAM (Painel CRM &amp; Painel ERP)</span>
                       <Settings className="w-3.5 h-3.5 text-slate-500" />
@@ -1498,7 +1499,7 @@ export default function HubSpotProCrmApp() {
                     <a
                       href="/login"
                       onClick={() => setUserMenuOpen(false)}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-between"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-normal text-slate-700 flex items-center justify-between"
                     >
                       <span>Trocar Conta / Login MFA (/login)</span>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
@@ -1519,7 +1520,7 @@ export default function HubSpotProCrmApp() {
                 window.location.href = '/login';
               }}
               title="Encerrar sessão MFA e bloquear rotas"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-[4px] bg-rose-900/70 hover:bg-rose-800 border border-rose-500/40 text-[10px] font-extrabold text-rose-200 cursor-pointer"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-[4px] bg-rose-900/70 hover:bg-rose-800 border border-rose-500/40 text-[10px] font-normal text-rose-200 cursor-pointer"
             >
               Sair
             </button>
@@ -1537,7 +1538,7 @@ export default function HubSpotProCrmApp() {
                   key={item.id}
                   type="button"
                   onClick={item.onClick}
-                  className={`relative flex-1 sm:flex-initial min-h-[40px] inline-flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2 rounded-[4px] text-xs font-extrabold transition cursor-pointer ${
+                  className={`relative flex-1 sm:flex-initial min-h-[40px] inline-flex items-center justify-center sm:justify-start gap-2 px-3 sm:px-4 py-2 rounded-[4px] text-xs font-normal transition cursor-pointer ${
                     isActive
                       ? "bg-[#213343] text-white shadow-xs"
                       : "text-[#cbd6e2] hover:bg-[#33475b] hover:text-white"
@@ -1547,7 +1548,7 @@ export default function HubSpotProCrmApp() {
                   <span>{item.shortLabel}</span>
                   {item.badge !== undefined && (
                     <span
-                      className={`px-1.5 py-0.2 rounded-[3px] text-[10px] font-bold ${
+                      className={`px-1.5 py-0.2 rounded-[3px] text-[10px] font-normal ${
                         isActive
                           ? "bg-[#ff7a59] text-white"
                           : "bg-[#33475b] text-[#cbd6e2]"
@@ -1577,16 +1578,16 @@ export default function HubSpotProCrmApp() {
               <button
                 type="button"
                 onClick={() => setActiveModule("OVERVIEW_AI")}
-                className="font-extrabold text-[#0d2b4e] hover:underline cursor-pointer"
+                className="font-normal text-[#0d2b4e] hover:underline cursor-pointer"
               >
                 STI-hub
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
-              <span className="font-bold text-[#33475b] text-sm">
+              <span className="font-normal text-[#33475b] text-sm">
                 {activeSectionLabel}
               </span>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
-              <span className="font-semibold text-[#ff7a59] text-xs">
+              <span className="font-normal text-[#ff7a59] text-xs">
                 {activeSubModuleBreadcrumbLabel}
               </span>
             </div>
@@ -1600,7 +1601,7 @@ export default function HubSpotProCrmApp() {
                     setContactsInitialSubView("CONTACTS");
                     setActiveModule("CONTACTS_COMPANIES");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-normal cursor-pointer transition"
                 >
                   {contacts.length} Contatos CRM
                 </button>
@@ -1611,7 +1612,7 @@ export default function HubSpotProCrmApp() {
                     setContactsInitialSubView("COMPANIES");
                     setActiveModule("CONTACTS_COMPANIES");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#e5f8f6] hover:bg-[#c9f2ec] text-[#007a6c] border border-[#00bda5]/40 text-[11px] font-normal cursor-pointer transition"
                 >
                   {companies.length} Empresas CRM
                 </button>
@@ -1622,7 +1623,7 @@ export default function HubSpotProCrmApp() {
                     setLastCrmSubModule("DEALS_KANBAN");
                     setActiveModule("DEALS_KANBAN");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-sky-50 hover:bg-sky-100 text-[#0091ae] border border-sky-200 text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-sky-50 hover:bg-sky-100 text-[#0091ae] border border-sky-200 text-[11px] font-normal cursor-pointer transition"
                 >
                   {deals.length} Negócios Ativos
                 </button>
@@ -1634,7 +1635,7 @@ export default function HubSpotProCrmApp() {
                     setLastCrmSubModule("DATA_HEALTH");
                     setActiveModule("DATA_HEALTH");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-normal cursor-pointer transition"
                 >
                   Data Health CRM: {healthSummary?.globalHealthScore ?? 92}%
                 </button>
@@ -1651,7 +1652,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-normal cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes ERP
                 </button>
@@ -1663,7 +1664,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-normal cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.orcamentos ?? 2077} Orçamentos
                 </button>
@@ -1675,7 +1676,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-normal cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos de Locação
                 </button>
@@ -1687,7 +1688,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-bold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-normal cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.ordensServicos ?? 1378} O.S.
                 </button>
@@ -1697,13 +1698,13 @@ export default function HubSpotProCrmApp() {
             {/* BADGES EXCLUSIVOS QUANDO NO SISTEMA 3: CHAMADOS */}
             {activeModule === "SERVICE_DESK" && (
               <>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-indigo-50 text-indigo-800 border border-indigo-200 text-[11px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-indigo-50 text-indigo-800 border border-indigo-200 text-[11px] font-normal">
                   {ticketKpis.openCount} Chamados Abertos
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-normal">
                   SLA {ticketKpis.slaComplianceRate}% no Prazo
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-slate-100 text-slate-800 border border-slate-300 text-[11px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-slate-100 text-slate-800 border border-slate-300 text-[11px] font-normal">
                   Fila NOC Telecom 24x7
                 </span>
               </>
@@ -1715,7 +1716,7 @@ export default function HubSpotProCrmApp() {
             {isCrmActive && (
               <>
                 <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
-                  <span className="text-[11px] font-bold text-[#516f90]">Pipeline:</span>
+                  <span className="text-[11px] font-normal text-[#516f90]">Pipeline:</span>
                   <select
                     aria-label="Seletor Global de Pipeline"
                     value={selectedPipelineId}
@@ -1723,7 +1724,7 @@ export default function HubSpotProCrmApp() {
                       setSelectedPipelineId(e.target.value);
                       setActiveModule("DEALS_KANBAN");
                     }}
-                    className="bg-transparent text-xs font-bold text-[#0091ae] focus:outline-none cursor-pointer"
+                    className="bg-transparent text-xs font-normal text-[#0091ae] focus:outline-none cursor-pointer"
                   >
                     {pipelines.map((p) => (
                       <option key={p.id} value={p.id} className="text-[#33475b]">
@@ -1745,7 +1746,7 @@ export default function HubSpotProCrmApp() {
                       amountBrl: 4320,
                     })
                   }
-                  className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                  className="px-3 py-1.5 rounded-[4px] bg-sky-600 hover:bg-sky-700 text-white text-xs font-normal shadow-2xs transition cursor-pointer"
                 >
                   Enviar E-mail ao Cliente
                 </button>
@@ -1758,7 +1759,7 @@ export default function HubSpotProCrmApp() {
                       setActiveModule("DEALS_KANBAN");
                       setOpenNewDealTrigger((n) => n + 1);
                     }}
-                    className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-2xs transition cursor-pointer"
                   >
                     + Novo Negócio (Deal)
                   </button>
@@ -1776,7 +1777,7 @@ export default function HubSpotProCrmApp() {
                     setAutoOpenNewProposalTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-2xs transition cursor-pointer"
                 >
                   + Novo Orçamento / Proposta PDF
                 </button>
@@ -1791,7 +1792,7 @@ export default function HubSpotProCrmApp() {
                   setOpenNewTicketTrigger((n) => n + 1);
                   setActiveModule("SERVICE_DESK");
                 }}
-                className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+                className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-2xs transition cursor-pointer"
               >
                 + Novo Chamado NOC
               </button>
@@ -1813,7 +1814,7 @@ export default function HubSpotProCrmApp() {
         )}
         {/* TOAST NOTIFICATION */}
         {toastMessage && (
-          <div className="fixed bottom-5 right-5 z-50 bg-[#213343] text-white px-4 py-3 rounded-[6px] shadow-2xl border-l-4 border-[#00bda5] flex items-center gap-2.5 text-xs font-semibold">
+          <div className="fixed bottom-5 right-5 z-50 bg-[#213343] text-white px-4 py-3 rounded-[6px] shadow-2xl border-l-4 border-[#00bda5] flex items-center gap-2.5 text-xs font-normal">
             <CheckCircle2 className="w-4 h-4 text-[#00bda5] shrink-0" />
             <span>{toastMessage}</span>
           </div>
@@ -1873,12 +1874,12 @@ export default function HubSpotProCrmApp() {
                   <button
                     type="button"
                     onClick={() => setCrmMobileDrawerOpen(true)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#ff7a59] text-white text-xs font-normal shadow-xs cursor-pointer"
                   >
                     <Menu className="w-4 h-4" />
                     <span>Menu CRM</span>
                   </button>
-                  <span className="text-[11px] font-bold text-[#cbd6e2] truncate">
+                  <span className="text-[11px] font-normal text-[#cbd6e2] truncate">
                     {activeModule === 'OVERVIEW_AI'
                       ? 'Visão Geral & IA'
                       : activeModule === 'CONTACTS_COMPANIES'
@@ -1977,7 +1978,7 @@ export default function HubSpotProCrmApp() {
                       key={pill.id}
                       type="button"
                       onClick={pill.onClick}
-                      className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                      className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-normal transition cursor-pointer ${
                         pill.active
                           ? 'bg-white text-[#0d2b4e] shadow-2xs'
                           : 'bg-[#33475b] text-[#cbd6e2] hover:text-white'
@@ -2048,7 +2049,7 @@ export default function HubSpotProCrmApp() {
                     <button
                       type="button"
                       onClick={() => setCrmSidebarCollapsed(false)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0d2b4e] cursor-pointer shadow-2xs"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-normal text-[#0d2b4e] cursor-pointer shadow-2xs"
                       title="Expandir menu lateral do CRM"
                     >
                       <Menu className="w-3.5 h-3.5 text-[#ff7a59]" />

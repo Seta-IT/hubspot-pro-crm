@@ -455,14 +455,14 @@ export default function AdminSettingsCenterTab({
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-black uppercase">
+            <span className="px-2.5 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal uppercase">
               STI-hub • Governança &amp; Configuração Global
             </span>
-            <span className="px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+            <span className="px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
               ● HubSpot #4369067 + GestãoClick #118887
             </span>
           </div>
-          <h1 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
+          <h1 className="text-lg sm:text-xl font-semibold text-slate-900 mt-1">
             Central de Administração, Campos Customizáveis, Modelos de E-mail &amp; Permissões RBAC
           </h1>
           <p className="text-xs text-slate-500">
@@ -487,7 +487,7 @@ export default function AdminSettingsCenterTab({
                 key={id}
                 type="button"
                 onClick={() => setSubTab(id)}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-normal transition cursor-pointer ${
                   active
                     ? 'bg-[#1e3a6e] text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -509,21 +509,21 @@ export default function AdminSettingsCenterTab({
           <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h2 className="text-sm font-extrabold text-slate-900">
+                <h2 className="text-sm font-semibold text-slate-900">
                   1. Configuração do Motor de Envio de E-mail (STI-hub Mailer)
                 </h2>
                 <p className="text-[11px] text-slate-500">
                   Utilizado para enviar Propostas PDF, Respostas de Chamados NOC, Boletos, Recibos de Locação (0% ISS) e Notas Fiscais.
                 </p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
+              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-normal">
                 ● VALIDADO &amp; ATIVO
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
+                <label className="block font-normal text-slate-700 mb-1">
                   Servidor SMTP / Relay Transacional
                 </label>
                 <input
@@ -534,7 +534,7 @@ export default function AdminSettingsCenterTab({
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Porta &amp; Criptografia</label>
+                <label className="block font-normal text-slate-700 mb-1">Porta &amp; Criptografia</label>
                 <input
                   type="text"
                   value={smtpPort}
@@ -543,18 +543,18 @@ export default function AdminSettingsCenterTab({
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
+                <label className="block font-normal text-slate-700 mb-1">
                   Conta Remetente Oficial (From)
                 </label>
                 <input
                   type="email"
                   value={smtpUser}
                   onChange={(e) => setSmtpUser(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
+                <label className="block font-normal text-slate-700 mb-1">
                   Nome de Exibição (Sender Name)
                 </label>
                 <input
@@ -565,7 +565,7 @@ export default function AdminSettingsCenterTab({
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-700 mb-1">
+                <label className="block font-normal text-slate-700 mb-1">
                   E-mail de Resposta (Reply-To)
                 </label>
                 <input
@@ -579,21 +579,21 @@ export default function AdminSettingsCenterTab({
 
             {/* DNS Authentication Records */}
             <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-              <div className="font-extrabold text-slate-800 uppercase text-[10px]">
+              <div className="font-normal text-slate-800 uppercase text-[10px]">
                 Status de Autenticação de Domínio (setatelecom.com.br)
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
-                  <span className="font-bold">SPF Record</span>
-                  <span className="text-emerald-700 font-extrabold">Verificado</span>
+                  <span className="font-normal">SPF Record</span>
+                  <span className="text-emerald-700 font-normal">Verificado</span>
                 </div>
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
-                  <span className="font-bold">DKIM 2048-bit</span>
-                  <span className="text-emerald-700 font-extrabold">Assinado</span>
+                  <span className="font-normal">DKIM 2048-bit</span>
+                  <span className="text-emerald-700 font-normal">Assinado</span>
                 </div>
                 <div className="p-2 rounded bg-white border border-emerald-200 flex items-center justify-between">
-                  <span className="font-bold">DMARC Policy</span>
-                  <span className="text-emerald-700 font-extrabold">Ativo</span>
+                  <span className="font-normal">DMARC Policy</span>
+                  <span className="text-emerald-700 font-normal">Ativo</span>
                 </div>
               </div>
             </div>
@@ -602,7 +602,7 @@ export default function AdminSettingsCenterTab({
               <button
                 type="button"
                 onClick={() => onShowToast('Configurações de SMTP e Remetente salvas no STI-hub!')}
-                className="px-5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer"
+                className="px-5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal cursor-pointer"
               >
                 Salvar Configuração de E-mail
               </button>
@@ -611,12 +611,12 @@ export default function AdminSettingsCenterTab({
 
           {/* RIGHT: LIVE EMAIL VALIDATOR & HOW TO CONFIGURE */}
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4 text-xs">
-            <h2 className="text-sm font-extrabold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900">
               2. Validador Ao Vivo de Disparo &amp; Guia Rápido
             </h2>
 
             <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3">
-              <label className="block font-bold text-[#1e3a6e]">
+              <label className="block font-normal text-[#1e3a6e]">
                 E-mail de Destino para Teste de Validação:
               </label>
               <div className="flex gap-2">
@@ -624,13 +624,13 @@ export default function AdminSettingsCenterTab({
                   type="email"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="flex-1 px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                 />
                 <button
                   type="button"
                   disabled={testingEmail}
                   onClick={handleRunEmailValidationTest}
-                  className="px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer shrink-0"
                 >
                   {testingEmail ? 'Testando...' : 'Validar Disparo Agora'}
                 </button>
@@ -638,12 +638,12 @@ export default function AdminSettingsCenterTab({
 
               {validationResult && (
                 <div className="p-3 rounded bg-white border border-emerald-300 space-y-1">
-                  <div className="font-extrabold text-emerald-800 flex items-center gap-1.5">
+                  <div className="font-normal text-emerald-800 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     {validationResult.status}
                   </div>
                   <div className="text-[11px] text-slate-600">
-                    Destinatário: <strong>{validationResult.recipient}</strong>
+                    Destinatário: <span>{validationResult.recipient}</span>
                   </div>
                   <div className="text-[11px] font-mono text-slate-500">
                     Protocolo: {validationResult.protocol} • {validationResult.timestamp}
@@ -653,11 +653,11 @@ export default function AdminSettingsCenterTab({
             </div>
 
             <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-[11px] text-slate-600">
-              <div className="font-extrabold text-slate-800">
+              <div className="font-normal text-slate-800">
                 Como configurar envio externo na Vercel (Produção):
               </div>
               <p>
-                1. O <strong>STI-hub Mailer</strong> já opera nativamente registrando todos os envios com protocolo auditável e link público de PDF A4.
+                1. O <span>STI-hub Mailer</span> já opera nativamente registrando todos os envios com protocolo auditável e link público de PDF A4.
               </p>
               <p>
                 2. Para disparo transacional direto via API, basta definir a variável de ambiente{' '}
@@ -685,12 +685,12 @@ export default function AdminSettingsCenterTab({
             onSubmit={handleCreateCustomField}
             className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3 text-xs"
           >
-            <div className="font-extrabold text-slate-900 text-sm">
+            <div className="font-normal text-slate-900 text-sm">
               + Criar Novo Campo Customizável (Sincronizado no CRM &amp; ERP)
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
               <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-700 mb-1">Rótulo do Campo (Label) *</label>
+                <label className="block font-normal text-slate-700 mb-1">Rótulo do Campo (Label) *</label>
                 <input
                   type="text"
                   required
@@ -701,7 +701,7 @@ export default function AdminSettingsCenterTab({
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Nome Interno (API)</label>
+                <label className="block font-normal text-slate-700 mb-1">Nome Interno (API)</label>
                 <input
                   type="text"
                   value={newFieldName}
@@ -711,11 +711,11 @@ export default function AdminSettingsCenterTab({
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Objeto</label>
+                <label className="block font-normal text-slate-700 mb-1">Objeto</label>
                 <select
                   value={newFieldObj}
                   onChange={(e) => setNewFieldObj(e.target.value as CustomFieldObjectType)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                 >
                   <option value="CONTACT">Contato (CRM)</option>
                   <option value="COMPANY">Empresa / Cliente</option>
@@ -726,11 +726,11 @@ export default function AdminSettingsCenterTab({
                 </select>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Tipo de Dado</label>
+                <label className="block font-normal text-slate-700 mb-1">Tipo de Dado</label>
                 <select
                   value={newFieldType}
                   onChange={(e) => setNewFieldType(e.target.value as CustomFieldDataType)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                 >
                   <option value="TEXT">Texto Livre</option>
                   <option value="NUMBER">Número</option>
@@ -744,7 +744,7 @@ export default function AdminSettingsCenterTab({
               <div>
                 <button
                   type="submit"
-                  className="w-full py-2 px-4 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                  className="w-full py-2 px-4 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer"
                 >
                   + Criar Campo
                 </button>
@@ -755,7 +755,7 @@ export default function AdminSettingsCenterTab({
           {/* Filter & Table of HubSpot + ERP Custom Fields */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-extrabold text-slate-900">
+              <h3 className="text-sm font-semibold text-slate-900">
                 Propriedades Mapeadas do HubSpot Portal #4369067 &amp; GestãoClick #118887 ({filteredFields.length})
               </h3>
               <div className="flex flex-wrap gap-1.5">
@@ -765,7 +765,7 @@ export default function AdminSettingsCenterTab({
                       key={obj}
                       type="button"
                       onClick={() => setObjectFilter(obj)}
-                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer ${
+                      className={`px-3 py-1 rounded text-xs font-normal cursor-pointer ${
                         objectFilter === obj
                           ? 'bg-[#1e3a6e] text-white'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -795,27 +795,27 @@ export default function AdminSettingsCenterTab({
                   {filteredFields.map((f) => (
                     <tr key={f.id} className="hover:bg-slate-50">
                       <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900">{f.label}</div>
+                        <div className="font-normal text-slate-900">{f.label}</div>
                         <div className="text-[11px] text-slate-500">{f.description}</div>
                       </td>
-                      <td className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e]">
+                      <td className="py-2.5 px-3 font-mono font-normal text-[#1e3a6e]">
                         {f.internalName}
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-[10px]">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 font-normal text-[10px]">
                           {f.objectType}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 font-semibold">{f.dataType}</td>
+                      <td className="py-2.5 px-3 font-normal">{f.dataType}</td>
                       <td className="py-2.5 px-3 text-slate-600">{f.groupName}</td>
                       <td className="py-2.5 px-3 space-x-1">
                         {f.hubspotSynced && (
-                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-normal">
                             HubSpot #4369067
                           </span>
                         )}
                         {f.gestaoClickSynced && (
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-normal">
                             GestãoClick ERP
                           </span>
                         )}
@@ -845,7 +845,7 @@ export default function AdminSettingsCenterTab({
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-extrabold text-slate-900">
+              <h2 className="text-sm font-semibold text-slate-900">
                 Biblioteca Oficial de Modelos de E-mail (CRM Sales, Marketing, Service &amp; ERP)
               </h2>
               <p className="text-xs text-slate-500">
@@ -869,7 +869,7 @@ export default function AdminSettingsCenterTab({
                   updatedAt: new Date().toISOString(),
                 })
               }
-              className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+              className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
             >
               + Novo Modelo de E-mail
             </button>
@@ -881,20 +881,20 @@ export default function AdminSettingsCenterTab({
               className="bg-white rounded-xl border-2 border-[#1e3a6e] p-5 shadow-md space-y-3 text-xs"
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-extrabold text-[#1e3a6e]">
+                <h3 className="text-sm font-semibold text-[#1e3a6e]">
                   Editando Modelo: {editingTemplate.name}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setEditingTemplate(null)}
-                  className="text-slate-400 hover:text-slate-700 font-bold"
+                  className="text-slate-400 hover:text-slate-700 font-normal"
                 >
                   Cancelar
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Nome do Modelo *</label>
+                  <label className="block font-normal text-slate-700 mb-1">Nome do Modelo *</label>
                   <input
                     type="text"
                     required
@@ -902,11 +902,11 @@ export default function AdminSettingsCenterTab({
                     onChange={(e) =>
                       setEditingTemplate({ ...editingTemplate, name: e.target.value })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Categoria</label>
+                  <label className="block font-normal text-slate-700 mb-1">Categoria</label>
                   <select
                     value={editingTemplate.category}
                     onChange={(e) =>
@@ -915,7 +915,7 @@ export default function AdminSettingsCenterTab({
                         category: e.target.value as EmailTemplateRecord['category'],
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
                   >
                     <option value="ERP_PROPOSAL">ERP • Proposta Comercial PDF</option>
                     <option value="ERP_FINANCE_FISCAL">ERP • Boleto / Recibo Locação / NF</option>
@@ -926,7 +926,7 @@ export default function AdminSettingsCenterTab({
                 </div>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Assunto (Subject) *</label>
+                <label className="block font-normal text-slate-700 mb-1">Assunto (Subject) *</label>
                 <input
                   type="text"
                   required
@@ -934,11 +934,11 @@ export default function AdminSettingsCenterTab({
                   onChange={(e) =>
                     setEditingTemplate({ ...editingTemplate, subjectTemplate: e.target.value })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Corpo do E-mail *</label>
+                <label className="block font-normal text-slate-700 mb-1">Corpo do E-mail *</label>
                 <textarea
                   rows={6}
                   required
@@ -952,7 +952,7 @@ export default function AdminSettingsCenterTab({
               <div className="flex justify-end gap-2">
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
                 >
                   Salvar Modelo
                 </button>
@@ -968,13 +968,13 @@ export default function AdminSettingsCenterTab({
               >
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] font-extrabold text-[10px]">
+                    <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] font-normal text-[10px]">
                       {tpl.category}
                     </span>
                     <span className="font-mono text-[10px] text-slate-400">{tpl.code}</span>
                   </div>
-                  <h4 className="text-sm font-extrabold text-slate-900">{tpl.name}</h4>
-                  <div className="p-2 rounded bg-slate-50 border border-slate-200 font-semibold text-slate-800">
+                  <h4 className="text-sm font-semibold text-slate-900">{tpl.name}</h4>
+                  <div className="p-2 rounded bg-slate-50 border border-slate-200 font-normal text-slate-800">
                     Assunto: {tpl.subjectTemplate}
                   </div>
                   <pre className="p-2.5 rounded bg-slate-50 border border-slate-100 text-[11px] text-slate-600 whitespace-pre-wrap font-sans max-h-36 overflow-y-auto">
@@ -997,7 +997,7 @@ export default function AdminSettingsCenterTab({
                     <button
                       type="button"
                       onClick={() => setEditingTemplate(tpl)}
-                      className="px-2.5 py-1 rounded bg-amber-500 text-white font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded bg-amber-500 text-white font-normal cursor-pointer"
                     >
                       Editar
                     </button>
@@ -1021,7 +1021,7 @@ export default function AdminSettingsCenterTab({
                             .replace(/\{\{proposta\.valor_total\}\}/g, 'R$ 4.320,00'),
                         })
                       }
-                      className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
                     >
                       Usar Modelo
                     </button>
@@ -1041,14 +1041,14 @@ export default function AdminSettingsCenterTab({
           {/* Caminho / Guia Rápido para Adicionar Usuários, Tipos de Conta (CRM vs ERP), Permissões CRUD e 2FA */}
           <div className="bg-[#0d2b4e] text-white rounded-xl p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="text-[10px] font-black uppercase tracking-wider text-[#ff7a59]">
+              <div className="text-[10px] font-normal uppercase tracking-wider text-[#ff7a59]">
                 ARQUITETURA DE CONTAS E PERMISSÕES SEPARADAS (CRM ≠ ERP) + 2FA GOOGLE AUTHENTICATOR
               </div>
-              <div className="text-sm font-extrabold">
+              <div className="text-sm font-normal">
                 1. Tipos de Conta do CRM são independentes dos Tipos de Conta do ERP • 2. Permissões Visualizar / Editar / Deletar por Módulo e Item • 3. Pareamento 2FA QR Code
               </div>
               <p className="text-xs text-slate-300">
-                Cada colaborador possui seu <strong>Tipo de Conta no CRM</strong> (ex.: Administrador CRM, Gestor Comercial, Executivo B2B, Marketing, NOC) e seu <strong>Tipo de Conta no ERP</strong> (ex.: Administrador ERP, Comercial ERP, Financeiro &amp; Fiscal, Gerência de Estoque, Contratos/O.S., PDV), cada um com sua própria matriz de <strong>Visualizar, Editar e Deletar</strong>.
+                Cada colaborador possui seu <span>Tipo de Conta no CRM</span> (ex.: Administrador CRM, Gestor Comercial, Executivo B2B, Marketing, NOC) e seu <span>Tipo de Conta no ERP</span> (ex.: Administrador ERP, Comercial ERP, Financeiro &amp; Fiscal, Gerência de Estoque, Contratos/O.S., PDV), cada um com sua própria matriz de <span>Visualizar, Editar e Deletar</span>.
               </p>
             </div>
             <button
@@ -1059,7 +1059,7 @@ export default function AdminSettingsCenterTab({
                 );
                 setShowAddUserModal(true);
               }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer shrink-0"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" /> + Adicionar Novo Usuário &amp; 2FA
             </button>
@@ -1070,25 +1070,25 @@ export default function AdminSettingsCenterTab({
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-extrabold text-slate-900">
+                <h2 className="text-sm font-semibold text-slate-900">
                   Configurações &gt; Usuários — Todos os Usuários Ativos e Desativados ({users.length})
                 </h2>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {((["ALL", "ACTIVE", "INACTIVE"] as const)).map((k) => {
                     const lbl = k === "ALL" ? `Todos (${users.length})` : k === "ACTIVE" ? `Ativos (${users.filter((x) => x.active).length})` : `Desativados (${users.filter((x) => !x.active).length})`;
                     return (
-                    <button key={k} type="button" onClick={() => setUserStatusFilter(k)} className={"px-3 py-1 rounded-lg text-xs font-extrabold cursor-pointer " + (userStatusFilter === k ? "bg-[#0d2b4e] text-white" : "bg-slate-100 text-slate-700")}>
+                    <button key={k} type="button" onClick={() => setUserStatusFilter(k)} className={"px-3 py-1 rounded-lg text-xs font-normal cursor-pointer " + (userStatusFilter === k ? "bg-[#0d2b4e] text-white" : "bg-slate-100 text-slate-700")}>
                       {lbl}
                     </button>
                     );
                   })}
                 </div>
                 <p className="text-xs text-slate-500">
-                  Altere separadamente o <strong>Tipo de Conta CRM</strong> e o <strong>Tipo de Conta ERP</strong>, abra o <strong>QR Code 2FA Google Authenticator</strong> ou clique em <strong>Customizar CRUD</strong>.
+                  Altere separadamente o <span>Tipo de Conta CRM</span> e o <span>Tipo de Conta ERP</span>, abra o <span>QR Code 2FA Google Authenticator</span> ou clique em <span>Customizar CRUD</span>.
                 </p>
               </div>
               {currentSession && (
-                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-extrabold">
+                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-normal">
                   Sessão Ativa: {currentSession.name} ({currentSession.role})
                 </span>
               )}
@@ -1114,23 +1114,23 @@ export default function AdminSettingsCenterTab({
                     return (
                       <tr key={u.id} onClick={() => setSelectedUserProfile(u)} className={`cursor-pointer ${isCurrent ? 'bg-blue-50/50' : !u.active ? 'opacity-70 bg-slate-50' : 'hover:bg-blue-50/30'}`}>
                         <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{u.name}</div>
+                          <div className="font-normal text-slate-900">{u.name}</div>
                           <div className="font-mono text-[11px] text-slate-500">
                             {u.email} • {u.department}
                           </div>
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#0d2b4e] border border-orange-200 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#0d2b4e] border border-orange-200 text-[10px] font-normal">
                             {crmRolesCatalogState[effCrmRole]?.label || effCrmRole}
                           </span>
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-normal">
                             {erpRolesCatalogState[effErpRole]?.label || effErpRole}
                           </span>
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
                             {u.mfaEnabled ? "2FA Ativo (" + (u.mfaMethod === "TOTP_AUTHENTICATOR" ? "Google Auth" : "E-mail") + ")" : "2FA Inativo"}
                           </span>
                         </td>
@@ -1139,14 +1139,14 @@ export default function AdminSettingsCenterTab({
                             <button
                               type="button"
                               onClick={() => setSelectedUserProfile(u)}
-                              className="px-3 py-1 rounded bg-[#0d2b4e] text-white text-[11px] font-extrabold cursor-pointer"
+                              className="px-3 py-1 rounded bg-[#0d2b4e] text-white text-[11px] font-normal cursor-pointer"
                             >
                               Abrir Perfil
                             </button>
                             <button
                               type="button"
                               onClick={() => onSwitchRoleSession(u)}
-                              className="px-2.5 py-1 rounded bg-slate-100 border border-slate-300 text-slate-800 text-[11px] font-bold cursor-pointer"
+                              className="px-2.5 py-1 rounded bg-slate-100 border border-slate-300 text-slate-800 text-[11px] font-normal cursor-pointer"
                             >
                               Simular
                             </button>
@@ -1178,14 +1178,14 @@ export default function AdminSettingsCenterTab({
               <div className="bg-white rounded-2xl border-2 border-[#0d2b4e] p-5 shadow-md space-y-4 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
                   <div className="flex items-center gap-3">
-                    <button type="button" onClick={() => setSelectedUserProfile(null)} className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 font-extrabold cursor-pointer">
+                    <button type="button" onClick={() => setSelectedUserProfile(null)} className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 font-normal cursor-pointer">
                       ← Voltar para Lista de Usuários
                     </button>
                     <div>
-                      <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                      <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                         CONFIGURAÇÕES &gt; USUÁRIOS &gt; CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES
                       </span>
-                      <h3 className="text-sm font-extrabold text-slate-900">
+                      <h3 className="text-sm font-semibold text-slate-900">
                         {selectedUserProfile.name} ({selectedUserProfile.email}) — {selectedUserProfile.active ? "ATIVO" : "DESATIVADO"}
                       </h3>
                     </div>
@@ -1194,7 +1194,7 @@ export default function AdminSettingsCenterTab({
                     <button
                       type="button"
                       onClick={() => setSelectedUserProfile({ ...selectedUserProfile, active: !selectedUserProfile.active })}
-                      className={"px-3 py-1.5 rounded-lg font-extrabold cursor-pointer " + (selectedUserProfile.active ? "bg-rose-50 text-rose-800 border border-rose-300" : "bg-emerald-50 text-emerald-800 border border-emerald-300")}
+                      className={"px-3 py-1.5 rounded-lg font-normal cursor-pointer " + (selectedUserProfile.active ? "bg-rose-50 text-rose-800 border border-rose-300" : "bg-emerald-50 text-emerald-800 border border-emerald-300")}
                     >
                       {selectedUserProfile.active ? "Desativar Usuário" : "Reativar Usuário"}
                     </button>
@@ -1206,7 +1206,7 @@ export default function AdminSettingsCenterTab({
                         setSelectedUserProfile(null);
                         onShowToast("Cadastro, Tipos de Conta e Permissões de " + selectedUserProfile.name + " salvos!");
                       }}
-                      className="px-4 py-1.5 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                      className="px-4 py-1.5 rounded-lg bg-[#ff7a59] text-white font-normal cursor-pointer"
                     >
                       Salvar Usuário &amp; Permissões
                     </button>
@@ -1216,15 +1216,15 @@ export default function AdminSettingsCenterTab({
                 {/* 1. Dados de Cadastro & 2FA */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" value={selectedUserProfile.name} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, name: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-bold" />
+                    <label className="block font-normal text-slate-700 mb-1">Nome Completo</label>
+                    <input type="text" value={selectedUserProfile.name} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, name: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-normal" />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo</label>
+                    <label className="block font-normal text-slate-700 mb-1">E-mail Corporativo</label>
                     <input type="email" value={selectedUserProfile.email} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, email: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-mono" />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Departamento</label>
+                    <label className="block font-normal text-slate-700 mb-1">Departamento</label>
                     <input type="text" value={selectedUserProfile.department} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, department: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300" />
                   </div>
                 </div>
@@ -1232,9 +1232,9 @@ export default function AdminSettingsCenterTab({
                 <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-wrap items-center gap-4">
                   <img src={qrUrl} alt="QR 2FA" className="w-20 h-20 rounded-lg border border-slate-300 bg-white p-1" />
                   <div className="space-y-1 flex-1">
-                    <div className="font-extrabold text-[#0d2b4e]">2FA Google Authenticator ({selectedUserProfile.email})</div>
+                    <div className="font-normal text-[#0d2b4e]">2FA Google Authenticator ({selectedUserProfile.email})</div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">{formatBase32SecretBlocks(secret)}</code>
+                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-normal">{formatBase32SecretBlocks(secret)}</code>
                       
                     </div>
                   </div>
@@ -1243,7 +1243,7 @@ export default function AdminSettingsCenterTab({
                 {/* 2. Tipos de Conta por Sistema */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                   <div>
-                    <label className="block font-extrabold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; Chamados:</label>
+                    <label className="block font-normal text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; Chamados:</label>
                     <select
                       value={effCrm}
                       onChange={(e) => {
@@ -1254,7 +1254,7 @@ export default function AdminSettingsCenterTab({
                           crmItemPermissions: buildDefaultCrmItemPermissions(nextCrm),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                     >
                       {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((k) => (
                         <option key={k} value={k}>{k} — {crmRolesCatalogState[k].label}</option>
@@ -1262,7 +1262,7 @@ export default function AdminSettingsCenterTab({
                     </select>
                   </div>
                   <div>
-                    <label className="block font-extrabold text-[#1e3a6e] mb-1">Tipo de Conta no ERP:</label>
+                    <label className="block font-normal text-[#1e3a6e] mb-1">Tipo de Conta no ERP:</label>
                     <select
                       value={effErp}
                       onChange={(e) => {
@@ -1273,7 +1273,7 @@ export default function AdminSettingsCenterTab({
                           erpItemPermissions: buildDefaultErpItemPermissions(nextErp),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-[#1e3a6e]"
                     >
                       {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((k) => (
                         <option key={k} value={k}>{k} — {erpRolesCatalogState[k].label}</option>
@@ -1285,7 +1285,7 @@ export default function AdminSettingsCenterTab({
                 {/* 3. Permissões Visualizar | Editar | Deletar para Todos os Sistemas */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-extrabold">Permissões no Sistema CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-normal">Permissões no Sistema CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
                     <div className="max-h-64 overflow-y-auto">
                       <table className="w-full text-left text-[11px]">
                         <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
@@ -1296,7 +1296,7 @@ export default function AdminSettingsCenterTab({
                             const fl = crmMap[it.itemId] || { view: false, edit: false, delete: false };
                             return (
                               <tr key={it.itemId}>
-                                <td className="py-1.5 px-2 font-semibold">{it.itemLabel}</td>
+                                <td className="py-1.5 px-2 font-normal">{it.itemLabel}</td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.view} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, view: e.target.checked } } })} /></td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.edit} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, edit: e.target.checked } } })} /></td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.delete} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, crmItemPermissions: { ...crmMap, [it.itemId]: { ...fl, delete: e.target.checked } } })} /></td>
@@ -1308,7 +1308,7 @@ export default function AdminSettingsCenterTab({
                     </div>
                   </div>
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-[#1e3a6e] text-white px-3 py-2 font-extrabold">Permissões no Sistema ERP ({ERP_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="bg-[#1e3a6e] text-white px-3 py-2 font-normal">Permissões no Sistema ERP ({ERP_MODULE_ITEMS_CATALOG.length} itens)</div>
                     <div className="max-h-64 overflow-y-auto">
                       <table className="w-full text-left text-[11px]">
                         <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
@@ -1319,7 +1319,7 @@ export default function AdminSettingsCenterTab({
                             const fl = erpMap[it.itemId] || { view: false, edit: false, delete: false };
                             return (
                               <tr key={it.itemId}>
-                                <td className="py-1.5 px-2 font-semibold">{it.itemLabel}</td>
+                                <td className="py-1.5 px-2 font-normal">{it.itemLabel}</td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.view} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, view: e.target.checked } } })} /></td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.edit} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, edit: e.target.checked } } })} /></td>
                                 <td className="py-1.5 px-2 text-center"><input type="checkbox" checked={fl.delete} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, erpItemPermissions: { ...erpMap, [it.itemId]: { ...fl, delete: e.target.checked } } })} /></td>
@@ -1351,17 +1351,17 @@ export default function AdminSettingsCenterTab({
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full p-6 space-y-4 text-xs my-6">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <div>
-                      <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                      <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                         CADASTRO DE USUÁRIO STI-HUB • CONTAS CRM &amp; ERP INDEPENDENTES + 2FA
                       </span>
-                      <h3 className="text-base font-extrabold text-slate-900">
+                      <h3 className="text-base font-semibold text-slate-900">
                         + Adicionar Novo Usuário, Tipos de Conta (CRM / ERP) &amp; 2FA Google Authenticator
                       </h3>
                     </div>
                     <button
                       type="button"
                       onClick={() => setShowAddUserModal(false)}
-                      className="px-3 py-1 rounded border border-slate-300 font-bold text-slate-600 cursor-pointer"
+                      className="px-3 py-1 rounded border border-slate-300 font-normal text-slate-600 cursor-pointer"
                     >
                       Fechar
                     </button>
@@ -1370,7 +1370,7 @@ export default function AdminSettingsCenterTab({
                   <form onSubmit={handleCreateNewUser} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                        <label className="block font-normal text-slate-700 mb-1">Nome Completo *</label>
                         <input
                           type="text"
                           required
@@ -1381,7 +1381,7 @@ export default function AdminSettingsCenterTab({
                         />
                       </div>
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                        <label className="block font-normal text-slate-700 mb-1">E-mail Corporativo *</label>
                         <input
                           type="email"
                           required
@@ -1392,7 +1392,7 @@ export default function AdminSettingsCenterTab({
                         />
                       </div>
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">Cargo / Departamento</label>
+                        <label className="block font-normal text-slate-700 mb-1">Cargo / Departamento</label>
                         <input
                           type="text"
                           value={newUserDept}
@@ -1404,13 +1404,13 @@ export default function AdminSettingsCenterTab({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                       <div>
-                        <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                        <label className="block font-normal text-[#0d2b4e] mb-1">
                           1. Tipo de Conta no CRM (Sales / Marketing / Chamados):
                         </label>
                         <select
                           value={newUserCrmRole}
                           onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                         >
                           {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => (
                             <option key={cKey} value={cKey}>
@@ -1420,7 +1420,7 @@ export default function AdminSettingsCenterTab({
                         </select>
                       </div>
                       <div>
-                        <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                        <label className="block font-normal text-[#1e3a6e] mb-1">
                           2. Tipo de Conta no ERP (Admin / Comercial / Financeiro / Gerência de Estoque):
                         </label>
                         <select
@@ -1433,7 +1433,7 @@ export default function AdminSettingsCenterTab({
                             else if (nextErp === 'ERP_ADMIN') setNewUserLegacyRole('SUPER_ADMIN');
                             else if (nextErp === 'ERP_COMMERCIAL') setNewUserLegacyRole('SALES_MANAGER');
                           }}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-[#1e3a6e]"
                         >
                           {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => (
                             <option key={eKey} value={eKey}>
@@ -1452,17 +1452,17 @@ export default function AdminSettingsCenterTab({
                         className="w-28 h-28 rounded-xl border border-slate-300 bg-white p-1.5 shrink-0"
                       />
                       <div className="space-y-1.5 flex-1">
-                        <div className="font-extrabold text-[#0d2b4e]">
+                        <div className="font-normal text-[#0d2b4e]">
                           3. Habilitação Imediata do 2FA Google Authenticator (RFC 6238 TOTP)
                         </div>
                         <p className="text-[11px] text-slate-600">
-                          Escaneie o QR Code no aplicativo <strong>Google Authenticator</strong> ou digite a chave Base32 abaixo:
+                          Escaneie o QR Code no aplicativo <span>Google Authenticator</span> ou digite a chave Base32 abaixo:
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                          <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-black text-[#0d2b4e]">
+                          <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-normal text-[#0d2b4e]">
                             {formatBase32SecretBlocks(newUserTotpSecret)}
                           </code>
-                          <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-900 font-mono font-black">
+                          <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-900 font-mono font-normal">
                             Código 6 dígitos agora: {currentCode}
                           </span>
                           <button
@@ -1472,7 +1472,7 @@ export default function AdminSettingsCenterTab({
                                 generateTotpSecretBase32(`${previewEmail}-${Date.now()}`)
                               )
                             }
-                            className="px-2.5 py-1 rounded bg-white border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                            className="px-2.5 py-1 rounded bg-white border border-slate-300 font-normal text-slate-700 hover:bg-slate-100 cursor-pointer"
                           >
                             Regerar Chave TOTP
                           </button>
@@ -1484,13 +1484,13 @@ export default function AdminSettingsCenterTab({
                       <button
                         type="button"
                         onClick={() => setShowAddUserModal(false)}
-                        className="px-4 py-2 rounded border border-slate-300 font-bold cursor-pointer"
+                        className="px-4 py-2 rounded border border-slate-300 font-normal cursor-pointer"
                       >
                         Cancelar
                       </button>
                       <button
                         type="submit"
-                        className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                        className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer"
                       >
                         Criar Usuário com Permissões CRM/ERP &amp; 2FA Ativo
                       </button>
@@ -1519,17 +1519,17 @@ export default function AdminSettingsCenterTab({
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 text-xs">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <div>
-                      <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                      <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                         SEGURANÇA MFA 2FA • GOOGLE AUTHENTICATOR (RFC 6238)
                       </span>
-                      <h3 className="text-sm font-extrabold text-slate-900">
+                      <h3 className="text-sm font-semibold text-slate-900">
                         Pareamento 2FA Google Authenticator — {configuringMfaUser.name}
                       </h3>
                     </div>
                     <button
                       type="button"
                       onClick={() => setConfiguringMfaUser(null)}
-                      className="px-2.5 py-1 rounded border border-slate-300 font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded border border-slate-300 font-normal cursor-pointer"
                     >
                       Fechar
                     </button>
@@ -1542,12 +1542,12 @@ export default function AdminSettingsCenterTab({
                       className="w-32 h-32 rounded-xl border border-slate-300 bg-white p-1.5 shrink-0"
                     />
                     <div className="space-y-2 flex-1">
-                      <div className="font-bold text-slate-900">
+                      <div className="font-normal text-slate-900">
                         Conta: <span className="font-mono">{configuringMfaUser.email}</span>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[10px]">Chave Secreta Base32:</span>
-                        <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-black text-[#0d2b4e] block mt-0.5">
+                        <code className="px-2 py-1 rounded bg-white border border-slate-300 font-mono font-normal text-[#0d2b4e] block mt-0.5">
                           {formatBase32SecretBlocks(secret)}
                         </code>
                       </div>
@@ -1564,7 +1564,7 @@ export default function AdminSettingsCenterTab({
                         );
                         setConfiguringMfaUser({ ...configuringMfaUser, totpSecret: nextSecret });
                       }}
-                      className="px-3 py-2 rounded border border-slate-300 font-bold hover:bg-slate-100 cursor-pointer"
+                      className="px-3 py-2 rounded border border-slate-300 font-normal hover:bg-slate-100 cursor-pointer"
                     >
                       Regerar Chave Secreta TOTP
                     </button>
@@ -1591,7 +1591,7 @@ export default function AdminSettingsCenterTab({
                           `2FA Google Authenticator habilitado e sincronizado para ${updatedUser.name}!`
                         );
                       }}
-                      className="px-4 py-2 rounded bg-[#0d2b4e] text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2 rounded bg-[#0d2b4e] text-white font-normal cursor-pointer"
                     >
                       Salvar e Habilitar 2FA Google Authenticator
                     </button>
@@ -1610,14 +1610,14 @@ export default function AdminSettingsCenterTab({
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-base font-extrabold text-slate-900">
+              <h2 className="text-base font-semibold text-slate-900">
                 Subdomínios Oficiais Configurados — STI-hub (Seta Telecom)
               </h2>
               <p className="text-slate-500">
                 Subdomínios ativos na Vercel com certificado SSL/TLS automático e proteção de rotas via Middleware MFA.
               </p>
             </div>
-            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-black">
+            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-normal">
               ● SSL / HTTPS ATIVO
             </span>
           </div>
@@ -1644,16 +1644,16 @@ export default function AdminSettingsCenterTab({
               },
             ].map((d) => (
               <div key={d.domain} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
                   {d.status}
                 </span>
-                <div className="text-sm font-black text-[#1e3a6e] font-mono">{d.domain}</div>
+                <div className="text-sm font-normal text-[#1e3a6e] font-mono">{d.domain}</div>
                 <div className="text-[11px] text-slate-600">{d.role}</div>
                 <a
                   href={d.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-bold text-[#0091ae] hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-normal text-[#0091ae] hover:underline"
                 >
                   Abrir Subdomínio <ExternalLink className="w-3 h-3" />
                 </a>

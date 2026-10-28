@@ -577,10 +577,10 @@ export default function DealsKanbanTab({
         <div className="bg-emerald-950 text-white rounded-[6px] p-4 border border-emerald-600 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">
+              <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-[10px] font-normal uppercase">
                 PROPOSTA CRIADA COM SUCESSO
               </span>
-              <span className="font-mono text-xs font-extrabold text-emerald-300">
+              <span className="font-mono text-xs font-normal text-emerald-300">
                 {createdProposalBanner.proposal.code}
               </span>
               <span className="text-xs text-slate-300">
@@ -607,7 +607,7 @@ export default function DealsKanbanTab({
                 navigator.clipboard?.writeText(createdProposalBanner.publicUrl);
                 onShowToast?.("Link público da proposta copiado para enviar ao cliente!");
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-white text-slate-900 hover:bg-slate-100 text-xs font-extrabold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-white text-slate-900 hover:bg-slate-100 text-xs font-normal cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5 text-emerald-700" />
               Copiar Link p/ Cliente
@@ -616,7 +616,7 @@ export default function DealsKanbanTab({
               href={createdProposalBanner.publicUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-normal"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Abrir Proposta
@@ -625,7 +625,7 @@ export default function DealsKanbanTab({
               href={createdProposalBanner.printUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal"
             >
               <Printer className="w-3.5 h-3.5" />
               Imprimir PDF
@@ -648,10 +648,10 @@ export default function DealsKanbanTab({
       <div className="bg-[#213343] rounded-[6px] p-4 text-white shadow-2xs border border-[#33475b]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#ff987f] block">
+            <span className="text-[10px] font-normal uppercase tracking-wider text-[#ff987f] block">
               STI-hub • Seletor de Pipeline Seta Telecom (Portal 4369067)
             </span>
-            <h3 className="text-sm sm:text-base font-extrabold text-white">
+            <h3 className="text-sm sm:text-base font-semibold text-white">
               Selecione o Funil de Vendas ou Locação Recorrente:
             </h3>
           </div>
@@ -664,7 +664,7 @@ export default function DealsKanbanTab({
                   key={p.id}
                   type="button"
                   onClick={() => handleSelectPipe(p.id)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition flex items-center gap-2 cursor-pointer border ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-normal transition flex items-center gap-2 cursor-pointer border ${
                     isSelected
                       ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-md'
                       : 'bg-slate-800/90 text-slate-200 border-slate-700 hover:bg-slate-700'
@@ -685,10 +685,10 @@ export default function DealsKanbanTab({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-lg font-semibold text-slate-900">
                 {activePipeline?.name || 'Funil Comercial Enterprise B2B'}
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-[#e05835] border border-orange-200">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-normal bg-orange-50 text-[#e05835] border border-orange-200">
                 {pipelineDeals.length} neste funil ({deals.length} total nos 3 funis)
               </span>
             </div>
@@ -713,7 +713,7 @@ export default function DealsKanbanTab({
               aria-label="Filtrar por Proprietário"
               value={filterOwner}
               onChange={(e) => setFilterOwner(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:border-[#ff7a59]"
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-normal text-slate-700 focus:outline-none focus:border-[#ff7a59]"
             >
               <option value="ALL">Proprietário: Todos</option>
               {availableOwners.map((owner) => (
@@ -727,7 +727,7 @@ export default function DealsKanbanTab({
               aria-label="Filtrar por Prioridade"
               value={filterPriority}
               onChange={(e) => setFilterPriority(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:border-[#ff7a59]"
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-normal text-slate-700 focus:outline-none focus:border-[#ff7a59]"
             >
               <option value="ALL">Prioridade: Todas</option>
               <option value="ALTA">Prioridade Alta</option>
@@ -738,7 +738,7 @@ export default function DealsKanbanTab({
             <button
               type="button"
               onClick={() => setFilterRottingOnly((v) => !v)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-normal border transition cursor-pointer ${
                 filterRottingOnly
                   ? 'bg-rose-600 text-white border-rose-600'
                   : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
@@ -751,7 +751,7 @@ export default function DealsKanbanTab({
             <button
               type="button"
               onClick={() => openCreateDealModal(stages[0]?.id || 'stage-discovery')}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Novo Negócio
@@ -771,10 +771,10 @@ export default function DealsKanbanTab({
             }}
             className="text-left bg-slate-50 hover:bg-blue-50/60 hover:border-[#0091ae] rounded-xl p-3 border border-slate-200/60 transition cursor-pointer"
           >
-            <span className="text-[11px] font-semibold uppercase text-slate-500 block">
+            <span className="text-[11px] font-normal uppercase text-slate-500 block">
               Pipeline em Aberto (Funil)
             </span>
-            <div className="text-base font-bold text-slate-900 mt-0.5">
+            <div className="text-base font-normal text-slate-900 mt-0.5">
               {formatBRL(pipeOpenValue)}
             </div>
             <span className="text-[10px] text-slate-400 block mt-0.5">
@@ -789,10 +789,10 @@ export default function DealsKanbanTab({
             }}
             className="text-left bg-orange-50/60 hover:bg-orange-100/60 hover:border-[#ff7a59] rounded-xl p-3 border border-orange-200/70 transition cursor-pointer"
           >
-            <span className="text-[11px] font-semibold uppercase text-[#e05835] block">
+            <span className="text-[11px] font-normal uppercase text-[#e05835] block">
               Receita Ponderada (Forecast)
             </span>
-            <div className="text-base font-bold text-[#e05835] mt-0.5">
+            <div className="text-base font-normal text-[#e05835] mt-0.5">
               {formatBRL(pipeWeightedValue)}
             </div>
             <span className="text-[10px] text-[#e05835]/80 block mt-0.5">
@@ -800,10 +800,10 @@ export default function DealsKanbanTab({
             </span>
           </button>
           <div className="text-left bg-sky-50/60 rounded-xl p-3 border border-sky-200/70">
-            <span className="text-[11px] font-semibold uppercase text-[#0091ae] block">
+            <span className="text-[11px] font-normal uppercase text-[#0091ae] block">
               MRR Recorrente (Funil)
             </span>
-            <div className="text-base font-bold text-[#0091ae] mt-0.5">
+            <div className="text-base font-normal text-[#0091ae] mt-0.5">
               {formatBRL(pipeTotalMrr)}/mês
             </div>
             <span className="text-[10px] text-sky-700/80 block mt-0.5">
@@ -819,10 +819,10 @@ export default function DealsKanbanTab({
             }}
             className="text-left bg-emerald-50/60 hover:bg-emerald-100/60 hover:border-emerald-500 rounded-xl p-3 border border-emerald-200/70 transition cursor-pointer"
           >
-            <span className="text-[11px] font-semibold uppercase text-emerald-700 block">
+            <span className="text-[11px] font-normal uppercase text-emerald-700 block">
               Fechado Ganho (Won)
             </span>
-            <div className="text-base font-bold text-emerald-700 mt-0.5">
+            <div className="text-base font-normal text-emerald-700 mt-0.5">
               {formatBRL(pipeWonValue)}
             </div>
             <span className="text-[10px] text-emerald-700/80 block mt-0.5">
@@ -834,10 +834,10 @@ export default function DealsKanbanTab({
             onClick={() => setFilterRottingOnly((v) => !v)}
             className="text-left bg-rose-50/60 hover:bg-rose-100/60 hover:border-rose-500 rounded-xl p-3 border border-rose-200/70 transition cursor-pointer"
           >
-            <span className="text-[11px] font-semibold uppercase text-rose-700 block">
+            <span className="text-[11px] font-normal uppercase text-rose-700 block">
               Deal Rotting ({filterRottingOnly ? 'Mostrando' : 'Filtrar →'})
             </span>
-            <div className="text-base font-bold text-rose-700 mt-0.5">
+            <div className="text-base font-normal text-rose-700 mt-0.5">
               {pipeRottingCount} negócio(s)
             </div>
             <span className="text-[10px] text-rose-700/80 block mt-0.5">
@@ -850,7 +850,7 @@ export default function DealsKanbanTab({
       {/* BARRA CORPORATIVA DE MÚLTIPLAS VISUALIZAÇÕES DO PIPELINE (5 MODOS + FILTRO MOBILE DE ETAPA) */}
       <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-2.5">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
+          <span className="text-[11px] font-normal uppercase tracking-wider text-slate-500 mr-1 shrink-0">
             Visualização:
           </span>
           {DEALS_VIEW_MODES.map((vm) => {
@@ -860,7 +860,7 @@ export default function DealsKanbanTab({
                 key={vm.id}
                 type="button"
                 onClick={() => handleSelectViewMode(vm.id)}
-                className={`shrink-0 px-3 py-1.5 rounded-[4px] text-xs font-extrabold transition cursor-pointer border ${
+                className={`shrink-0 px-3 py-1.5 rounded-[4px] text-xs font-normal transition cursor-pointer border ${
                   active
                     ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-2xs'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -875,8 +875,8 @@ export default function DealsKanbanTab({
 
         <div className="flex items-center justify-between md:justify-end gap-2 text-xs text-slate-600">
           <span>
-            Exibindo <strong>{filteredDeals.length}</strong> negócios • MRR:{' '}
-            <strong className="text-emerald-700">{formatBRL(pipeTotalMrr)}/mês</strong>
+            Exibindo <span>{filteredDeals.length}</span> negócios • MRR:{' '}
+            <span className="text-emerald-700">{formatBRL(pipeTotalMrr)}/mês</span>
           </span>
         </div>
       </div>
@@ -889,7 +889,7 @@ export default function DealsKanbanTab({
             <button
               type="button"
               onClick={() => setMobileStageFilter('ALL')}
-              className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold cursor-pointer ${
+              className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-normal cursor-pointer ${
                 mobileStageFilter === 'ALL'
                   ? 'bg-[#ff7a59] text-white'
                   : 'bg-white border border-slate-200 text-slate-700'
@@ -904,7 +904,7 @@ export default function DealsKanbanTab({
                   key={st.id}
                   type="button"
                   onClick={() => setMobileStageFilter(st.id)}
-                  className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer ${
+                  className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-normal cursor-pointer ${
                     mobileStageFilter === st.id
                       ? 'bg-[#0d2b4e] text-white'
                       : 'bg-white border border-slate-200 text-slate-700'
@@ -957,14 +957,14 @@ export default function DealsKanbanTab({
                 <div className="p-3.5 bg-white rounded-t-[5px] border-b border-[#cbd6e2]">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[11px] font-bold inline-flex items-center justify-center shrink-0">
+                      <span className="w-5 h-5 rounded-full bg-slate-800 text-white text-[11px] font-normal inline-flex items-center justify-center shrink-0">
                         {stage.order}
                       </span>
-                      <h3 className="text-xs font-bold text-slate-900 truncate" title={stage.name}>
+                      <h3 className="text-xs font-semibold text-slate-900 truncate" title={stage.name}>
                         {stage.name}
                       </h3>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 shrink-0">
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-normal bg-slate-100 text-slate-700 shrink-0">
                       {stageDeals.length}
                     </span>
                   </div>
@@ -972,11 +972,11 @@ export default function DealsKanbanTab({
                   <div className="mt-2 flex items-center justify-between text-xs">
                     <div>
                       <span className="text-slate-400">Total: </span>
-                      <strong className="text-slate-800">{formatBRL(colTotal)}</strong>
+                      <span className="text-slate-800">{formatBRL(colTotal)}</span>
                     </div>
                     <div>
                       <span className="text-slate-400">Pond. ({stage.defaultProbability}%): </span>
-                      <strong className="text-[#e05835]">{formatBRL(colWeighted)}</strong>
+                      <span className="text-[#e05835]">{formatBRL(colWeighted)}</span>
                     </div>
                   </div>
                 </div>
@@ -1026,7 +1026,7 @@ export default function DealsKanbanTab({
                               onClick={() => openDealDetail(deal)}
                               className="text-left flex-1 cursor-pointer"
                             >
-                              <h4 className="text-[13px] font-extrabold text-[#0091ae] group-hover:underline leading-snug">
+                              <h4 className="text-[13px] font-semibold text-[#0091ae] group-hover:underline leading-snug">
                                 {deal.title}
                               </h4>
                             </button>
@@ -1043,28 +1043,28 @@ export default function DealsKanbanTab({
                           {/* 2. Priority + Deal Type + Status Pills */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-2">
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] text-[10px] font-bold border ${priorityMeta.cls}`}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] text-[10px] font-normal border ${priorityMeta.cls}`}
                             >
                               <span className={`w-1.5 h-1.5 rounded-full ${priorityMeta.dot}`} />
                               {priorityMeta.short}
                             </span>
 
                             <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded-[3px] text-[10px] font-bold border ${typeMeta.cls}`}
+                              className={`inline-flex items-center px-2 py-0.5 rounded-[3px] text-[10px] font-normal border ${typeMeta.cls}`}
                             >
                               {typeMeta.label}
                             </span>
 
                             {deal.status === "WON" ? (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-normal bg-emerald-100 text-emerald-800">
                                 <CheckCircle2 className="w-3 h-3" /> Ganho
                               </span>
                             ) : deal.status === "LOST" ? (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-extrabold bg-slate-200 text-slate-700">
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-normal bg-slate-200 text-slate-700">
                                 <XCircle className="w-3 h-3" /> Perdido
                               </span>
                             ) : deal.isRotting ? (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-extrabold bg-rose-100 text-rose-800">
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-[3px] text-[10px] font-normal bg-rose-100 text-rose-800">
                                 <AlertTriangle className="w-3 h-3" /> Inativo {deal.daysInactive}d
                               </span>
                             ) : null}
@@ -1073,25 +1073,25 @@ export default function DealsKanbanTab({
                           {/* 3. Financial Values Box (Amount / TCV + MRR + Prazo) */}
                           <div className="mt-2.5 p-2.5 rounded-[4px] bg-[#f5f8fa] border border-[#cbd6e2]/80 space-y-1">
                             <div className="flex items-baseline justify-between">
-                              <span className="text-[10px] font-bold uppercase text-[#516f90]">
+                              <span className="text-[10px] font-normal uppercase text-[#516f90]">
                                 Valor Total ({contractMonths}m):
                               </span>
-                              <span className="text-sm font-black text-[#33475b]">
+                              <span className="text-sm font-normal text-[#33475b]">
                                 {formatBRL(deal.value)}
                               </span>
                             </div>
                             <div className="flex items-center justify-between text-[11px]">
                               <span className="text-[#516f90]">Mensalidade (MRR):</span>
-                              <strong className="text-emerald-700 font-extrabold">
+                              <span className="text-emerald-700 font-normal">
                                 {formatBRL(mrr)}/mês
-                              </strong>
+                              </span>
                             </div>
                             <div className="flex items-center justify-between text-[10px] text-[#516f90] pt-1 border-t border-[#cbd6e2]/60">
                               <span>
-                                Probabilidade: <strong>{deal.probability}%</strong>
+                                Probabilidade: <span>{deal.probability}%</span>
                               </span>
                               <span>
-                                Ponderado: <strong>{formatBRL(deal.weightedValue)}</strong>
+                                Ponderado: <span>{formatBRL(deal.weightedValue)}</span>
                               </span>
                             </div>
                           </div>
@@ -1100,11 +1100,11 @@ export default function DealsKanbanTab({
                           <div className="mt-2.5 space-y-1.5 text-[11px]">
                             <div className="flex items-center justify-between gap-1.5 p-1.5 rounded-[4px] bg-slate-50 border border-slate-200/80">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <div className="w-5 h-5 rounded bg-[#213343] text-white text-[9px] font-black flex items-center justify-center shrink-0">
+                                <div className="w-5 h-5 rounded bg-[#213343] text-white text-[9px] font-normal flex items-center justify-center shrink-0">
                                   <Building2 className="w-3 h-3" />
                                 </div>
                                 <div className="truncate">
-                                  <div className="font-bold text-[#33475b] truncate">
+                                  <div className="font-normal text-[#33475b] truncate">
                                     {deal.company?.name || "Empresa Corporativa B2B"}
                                   </div>
                                   {deal.company?.cnpj && (
@@ -1115,7 +1115,7 @@ export default function DealsKanbanTab({
                                 </div>
                               </div>
                               {deal.company?.city && (
-                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[#516f90] shrink-0">
+                                <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[#516f90] shrink-0">
                                   {deal.company.city}/{deal.company.state || "SP"}
                                 </span>
                               )}
@@ -1123,13 +1123,13 @@ export default function DealsKanbanTab({
 
                             <div className="flex items-center justify-between gap-1.5 p-1.5 rounded-[4px] bg-slate-50 border border-slate-200/80">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <div className="w-5 h-5 rounded-full bg-[#0091ae] text-white text-[9px] font-extrabold flex items-center justify-center shrink-0">
+                                <div className="w-5 h-5 rounded-full bg-[#0091ae] text-white text-[9px] font-normal flex items-center justify-center shrink-0">
                                   {deal.contact
                                     ? getInitials(`${deal.contact.firstName} ${deal.contact.lastName}`)
                                     : "DC"}
                                 </div>
                                 <div className="truncate">
-                                  <div className="font-bold text-[#33475b] truncate">
+                                  <div className="font-normal text-[#33475b] truncate">
                                     {deal.contact
                                       ? `${deal.contact.firstName} ${deal.contact.lastName}`
                                       : "Decisor Técnico / Compras"}
@@ -1168,13 +1168,13 @@ export default function DealsKanbanTab({
                             <div className="flex items-center justify-between">
                               <span className="inline-flex items-center gap-1">
                                 <Calendar className="w-3 h-3 text-slate-400" />
-                                Fechamento: <strong className="text-[#33475b]">{closeDateStr}</strong>
+                                Fechamento: <span className="text-[#33475b]">{closeDateStr}</span>
                               </span>
                               <span className="inline-flex items-center gap-1" title={`Proprietário: ${ownerName}`}>
-                                <span className="w-4 h-4 rounded-full bg-[#ff7a59] text-white text-[8px] font-black inline-flex items-center justify-center">
+                                <span className="w-4 h-4 rounded-full bg-[#ff7a59] text-white text-[8px] font-normal inline-flex items-center justify-center">
                                   {getInitials(ownerName)}
                                 </span>
-                                <span className="text-[10px] font-semibold text-[#33475b] truncate max-w-[95px]">
+                                <span className="text-[10px] font-normal text-[#33475b] truncate max-w-[95px]">
                                   {ownerName.split(" ").slice(0, 2).join(" ")}
                                 </span>
                               </span>
@@ -1184,11 +1184,11 @@ export default function DealsKanbanTab({
                               <span className="inline-flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
                                 Última ativ.:{" "}
-                                <strong>
+                                <span>
                                   {deal.daysInactive === 0 ? "Hoje" : `há ${deal.daysInactive}d`}
-                                </strong>
+                                </span>
                               </span>
-                              <span className="text-emerald-700 font-bold">
+                              <span className="text-emerald-700 font-normal">
                                 ● ERP GestãoClick Sync
                               </span>
                             </div>
@@ -1196,7 +1196,7 @@ export default function DealsKanbanTab({
 
                           {/* 6. Next Best Action (Copiloto IA / Próximo Passo) */}
                           <div className="mt-2 p-2 rounded-[4px] bg-[#eaf0f6]/70 border border-[#cbd6e2] text-[10px] text-[#33475b]">
-                            <div className="flex items-center gap-1 font-extrabold text-[#0091ae]">
+                            <div className="flex items-center gap-1 font-normal text-[#0091ae]">
                               <Sparkles className="w-3 h-3 text-[#ff7a59] shrink-0" />
                               <span className="truncate">
                                 {deal.nextBestAction?.title ||
@@ -1211,7 +1211,7 @@ export default function DealsKanbanTab({
                               <button
                                 type="button"
                                 onClick={() => openDealDetail(deal)}
-                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[10px] font-bold text-[#33475b] transition cursor-pointer"
+                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[10px] font-normal text-[#33475b] transition cursor-pointer"
                               >
                                 <MessageSquarePlus className="w-3 h-3 text-[#0091ae]" />
                                 + Nota / Timeline
@@ -1221,7 +1221,7 @@ export default function DealsKanbanTab({
                                 type="button"
                                 disabled={generatingProposalDealId === deal.id}
                                 onClick={() => handleQuickGenerateProposalForDeal(deal)}
-                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold transition cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-normal transition cursor-pointer disabled:opacity-50"
                               >
                                 <FileText className="w-3 h-3 text-emerald-300" />
                                 {generatingProposalDealId === deal.id
@@ -1245,7 +1245,7 @@ export default function DealsKanbanTab({
                                 aria-label={`Mudar estágio de ${deal.title}`}
                                 value={deal.stageId}
                                 onChange={(e) => handleStageChange(deal.id, e.target.value)}
-                                className="flex-1 text-[10px] font-bold bg-[#f5f8fa] border border-[#cbd6e2] rounded px-1.5 py-1 text-[#33475b] focus:outline-none focus:border-[#0091ae]"
+                                className="flex-1 text-[10px] font-normal bg-[#f5f8fa] border border-[#cbd6e2] rounded px-1.5 py-1 text-[#33475b] focus:outline-none focus:border-[#0091ae]"
                               >
                                 {stages.map((s) => (
                                   <option key={s.id} value={s.id}>
@@ -1276,7 +1276,7 @@ export default function DealsKanbanTab({
                   <button
                     type="button"
                     onClick={() => openCreateDealModal(stage.id)}
-                    className="w-full py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-[#ff7a59] hover:bg-white border border-transparent hover:border-slate-200 transition inline-flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-1.5 rounded-lg text-xs font-normal text-slate-600 hover:text-[#ff7a59] hover:bg-white border border-transparent hover:border-slate-200 transition inline-flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar em {stage.name.split(' ')[0]}
@@ -1294,12 +1294,12 @@ export default function DealsKanbanTab({
       {viewMode === 'LIST' && (
         <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
           <div className="px-4 py-3 bg-[#f8f9fb] border-b border-[#cbd6e2] flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-extrabold text-[#0d2b4e]">
+            <span className="font-normal text-[#0d2b4e]">
               Visão em Lista Corporativa — {activePipeline?.name} ({filteredDeals.length} negócios)
             </span>
             <span className="text-slate-500">
-              Total Aberto: <strong>{formatBRL(pipeOpenValue)}</strong> • Forecast Ponderado:{' '}
-              <strong className="text-[#e05835]">{formatBRL(pipeWeightedValue)}</strong>
+              Total Aberto: <span>{formatBRL(pipeOpenValue)}</span> • Forecast Ponderado:{' '}
+              <span className="text-[#e05835]">{formatBRL(pipeWeightedValue)}</span>
             </span>
           </div>
           <div className="overflow-x-auto">
@@ -1331,23 +1331,23 @@ export default function DealsKanbanTab({
                         <button
                           type="button"
                           onClick={() => openDealDetail(deal)}
-                          className="text-left font-extrabold text-[#0091ae] hover:underline cursor-pointer block"
+                          className="text-left font-normal text-[#0091ae] hover:underline cursor-pointer block"
                         >
                           {deal.title}
                         </button>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${priorityMeta.cls}`}>
+                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-normal border ${priorityMeta.cls}`}>
                             {priorityMeta.short}
                           </span>
                           {deal.isRotting && (
-                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 text-[9px] font-bold">
+                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 text-[9px] font-normal">
                               Inativo {deal.daysInactive}d
                             </span>
                           )}
                         </div>
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-800">
+                        <div className="font-normal text-slate-800">
                           {deal.company?.name || 'Empresa B2B'}
                         </div>
                         <div className="text-[10px] font-mono text-slate-500">
@@ -1359,7 +1359,7 @@ export default function DealsKanbanTab({
                           aria-label={`Etapa de ${deal.title}`}
                           value={deal.stageId}
                           onChange={(e) => handleStageChange(deal.id, e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[#0d2b4e] text-xs"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-normal text-[#0d2b4e] text-xs"
                         >
                           {stages.map((s) => (
                             <option key={s.id} value={s.id}>
@@ -1368,19 +1368,19 @@ export default function DealsKanbanTab({
                           ))}
                         </select>
                       </td>
-                      <td className="py-2.5 px-3 text-right font-black text-slate-900">
+                      <td className="py-2.5 px-3 text-right font-normal text-slate-900">
                         {formatBRL(deal.value)}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-emerald-700">
+                      <td className="py-2.5 px-3 text-right font-normal text-emerald-700">
                         {formatBRL(mrr)}/mês
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-800">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 font-normal text-slate-800">
                           {deal.probability}%
                         </span>
                       </td>
                       <td className="py-2.5 px-3 font-medium text-slate-700">{closeDateStr}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-800">
+                      <td className="py-2.5 px-3 font-normal text-slate-800">
                         {deal.ownerName || 'Marcelo Lopes Mira'}
                       </td>
                       <td className="py-2.5 px-3 text-right">
@@ -1388,14 +1388,14 @@ export default function DealsKanbanTab({
                           <button
                             type="button"
                             onClick={() => openDealDetail(deal)}
-                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-[11px] cursor-pointer"
+                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal text-[11px] cursor-pointer"
                           >
                             Abrir / Editar
                           </button>
                           <button
                             type="button"
                             onClick={() => handleQuickGenerateProposalForDeal(deal)}
-                            className="px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-bold text-[11px] cursor-pointer"
+                            className="px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-normal text-[11px] cursor-pointer"
                           >
                             PDF
                           </button>
@@ -1425,47 +1425,47 @@ export default function DealsKanbanTab({
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-extrabold">
+                    <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-normal">
                       {stObj ? `${stObj.order}. ${stObj.name}` : deal.stageName}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${priorityMeta.cls}`}>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-normal border ${priorityMeta.cls}`}>
                       {priorityMeta.short}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => openDealDetail(deal)}
-                    className="text-left font-extrabold text-sm text-[#0091ae] hover:underline cursor-pointer block"
+                    className="text-left font-normal text-sm text-[#0091ae] hover:underline cursor-pointer block"
                   >
                     {deal.title}
                   </button>
                   <div className="text-xs text-slate-600">
-                    <strong>{deal.company?.name || 'Empresa B2B'}</strong>
+                    <span>{deal.company?.name || 'Empresa B2B'}</span>
                     {deal.company?.cnpj ? ` • CNPJ ${deal.company.cnpj}` : ''}
                   </div>
                   <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
                     <div>
                       <span className="text-[10px] text-slate-400 block">Valor TCV</span>
-                      <strong className="text-slate-900">{formatBRL(deal.value)}</strong>
+                      <span className="text-slate-900">{formatBRL(deal.value)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block">MRR</span>
-                      <strong className="text-emerald-700">{formatBRL(mrr)}</strong>
+                      <span className="text-emerald-700">{formatBRL(mrr)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block">Prob.</span>
-                      <strong className="text-[#e05835]">{deal.probability}%</strong>
+                      <span className="text-[#e05835]">{deal.probability}%</span>
                     </div>
                   </div>
                 </div>
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
                   <span className="text-[11px] text-slate-500 truncate">
-                    Executivo: <strong>{deal.ownerName || 'Marcelo Mira'}</strong>
+                    Executivo: <span>{deal.ownerName || 'Marcelo Mira'}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => openDealDetail(deal)}
-                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-xs cursor-pointer shrink-0"
+                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal text-xs cursor-pointer shrink-0"
                   >
                     Abrir / Editar
                   </button>
@@ -1508,16 +1508,16 @@ export default function DealsKanbanTab({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                   <div>
-                    <h3 className="text-sm font-extrabold text-slate-900">{bucket.title}</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">{bucket.title}</h3>
                     <span className="text-xs text-slate-500">
                       {bucket.items.length} negócio(s) nesta janela de previsão
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-xs">
-                    <span className="px-2.5 py-1 rounded bg-slate-100 font-bold text-slate-800">
+                    <span className="px-2.5 py-1 rounded bg-slate-100 font-normal text-slate-800">
                       TCV: {formatBRL(bucketTotal)}
                     </span>
-                    <span className="px-2.5 py-1 rounded bg-orange-50 font-extrabold text-[#e05835] border border-orange-200">
+                    <span className="px-2.5 py-1 rounded bg-orange-50 font-normal text-[#e05835] border border-orange-200">
                       Forecast Ponderado: {formatBRL(bucketWeighted)}
                     </span>
                   </div>
@@ -1532,24 +1532,24 @@ export default function DealsKanbanTab({
                         <button
                           type="button"
                           onClick={() => openDealDetail(deal)}
-                          className="font-extrabold text-[#0091ae] hover:underline text-left cursor-pointer"
+                          className="font-normal text-[#0091ae] hover:underline text-left cursor-pointer"
                         >
                           {deal.title}
                         </button>
                         <div className="text-[11px] text-slate-500">
-                          {deal.company?.name || 'Empresa B2B'} • Etapa: <strong>{deal.stageName}</strong> • Executivo:{' '}
+                          {deal.company?.name || 'Empresa B2B'} • Etapa: <span>{deal.stageName}</span> • Executivo:{' '}
                           {deal.ownerName || 'Marcelo Lopes Mira'}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="font-black text-slate-900">{formatBRL(deal.value)}</span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
+                        <span className="font-normal text-slate-900">{formatBRL(deal.value)}</span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-normal text-[10px]">
                           {deal.probability}% ({formatBRL(deal.weightedValue)})
                         </span>
                         <button
                           type="button"
                           onClick={() => openDealDetail(deal)}
-                          className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold text-[11px] cursor-pointer"
+                          className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-normal text-[11px] cursor-pointer"
                         >
                           Abrir
                         </button>
@@ -1572,14 +1572,14 @@ export default function DealsKanbanTab({
       {viewMode === 'BY_OWNER_PRIORITY' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 text-xs">
-            <span className="font-extrabold text-slate-800">
+            <span className="font-normal text-slate-800">
               Agrupamento de Carteira Comercial e Metas:
             </span>
             <div className="inline-flex rounded-lg bg-slate-100 p-1">
               <button
                 type="button"
                 onClick={() => setOwnerPrioritySubMode('OWNER')}
-                className={`px-3 py-1 rounded-md font-bold cursor-pointer ${
+                className={`px-3 py-1 rounded-md font-normal cursor-pointer ${
                   ownerPrioritySubMode === 'OWNER' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
                 }`}
               >
@@ -1588,7 +1588,7 @@ export default function DealsKanbanTab({
               <button
                 type="button"
                 onClick={() => setOwnerPrioritySubMode('PRIORITY')}
-                className={`px-3 py-1 rounded-md font-bold cursor-pointer ${
+                className={`px-3 py-1 rounded-md font-normal cursor-pointer ${
                   ownerPrioritySubMode === 'PRIORITY' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
                 }`}
               >
@@ -1652,12 +1652,12 @@ export default function DealsKanbanTab({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <h4 className="text-sm font-extrabold text-[#0d2b4e]">{grp.groupTitle}</h4>
+                      <h4 className="text-sm font-semibold text-[#0d2b4e]">{grp.groupTitle}</h4>
                       <span className="text-[11px] text-slate-500">
-                        {grp.items.length} negócio(s) • Carteira: <strong>{formatBRL(totalVal)}</strong>
+                        {grp.items.length} negócio(s) • Carteira: <span>{formatBRL(totalVal)}</span>
                       </span>
                     </div>
-                    <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 font-extrabold">
+                    <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 font-normal">
                       {pct}% da Meta
                     </span>
                   </div>
@@ -1677,7 +1677,7 @@ export default function DealsKanbanTab({
                           <button
                             type="button"
                             onClick={() => openDealDetail(d)}
-                            className="font-bold text-[#0091ae] hover:underline truncate block cursor-pointer"
+                            className="font-normal text-[#0091ae] hover:underline truncate block cursor-pointer"
                           >
                             {d.title}
                           </button>
@@ -1686,11 +1686,11 @@ export default function DealsKanbanTab({
                           </span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <strong className="text-slate-900">{formatBRL(d.value)}</strong>
+                          <span className="text-slate-900">{formatBRL(d.value)}</span>
                           <button
                             type="button"
                             onClick={() => openDealDetail(d)}
-                            className="px-2 py-1 rounded bg-slate-900 text-white font-bold text-[10px] cursor-pointer"
+                            className="px-2 py-1 rounded bg-slate-900 text-white font-normal text-[10px] cursor-pointer"
                           >
                             Abrir
                           </button>
@@ -1713,7 +1713,7 @@ export default function DealsKanbanTab({
               <div className="flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-[#ff7a59]" />
                 <div>
-                  <h3 className="text-base font-bold">Criar Novo Negócio no Funil</h3>
+                  <h3 className="text-base font-semibold">Criar Novo Negócio no Funil</h3>
                   <p className="text-[11px] text-slate-300">{activePipeline?.name}</p>
                 </div>
               </div>
@@ -1728,7 +1728,7 @@ export default function DealsKanbanTab({
 
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4 overflow-y-auto">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                   Título da Oportunidade *
                 </label>
                 <input
@@ -1743,7 +1743,7 @@ export default function DealsKanbanTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     MRR Mensal (R$)
                   </label>
                   <input
@@ -1757,12 +1757,12 @@ export default function DealsKanbanTab({
                       const months = Number(newContractMonths) || 24;
                       setNewValue(String((Number(mrrVal) || 0) * months));
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold text-emerald-700 focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-normal text-emerald-700 focus:outline-none focus:border-[#ff7a59]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Prazo (Meses)
                   </label>
                   <select
@@ -1783,7 +1783,7 @@ export default function DealsKanbanTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Valor Total TCV (R$) *
                   </label>
                   <input
@@ -1798,14 +1798,14 @@ export default function DealsKanbanTab({
                       const months = Math.max(1, Number(newContractMonths) || 24);
                       setNewMrr(String(Math.round((Number(tcvStr) || 0) / months)));
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-normal text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Etapa Inicial do Funil
                   </label>
                   <select
@@ -1822,7 +1822,7 @@ export default function DealsKanbanTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Tipo de Negócio (Seta Telecom)
                   </label>
                   <select
@@ -1839,7 +1839,7 @@ export default function DealsKanbanTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Prioridade Comercial
                   </label>
                   <select
@@ -1854,7 +1854,7 @@ export default function DealsKanbanTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Proprietário (Deal Owner)
                   </label>
                   <select
@@ -1871,7 +1871,7 @@ export default function DealsKanbanTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Empresa Vinculada
                   </label>
                   <select
@@ -1889,7 +1889,7 @@ export default function DealsKanbanTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Contato Decisor
                   </label>
                   <select
@@ -1908,7 +1908,7 @@ export default function DealsKanbanTab({
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                   Previsão de Fechamento
                 </label>
                 <input
@@ -1923,14 +1923,14 @@ export default function DealsKanbanTab({
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={creating}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition disabled:opacity-50 cursor-pointer"
                 >
                   {creating ? 'Salvando...' : 'Criar Negócio'}
                 </button>
@@ -1947,13 +1947,13 @@ export default function DealsKanbanTab({
             <div className="px-6 py-4 bg-[#213343] text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-black uppercase">
+                  <span className="px-2 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-normal uppercase">
                     HUBSPOT DEAL RECORD 360°
                   </span>
                   <span className="text-xs text-[#99acc2]">
-                    Pipeline: <strong className="text-white">{activePipeline?.name}</strong>
+                    Pipeline: <span className="text-white">{activePipeline?.name}</span>
                   </span>
-                  <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-300 text-[10px] font-bold">
+                  <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-300 text-[10px] font-normal">
                     TCV: {formatBRL(selectedDeal.value)} • MRR:{" "}
                     {formatBRL(
                       selectedDeal.mrr ||
@@ -1962,7 +1962,7 @@ export default function DealsKanbanTab({
                     /mês
                   </span>
                 </div>
-                <h3 className="text-base sm:text-lg font-extrabold text-white mt-1 truncate">
+                <h3 className="text-base sm:text-lg font-semibold text-white mt-1 truncate">
                   {selectedDeal.title}
                 </h3>
               </div>
@@ -1972,7 +1972,7 @@ export default function DealsKanbanTab({
                   type="button"
                   disabled={generatingProposalDealId === selectedDeal.id}
                   onClick={() => handleQuickGenerateProposalForDeal(selectedDeal)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-normal shadow-sm cursor-pointer"
                 >
                   <FileText className="w-4 h-4" />
                   {generatingProposalDealId === selectedDeal.id
@@ -1987,7 +1987,7 @@ export default function DealsKanbanTab({
                       setSelectedDeal(null);
                       onNavigateToErp();
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-white text-xs font-bold cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-white text-xs font-normal cursor-pointer"
                   >
                     Abrir ERP GestãoClick
                   </button>
@@ -2004,11 +2004,11 @@ export default function DealsKanbanTab({
             </div>
 
             <div className="bg-white px-6 py-3 border-b border-[#cbd6e2] shrink-0">
-              <div className="flex items-center justify-between text-[11px] font-bold text-[#516f90] mb-1.5">
+              <div className="flex items-center justify-between text-[11px] font-normal text-[#516f90] mb-1.5">
                 <span>Progresso das Etapas do Funil (Clique para mover)</span>
                 <span>
                   Probabilidade de Fechamento:{" "}
-                  <strong className="text-[#0091ae]">{selectedDeal.probability}%</strong>
+                  <span className="text-[#0091ae]">{selectedDeal.probability}%</span>
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
@@ -2031,7 +2031,7 @@ export default function DealsKanbanTab({
                           status: st.isWon ? "WON" : st.isClosed ? "LOST" : "OPEN",
                         });
                       }}
-                      className={`px-2.5 py-1.5 rounded-[4px] text-left text-[10px] font-extrabold transition cursor-pointer border ${
+                      className={`px-2.5 py-1.5 rounded-[4px] text-left text-[10px] font-normal transition cursor-pointer border ${
                         isCurrent
                           ? "bg-[#ff7a59] text-white border-[#ff7a59]"
                           : isPassed
@@ -2053,7 +2053,7 @@ export default function DealsKanbanTab({
               <div className="lg:col-span-4 space-y-4">
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">
                   <div className="flex items-center justify-between border-b border-[#eaf0f6] pb-2">
-                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#33475b] flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-[#33475b] flex items-center gap-1.5">
                       <Briefcase className="w-3.5 h-3.5 text-[#0091ae]" />
                       Sobre este Negócio (Properties)
                     </h4>
@@ -2061,7 +2061,7 @@ export default function DealsKanbanTab({
 
                   <div className="space-y-2.5 text-xs">
                     <div>
-                      <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                      <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                         Título do Negócio
                       </label>
                       <input
@@ -2070,13 +2070,13 @@ export default function DealsKanbanTab({
                         onChange={(e) =>
                           setSelectedDeal({ ...selectedDeal, title: e.target.value })
                         }
-                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-bold text-[#33475b]"
+                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-normal text-[#33475b]"
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Valor Total TCV (R$)
                         </label>
                         <input
@@ -2091,12 +2091,12 @@ export default function DealsKanbanTab({
                               mrr: Math.round(val / months),
                             });
                           }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-extrabold text-[#33475b]"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-normal text-[#33475b]"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           MRR Mensal (R$)
                         </label>
                         <input
@@ -2114,14 +2114,14 @@ export default function DealsKanbanTab({
                               value: mrrVal * months,
                             });
                           }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-extrabold text-emerald-700"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-normal text-emerald-700"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Prazo Contratual
                         </label>
                         <select
@@ -2137,7 +2137,7 @@ export default function DealsKanbanTab({
                               value: mrrVal * months,
                             });
                           }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         >
                           <option value="12">12 meses</option>
                           <option value="24">24 meses</option>
@@ -2147,7 +2147,7 @@ export default function DealsKanbanTab({
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Prioridade
                         </label>
                         <select
@@ -2158,7 +2158,7 @@ export default function DealsKanbanTab({
                               priority: e.target.value as DealPriority,
                             })
                           }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         >
                           <option value="ALTA">Alta</option>
                           <option value="MEDIA">Média</option>
@@ -2169,7 +2169,7 @@ export default function DealsKanbanTab({
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Tipo de Negócio
                         </label>
                         <select
@@ -2180,7 +2180,7 @@ export default function DealsKanbanTab({
                               dealType: e.target.value as DealBusinessType,
                             })
                           }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         >
                           <option value="NEW_BUSINESS">Novo Negócio B2B</option>
                           <option value="LOCACAO_RECORRENTE">Locação Recorrente (0% ISS)</option>
@@ -2189,7 +2189,7 @@ export default function DealsKanbanTab({
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Data de Fechamento
                         </label>
                         <input
@@ -2207,13 +2207,13 @@ export default function DealsKanbanTab({
                                 : null,
                             })
                           }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                      <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                         Proprietário (Deal Owner)
                       </label>
                       <select
@@ -2221,7 +2221,7 @@ export default function DealsKanbanTab({
                         onChange={(e) =>
                           setSelectedDeal({ ...selectedDeal, ownerName: e.target.value })
                         }
-                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                       >
                         <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
                         <option value="Evelyn Ternero Seta Telecom">
@@ -2233,7 +2233,7 @@ export default function DealsKanbanTab({
 
                     <div className="grid grid-cols-1 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Empresa Associada
                         </label>
                         <select
@@ -2247,7 +2247,7 @@ export default function DealsKanbanTab({
                               company: compObj,
                             });
                           }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         >
                           <option value="">Sem empresa vinculada</option>
                           {companies.map((comp) => (
@@ -2259,7 +2259,7 @@ export default function DealsKanbanTab({
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                        <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                           Contato Decisor
                         </label>
                         <select
@@ -2273,7 +2273,7 @@ export default function DealsKanbanTab({
                               contact: contObj,
                             });
                           }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-normal"
                         >
                           <option value="">Sem contato vinculado</option>
                           {contacts.map((c) => (
@@ -2286,7 +2286,7 @@ export default function DealsKanbanTab({
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold uppercase text-[#516f90] mb-0.5">
+                      <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-0.5">
                         Observação / Motivo de Ganho ou Perda
                       </label>
                       <input
@@ -2314,7 +2314,7 @@ export default function DealsKanbanTab({
                             await onDeleteDeal(selectedDeal.id);
                             setSelectedDeal(null);
                           }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[4px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[4px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-normal cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           Excluir
@@ -2342,7 +2342,7 @@ export default function DealsKanbanTab({
                             });
                             onShowToast?.("Propriedades do Negócio atualizadas no HubSpot!");
                           }}
-                          className="flex-1 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                          className="flex-1 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
                         >
                           Salvar Propriedades
                         </button>
@@ -2359,7 +2359,7 @@ export default function DealsKanbanTab({
                   className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-extrabold uppercase text-[#33475b] flex items-center gap-1.5">
+                    <span className="text-xs font-normal uppercase text-[#33475b] flex items-center gap-1.5">
                       <MessageSquarePlus className="w-4 h-4 text-[#ff7a59]" />
                       Registrar Atividade no Negócio
                     </span>
@@ -2375,7 +2375,7 @@ export default function DealsKanbanTab({
                           key={t.id}
                           type="button"
                           onClick={() => setNoteType(t.id)}
-                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold transition cursor-pointer border ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-normal transition cursor-pointer border ${
                             noteType === t.id
                               ? "bg-[#0091ae] text-white border-[#0091ae]"
                               : "bg-[#f5f8fa] text-[#516f90] border-[#cbd6e2] hover:bg-slate-100"
@@ -2405,7 +2405,7 @@ export default function DealsKanbanTab({
                     <button
                       type="submit"
                       disabled={savingNote}
-                      className="px-4 py-1.5 rounded-[4px] bg-[#213343] hover:bg-[#33475b] text-white text-xs font-extrabold transition cursor-pointer"
+                      className="px-4 py-1.5 rounded-[4px] bg-[#213343] hover:bg-[#33475b] text-white text-xs font-normal transition cursor-pointer"
                     >
                       {savingNote ? "Salvando..." : `Registrar ${noteType} na Timeline`}
                     </button>
@@ -2414,14 +2414,14 @@ export default function DealsKanbanTab({
 
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eaf0f6] pb-2">
-                    <h4 className="text-xs font-extrabold uppercase text-[#33475b]">
+                    <h4 className="text-xs font-semibold uppercase text-[#33475b]">
                       Linha do Tempo de Atividades ({filteredTimeline.length})
                     </h4>
                     <select
                       aria-label="Filtrar Timeline"
                       value={timelineFilterType}
                       onChange={(e) => setTimelineFilterType(e.target.value)}
-                      className="text-[10px] font-bold px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[#33475b]"
+                      className="text-[10px] font-normal px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[#33475b]"
                     >
                       <option value="ALL">Todas ({dealTimeline.length})</option>
                       <option value="NOTE">Notas</option>
@@ -2447,12 +2447,12 @@ export default function DealsKanbanTab({
                           className="p-3 rounded-[4px] border border-[#cbd6e2] bg-[#f5f8fa] space-y-1"
                         >
                           <div className="flex items-center justify-between text-[10px] text-[#516f90]">
-                            <span className="px-1.5 py-0.5 rounded bg-[#e5f8f6] font-extrabold text-[#007a6c] border border-[#00bda5]/30">
+                            <span className="px-1.5 py-0.5 rounded bg-[#e5f8f6] font-normal text-[#007a6c] border border-[#00bda5]/30">
                               {evt.type}
                             </span>
                             <span>{formatDateTimeBR(evt.createdAt)}</span>
                           </div>
-                          <div className="text-xs font-bold text-[#33475b]">{evt.title}</div>
+                          <div className="text-xs font-normal text-[#33475b]">{evt.title}</div>
                           {evt.body && <p className="text-xs text-[#516f90]">{evt.body}</p>}
                           <div className="text-[10px] text-slate-400">Autor: {evt.actor}</div>
                         </div>
@@ -2465,11 +2465,11 @@ export default function DealsKanbanTab({
               {/* RIGHT PANE: ASSOCIATIONS, PROPOSALS & RENTAL CONTRACTS */}
               <div className="lg:col-span-3 space-y-4">
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-extrabold uppercase text-[#516f90] flex items-center gap-1">
+                  <div className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
                     <Building2 className="w-3.5 h-3.5 text-[#0091ae]" />
                     Empresa Associada
                   </div>
-                  <div className="text-xs font-extrabold text-[#33475b]">
+                  <div className="text-xs font-normal text-[#33475b]">
                     {selectedDeal.company?.name || "Empresa Corporativa B2B"}
                   </div>
                   <div className="text-[11px] text-[#516f90] space-y-0.5">
@@ -2483,11 +2483,11 @@ export default function DealsKanbanTab({
                 </div>
 
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-extrabold uppercase text-[#516f90] flex items-center gap-1">
+                  <div className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
                     <User className="w-3.5 h-3.5 text-[#0091ae]" />
                     Contato Decisor
                   </div>
-                  <div className="text-xs font-extrabold text-[#33475b]">
+                  <div className="text-xs font-normal text-[#33475b]">
                     {selectedDeal.contact
                       ? `${selectedDeal.contact.firstName} ${selectedDeal.contact.lastName}`
                       : "Decisor de TI / Compras"}
@@ -2502,7 +2502,7 @@ export default function DealsKanbanTab({
                 {/* ASSOCIATED COMMERCIAL PROPOSALS (QUOTES) */}
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <div className="text-[10px] font-extrabold uppercase text-[#516f90] flex items-center gap-1">
+                    <div className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5 text-[#ff7a59]" />
                       Propostas &amp; Orçamentos ({associatedProposals.length})
                     </div>
@@ -2519,26 +2519,26 @@ export default function DealsKanbanTab({
                             className="p-2.5 rounded-[4px] bg-[#f5f8fa] border border-[#cbd6e2] space-y-1.5 text-[11px]"
                           >
                             <div className="flex items-center justify-between gap-1">
-                              <span className="font-mono font-extrabold text-[#0091ae]">
+                              <span className="font-mono font-normal text-[#0091ae]">
                                 {prop.code}
                               </span>
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-normal bg-emerald-100 text-emerald-800">
                                 {prop.status}
                               </span>
                             </div>
-                            <div className="font-bold text-[#33475b] truncate" title={prop.title}>
+                            <div className="font-normal text-[#33475b] truncate" title={prop.title}>
                               {prop.title}
                             </div>
                             <div className="flex items-center justify-between text-[10px] text-[#516f90]">
-                              <span>Mensal: <strong>{formatBRL(prop.monthlyRecurringTotal)}</strong></span>
-                              <span>TCV: <strong>{formatBRL(prop.totalContractValue)}</strong></span>
+                              <span>Mensal: <span>{formatBRL(prop.monthlyRecurringTotal)}</span></span>
+                              <span>TCV: <span>{formatBRL(prop.totalContractValue)}</span></span>
                             </div>
                             <div className="flex items-center gap-1.5 pt-1">
                               <a
                                 href={pubUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold text-center inline-flex items-center justify-center gap-1"
+                                className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-normal text-center inline-flex items-center justify-center gap-1"
                               >
                                 <ExternalLink className="w-2.5 h-2.5" />
                                 Abrir
@@ -2547,7 +2547,7 @@ export default function DealsKanbanTab({
                                 href={prtUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex-1 py-1 px-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-bold text-center inline-flex items-center justify-center gap-1"
+                                className="flex-1 py-1 px-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-normal text-center inline-flex items-center justify-center gap-1"
                               >
                                 <Printer className="w-2.5 h-2.5" />
                                 PDF
@@ -2578,7 +2578,7 @@ export default function DealsKanbanTab({
                     type="button"
                     disabled={generatingProposalDealId === selectedDeal.id}
                     onClick={() => handleQuickGenerateProposalForDeal(selectedDeal)}
-                    className="w-full py-2 px-3 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 px-3 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-emerald-300" />
                     {generatingProposalDealId === selectedDeal.id
@@ -2589,7 +2589,7 @@ export default function DealsKanbanTab({
 
                 {/* ASSOCIATED RENTAL CONTRACTS (ERP GESTÃOCLICK) */}
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-extrabold uppercase text-[#516f90] flex items-center gap-1">
+                  <div className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     Contratos de Locação ({associatedContracts.length})
                   </div>
@@ -2601,18 +2601,18 @@ export default function DealsKanbanTab({
                           className="p-2.5 rounded-[4px] bg-emerald-50/50 border border-emerald-200 space-y-1 text-[11px]"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-mono font-extrabold text-emerald-800">
+                            <span className="font-mono font-normal text-emerald-800">
                               {ctr.contractNumber}
                             </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-normal bg-emerald-600 text-white">
                               {ctr.status}
                             </span>
                           </div>
-                          <div className="font-bold text-[#33475b] truncate" title={ctr.title}>
+                          <div className="font-normal text-[#33475b] truncate" title={ctr.title}>
                             {ctr.title}
                           </div>
                           <div className="text-[10px] text-[#516f90] flex items-center justify-between">
-                            <span>Mensal: <strong>{formatBRL(ctr.monthlyValue)}</strong></span>
+                            <span>Mensal: <span>{formatBRL(ctr.monthlyValue)}</span></span>
                             <span>{ctr.contractMonths}m • {ctr.readjustmentIndex}</span>
                           </div>
                           <div className="text-[9px] text-emerald-800 font-mono">

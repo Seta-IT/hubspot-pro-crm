@@ -19,6 +19,8 @@ import {
   formatBase32SecretBlocks,
   generateTotpCodeSync,
   generateTotpSecretBase32,
+  loadClientDeletedUsersOverride,
+  saveClientDeletedUserOverride,
   saveClientIamUserOverride,
 } from '../lib/auth';
 import {
@@ -36,6 +38,7 @@ import {
   ExternalLink,
   RefreshCw,
   Edit3,
+  Trash2,
   UserCheck,
 } from 'lucide-react';
 import {
@@ -56,6 +59,8 @@ import {
   buildDefaultCrmPermissionsForRole,
   buildDefaultErpPermissionsForRole,
   buildDefaultModuleAccessForRole,
+  buildFullControlForModule,
+  isModuleFullControl,
   STI_HUB_MODULES_LIST,
 } from '../../modules/erp/rbac-seed';
 import {
@@ -165,6 +170,9 @@ export default function StiHubAdminRbacPanel({
   const [newUserScope, setNewUserScope] = useState<StiHubVisibilityScope>('PROPRIOS');
   const [newUserMfaEnabled, setNewUserMfaEnabled] = useState<boolean>(true);
   const [newUserPassword, setNewUserPassword] = useState<string>('');
+  const [sendInviteEmailOnCreate, setSendInviteEmailOnCreate] = useState<boolean>(true);
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+  const [localDeletedIds, setLocalDeletedIds] = useState<string[]>([]);
   const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
   const [inviteModalData, setInviteModalData] = useState<{
     userName: string;
@@ -344,7 +352,13 @@ export default function StiHubAdminRbacPanel({
   }, [initialSubView]);
 
   const roles = rbacState?.roles || [];
-  const users = rbacState?.users || [];
+  const deletedSet = new Set([
+    ...localDeletedIds,
+    ...(typeof window !== 'undefined' ? loadClientDeletedUsersOverride() : []),
+  ]);
+  const users = (rbacState?.users || []).filter(
+    (u) => !deletedSet.has(u.id) && !deletedSet.has(u.email.toLowerCase())
+  );
   const securityConfig = rbacState?.securityConfig;
 
   const selectedRole: StiHubRoleDefinition | undefined =
@@ -446,13 +460,65 @@ export default function StiHubAdminRbacPanel({
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverride(json.data);
+        saveClientIamUserOverride({
+          ...json.data,
+          totpConfigured: false,
+          totpConfiguredAt: null,
+        });
+      }
+      if (typeof document !== 'undefined') {
+        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
       }
       onShowToast(
         nextEnabled
-          ? `Autenticador 2FA ativado para ${user.name}!`
-          : `Autenticador 2FA desabilitado para ${user.name} (acesso liberado apenas com E-mail e Senha)!`
+          ? `Autenticador exigido para ${user.name}! No próximo login será solicitado o cadastro do QR Code.`
+          : `Autenticador desabilitado para ${user.name}! No próximo login o sistema forçará o usuário a habilitar e cadastrar um novo autenticador (QR Code).`
       );
+      await onRefresh();
+    }
+  };
+
+  const handleDeleteUser = async (user: StiHubUserRecord) => {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actorEmail: activeUser?.email }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      onShowToast(json?.error || `Não foi possível excluir ${user.name}.`);
+      setConfirmDeleteUserId(null);
+      return;
+    }
+    saveClientDeletedUserOverride(user.id, user.email);
+    setLocalDeletedIds((prev) => [...prev, user.id, user.email.toLowerCase()]);
+    setConfirmDeleteUserId(null);
+    if (editingUser?.id === user.id) {
+      setEditingUser(null);
+      setModalTotpPreview(null);
+    }
+    onShowToast(`Usuário ${user.name} (${user.email}) excluído com sucesso.`);
+    await onRefresh();
+  };
+
+  const handleApplyFullControlQuick = async (
+    user: StiHubUserRecord,
+    mod: StiHubMacroModule
+  ) => {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/full-control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ module: mod }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        saveClientIamUserOverride(json.data);
+        if (editingUser && editingUser.id === user.id) {
+          setEditingUser(json.data);
+        }
+      }
+      onShowToast(`Full Control aplicado no módulo ${mod} para ${user.name}!`);
       await onRefresh();
     }
   };
@@ -743,14 +809,14 @@ export default function StiHubAdminRbacPanel({
       <div className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-black uppercase tracking-wider">
+            <span className="px-2.5 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-normal uppercase tracking-wider">
               GOVERNANÇA CORPORATIVA STI-HUB • SEÇÕES 4 &amp; 5 DO ROADMAP
             </span>
-            <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-bold">
+            <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-normal">
               9 Perfis RBAC • {users.length} Usuários ({users.filter((u) => u.active).length} Ativos) • MFA 2FA Ativo
             </span>
           </div>
-          <h2 className="text-base sm:text-lg font-extrabold">
+          <h2 className="text-base sm:text-lg font-semibold">
             Central Unificada de Administração &amp; Configurações (CRM + SETA ERP)
           </h2>
           <p className="text-xs text-slate-300">
@@ -761,14 +827,14 @@ export default function StiHubAdminRbacPanel({
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <a
             href="/login"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white text-[#0d2b4e] hover:bg-slate-100 text-xs font-extrabold shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white text-[#0d2b4e] hover:bg-slate-100 text-xs font-normal shadow-xs"
           >
             <Lock className="w-3.5 h-3.5 text-[#ff7a59]" /> Abrir Tela de Login + MFA (/login)
           </a>
           <button
             type="button"
             onClick={() => setShowNewUserModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> + Novo Usuário Seta Telecom
           </button>
@@ -826,7 +892,7 @@ export default function StiHubAdminRbacPanel({
               key={tab.id}
               type="button"
               onClick={() => setSubView(tab.id)}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-normal transition cursor-pointer ${
                 active
                   ? 'bg-[#0d2b4e] text-white shadow-xs'
                   : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
@@ -848,10 +914,10 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+              <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                 CONFIGURAÇÕES &gt; USUÁRIOS • DIRETÓRIO DE CONTAS SETA TELECOM
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Usuários ({filteredUsers.length} de {users.length})
               </h3>
               <p className="text-xs text-slate-500">
@@ -872,7 +938,7 @@ export default function StiHubAdminRbacPanel({
                   key={f}
                   type="button"
                   onClick={() => setUserFilter(f)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-normal cursor-pointer ${
                     userFilter === f
                       ? 'bg-[#0d2b4e] text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -888,7 +954,7 @@ export default function StiHubAdminRbacPanel({
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> + Novo Usuário
               </button>
@@ -896,129 +962,148 @@ export default function StiHubAdminRbacPanel({
           </div>
 
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-900 text-white uppercase text-[10px]">
+            <table className="w-full text-left text-xs font-normal text-slate-700">
+              <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 text-[11px] font-normal">
                 <tr>
-                  <th className="py-2.5 px-3">Colaborador / E-mail</th>
-                  <th className="py-2.5 px-3">Cargo / Departamento</th>
-                  <th className="py-2.5 px-3">Tipos de Conta (CRM &amp; ERP)</th>
-                  <th className="py-2.5 px-3">Segurança 2FA</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Perfil do Usuário</th>
+                  <th className="py-3 px-3.5 font-normal">Colaborador / E-mail</th>
+                  <th className="py-3 px-3.5 font-normal">Cargo / Departamento</th>
+                  <th className="py-3 px-3.5 font-normal">Módulos &amp; Tipos de Conta</th>
+                  <th className="py-3 px-3.5 font-normal">Autenticador 2FA</th>
+                  <th className="py-3 px-3.5 font-normal">Status</th>
+                  <th className="py-3 px-3.5 text-right font-normal">Ações</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-100">
                 {filteredUsers.map((u) => {
                   const isCurrentActive = activeUser?.id === u.id;
                   const inferred = inferCrmAndErpRolesFromLegacyRole(u.roleId || "VENDEDOR_SALES");
                   const cRole: CrmAccountRole = (u.crmRole as CrmAccountRole) || inferred.crmRole;
                   const eRole: ErpAccountRole = (u.erpRole as ErpAccountRole) || inferred.erpRole;
+                  const crmFull = isModuleFullControl(u, "CRM");
+                  const erpFull = isModuleFullControl(u, "ERP");
+                  const chamadosFull = isModuleFullControl(u, "CHAMADOS");
 
                   return (
                     <tr
                       key={u.id}
                       onClick={() => setEditingUser(u)}
-                      className={`cursor-pointer transition hover:bg-blue-50/40 ${
+                      title="Clique na linha para editar dados, módulos e permissões deste usuário"
+                      className={`cursor-pointer transition hover:bg-slate-50/90 ${
                         isCurrentActive
-                          ? 'bg-blue-50/60'
+                          ? "bg-blue-50/30"
                           : !u.active
-                            ? 'opacity-65 bg-slate-50/50'
-                            : ''
+                            ? "opacity-60 bg-slate-50/40"
+                            : ""
                       }`}
                     >
-                      <td className="py-2.5 px-3">
-                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                      <td className="py-3 px-3.5">
+                        <div className="font-medium text-slate-800 flex items-center gap-1.5">
                           <span>{u.name}</span>
                           {isCurrentActive && (
-                            <span className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-black">
-                              SESSÃO ATUAL
+                            <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 text-[10px] font-normal">
+                              Sessão atual
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-500 font-mono">{u.email}</div>
+                        <div className="text-[11px] text-slate-500 font-normal mt-0.5">{u.email}</div>
                       </td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-800">{u.jobTitle}</div>
-                        <div className="text-[10px] text-slate-500">{u.department}</div>
+                      <td className="py-3 px-3.5">
+                        <div className="font-normal text-slate-700">{u.jobTitle}</div>
+                        <div className="text-[11px] text-slate-400 font-normal">{u.department}</div>
                       </td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex flex-wrap items-center gap-1">
-                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#0d2b4e] border border-orange-200 text-[10px] font-bold">
+                      <td className="py-3 px-3.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-normal">
                             CRM: {CRM_ROLES_CATALOG[cRole]?.label || cRole}
+                            {crmFull ? " (Full Control)" : ""}
                           </span>
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-normal">
                             ERP: {ERP_ROLES_CATALOG[eRole]?.label || eRole}
+                            {erpFull ? " (Full Control)" : ""}
                           </span>
+                          {chamadosFull && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-normal">
+                              Chamados: Full Control
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap items-center gap-1">
+                      <td className="py-3 px-3.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             title={
                               u.mfaEnabled
-                                ? "Clique para DESABILITAR o autenticador 2FA deste usuário (permitir login direto com senha)"
-                                : "Clique para ATIVAR o autenticador 2FA deste usuário"
+                                ? "Desabilitar o autenticador atual: no próximo login o usuário será obrigado a habilitar e cadastrar um novo autenticador (QR Code)"
+                                : "Autenticador desabilitado: no próximo login o usuário será obrigado a habilitar e cadastrar o autenticador (QR Code)"
                             }
                             onClick={() => handleToggleUserMfaEnabled(u)}
-                            className={`px-2 py-1 rounded text-[10px] font-extrabold border cursor-pointer transition ${
-                              u.mfaEnabled
-                                ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-300"
-                                : "bg-amber-50 text-amber-900 border-amber-300 hover:bg-emerald-50 hover:text-emerald-800"
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-normal border cursor-pointer transition ${
+                              u.mfaEnabled && u.totpConfigured !== false
+                                ? "bg-emerald-50/70 text-emerald-800 border-emerald-200 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200"
+                                : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-emerald-50 hover:text-emerald-800"
                             }`}
                           >
-                            {u.mfaEnabled ? "2FA Ativo (Desativar)" : "2FA Desativado (Ativar)"}
+                            {u.mfaEnabled && u.totpConfigured !== false
+                              ? "Desabilitar Autenticador"
+                              : "Pendente Cadastro 2FA no Login"}
                           </button>
-                          {u.mfaEnabled && (
-                            <button
-                              type="button"
-                              title="Resetar QR Code para que no próximo login o usuário possa cadastrar um novo aparelho no Google Authenticator"
-                              onClick={() => handleResetUserTotpQr(u)}
-                              className="px-2 py-1 rounded bg-white hover:bg-slate-100 text-[#0d2b4e] border border-slate-300 text-[10px] font-bold cursor-pointer"
-                            >
-                              Resetar QR
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            title="Resetar QR Code para forçar novo pareamento no próximo login"
+                            onClick={() => handleResetUserTotpQr(u)}
+                            className="px-2 py-1 rounded-md bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 text-[11px] font-normal cursor-pointer"
+                          >
+                            Resetar QR
+                          </button>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-3 px-3.5">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                          className={`px-2 py-0.5 rounded text-[11px] font-normal ${
                             u.active
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-300 text-slate-700'
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-slate-100 text-slate-500 border border-slate-200"
                           }`}
                         >
-                          {u.active ? 'ATIVO' : 'DESATIVADO'}
+                          {u.active ? "Ativo" : "Inativo"}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-3 px-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            title="Gerar link de convite por e-mail para o usuário cadastrar a senha e o autenticador no 1º acesso"
+                            title="Enviar convite por e-mail com link para o usuário cadastrar a senha e o autenticador"
                             onClick={() => handleGenerateUserInvite(u)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[11px] font-normal cursor-pointer"
                           >
-                            <Send className="w-3 h-3" /> Convite / Senha
+                            <Mail className="w-3.5 h-3.5 text-emerald-600" /> Enviar Convite por E-mail
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingUser(u)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-extrabold cursor-pointer"
-                          >
-                            <Edit3 className="w-3 h-3 text-[#ff7a59]" /> Abrir Perfil
-                          </button>
-                          {u.active && onSelectActiveUser && (
+                          {confirmDeleteUserId === u.id ? (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u)}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-normal cursor-pointer"
+                              >
+                                Confirmar Exclusão
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteUserId(null)}
+                                className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-normal cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => {
-                                onSelectActiveUser(u);
-                                onShowToast(`Sessão alternada para ${u.name}!`);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] font-bold cursor-pointer"
+                              title="Excluir este usuário"
+                              onClick={() => setConfirmDeleteUserId(u.id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-200 text-[11px] font-normal cursor-pointer"
                             >
-                              <UserCheck className="w-3 h-3" /> Simular
+                              <Trash2 className="w-3.5 h-3.5" /> Excluir
                             </button>
                           )}
                         </div>
@@ -1040,10 +1125,10 @@ export default function StiHubAdminRbacPanel({
           {/* Left: Mailer Config & Validated Test Dispatch */}
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                 STI-HUB MAILER • INFRAESTRUTURA DE ENVIO VALIDADO
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Configuração SMTP / Resend Relay &amp; Disparo de Teste
               </h3>
             </div>
@@ -1051,33 +1136,33 @@ export default function StiHubAdminRbacPanel({
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Provedor Ativo:</span>
-                <strong className="text-slate-900">
+                <span className="text-slate-900">
                   {securityConfig?.smtpProvider || 'RESEND_HTTP_API'} + Audit Log
-                </strong>
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Servidor SMTP Corporativo:</span>
-                <code className="font-mono font-bold text-[#0d2b4e]">
+                <code className="font-mono font-normal text-[#0d2b4e]">
                   {securityConfig?.smtpHost || 'smtp.setatelecom.com.br'}:
                   {securityConfig?.smtpPort || 587}
                 </code>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Remetente Oficial:</span>
-                <strong className="text-slate-900">
+                <span className="text-slate-900">
                   {securityConfig?.fromEmail || 'comercial@setatelecom.com.br'}
-                </strong>
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Autenticação DKIM / SPF / DMARC:</span>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
                   VERIFICADO (setatelecom.com.br)
                 </span>
               </div>
             </div>
 
             <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3 text-xs">
-              <div className="font-extrabold text-[#0d2b4e]">
+              <div className="font-normal text-[#0d2b4e]">
                 Testar Disparo de E-mail Transacional Agora
               </div>
               <p className="text-[11px] text-slate-600">
@@ -1088,26 +1173,26 @@ export default function StiHubAdminRbacPanel({
                   type="email"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                 />
                 <button
                   type="button"
                   onClick={handleSendTestEmail}
                   disabled={sendingTestEmail}
-                  className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer shrink-0"
                 >
                   {sendingTestEmail ? 'Enviando...' : 'Disparar Teste'}
                 </button>
               </div>
               {lastTestProtocol && (
-                <div className="p-2.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[11px] font-bold">
+                <div className="p-2.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[11px] font-normal">
                   E-mail validado com sucesso! Protocolo: {lastTestProtocol}
                 </div>
               )}
             </div>
 
             <form onSubmit={handleCreateEmailTemplate} className="space-y-3 pt-2 border-t border-slate-200 text-xs">
-              <div className="font-extrabold text-slate-900">
+              <div className="font-normal text-slate-900">
                 + Criar Novo Modelo Dinâmico de E-mail
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -1122,7 +1207,7 @@ export default function StiHubAdminRbacPanel({
                 <select
                   value={tplCategory}
                   onChange={(e) => setTplCategory(e.target.value as CrmEmailTemplateCategory)}
-                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                 >
                   <option value="PROPOSTA">PROPOSTA COMERCIAL</option>
                   <option value="FOLLOW_UP">FOLLOW-UP</option>
@@ -1137,7 +1222,7 @@ export default function StiHubAdminRbacPanel({
                 value={tplSubject}
                 onChange={(e) => setTplSubject(e.target.value)}
                 placeholder="Assunto com variáveis {{company.name}}"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-normal"
               />
               <textarea
                 rows={4}
@@ -1149,7 +1234,7 @@ export default function StiHubAdminRbacPanel({
               <button
                 type="submit"
                 disabled={savingTpl}
-                className="w-full py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                className="w-full py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal cursor-pointer"
               >
                 {savingTpl ? 'Salvando...' : 'Salvar Modelo na Biblioteca'}
               </button>
@@ -1160,10 +1245,10 @@ export default function StiHubAdminRbacPanel({
           <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                   CONFIGURAÇÕES &gt; MODELOS DE E-MAILS (CFG_EMAILS)
                 </span>
-                <h3 className="text-base font-extrabold text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
                   Biblioteca de Modelos Dinâmicos CRM &amp; ERP ({emailTemplates.length})
                 </h3>
               </div>
@@ -1181,16 +1266,16 @@ export default function StiHubAdminRbacPanel({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-extrabold">
+                      <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal">
                         {tpl.category}
                       </span>
-                      <strong className="text-sm text-slate-900">{tpl.name}</strong>
+                      <span className="text-sm text-slate-900">{tpl.name}</span>
                     </div>
                     <span className="text-[11px] text-slate-500">
-                      Usos: <strong>{tpl.usageCount}</strong> • Autor: {tpl.createdBy}
+                      Usos: <span>{tpl.usageCount}</span> • Autor: {tpl.createdBy}
                     </span>
                   </div>
-                  <div className="font-bold text-[#1e3a6e]">Assunto: {tpl.subject}</div>
+                  <div className="font-normal text-[#1e3a6e]">Assunto: {tpl.subject}</div>
                   <pre className="p-3 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
                     {tpl.body}
                   </pre>
@@ -1208,14 +1293,14 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#ff7a59] block">
+              <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                 SEÇÃO 3 DO ROADMAP • CUSTOM PROPERTIES HUBSPOT PORTAL #4369067
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Dicionário de Propriedades Customizadas Sincronizadas (Contatos, Empresas, Deals &amp; Tickets)
               </h3>
             </div>
-            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold">
+            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-normal">
               100% Sincronizado com HubSpot v3 + GestãoClick #118887
             </span>
           </div>
@@ -1227,21 +1312,21 @@ export default function StiHubAdminRbacPanel({
                 className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-black">
+                  <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal">
                     {prop.objectType}
                   </span>
-                  <code className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[11px] font-bold">
+                  <code className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[11px] font-normal">
                     {prop.internalName}
                   </code>
                 </div>
-                <div className="text-sm font-extrabold text-slate-900">{prop.label}</div>
+                <div className="text-sm font-normal text-slate-900">{prop.label}</div>
                 <p className="text-slate-600 text-[11px]">{prop.description}</p>
                 {prop.options && prop.options.length > 0 && (
                   <div className="flex flex-wrap gap-1 pt-1">
                     {prop.options.map((opt) => (
                       <span
                         key={opt}
-                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-semibold text-slate-700"
+                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-normal text-slate-700"
                       >
                         {opt}
                       </span>
@@ -1261,10 +1346,10 @@ export default function StiHubAdminRbacPanel({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
           <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+              <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                 SEÇÃO 5.4 DO ROADMAP • DOMÍNIO &amp; SUBDOMÍNIOS CORPORATIVOS SETA TELECOM
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Subdomínios Oficiais Configurados &amp; Apontamento DNS CNAME
               </h3>
             </div>
@@ -1282,18 +1367,18 @@ export default function StiHubAdminRbacPanel({
                 <tbody className="divide-y divide-slate-200">
                   {(securityConfig?.subdomains || []).map((sd) => (
                     <tr key={sd.domain} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-mono font-black text-[#0d2b4e]">
+                      <td className="py-2.5 px-3 font-mono font-normal text-[#0d2b4e]">
                         https://{sd.domain}
                         {sd.isDefaultPublicProposalDomain && (
-                          <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-sans text-[9px] font-bold">
+                          <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-sans text-[9px] font-normal">
                             PADRÃO PDF
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold">{sd.type}</td>
+                      <td className="py-2.5 px-3 font-normal">{sd.type}</td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">{sd.cnameTarget}</td>
                       <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold">
+                        <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-normal">
                           {sd.sslStatus}
                         </span>
                       </td>
@@ -1304,12 +1389,12 @@ export default function StiHubAdminRbacPanel({
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-              <div className="font-extrabold text-slate-900">
+              <div className="font-normal text-slate-900">
                 Instrução DNS para Zona <code className="font-mono">setatelecom.com.br</code>:
               </div>
               <p className="text-slate-600">
-                • Tipo: <strong>CNAME</strong> | Nome: <code>stihub</code> (ou <code>erp</code>) | Valor:{' '}
-                <code className="font-mono font-bold">cname.vercel-dns.com</code> | TTL: Automático.
+                • Tipo: <span>CNAME</span> | Nome: <code>stihub</code> (ou <code>erp</code>) | Valor:{' '}
+                <code className="font-mono font-normal">cname.vercel-dns.com</code> | TTL: Automático.
               </p>
               <p className="text-slate-600">
                 • Todos os links públicos de propostas comerciais (<code>/proposta/[id]</code>) utilizam automaticamente o domínio ativo da sessão ou <code>https://sti-hub.vercel.app</code>.
@@ -1319,17 +1404,17 @@ export default function StiHubAdminRbacPanel({
 
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                 SEÇÕES 5.1 &amp; 5.2 DO ROADMAP • AUTH GUARD &amp; MFA 2FA
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Política de Proteção de Rotas (`src/middleware.ts`)
               </h3>
             </div>
 
             <div className="space-y-2">
               <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
-                <div className="font-extrabold text-emerald-950">
+                <div className="font-normal text-emerald-950">
                   Etapa Obrigatória MFA 2FA (TOTP 6 Dígitos)
                 </div>
                 <p className="text-[11px] text-emerald-800 mt-0.5">
@@ -1339,7 +1424,7 @@ export default function StiHubAdminRbacPanel({
               </div>
 
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                <div className="font-extrabold text-slate-900">Rotas Públicas Liberadas (Whitelisted):</div>
+                <div className="font-normal text-slate-900">Rotas Públicas Liberadas (Whitelisted):</div>
                 <ul className="text-[11px] text-slate-600 space-y-1 font-mono">
                   <li>• /login (Autenticação + Desafio MFA 2FA)</li>
                   <li>• /proposta/[id] (Link Público PDF A4 p/ Cliente)</li>
@@ -1351,7 +1436,7 @@ export default function StiHubAdminRbacPanel({
 
             <a
               href="/login"
-              className="w-full py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold flex items-center justify-center gap-2"
+              className="w-full py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal flex items-center justify-center gap-2"
             >
               <Lock className="w-4 h-4 text-[#ff7a59]" /> Testar Fluxo de Login + MFA 2FA Agora
             </a>
@@ -1366,10 +1451,10 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+              <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                 CONFIGURAÇÕES &gt; DADOS DA EMPRESA EMITENTE (CFG_EMPRESA / LOJA MATRIZ #118887)
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Ficha Fiscal e Bancária da Seta Telecom LTDA
               </h3>
             </div>
@@ -1378,7 +1463,7 @@ export default function StiHubAdminRbacPanel({
                 type="button"
                 onClick={handleLookupEmitterCnpj}
                 disabled={lookingUpEmitterCnpj}
-                className="px-3.5 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                className="px-3.5 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal cursor-pointer"
               >
                 {lookingUpEmitterCnpj ? 'Consultando RFB...' : 'Consultar CNPJ na Receita Federal'}
               </button>
@@ -1391,7 +1476,7 @@ export default function StiHubAdminRbacPanel({
                     'Dados fiscais e bancários da Seta Telecom salvos com sucesso!'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Dados da Empresa'}
               </button>
@@ -1400,16 +1485,16 @@ export default function StiHubAdminRbacPanel({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Razão Social Emitente</label>
+              <label className="block font-normal text-slate-700 mb-1">Razão Social Emitente</label>
               <input
                 type="text"
                 value={companyEmitter.legalName}
                 onChange={(e) => setCompanyEmitter({ ...companyEmitter, legalName: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-normal"
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Nome Fantasia / Unidade</label>
+              <label className="block font-normal text-slate-700 mb-1">Nome Fantasia / Unidade</label>
               <input
                 type="text"
                 value={companyEmitter.tradeName}
@@ -1418,16 +1503,16 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">CNPJ Matriz</label>
+              <label className="block font-normal text-slate-700 mb-1">CNPJ Matriz</label>
               <input
                 type="text"
                 value={companyEmitter.cnpj}
                 onChange={(e) => setCompanyEmitter({ ...companyEmitter, cnpj: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono font-bold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono font-normal"
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Inscrição Estadual (IE)</label>
+              <label className="block font-normal text-slate-700 mb-1">Inscrição Estadual (IE)</label>
               <input
                 type="text"
                 value={companyEmitter.stateRegistration}
@@ -1438,7 +1523,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Inscrição Municipal (IM)</label>
+              <label className="block font-normal text-slate-700 mb-1">Inscrição Municipal (IM)</label>
               <input
                 type="text"
                 value={companyEmitter.municipalRegistration}
@@ -1449,7 +1534,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Regime Tributário</label>
+              <label className="block font-normal text-slate-700 mb-1">Regime Tributário</label>
               <select
                 value={companyEmitter.taxRegime}
                 onChange={(e) =>
@@ -1458,7 +1543,7 @@ export default function StiHubAdminRbacPanel({
                     taxRegime: e.target.value as StiHubCompanyEmitterSettings['taxRegime'],
                   })
                 }
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
               >
                 <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
                 <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
@@ -1466,7 +1551,7 @@ export default function StiHubAdminRbacPanel({
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">CNAE Principal Fiscal</label>
+              <label className="block font-normal text-slate-700 mb-1">CNAE Principal Fiscal</label>
               <input
                 type="text"
                 value={companyEmitter.cnaeMain}
@@ -1475,7 +1560,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Código IBGE Município</label>
+              <label className="block font-normal text-slate-700 mb-1">Código IBGE Município</label>
               <input
                 type="text"
                 value={companyEmitter.ibgeCode}
@@ -1484,7 +1569,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">CEP</label>
+              <label className="block font-normal text-slate-700 mb-1">CEP</label>
               <input
                 type="text"
                 value={companyEmitter.cep}
@@ -1493,7 +1578,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">Logradouro &amp; Número</label>
+              <label className="block font-normal text-slate-700 mb-1">Logradouro &amp; Número</label>
               <div className="grid grid-cols-4 gap-2">
                 <input
                   type="text"
@@ -1514,7 +1599,7 @@ export default function StiHubAdminRbacPanel({
               </div>
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Cidade / UF</label>
+              <label className="block font-normal text-slate-700 mb-1">Cidade / UF</label>
               <div className="grid grid-cols-3 gap-2">
                 <input
                   type="text"
@@ -1526,12 +1611,12 @@ export default function StiHubAdminRbacPanel({
                   type="text"
                   value={companyEmitter.state}
                   onChange={(e) => setCompanyEmitter({ ...companyEmitter, state: e.target.value })}
-                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300 font-bold"
+                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300 font-normal"
                 />
               </div>
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Conta Principal Banco Inter</label>
+              <label className="block font-normal text-slate-700 mb-1">Conta Principal Banco Inter</label>
               <input
                 type="text"
                 value={companyEmitter.defaultBankInterAccount}
@@ -1542,7 +1627,7 @@ export default function StiHubAdminRbacPanel({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Conta Principal Banco Itaú</label>
+              <label className="block font-normal text-slate-700 mb-1">Conta Principal Banco Itaú</label>
               <input
                 type="text"
                 value={companyEmitter.defaultBankItauAccount}
@@ -1564,10 +1649,10 @@ export default function StiHubAdminRbacPanel({
           <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
+                <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
                   CONFIGURAÇÕES &gt; CERTIFICADO DIGITAL A1 &amp; NUMERAÇÃO FISCAL (CFG_CERTIFICADO)
                 </span>
-                <h3 className="text-base font-extrabold text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
                   Certificado ICP-Brasil (.pfx) e Séries NF-e / NFS-e / NFCom / Locação SV 31
                 </h3>
               </div>
@@ -1580,7 +1665,7 @@ export default function StiHubAdminRbacPanel({
                     'Certificado Digital A1, séries fiscais e parâmetros gerais salvos!'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Parâmetros Fiscais'}
               </button>
@@ -1588,7 +1673,7 @@ export default function StiHubAdminRbacPanel({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Arquivo Certificado A1 (.pfx)</label>
+                <label className="block font-normal text-slate-700 mb-1">Arquivo Certificado A1 (.pfx)</label>
                 <input
                   type="text"
                   value={certificateSettings.certificateFileName}
@@ -1602,7 +1687,7 @@ export default function StiHubAdminRbacPanel({
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Ambiente SEFAZ / Prefeitura</label>
+                <label className="block font-normal text-slate-700 mb-1">Ambiente SEFAZ / Prefeitura</label>
                 <select
                   value={certificateSettings.sefazEnvironment}
                   onChange={(e) =>
@@ -1611,14 +1696,14 @@ export default function StiHubAdminRbacPanel({
                       sefazEnvironment: e.target.value as 'PRODUCAO' | 'HOMOLOGACAO',
                     })
                   }
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                 >
                   <option value="PRODUCAO">PRODUÇÃO (Validade Jurídica Ativa)</option>
                   <option value="HOMOLOGACAO">HOMOLOGAÇÃO (Testes SEFAZ)</option>
                 </select>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NF-e Produto (Mod. 55)</label>
+                <label className="block font-normal text-slate-700 mb-1">Série &amp; Próxima NF-e Produto (Mod. 55)</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
@@ -1645,7 +1730,7 @@ export default function StiHubAdminRbacPanel({
                 </div>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NFS-e Serviço (LC 116)</label>
+                <label className="block font-normal text-slate-700 mb-1">Série &amp; Próxima NFS-e Serviço (LC 116)</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
@@ -1672,7 +1757,7 @@ export default function StiHubAdminRbacPanel({
                 </div>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Série &amp; Próxima NFCom Telecom (Mod. 62)</label>
+                <label className="block font-normal text-slate-700 mb-1">Série &amp; Próxima NFCom Telecom (Mod. 62)</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
@@ -1699,7 +1784,7 @@ export default function StiHubAdminRbacPanel({
                 </div>
               </div>
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Prefixo &amp; Próxima Fatura Locação (0% ISS SV 31)</label>
+                <label className="block font-normal text-slate-700 mb-1">Prefixo &amp; Próxima Fatura Locação (0% ISS SV 31)</label>
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
@@ -1730,10 +1815,10 @@ export default function StiHubAdminRbacPanel({
 
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div className="border-b border-slate-200 pb-3">
-              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                 CONFIGURAÇÕES GERAIS DO SISTEMA (CFG_GERAIS)
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Regras Comerciais, Financeiras e Travas Globais
               </h3>
             </div>
@@ -1741,7 +1826,7 @@ export default function StiHubAdminRbacPanel({
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Alçada Desconto Padrão (%)</label>
+                  <label className="block font-normal text-slate-700 mb-1">Alçada Desconto Padrão (%)</label>
                   <input
                     type="number"
                     value={generalParameters.defaultSalesDiscountLimitPercent}
@@ -1751,11 +1836,11 @@ export default function StiHubAdminRbacPanel({
                         defaultSalesDiscountLimitPercent: Number(e.target.value) || 0,
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-bold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste Contratos</label>
+                  <label className="block font-normal text-slate-700 mb-1">Índice Reajuste Contratos</label>
                   <select
                     value={generalParameters.defaultContractReadjustmentIndex}
                     onChange={(e) =>
@@ -1765,7 +1850,7 @@ export default function StiHubAdminRbacPanel({
                           .value as StiHubGeneralSystemParameters['defaultContractReadjustmentIndex'],
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                   >
                     <option value="IPCA">IPCA (IBGE)</option>
                     <option value="IGP-M">IGP-M (FGV)</option>
@@ -1774,7 +1859,7 @@ export default function StiHubAdminRbacPanel({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Multa Atraso Boleto (%)</label>
+                  <label className="block font-normal text-slate-700 mb-1">Multa Atraso Boleto (%)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1789,7 +1874,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Juros Mensal Boleto (%)</label>
+                  <label className="block font-normal text-slate-700 mb-1">Juros Mensal Boleto (%)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -1806,7 +1891,7 @@ export default function StiHubAdminRbacPanel({
               </div>
 
               <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-1">
-                <div className="font-extrabold text-emerald-950">
+                <div className="font-normal text-emerald-950">
                   Trava Fiscal de CNPJ (Anti-Merge Matriz/Filial): ATIVA
                 </div>
                 <p className="text-[11px] text-emerald-800">
@@ -1825,15 +1910,15 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#ff7a59] block">
+              <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                 HOMOLOGAÇÃO OFICIAL DA MIGRAÇÃO GESTÃOCLICK (#118887) &rarr; STI-HUB
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Checklist Verificável dos 11 Módulos Importados (6.414 Registros Reais)
               </h3>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-extrabold">
+              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-normal">
                 Aprovados: {migrationChecklist.filter((m) => m.validationStatus === 'PASSOU').length} /{' '}
                 {migrationChecklist.length} Módulos
               </span>
@@ -1849,13 +1934,13 @@ export default function StiHubAdminRbacPanel({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded bg-[#0d2b4e] text-white font-extrabold">
+                      <span className="px-2.5 py-0.5 rounded bg-[#0d2b4e] text-white font-normal">
                         {item.moduleName}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded bg-blue-100 text-[#1e3a6e] font-black">
+                      <span className="px-2.5 py-0.5 rounded bg-blue-100 text-[#1e3a6e] font-normal">
                         {item.totalCount.toLocaleString('pt-BR')} registros
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">
+                      <span className="text-[11px] text-slate-500 font-normal">
                         Destino: {item.targetDestination}
                       </span>
                     </div>
@@ -1880,7 +1965,7 @@ export default function StiHubAdminRbacPanel({
                           key={st}
                           type="button"
                           onClick={() => handleUpdateChecklistItem(item.moduleNumber, st, item.auditorNotes)}
-                          className={`px-2.5 py-1 rounded font-extrabold text-[11px] cursor-pointer transition ${cls}`}
+                          className={`px-2.5 py-1 rounded font-normal text-[11px] cursor-pointer transition ${cls}`}
                         >
                           {st === 'PASSOU' ? '[x] PASSOU' : st === 'FALHOU' ? '[ ] FALHOU' : 'EM CONFERÊNCIA'}
                         </button>
@@ -1891,7 +1976,7 @@ export default function StiHubAdminRbacPanel({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200">
-                    <strong className="text-slate-800 block mb-1">Amostragem Real para Conferência:</strong>
+                    <span className="text-slate-800 block mb-1">Amostragem Real para Conferência:</span>
                     <ul className="list-disc list-inside text-slate-600 space-y-0.5">
                       {item.sampleRecords.map((sr, i) => (
                         <li key={i}>{sr}</li>
@@ -1900,22 +1985,22 @@ export default function StiHubAdminRbacPanel({
                   </div>
                   <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                     <div>
-                      <strong className="text-slate-800">Campos Verificados:</strong>{' '}
+                      <span className="text-slate-800">Campos Verificados:</span>{' '}
                       <span className="text-slate-600">{item.requiredFieldsVerified.join(' • ')}</span>
                     </div>
                     <div>
-                      <strong className="text-slate-800">Trava Fiscal / CNPJ:</strong>{' '}
-                      <span className="text-emerald-700 font-semibold">{item.cnpjFiscalLockCheck}</span>
+                      <span className="text-slate-800">Trava Fiscal / CNPJ:</span>{' '}
+                      <span className="text-emerald-700 font-normal">{item.cnpjFiscalLockCheck}</span>
                     </div>
                     <div>
-                      <strong className="text-slate-800">Vínculos entre Cadastros:</strong>{' '}
+                      <span className="text-slate-800">Vínculos entre Cadastros:</span>{' '}
                       <span className="text-slate-600">{item.relationalIntegrityCheck}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-700 shrink-0">Observações da Conferência:</span>
+                  <span className="font-normal text-slate-700 shrink-0">Observações da Conferência:</span>
                   <input
                     type="text"
                     value={item.auditorNotes}
@@ -1950,10 +2035,10 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-700 block">
+              <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                 SINCRONIZAÇÃO AUTOMÁTICA DIÁRIA • GESTÃOCLICK (#118887) &rarr; STI-HUB (/api/erp/daily-sync)
               </span>
-              <h3 className="text-base font-extrabold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900">
                 Motor Incremental Diário (07h00 EDT) &amp; Histórico de Execuções
               </h3>
             </div>
@@ -1961,7 +2046,7 @@ export default function StiHubAdminRbacPanel({
               type="button"
               onClick={handleRunDailySyncNow}
               disabled={runningSyncNow}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-normal cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${runningSyncNow ? 'animate-spin' : ''}`} />
               {runningSyncNow
@@ -1978,10 +2063,10 @@ export default function StiHubAdminRbacPanel({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-mono font-bold">
+                    <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-mono font-normal">
                       {log.runId}
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-extrabold text-[10px]">
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-normal text-[10px]">
                       {log.mode === 'INITIAL_WIPE_AND_FULL_IMPORT'
                         ? 'LIMPEZA + CARGA TOTAL INICIAL'
                         : 'SINCRONIZAÇÃO DIÁRIA INCREMENTAL'}
@@ -1990,29 +2075,29 @@ export default function StiHubAdminRbacPanel({
                       {new Date(log.timestamp).toLocaleString('pt-BR')} ({log.durationMs}ms)
                     </span>
                   </div>
-                  <span className="px-2.5 py-0.5 rounded bg-emerald-600 text-white font-extrabold text-[10px]">
+                  <span className="px-2.5 py-0.5 rounded bg-emerald-600 text-white font-normal text-[10px]">
                     {log.status} • {log.incrementalNewOrUpdated} reg. sincronizados
                   </span>
                 </div>
                 <p className="text-slate-700 font-medium">{log.summary}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 text-[11px]">
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    Clientes: <strong>{log.importedCounts.clientes}</strong>
+                    Clientes: <span>{log.importedCounts.clientes}</span>
                   </div>
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    Fornecedores: <strong>{log.importedCounts.fornecedores}</strong>
+                    Fornecedores: <span>{log.importedCounts.fornecedores}</span>
                   </div>
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    Produtos/Serv.: <strong>{log.importedCounts.produtos + log.importedCounts.servicos}</strong>
+                    Produtos/Serv.: <span>{log.importedCounts.produtos + log.importedCounts.servicos}</span>
                   </div>
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    Orçamentos: <strong>{log.importedCounts.orcamentos}</strong>
+                    Orçamentos: <span>{log.importedCounts.orcamentos}</span>
                   </div>
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    Contratos: <strong>{log.importedCounts.contratos}</strong>
+                    Contratos: <span>{log.importedCounts.contratos}</span>
                   </div>
                   <div className="p-2 rounded bg-white border border-slate-200">
-                    O.S. / Chamados: <strong>{log.importedCounts.ordensServico}</strong>
+                    O.S. / Chamados: <span>{log.importedCounts.ordensServico}</span>
                   </div>
                 </div>
               </div>
@@ -2056,15 +2141,15 @@ export default function StiHubAdminRbacPanel({
                       setEditingUser(null);
                       setModalTotpPreview(null);
                     }}
-                    className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 font-extrabold text-slate-800 cursor-pointer"
+                    className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 font-normal text-slate-800 cursor-pointer"
                   >
                     ← Voltar para Lista de Usuários
                   </button>
                   <div>
-                    <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                    <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                       CONFIGURAÇÕES &gt; USUÁRIOS &gt; TELA DE CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES (TODOS OS SISTEMAS)
                     </span>
-                    <h3 className="text-base font-extrabold text-slate-900">
+                    <h3 className="text-base font-semibold text-slate-900">
                       Cadastro do Usuário &amp; Permissões — {editingUser.name} ({editingUser.email}) • {editingUser.active ? "ATIVO" : "DESATIVADO"}
                     </h3>
                   </div>
@@ -2075,7 +2160,7 @@ export default function StiHubAdminRbacPanel({
                     setEditingUser(null);
                     setModalTotpPreview(null);
                   }}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 font-normal text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -2109,7 +2194,7 @@ export default function StiHubAdminRbacPanel({
                 {/* Bloco 1: Dados Cadastrais & Autenticação 2FA */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                    <label className="block font-normal text-slate-700 mb-1">Nome Completo *</label>
                     <input
                       type="text"
                       required
@@ -2119,7 +2204,7 @@ export default function StiHubAdminRbacPanel({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                    <label className="block font-normal text-slate-700 mb-1">E-mail Corporativo *</label>
                     <input
                       type="email"
                       required
@@ -2129,7 +2214,7 @@ export default function StiHubAdminRbacPanel({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Departamento / Cargo</label>
+                    <label className="block font-normal text-slate-700 mb-1">Departamento / Cargo</label>
                     <input
                       type="text"
                       value={editingUser.jobTitle}
@@ -2141,7 +2226,7 @@ export default function StiHubAdminRbacPanel({
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Perfil Base RBAC</label>
+                    <label className="block font-normal text-slate-700 mb-1">Perfil Base RBAC</label>
                     <select
                       value={editingUser.roleId}
                       onChange={(e) => {
@@ -2156,7 +2241,7 @@ export default function StiHubAdminRbacPanel({
                           erpPermissions: buildDefaultErpPermissionsForRole(nextRole),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                     >
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>
@@ -2167,7 +2252,7 @@ export default function StiHubAdminRbacPanel({
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+                    <label className="block font-normal text-slate-700 mb-1">
                       Método 2FA (Google Authenticator / E-mail OTP)
                     </label>
                     <select
@@ -2178,7 +2263,7 @@ export default function StiHubAdminRbacPanel({
                           mfaMethod: e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP',
                         })
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                     >
                       <option value="TOTP_AUTHENTICATOR">
                         Google Authenticator (TOTP RFC 6238 • 30s)
@@ -2194,7 +2279,7 @@ export default function StiHubAdminRbacPanel({
                       <button
                         type="button"
                         onClick={() => handleLoadUserTotpQr(editingUser.email, false)}
-                        className="w-full py-2 px-3 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                        className="w-full py-2 px-3 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal cursor-pointer"
                       >
                         Parear Google Authenticator (QR / Base32)
                       </button>
@@ -2202,7 +2287,7 @@ export default function StiHubAdminRbacPanel({
                       <button
                         type="button"
                         onClick={() => handleDispatchTestEmailOtp(editingUser.email)}
-                        className="w-full py-2 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold cursor-pointer"
+                        className="w-full py-2 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-normal cursor-pointer"
                       >
                         Disparar Código OTP p/ E-mail Agora
                       </button>
@@ -2218,12 +2303,12 @@ export default function StiHubAdminRbacPanel({
                       className="w-24 h-24 rounded-lg border border-slate-300 bg-white p-1"
                     />
                     <div className="flex-1 space-y-1 text-[11px]">
-                      <div className="font-extrabold text-[#0d2b4e]">
+                      <div className="font-normal text-[#0d2b4e]">
                         Pareamento Google Authenticator RFC 6238 ({editingUser.email})
                       </div>
                       <div>
                         Segredo Base32:{' '}
-                        <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                        <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-normal">
                           {modalTotpPreview.totpSecret}
                         </code>
 
@@ -2239,10 +2324,10 @@ export default function StiHubAdminRbacPanel({
                 <div className="p-4 rounded-xl bg-slate-50 border-2 border-[#0d2b4e]/15 space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <span className="text-[10px] font-black uppercase text-[#0d2b4e] block">
+                      <span className="text-[10px] font-normal uppercase text-[#0d2b4e] block">
                         ESCOPO MODULAR DO USUÁRIO (ISOLAMENTO DE ROTAS &amp; APIS)
                       </span>
-                      <div className="font-extrabold text-slate-900">
+                      <div className="font-normal text-slate-900">
                         Selecione quais módulos do STI-hub este colaborador está habilitado a acessar:
                       </div>
                     </div>
@@ -2250,28 +2335,28 @@ export default function StiHubAdminRbacPanel({
                       <button
                         type="button"
                         onClick={() => setMods(['CRM'])}
-                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal hover:bg-slate-100 cursor-pointer"
                       >
                         Apenas CRM
                       </button>
                       <button
                         type="button"
                         onClick={() => setMods(['ERP'])}
-                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal hover:bg-slate-100 cursor-pointer"
                       >
                         Apenas ERP
                       </button>
                       <button
                         type="button"
                         onClick={() => setMods(['CHAMADOS'])}
-                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-extrabold hover:bg-slate-100 cursor-pointer"
+                        className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal hover:bg-slate-100 cursor-pointer"
                       >
                         Apenas Chamados
                       </button>
                       <button
                         type="button"
                         onClick={() => setMods(['CRM', 'ERP', 'CHAMADOS'])}
-                        className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-extrabold cursor-pointer"
+                        className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-normal cursor-pointer"
                       >
                         Todos os 3 Módulos
                       </button>
@@ -2320,7 +2405,7 @@ export default function StiHubAdminRbacPanel({
                             className="mt-0.5 w-4 h-4 accent-[#0d2b4e]"
                           />
                           <div>
-                            <div className="font-extrabold text-slate-900">{m.title}</div>
+                            <div className="font-normal text-slate-900">{m.title}</div>
                             <div className="text-[10px] text-slate-500">{m.desc}</div>
                           </div>
                         </label>
@@ -2333,14 +2418,14 @@ export default function StiHubAdminRbacPanel({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Painel 1: Permissões CRM / HubSpot */}
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
-                    <div className="font-extrabold text-[#0d2b4e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                    <div className="font-normal text-[#0d2b4e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
                       <span>Painel 1: Permissões CRM / HubSpot</span>
                       <span className="text-[10px] text-[#ff7a59]">
                         {userMods.includes('CRM') ? 'CRM HABILITADO' : 'CRM DESABILITADO'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-700">Escopo de Carteira:</span>
+                      <span className="font-normal text-slate-700">Escopo de Carteira:</span>
                       <select
                         value={editingUser.scope}
                         onChange={(e) => {
@@ -2351,7 +2436,7 @@ export default function StiHubAdminRbacPanel({
                             crmPermissions: { ...userCrm, portfolioScope: sc },
                           });
                         }}
-                        className="px-2 py-1 rounded border border-slate-300 bg-white font-bold"
+                        className="px-2 py-1 rounded border border-slate-300 bg-white font-normal"
                       >
                         <option value="TODOS">TODOS</option>
                         <option value="EQUIPE">EQUIPE</option>
@@ -2380,7 +2465,7 @@ export default function StiHubAdminRbacPanel({
                               },
                             })
                           }
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[11px]"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-normal text-[11px]"
                         >
                           <option value="FULL">FULL (Total)</option>
                           <option value="EDIT">EDIT (Editar)</option>
@@ -2390,7 +2475,7 @@ export default function StiHubAdminRbacPanel({
                       </div>
                     ))}
                     <div className="flex flex-wrap gap-3 pt-1 border-t border-slate-200">
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userCrm.canExportCrmData}
@@ -2403,7 +2488,7 @@ export default function StiHubAdminRbacPanel({
                         />
                         <span>Exportação CRM</span>
                       </label>
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userCrm.canMergeCrmRecords}
@@ -2416,7 +2501,7 @@ export default function StiHubAdminRbacPanel({
                         />
                         <span>Merge CRM</span>
                       </label>
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userCrm.canDeleteCrmRecords}
@@ -2434,14 +2519,14 @@ export default function StiHubAdminRbacPanel({
 
                   {/* Painel 2: Permissões ERP */}
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
-                    <div className="font-extrabold text-[#1e3a6e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                    <div className="font-normal text-[#1e3a6e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
                       <span>Painel 2: Permissões ERP (SETA | IT)</span>
                       <span className="text-[10px] text-emerald-700">
                         {userMods.includes('ERP') ? 'ERP HABILITADO' : 'ERP DESABILITADO'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-700">Alçada Desconto (%):</span>
+                      <span className="font-normal text-slate-700">Alçada Desconto (%):</span>
                       <input
                         type="number"
                         min={0}
@@ -2456,7 +2541,7 @@ export default function StiHubAdminRbacPanel({
                             },
                           })
                         }
-                        className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-bold text-right"
+                        className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-normal text-right"
                       />
                     </div>
                     {(
@@ -2481,7 +2566,7 @@ export default function StiHubAdminRbacPanel({
                               },
                             })
                           }
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-bold text-[11px]"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-normal text-[11px]"
                         >
                           <option value="FULL">FULL (Total)</option>
                           <option value="EDIT">EDIT (Editar)</option>
@@ -2491,7 +2576,7 @@ export default function StiHubAdminRbacPanel({
                       </div>
                     ))}
                     <div className="flex flex-wrap gap-3 pt-1 border-t border-slate-200">
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userErp.canIssueFiscalDocuments}
@@ -2507,7 +2592,7 @@ export default function StiHubAdminRbacPanel({
                         />
                         <span>Emitir Fiscal</span>
                       </label>
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userErp.canApproveProposals}
@@ -2523,7 +2608,7 @@ export default function StiHubAdminRbacPanel({
                         />
                         <span>Aprovar Orç.</span>
                       </label>
-                      <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                      <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                         <input
                           type="checkbox"
                           checked={userErp.canDeleteErpRecords}
@@ -2573,18 +2658,18 @@ export default function StiHubAdminRbacPanel({
                       <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row items-center gap-4">
                         <img src={userQrUrl} alt="QR Code Google Authenticator" className="w-24 h-24 rounded-xl border border-slate-300 bg-white p-1 shrink-0" />
                         <div className="space-y-1 flex-1">
-                          <div className="font-extrabold text-[#0d2b4e]">
+                          <div className="font-normal text-[#0d2b4e]">
                             Habilitação do 2FA Google Authenticator — {editingUser.name}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                            <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-normal">
                               {formatBase32SecretBlocks(userSecret)}
                             </code>
 
                             <button
                               type="button"
                               onClick={() => setEditingUser({ ...editingUser, totpSecret: generateTotpSecretBase32(editingUser.email + ":" + Date.now()) })}
-                              className="px-2.5 py-0.5 rounded bg-white border border-slate-300 font-bold cursor-pointer"
+                              className="px-2.5 py-0.5 rounded bg-white border border-slate-300 font-normal cursor-pointer"
                             >
                               Regerar Chave 2FA
                             </button>
@@ -2595,7 +2680,7 @@ export default function StiHubAdminRbacPanel({
                       {/* Seletores Independentes de Tipo de Conta por Sistema */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-100 border border-slate-200">
                         <div>
-                          <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                          <label className="block font-normal text-[#0d2b4e] mb-1">
                             Tipo de Conta no Sistema CRM &amp; Chamados:
                           </label>
                           <select
@@ -2610,7 +2695,7 @@ export default function StiHubAdminRbacPanel({
                                 itemPermissions: { ...nextCrmMap, ...userErpItems },
                               });
                             }}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                           >
                             {(Object.keys(CRM_ROLES_CATALOG) as CrmAccountRole[]).map((k) => (
                               <option key={k} value={k}>
@@ -2620,7 +2705,7 @@ export default function StiHubAdminRbacPanel({
                           </select>
                         </div>
                         <div>
-                          <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                          <label className="block font-normal text-[#1e3a6e] mb-1">
                             Tipo de Conta no Sistema ERP (Admin, Comercial, Financeiro, Gerência de Estoque):
                           </label>
                           <select
@@ -2635,7 +2720,7 @@ export default function StiHubAdminRbacPanel({
                                 itemPermissions: { ...userCrmItems, ...nextErpMap },
                               });
                             }}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#1e3a6e]"
                           >
                             {(Object.keys(ERP_ROLES_CATALOG) as ErpAccountRole[]).map((k) => (
                               <option key={k} value={k}>
@@ -2650,7 +2735,7 @@ export default function StiHubAdminRbacPanel({
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {/* Tabela Sistema CRM & Chamados */}
                         <div className="border border-slate-200 rounded-xl overflow-hidden">
-                          <div className="bg-[#0d2b4e] text-white px-3.5 py-2 font-extrabold flex items-center justify-between">
+                          <div className="bg-[#0d2b4e] text-white px-3.5 py-2 font-normal flex items-center justify-between">
                             <span>Permissões no CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</span>
                             <span className="text-[10px] text-orange-300">{effCrmRole}</span>
                           </div>
@@ -2670,7 +2755,7 @@ export default function StiHubAdminRbacPanel({
                                   return (
                                     <tr key={it.itemId} className="hover:bg-slate-50">
                                       <td className="py-1.5 px-2.5">
-                                        <div className="font-bold text-slate-900">{it.itemLabel}</div>
+                                        <div className="font-normal text-slate-900">{it.itemLabel}</div>
                                         <div className="text-[9px] text-slate-500">{it.moduleLabel}</div>
                                       </td>
                                       <td className="py-1.5 px-2 text-center">
@@ -2692,7 +2777,7 @@ export default function StiHubAdminRbacPanel({
 
                         {/* Tabela Sistema ERP */}
                         <div className="border border-slate-200 rounded-xl overflow-hidden">
-                          <div className="bg-[#1e3a6e] text-white px-3.5 py-2 font-extrabold flex items-center justify-between">
+                          <div className="bg-[#1e3a6e] text-white px-3.5 py-2 font-normal flex items-center justify-between">
                             <span>Permissões no Sistema ERP ({ERP_MODULE_ITEMS_CATALOG.length} itens)</span>
                             <span className="text-[10px] text-emerald-300">{effErpRole}</span>
                           </div>
@@ -2712,7 +2797,7 @@ export default function StiHubAdminRbacPanel({
                                   return (
                                     <tr key={it.itemId} className="hover:bg-slate-50">
                                       <td className="py-1.5 px-2.5">
-                                        <div className="font-bold text-slate-900">{it.itemLabel}</div>
+                                        <div className="font-normal text-slate-900">{it.itemLabel}</div>
                                         <div className="text-[9px] text-slate-500">{it.moduleLabel}</div>
                                       </td>
                                       <td className="py-1.5 px-2 text-center">
@@ -2738,7 +2823,7 @@ export default function StiHubAdminRbacPanel({
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                   <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                    <label className="flex items-center gap-2 font-normal text-slate-700 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={editingUser.mfaEnabled}
@@ -2748,7 +2833,7 @@ export default function StiHubAdminRbacPanel({
                       />
                       <span>MFA 2FA Obrigatório Ativo</span>
                     </label>
-                    <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
+                    <label className="flex items-center gap-2 font-normal text-slate-700 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={editingUser.active}
@@ -2764,13 +2849,13 @@ export default function StiHubAdminRbacPanel({
                         setEditingUser(null);
                         setModalTotpPreview(null);
                       }}
-                      className="px-4 py-2 rounded-lg border border-slate-300 font-bold cursor-pointer"
+                      className="px-4 py-2 rounded-lg border border-slate-300 font-normal cursor-pointer"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                      className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-normal cursor-pointer"
                     >
                       Salvar Políticas IAM do Usuário
                     </button>
@@ -2788,17 +2873,17 @@ export default function StiHubAdminRbacPanel({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="text-[10px] font-black uppercase text-[#ff7a59] block">
+                <span className="text-[10px] font-normal uppercase text-[#ff7a59] block">
                   IAM SETA TELECOM • NOVO COLABORADOR COM ESCOPO MODULAR &amp; 2FA
                 </span>
-                <h3 className="text-base font-extrabold text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
                   + Cadastrar Novo Usuário na Matriz IAM (CRM, ERP &amp; Chamados)
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(false)}
-                className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 cursor-pointer"
+                className="px-3 py-1 rounded-lg border border-slate-300 font-normal text-slate-600 cursor-pointer"
               >
                 Fechar
               </button>
@@ -2807,7 +2892,7 @@ export default function StiHubAdminRbacPanel({
             <form onSubmit={handleCreateUserSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                  <label className="block font-normal text-slate-700 mb-1">Nome Completo *</label>
                   <input
                     type="text"
                     required
@@ -2818,7 +2903,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">E-mail Corporativo *</label>
+                  <label className="block font-normal text-slate-700 mb-1">E-mail Corporativo *</label>
                   <input
                     type="email"
                     required
@@ -2829,7 +2914,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Telefone</label>
+                  <label className="block font-normal text-slate-700 mb-1">Telefone</label>
                   <input
                     type="text"
                     value={newUserPhone}
@@ -2841,7 +2926,7 @@ export default function StiHubAdminRbacPanel({
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Departamento</label>
+                  <label className="block font-normal text-slate-700 mb-1">Departamento</label>
                   <input
                     type="text"
                     value={newUserDept}
@@ -2850,7 +2935,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Cargo</label>
+                  <label className="block font-normal text-slate-700 mb-1">Cargo</label>
                   <input
                     type="text"
                     value={newUserTitle}
@@ -2859,7 +2944,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Perfil RBAC Base</label>
+                  <label className="block font-normal text-slate-700 mb-1">Perfil RBAC Base</label>
                   <select
                     value={newUserRole}
                     onChange={(e) => {
@@ -2870,7 +2955,7 @@ export default function StiHubAdminRbacPanel({
                       setNewUserCrmPerms(buildDefaultCrmPermissionsForRole(rId, newUserScope));
                       setNewUserErpPerms(buildDefaultErpPermissionsForRole(rId));
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal"
                   >
                     {roles.map((r) => (
                       <option key={r.id} value={r.id}>
@@ -2880,7 +2965,7 @@ export default function StiHubAdminRbacPanel({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Método 2FA Obrigatório</label>
+                  <label className="block font-normal text-slate-700 mb-1">Método 2FA Obrigatório</label>
                   <select
                     value={newUserMfaMethod}
                     onChange={(e) =>
@@ -2888,7 +2973,7 @@ export default function StiHubAdminRbacPanel({
                         e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'
                       )
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                   >
                     <option value="TOTP_AUTHENTICATOR">Google Authenticator (TOTP)</option>
                     <option value="EMAIL_OTP">Código OTP por E-mail</option>
@@ -2899,13 +2984,13 @@ export default function StiHubAdminRbacPanel({
               {/* Seleção Independente: Tipo de Conta no CRM vs Tipo de Conta no ERP + QR Code 2FA Google Authenticator */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-blue-50/50 border border-blue-200">
                 <div>
-                  <label className="block font-extrabold text-[#0d2b4e] mb-1">
+                  <label className="block font-normal text-[#0d2b4e] mb-1">
                     Tipo de Conta no CRM (Exclusivo CRM &amp; Chamados):
                   </label>
                   <select
                     value={newUserCrmRole}
                     onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#0d2b4e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#0d2b4e]"
                   >
                     {(Object.keys(crmRolesMatrixState) as CrmAccountRole[]).map((cKey) => (
                       <option key={cKey} value={cKey}>
@@ -2915,13 +3000,13 @@ export default function StiHubAdminRbacPanel({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-extrabold text-[#1e3a6e] mb-1">
+                  <label className="block font-normal text-[#1e3a6e] mb-1">
                     Tipo de Conta no ERP (Admin / Comercial / Financeiro / Gerência de Estoque):
                   </label>
                   <select
                     value={newUserErpRole}
                     onChange={(e) => setNewUserErpRole(e.target.value as ErpAccountRole)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-normal text-[#1e3a6e]"
                   >
                     {(Object.keys(erpRolesMatrixState) as ErpAccountRole[]).map((eKey) => (
                       <option key={eKey} value={eKey}>
@@ -2944,11 +3029,11 @@ export default function StiHubAdminRbacPanel({
                     className="w-24 h-24 rounded-xl border border-slate-300 bg-white p-1 shrink-0"
                   />
                   <div className="space-y-1 flex-1">
-                    <div className="font-extrabold text-[#0d2b4e]">
+                    <div className="font-normal text-[#0d2b4e]">
                       2FA Google Authenticator Pronto para Escanear (RFC 6238 TOTP)
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-black">
+                      <code className="px-2 py-0.5 rounded bg-white border border-slate-300 font-mono font-normal">
                         {formatBase32SecretBlocks(newUserTotpSecret)}
                       </code>
 
@@ -2959,7 +3044,7 @@ export default function StiHubAdminRbacPanel({
                             generateTotpSecretBase32(`user-${Date.now()}@setatelecom.com.br`)
                           )
                         }
-                        className="px-2 py-0.5 rounded bg-white border border-slate-300 font-bold cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-white border border-slate-300 font-normal cursor-pointer"
                       >
                         Regerar Chave 2FA
                       </button>
@@ -2971,35 +3056,35 @@ export default function StiHubAdminRbacPanel({
               {/* Habilitação por Módulo */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-extrabold text-slate-900">
+                  <div className="font-normal text-slate-900">
                     Módulos Habilitados para o Novo Usuário (Individual ou Combinado):
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <button
                       type="button"
                       onClick={() => setNewUserModules(['CRM'])}
-                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal cursor-pointer"
                     >
                       Apenas CRM
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewUserModules(['ERP'])}
-                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal cursor-pointer"
                     >
                       Apenas ERP
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewUserModules(['CHAMADOS'])}
-                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-bold cursor-pointer"
+                      className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-normal cursor-pointer"
                     >
                       Apenas Chamados
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewUserModules(['CRM', 'ERP', 'CHAMADOS'])}
-                      className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-bold cursor-pointer"
+                      className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-normal cursor-pointer"
                     >
                       CRM + ERP + Chamados
                     </button>
@@ -3011,7 +3096,7 @@ export default function StiHubAdminRbacPanel({
                     return (
                       <label
                         key={mod}
-                        className={`p-2.5 rounded-lg border flex items-center gap-2 font-bold cursor-pointer ${
+                        className={`p-2.5 rounded-lg border flex items-center gap-2 font-normal cursor-pointer ${
                           checked
                             ? 'bg-white border-[#0d2b4e] text-[#0d2b4e]'
                             : 'bg-slate-100 border-slate-200 text-slate-500'
@@ -3043,7 +3128,7 @@ export default function StiHubAdminRbacPanel({
               {/* Dois Painéis de Permissões no Cadastro */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-slate-200 p-3.5 space-y-2 bg-slate-50/50">
-                  <div className="font-extrabold text-[#0d2b4e] border-b border-slate-200 pb-1">
+                  <div className="font-normal text-[#0d2b4e] border-b border-slate-200 pb-1">
                     Painel 1: Permissões CRM / HubSpot
                   </div>
                   <div className="flex items-center justify-between">
@@ -3051,7 +3136,7 @@ export default function StiHubAdminRbacPanel({
                     <select
                       value={newUserScope}
                       onChange={(e) => setNewUserScope(e.target.value as StiHubVisibilityScope)}
-                      className="px-2 py-1 rounded border border-slate-300 bg-white font-bold"
+                      className="px-2 py-1 rounded border border-slate-300 bg-white font-normal"
                     >
                       <option value="TODOS">TODOS</option>
                       <option value="EQUIPE">EQUIPE</option>
@@ -3059,7 +3144,7 @@ export default function StiHubAdminRbacPanel({
                     </select>
                   </div>
                   <div className="flex flex-wrap gap-3 pt-1">
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserCrmPerms.canExportCrmData}
@@ -3072,7 +3157,7 @@ export default function StiHubAdminRbacPanel({
                       />
                       <span>Exportar CRM</span>
                     </label>
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserCrmPerms.canMergeCrmRecords}
@@ -3085,7 +3170,7 @@ export default function StiHubAdminRbacPanel({
                       />
                       <span>Merge CRM</span>
                     </label>
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserCrmPerms.canDeleteCrmRecords}
@@ -3102,7 +3187,7 @@ export default function StiHubAdminRbacPanel({
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-3.5 space-y-2 bg-slate-50/50">
-                  <div className="font-extrabold text-[#1e3a6e] border-b border-slate-200 pb-1">
+                  <div className="font-normal text-[#1e3a6e] border-b border-slate-200 pb-1">
                     Painel 2: Permissões ERP
                   </div>
                   <div className="flex items-center justify-between">
@@ -3118,11 +3203,11 @@ export default function StiHubAdminRbacPanel({
                           maxDiscountPercent: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-bold text-right"
+                      className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-normal text-right"
                     />
                   </div>
                   <div className="flex flex-wrap gap-3 pt-1">
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserErpPerms.canIssueFiscalDocuments}
@@ -3135,7 +3220,7 @@ export default function StiHubAdminRbacPanel({
                       />
                       <span>Emitir Fiscal</span>
                     </label>
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserErpPerms.canApproveProposals}
@@ -3148,7 +3233,7 @@ export default function StiHubAdminRbacPanel({
                       />
                       <span>Aprovar Orç.</span>
                     </label>
-                    <label className="flex items-center gap-1.5 font-bold cursor-pointer">
+                    <label className="flex items-center gap-1.5 font-normal cursor-pointer">
                       <input
                         type="checkbox"
                         checked={newUserErpPerms.canDeleteErpRecords}
@@ -3167,7 +3252,7 @@ export default function StiHubAdminRbacPanel({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
+                  <label className="block font-normal text-slate-700 mb-1">
                     Senha Inicial (Opcional — se vazio, o usuário cadastra pelo Link de Convite)
                   </label>
                   <input
@@ -3179,7 +3264,7 @@ export default function StiHubAdminRbacPanel({
                   />
                 </div>
                 <div className="flex flex-col justify-center">
-                  <label className="flex items-center gap-2 font-extrabold text-[#0d2b4e] cursor-pointer">
+                  <label className="flex items-center gap-2 font-normal text-[#0d2b4e] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={newUserMfaEnabled}
@@ -3200,13 +3285,13 @@ export default function StiHubAdminRbacPanel({
                 <button
                   type="button"
                   onClick={() => setShowNewUserModal(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-lg border border-slate-300 font-normal cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-normal cursor-pointer"
                 >
                   Salvar Usuário &amp; Gerar Convite
                 </button>
@@ -3222,24 +3307,24 @@ export default function StiHubAdminRbacPanel({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                <span className="text-[10px] font-normal uppercase text-emerald-700 block">
                   CONVITE DE ACESSO GERADO • CADASTRO DE SENHA E 1º LOGIN
                 </span>
-                <h3 className="text-base font-extrabold text-slate-900">
+                <h3 className="text-base font-semibold text-slate-900">
                   Convite para {inviteModalData.userName} ({inviteModalData.email})
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setInviteModalData(null)}
-                className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 cursor-pointer"
+                className="px-3 py-1 rounded-lg border border-slate-300 font-normal text-slate-600 cursor-pointer"
               >
                 Fechar
               </button>
             </div>
 
             <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
-              <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+              <div className="font-normal text-emerald-950 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
                   {inviteModalData.emailDelivered
@@ -3248,12 +3333,12 @@ export default function StiHubAdminRbacPanel({
                 </span>
               </div>
               <p className="text-[11px] text-emerald-900 leading-relaxed">
-                Ao abrir este link, <strong>{inviteModalData.userName}</strong> irá cadastrar sua própria senha e, em seguida, no primeiro login abrirá automaticamente o QR Code para cadastrar o código do autenticador:
+                Ao abrir este link, <span>{inviteModalData.userName}</span> irá cadastrar sua própria senha e, em seguida, no primeiro login abrirá automaticamente o QR Code para cadastrar o código do autenticador:
               </p>
             </div>
 
             <div>
-              <label className="block font-bold text-slate-700 mb-1">
+              <label className="block font-normal text-slate-700 mb-1">
                 Link Oficial de Ativação da Conta (Válido por 72 horas):
               </label>
               <input
@@ -3271,13 +3356,13 @@ export default function StiHubAdminRbacPanel({
                   navigator.clipboard?.writeText(inviteModalData.inviteUrl);
                   onShowToast("Link de convite copiado para a área de transferência!");
                 }}
-                className="px-4 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-normal cursor-pointer"
               >
                 Copiar Link de Convite
               </button>
               <a
                 href={inviteModalData.inviteUrl}
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal inline-flex items-center gap-1.5"
               >
                 <ExternalLink className="w-3.5 h-3.5" /> Abrir Tela do Convite Agora
               </a>

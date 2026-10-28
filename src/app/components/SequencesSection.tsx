@@ -242,7 +242,7 @@ export default function SequencesSection({
               key={seq.id}
               type="button"
               onClick={() => setSelectedSequenceId(seq.id)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition text-left ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-normal border transition text-left ${
                 activeSequence?.id === seq.id
                   ? 'bg-[#1e293b] text-white border-[#1e293b] shadow-sm'
                   : 'bg-white text-slate-700 border-slate-200 hover:border-[#ff7a59]'
@@ -263,7 +263,7 @@ export default function SequencesSection({
         <button
           type="button"
           onClick={() => setShowCreateSeqModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold shadow-sm transition shrink-0"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition shrink-0"
         >
           <Plus className="w-4 h-4" />
           Nova Cadência de E-mail
@@ -276,23 +276,23 @@ export default function SequencesSection({
           <div className="p-6 border-b border-slate-200 bg-slate-50/60 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-[#e05835]">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-normal bg-orange-100 text-[#e05835]">
                   {activeSequence.category}
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-normal bg-emerald-100 text-emerald-800">
                   <PauseCircle className="w-3.5 h-3.5" />
                   Auto-Pause ao Responder Ativo
                 </span>
               </div>
-              <h3 className="text-lg font-bold text-slate-900">{activeSequence.name}</h3>
+              <h3 className="text-lg font-semibold text-slate-900">{activeSequence.name}</h3>
               <p className="text-xs text-slate-600">{activeSequence.description}</p>
             </div>
 
             {/* Email Funnel Metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
               <div className="bg-white p-3 rounded-xl border border-slate-200 text-center">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Enviados</div>
-                <div className="text-lg font-extrabold text-slate-900">
+                <div className="text-[11px] text-slate-400 uppercase font-normal">Enviados</div>
+                <div className="text-lg font-normal text-slate-900">
                   {activeSequence.sentCount}
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -301,8 +301,8 @@ export default function SequencesSection({
               </div>
 
               <div className="bg-white p-3 rounded-xl border border-slate-200 text-center">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Abertura</div>
-                <div className="text-lg font-extrabold text-indigo-600">
+                <div className="text-[11px] text-slate-400 uppercase font-normal">Abertura</div>
+                <div className="text-lg font-normal text-indigo-600">
                   {activeSequence.openRate}%
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -311,8 +311,8 @@ export default function SequencesSection({
               </div>
 
               <div className="bg-white p-3 rounded-xl border border-slate-200 text-center">
-                <div className="text-[11px] text-slate-400 uppercase font-semibold">Cliques</div>
-                <div className="text-lg font-extrabold text-amber-600">
+                <div className="text-[11px] text-slate-400 uppercase font-normal">Cliques</div>
+                <div className="text-lg font-normal text-amber-600">
                   {activeSequence.clickRate}%
                 </div>
                 <div className="text-[10px] text-slate-500">
@@ -321,8 +321,8 @@ export default function SequencesSection({
               </div>
 
               <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200 text-center">
-                <div className="text-[11px] text-emerald-700 uppercase font-bold">Respostas</div>
-                <div className="text-lg font-extrabold text-emerald-700">
+                <div className="text-[11px] text-emerald-700 uppercase font-normal">Respostas</div>
+                <div className="text-lg font-normal text-emerald-700">
                   {activeSequence.replyRate}%
                 </div>
                 <div className="text-[10px] text-emerald-600 font-medium">
@@ -334,7 +334,7 @@ export default function SequencesSection({
 
           {/* Steps Visual Flow */}
           <div className="p-6 space-y-4">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Estrutura de Passos e Templates da Cadência ({activeSequence.steps.length} Etapas)
             </h4>
 
@@ -346,15 +346,15 @@ export default function SequencesSection({
                 >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-0.5 rounded-full bg-[#1e293b] text-white text-[11px] font-bold">
+                      <span className="px-2.5 py-0.5 rounded-full bg-[#1e293b] text-white text-[11px] font-normal">
                         Passo {step.stepOrder} • Dia {step.dayOffset}
                       </span>
-                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-orange-100 text-[#e05835]">
+                      <span className="text-[10px] font-normal uppercase px-2 py-0.5 rounded bg-orange-100 text-[#e05835]">
                         {step.stepType}
                       </span>
                     </div>
 
-                    <div className="text-xs font-bold text-slate-900 leading-snug">
+                    <div className="text-xs font-normal text-slate-900 leading-snug">
                       Assunto: {step.subject}
                     </div>
                     <p className="text-[11px] text-slate-600 line-clamp-3 bg-white p-2.5 rounded-lg border border-slate-200/80">
@@ -366,7 +366,7 @@ export default function SequencesSection({
                     <span>Env: {step.sentCount}</span>
                     <span>Ab: {step.openCount}</span>
                     <span>Cliq: {step.clickCount}</span>
-                    <span className="font-bold text-emerald-700">Resp: {step.replyCount}</span>
+                    <span className="font-normal text-emerald-700">Resp: {step.replyCount}</span>
                   </div>
                 </div>
               ))}
@@ -380,7 +380,7 @@ export default function SequencesSection({
           >
             <div className="flex items-center gap-2">
               <UserPlus className="w-4 h-4 text-[#ff7a59]" />
-              <span className="text-xs font-bold">
+              <span className="text-xs font-normal">
                 Inscrever Contato nesta Cadência (Dispara Passo 1 Imediatamente):
               </span>
             </div>
@@ -414,7 +414,7 @@ export default function SequencesSection({
               <button
                 type="submit"
                 disabled={enrolling}
-                className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold transition disabled:opacity-50"
+                className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal transition disabled:opacity-50"
               >
                 {enrolling ? 'Inscrevendo...' : 'Inscrever Lead Agora'}
               </button>
@@ -427,7 +427,7 @@ export default function SequencesSection({
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">
+            <h3 className="text-sm font-semibold text-slate-900">
               Monitor de Contatos Inscritos &amp; Pausa Automática na Resposta ({filteredEnrollments.length})
             </h3>
             <p className="text-xs text-slate-500">
@@ -443,7 +443,7 @@ export default function SequencesSection({
                   e.target.value as 'ALL' | 'ACTIVE' | 'PAUSED_ON_REPLY' | 'COMPLETED'
                 )
               }
-              className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+              className="bg-transparent font-normal text-slate-800 focus:outline-none"
             >
               <option value="ALL">Todos ({enrollments.length})</option>
               <option value="ACTIVE">ACTIVE (Em andamento)</option>
@@ -471,7 +471,7 @@ export default function SequencesSection({
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-normal ${
                           isPausedOnReply
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                             : enr.status === 'ACTIVE'
@@ -483,7 +483,7 @@ export default function SequencesSection({
                           ? 'PAUSED_ON_REPLY (Pausado Automaticamente — Lead Respondeu!)'
                           : `Status: ${enr.status}`}
                       </span>
-                      <span className="text-xs font-bold text-slate-900">
+                      <span className="text-xs font-normal text-slate-900">
                         {enr.contact
                           ? `${enr.contact.firstName} ${enr.contact.lastName} (${enr.contact.email})`
                           : enr.contactId}
@@ -492,7 +492,7 @@ export default function SequencesSection({
 
                     <div className="text-xs text-slate-600 flex flex-wrap items-center gap-3">
                       <span>
-                        Passo Atual: <strong>{enr.currentStepOrder}</strong> ({enr.stepsCompleted}{' '}
+                        Passo Atual: <span>{enr.currentStepOrder}</span> ({enr.stepsCompleted}{' '}
                         concluídos)
                       </span>
                       <span>•</span>
@@ -513,7 +513,7 @@ export default function SequencesSection({
 
                     {enr.replySnippet && (
                       <div className="mt-2 p-2.5 rounded-lg bg-white border border-emerald-200 text-xs text-emerald-900">
-                        <strong className="text-emerald-700">Resposta recebida do Lead:</strong>{' '}
+                        <span className="text-emerald-700">Resposta recebida do Lead:</span>{' '}
                         &ldquo;{enr.replySnippet}&rdquo;
                       </div>
                     )}
@@ -534,7 +534,7 @@ export default function SequencesSection({
                               setProcessingEnrollmentId(null);
                             }
                           }}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700"
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-normal text-slate-700"
                         >
                           + Abertura
                         </button>
@@ -550,7 +550,7 @@ export default function SequencesSection({
                               setProcessingEnrollmentId(null);
                             }
                           }}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700"
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-normal text-slate-700"
                         >
                           + Clique
                         </button>
@@ -566,7 +566,7 @@ export default function SequencesSection({
                               setProcessingEnrollmentId(null);
                             }
                           }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-normal transition"
                         >
                           <Play className="w-3 h-3" />
                           Avançar Passo
@@ -576,7 +576,7 @@ export default function SequencesSection({
                           type="button"
                           disabled={isProcessing}
                           onClick={() => setReplyModalEnrollment(enr)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-normal shadow-xs transition"
                         >
                           <MessageSquareReply className="w-3.5 h-3.5" />
                           Simular Resposta (Auto-Pause)
@@ -598,7 +598,7 @@ export default function SequencesSection({
             <div className="px-6 py-4 bg-emerald-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquareReply className="w-5 h-5 text-emerald-300" />
-                <h3 className="text-sm font-bold">
+                <h3 className="text-sm font-semibold">
                   Simular Resposta do Lead (Pausa Automática)
                 </h3>
               </div>
@@ -614,14 +614,14 @@ export default function SequencesSection({
             <form onSubmit={handleConfirmReply} className="p-6 space-y-4">
               <p className="text-xs text-slate-600">
                 Ao registrar a resposta de{' '}
-                <strong>
+                <span>
                   {replyModalEnrollment.contact?.firstName} {replyModalEnrollment.contact?.lastName}
-                </strong>
+                </span>
                 , a inscrição mudará imediatamente para <code>PAUSED_ON_REPLY</code>, cancelará os próximos envios automáticos e registrará o e-mail na Timeline.
               </p>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                   Mensagem Recebida do Lead
                 </label>
                 <textarea
@@ -637,13 +637,13 @@ export default function SequencesSection({
                 <button
                   type="button"
                   onClick={() => setReplyModalEnrollment(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-700"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-normal"
                 >
                   Confirmar Resposta &amp; Pausar Cadência
                 </button>
@@ -660,7 +660,7 @@ export default function SequencesSection({
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Mail className="w-5 h-5 text-[#ff7a59]" />
-                <h3 className="text-base font-bold">Criar Nova Cadência Multi-etapas</h3>
+                <h3 className="text-base font-semibold">Criar Nova Cadência Multi-etapas</h3>
               </div>
               <button
                 type="button"
@@ -673,7 +673,7 @@ export default function SequencesSection({
 
             <form onSubmit={handleCreateSequenceSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                   Nome da Cadência *
                 </label>
                 <input
@@ -688,7 +688,7 @@ export default function SequencesSection({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Categoria
                   </label>
                   <select
@@ -711,7 +711,7 @@ export default function SequencesSection({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
                     Descrição
                   </label>
                   <input
@@ -725,7 +725,7 @@ export default function SequencesSection({
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="text-xs font-bold text-slate-800">Passo 1 (Dia 1 - Envio Imediato)</div>
+                <div className="text-xs font-normal text-slate-800">Passo 1 (Dia 1 - Envio Imediato)</div>
                 <input
                   type="text"
                   value={step1Subject}
@@ -741,7 +741,7 @@ export default function SequencesSection({
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="text-xs font-bold text-slate-800">
+                <div className="text-xs font-normal text-slate-800">
                   Passo 2 (Dia 3 - Se não houver resposta)
                 </div>
                 <input
@@ -759,7 +759,7 @@ export default function SequencesSection({
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                <label className="flex items-center gap-2 text-xs font-normal text-slate-800">
                   <input
                     type="checkbox"
                     checked={includeStep3}
@@ -789,14 +789,14 @@ export default function SequencesSection({
                 <button
                   type="button"
                   onClick={() => setShowCreateSeqModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-700"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={creatingSeq}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold"
+                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal"
                 >
                   {creatingSeq ? 'Criando...' : 'Salvar Cadência'}
                 </button>

@@ -985,3 +985,41 @@ export function saveClientIamUserOverride(user: Record<string, unknown> | null |
     // ignore storage quota errors
   }
 }
+
+export const STIHUB_IAM_DELETED_USERS_STORAGE_KEY = "stihub_iam_deleted_users_v1";
+
+export function loadClientDeletedUsersOverride(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STIHUB_IAM_DELETED_USERS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveClientDeletedUserOverride(userId?: string, email?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const deleted = new Set(loadClientDeletedUsersOverride());
+    if (userId) deleted.add(String(userId).trim());
+    if (email) deleted.add(String(email).trim().toLowerCase());
+    window.localStorage.setItem(
+      STIHUB_IAM_DELETED_USERS_STORAGE_KEY,
+      JSON.stringify(Array.from(deleted))
+    );
+
+    // Also remove from STIHUB_IAM_USERS_STORAGE_KEY if present
+    const current = loadClientIamUsersOverride();
+    const filtered = current.filter(
+      (u) =>
+        (userId ? String(u.id || "") !== String(userId) : true) &&
+        (email ? String(u.email || "").toLowerCase() !== String(email).toLowerCase() : true)
+    );
+    window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(filtered));
+  } catch {
+    // ignore
+  }
+}

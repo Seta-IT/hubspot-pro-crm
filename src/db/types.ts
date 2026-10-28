@@ -996,9 +996,17 @@ export interface ErpRentalEquipmentItem {
 
 export type ErpRentalContractStatus =
   | 'ATIVO'
+  | 'FATURAMENTO'
   | 'EM_IMPLANTACAO'
   | 'RENOVACAO_PROXIMA'
+  | 'PENDENTE_ASSINATURA'
+  | 'SUSPENSO'
   | 'ENCERRADO';
+
+export type ErpContractTemplateModel =
+  | 'MODELO_LOCACAO_BENS_MOVEIS'
+  | 'MODELO_PRESTACAO_SERVICOS_TI'
+  | 'MODELO_TERMO_ASSINATURA_CLOUD';
 
 export type ErpContractModality = 'LOCACAO' | 'SERVICO' | 'ASSINATURA' | 'HIBRIDO';
 
@@ -1066,6 +1074,12 @@ export interface ErpRentalContract {
   remessaCfop: '5.908' | '6.908';
   legalBasisNote: string;
   lastBilledCompetence: string | null;
+  gestaoClickCode?: string;
+  nextDueDate?: string;
+  periodicityLabel?: string;
+  contractTemplateModel?: ErpContractTemplateModel;
+  customClausesText?: string;
+  paymentLinkUrl?: string;
   digitalSignature?: ErpProposalDigitalSignature | null;
   createdAt: string;
   updatedAt: string;

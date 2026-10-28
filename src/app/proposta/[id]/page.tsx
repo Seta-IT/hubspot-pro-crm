@@ -500,7 +500,7 @@ function PublicProposalPrintContent() {
       <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center p-6">
         <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-md w-full">
           <div className="w-10 h-10 rounded-full border-3 border-[#1e3a6e] border-t-transparent animate-spin mx-auto mb-3" />
-          <p className="text-sm font-bold text-slate-800">
+          <p className="text-sm font-normal text-slate-800">
             Carregando Proposta Comercial Seta Telecom...
           </p>
         </div>
@@ -513,15 +513,15 @@ function PublicProposalPrintContent() {
       <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center p-6">
         <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-lg w-full space-y-4">
           <FileText className="w-12 h-12 text-[#1e3a6e] mx-auto" />
-          <h1 className="text-lg font-extrabold text-slate-900">
+          <h1 className="text-lg font-semibold text-slate-900">
             Proposta Comercial #{rawId || 'Não identificada'} não localizada
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong> e nenhum payload compartilhado (<code>?d=</code>) foi informado na URL. Volte ao painel da Seta Telecom para abrir ou gerar o link público da proposta desejada.
+            Não encontramos nenhum orçamento com o identificador <span>{rawId}</span> e nenhum payload compartilhado (<code>?d=</code>) foi informado na URL. Volte ao painel da Seta Telecom para abrir ou gerar o link público da proposta desejada.
           </p>
           <a
             href="/"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-[#1e3a6e] text-white text-xs font-bold hover:bg-[#162b54] transition"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-[#1e3a6e] text-white text-xs font-normal hover:bg-[#162b54] transition"
           >
             <ArrowLeft className="w-4 h-4" />
             Voltar para o CRM &amp; ERP Seta Telecom
@@ -709,28 +709,28 @@ function PublicProposalPrintContent() {
         <div className="flex items-center gap-3">
           <a
             href="/"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-xs font-bold transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-xs font-normal transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             Painel Seta Telecom
           </a>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
+              <span className="text-xs font-normal uppercase tracking-wider text-emerald-300">
                 Portal do Cliente • Documento Oficial A4
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
+              <span className="px-2 py-0.5 rounded text-[10px] font-normal bg-white/15">
                 {proposal.code}
               </span>
               {savedNotice && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
+                <span className="px-2 py-0.5 rounded text-[10px] font-normal bg-emerald-500 text-slate-950">
                   Proposta Atualizada!
                 </span>
               )}
             </div>
             <p className="text-[11px] text-slate-200">
-              Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
-              <strong>Imprimir / Salvar em PDF</strong>.
+              Você pode <span>Editar a Proposta</span> antes de gerar o PDF ou clicar em{' '}
+              <span>Imprimir / Salvar em PDF</span>.
             </p>
           </div>
         </div>
@@ -739,7 +739,7 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-normal shadow-xs transition cursor-pointer"
           >
             <Edit3 className="w-4 h-4" />
             Editar Proposta antes de Imprimir
@@ -748,7 +748,7 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={handleCopyPublicLink}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-normal transition cursor-pointer"
           >
             {copied ? (
               <>
@@ -767,7 +767,7 @@ function PublicProposalPrintContent() {
             type="button"
             onClick={() => setShowInternalVersionsModal(true)}
             title="Consultas Internas / Versões"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-extrabold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-normal transition cursor-pointer"
           >
             <History className="w-4 h-4 text-amber-300" />
             <span>
@@ -783,7 +783,7 @@ function PublicProposalPrintContent() {
                 e.target.value as NonNullable<ErpCommercialProposal["templateStyle"]>
               )
             }
-            className="px-2.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-extrabold border border-emerald-300 cursor-pointer"
+            className="px-2.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-normal border border-emerald-300 cursor-pointer"
             title="Escolher Template / Layout do Documento A4"
           >
             {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => (
@@ -803,7 +803,7 @@ function PublicProposalPrintContent() {
                 }
                 setShowIcpSignatureModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-normal shadow-md transition cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className="w-4 h-4" />
               {approvingContract ? "Assinando..." : "Assinar ICP-Brasil / Gov.br & Aprovar"}
@@ -811,7 +811,7 @@ function PublicProposalPrintContent() {
           ) : (
             <a
               href="/"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-normal"
             >
               <CheckCircle2 className="w-4 h-4" />
               Contrato Gerado ({convertedContractInfo?.contractNumber || proposal.convertedContractId})
@@ -821,7 +821,7 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-md transition cursor-pointer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-md transition cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             Imprimir / Salvar em PDF
@@ -832,7 +832,7 @@ function PublicProposalPrintContent() {
       {/* BANNER DE VERSÃO RESTAURADA */}
       {restoredBannerMsg && (
         <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-emerald-800 text-white border border-emerald-400 flex items-center justify-between gap-3 text-xs shadow-md print:hidden">
-          <div className="flex items-center gap-2 font-bold">
+          <div className="flex items-center gap-2 font-normal">
             <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
             <span>{restoredBannerMsg}</span>
           </div>
@@ -862,16 +862,16 @@ function PublicProposalPrintContent() {
             <div className="flex items-center gap-2.5">
               <History className="w-5 h-5 text-amber-600 shrink-0" />
               <div>
-                <div className="font-extrabold text-sm text-amber-950">
+                <div className="font-normal text-sm text-amber-950">
                   Você está visualizando a Versão {viewingVersionNum}{" "}
                   {currentViewedEntry?.savedAt
                     ? `de ${new Date(currentViewedEntry.savedAt).toLocaleString("pt-BR")}`
                     : ""}
                 </div>
                 <div className="text-[11px] text-amber-800">
-                  Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
-                  <strong>{proposal.contractMonths} meses</strong> •{" "}
-                  <strong>{(proposal.items || []).length} item(ns)</strong>
+                  Valor nesta versão: <span>{formatBRL(proposal.monthlyRecurringTotal)}/mês</span> •{" "}
+                  <span>{proposal.contractMonths} meses</span> •{" "}
+                  <span>{(proposal.items || []).length} item(ns)</span>
                 </div>
               </div>
             </div>
@@ -879,7 +879,7 @@ function PublicProposalPrintContent() {
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-bold cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-normal cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-[#ff7a59]" />
                 Baixar / Imprimir PDF desta Versão
@@ -889,7 +889,7 @@ function PublicProposalPrintContent() {
                   type="button"
                   disabled={restoringVersion === currentViewedEntry.version}
                   onClick={() => handleRestoreVersionInPage(currentViewedEntry)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-normal cursor-pointer disabled:opacity-50"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
                   Restaurar esta versão
@@ -899,7 +899,7 @@ function PublicProposalPrintContent() {
                 <button
                   type="button"
                   onClick={() => handleOpenVersionInPage(latestEntry, latestVerNum)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 font-bold cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 font-normal cursor-pointer"
                 >
                   Voltar p/ Versão Atual (Versão {latestVerNum})
                 </button>
@@ -911,7 +911,7 @@ function PublicProposalPrintContent() {
 
       {signatureVerifiedBanner && (
         <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-emerald-900 text-white border border-emerald-400 flex items-center justify-between gap-3 text-xs shadow-md print:hidden">
-          <div className="flex items-center gap-2 font-bold">
+          <div className="flex items-center gap-2 font-normal">
             <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
             <span>{signatureVerifiedBanner}</span>
           </div>
@@ -950,7 +950,7 @@ function PublicProposalPrintContent() {
               <div className="flex items-center gap-2.5">
                 <History className="w-5 h-5 text-emerald-300" />
                 <div>
-                  <h3 className="text-base font-extrabold">
+                  <h3 className="text-base font-semibold">
                     Versões da Proposta ({proposal.code})
                   </h3>
                   <p className="text-[11px] text-slate-200">
@@ -988,7 +988,7 @@ function PublicProposalPrintContent() {
                 return (
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
+                      <thead className="bg-slate-100 text-slate-700 font-normal uppercase text-[10px] border-b border-slate-200">
                         <tr>
                           <th className="py-3 px-4 w-36">Versão</th>
                           <th className="py-3 px-4 w-48">Data / Hora &amp; Responsável</th>
@@ -1021,15 +1021,15 @@ function PublicProposalPrintContent() {
                             >
                               <td className="py-3.5 px-4">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-extrabold text-sm text-[#0d2b4e]">
+                                  <span className="font-normal text-sm text-[#0d2b4e]">
                                     Versão {ver.version}
                                   </span>
                                   {isLatest ? (
-                                    <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold">
+                                    <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-normal">
                                       ATUAL
                                     </span>
                                   ) : (
-                                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold">
+                                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-normal">
                                       ANTERIOR
                                     </span>
                                   )}
@@ -1037,7 +1037,7 @@ function PublicProposalPrintContent() {
                               </td>
 
                               <td className="py-3.5 px-4 text-slate-600">
-                                <div className="font-semibold text-slate-800">
+                                <div className="font-normal text-slate-800">
                                   {ver.savedAt
                                     ? new Date(ver.savedAt).toLocaleString("pt-BR")
                                     : "—"}
@@ -1048,7 +1048,7 @@ function PublicProposalPrintContent() {
                               </td>
 
                               <td className="py-3.5 px-4">
-                                <div className="font-extrabold text-emerald-700 text-xs">
+                                <div className="font-normal text-emerald-700 text-xs">
                                   {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
                                   {itemsCount === 1 ? "item" : "itens"} • {monthsVal} meses
                                 </div>
@@ -1068,7 +1068,7 @@ function PublicProposalPrintContent() {
                                         handleOpenVersionInPage(ver, latestVer);
                                       }
                                     }}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-extrabold cursor-pointer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-normal cursor-pointer"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" />
                                     <span>Abrir Tela da Versão</span>
@@ -1079,7 +1079,7 @@ function PublicProposalPrintContent() {
                                     href={verPdfUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-normal cursor-pointer"
                                   >
                                     <Printer className="w-3.5 h-3.5" />
                                     <span>Baixar / Imprimir PDF</span>
@@ -1091,7 +1091,7 @@ function PublicProposalPrintContent() {
                                       type="button"
                                       disabled={restoringVersion === ver.version}
                                       onClick={() => handleRestoreVersionInPage(ver)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-normal cursor-pointer disabled:opacity-50"
                                     >
                                       <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
                                       <span>
@@ -1101,7 +1101,7 @@ function PublicProposalPrintContent() {
                                       </span>
                                     </button>
                                   ) : (
-                                    <span className="px-2.5 py-1.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-extrabold">
+                                    <span className="px-2.5 py-1.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-normal">
                                       Versão Ativa
                                     </span>
                                   )}
@@ -1123,7 +1123,7 @@ function PublicProposalPrintContent() {
                 <button
                   type="button"
                   onClick={() => setShowInternalVersionsModal(false)}
-                  className="px-4 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-normal cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -1140,10 +1140,10 @@ function PublicProposalPrintContent() {
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-300" />
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                  <span className="text-[10px] font-normal uppercase text-emerald-300 block">
                     Validade Jurídica MP 2.200-2/2001 &amp; Lei 14.063/2020
                   </span>
-                  <h3 className="text-sm font-extrabold">
+                  <h3 className="text-sm font-semibold">
                     Assinatura Eletrônica ICP-Brasil / Gov.br ({proposal.code})
                   </h3>
                 </div>
@@ -1151,7 +1151,7 @@ function PublicProposalPrintContent() {
               <button
                 type="button"
                 onClick={() => setShowIcpSignatureModal(false)}
-                className="text-slate-300 hover:text-white text-xs font-bold cursor-pointer"
+                className="text-slate-300 hover:text-white text-xs font-normal cursor-pointer"
               >
                 Fechar
               </button>
@@ -1159,17 +1159,17 @@ function PublicProposalPrintContent() {
 
             <div className="p-6 space-y-4 text-xs text-slate-800">
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
-                <div className="font-bold text-slate-900">{proposal.companyName}</div>
+                <div className="font-normal text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{" "}
-                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
-                  <strong>{proposal.contractMonths} meses</strong>
+                  CNPJ: <span>{proposal.companyCnpj}</span> • Valor Mensal:{" "}
+                  <span className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</span> • Tempo de Contrato:{" "}
+                  <span>{proposal.contractMonths} meses</span>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
+                  <label className="block font-normal text-slate-700 mb-1">
                     Nome Completo do Signatário (Representante Legal) *
                   </label>
                   <input
@@ -1177,35 +1177,35 @@ function PublicProposalPrintContent() {
                     value={signerName}
                     onChange={(e) => setSignerName(e.target.value)}
                     placeholder="Ex.: Carlos Eduardo Almeida"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">CPF do Signatário *</label>
+                    <label className="block font-normal text-slate-700 mb-1">CPF do Signatário *</label>
                     <input
                       type="text"
                       value={signerCpf}
                       onChange={(e) => setSignerCpf(e.target.value)}
                       placeholder="000.000.000-00"
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-normal"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Cargo / Qualificação *</label>
+                    <label className="block font-normal text-slate-700 mb-1">Cargo / Qualificação *</label>
                     <input
                       type="text"
                       value={signerRole}
                       onChange={(e) => setSignerRole(e.target.value)}
                       placeholder="Diretor / Procurador"
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-normal"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
+                  <label className="block font-normal text-slate-700 mb-1">
                     Modalidade de Certificação Digital
                   </label>
                   <select
@@ -1215,7 +1215,7 @@ function PublicProposalPrintContent() {
                         e.target.value as "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
                       )
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal text-[#1e3a6e]"
                   >
                     <option value="ICP_BRASIL_A1">
                       Certificado Digital e-CNPJ / e-CPF ICP-Brasil Tipo A1
@@ -1234,7 +1234,7 @@ function PublicProposalPrintContent() {
                 <button
                   type="button"
                   onClick={() => setShowIcpSignatureModal(false)}
-                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-bold cursor-pointer"
+                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-normal cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -1242,7 +1242,7 @@ function PublicProposalPrintContent() {
                   type="button"
                   disabled={approvingContract}
                   onClick={handleApproveAndConvertInPage}
-                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-normal cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   {approvingContract
@@ -1266,16 +1266,16 @@ function PublicProposalPrintContent() {
             <div className="flex items-center gap-3.5 min-w-0">
               {/* OFFICIAL SETA | IT LOGO CARD */}
               <div className="bg-white rounded-md px-3.5 py-2.5 print:px-3 print:py-2 flex items-center gap-2 shrink-0 border border-slate-200 shadow-2xs">
-                <span className="text-xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
+                <span className="text-xl font-normal tracking-tight text-[#0d2b4e]">SETA</span>
                 <span className="w-[2px] h-5 bg-[#f26522] inline-block" />
-                <span className="text-xl font-black tracking-tight text-[#f26522]">IT</span>
+                <span className="text-xl font-normal tracking-tight text-[#f26522]">IT</span>
               </div>
 
               <div className="min-w-0">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-[#0d2b4e]">
+                <h1 className="text-base sm:text-lg font-semibold tracking-tight text-[#0d2b4e]">
                   SETA TELECOM LTDA
                 </h1>
-                <p className="text-[11px] font-semibold text-slate-600">
+                <p className="text-[11px] font-normal text-slate-600">
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
                 <p className="text-[11px] text-slate-500">
@@ -1285,14 +1285,14 @@ function PublicProposalPrintContent() {
             </div>
 
             <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 print:px-3.5 print:py-2 sm:text-right print:text-right shrink-0`}>
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
+              <div className="text-[10px] font-normal uppercase tracking-wider text-[#1e3a6e]">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
-              <div className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight mt-0.5">
+              <div className="text-lg sm:text-xl font-normal text-[#0d2b4e] leading-tight mt-0.5">
                 {proposal.code}
               </div>
               <div className="text-[11px] text-slate-600 mt-0.5">
-                Emissão: <strong className="text-slate-900">{issueDateStr}</strong> • Validade: <strong className="text-slate-900">{validUntilStr}</strong>
+                Emissão: <span className="text-slate-900">{issueDateStr}</span> • Validade: <span className="text-slate-900">{validUntilStr}</span>
               </div>
             </div>
           </div>
@@ -1300,12 +1300,12 @@ function PublicProposalPrintContent() {
           <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5 text-[11px]">
             <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700">
               <span>
-                Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
+                Vendedor / Responsável: <span className="text-slate-900">{sellerContact.name}</span>
               </span>
               {sellerContact.phone && (
                 <span className="inline-flex items-center gap-1">
                   <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span>WhatsApp: <strong className="text-slate-800">{sellerContact.phone}</strong></span>
+                  <span>WhatsApp: <span className="text-slate-800">{sellerContact.phone}</span></span>
                 </span>
               )}
               {sellerContact.email && (
@@ -1317,18 +1317,18 @@ function PublicProposalPrintContent() {
             </div>
 
             <div className="flex flex-wrap items-center sm:justify-end print:justify-end gap-1.5">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-normal">
                 <Calendar className="w-3 h-3 text-emerald-700 shrink-0" />
                 Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
               </span>
               {deliveryLeadTime && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white text-slate-700 border border-slate-200 text-[10px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white text-slate-700 border border-slate-200 text-[10px] font-normal">
                   <Clock className="w-3 h-3 text-[#1e3a6e] shrink-0" />
                   Prazo de Entrega: {deliveryLeadTime}
                 </span>
               )}
               {hasSelectedSla && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-extrabold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-normal">
                   <ShieldCheck className="w-3 h-3 text-[#1e3a6e] shrink-0" />
                   {resolvedSla.shortLabel}
                 </span>
@@ -1342,43 +1342,43 @@ function PublicProposalPrintContent() {
           {/* BLOCO 2: APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
           <div className={`print-avoid-break rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
             <div>
-              <div className={`text-[10px] font-extrabold uppercase tracking-wider ${instEyebrowColorClass}`}>
+              <div className={`text-[10px] font-normal uppercase tracking-wider ${instEyebrowColorClass}`}>
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.eyebrow}
               </div>
-              <h2 className="text-sm sm:text-base print:text-sm font-extrabold text-slate-900 mt-0.5">
+              <h2 className="text-sm sm:text-base print:text-sm font-semibold text-slate-900 mt-0.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.headline}
               </h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
-                <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
+                <span className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTimeLabel}
-                </strong>
+                </span>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
-                <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
+                <span className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel}
-                </strong>
+                </span>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.location}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
-                <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
+                <span className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.partnersLabel}
-                </strong>
+                </span>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.partners}</span>
               </div>
             </div>
 
             <div className="bg-white rounded-md border border-slate-200 p-3 print:p-2">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 mb-2 print:mb-1.5">
+              <div className="text-[10px] font-normal uppercase tracking-wider text-slate-700 mb-2 print:mb-1.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle}
               </div>
               <ul className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-x-4 gap-y-1 print:gap-y-0.5 text-[11px] print:text-[10.5px] text-slate-700">
                 {SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.map((topic) => (
                   <li key={topic} className="flex items-baseline gap-1.5 leading-snug">
-                    <span className={`font-black ${bulletColorClass}`}>•</span>
+                    <span className={`font-normal ${bulletColorClass}`}>•</span>
                     <span>{topic}</span>
                   </li>
                 ))}
@@ -1386,14 +1386,14 @@ function PublicProposalPrintContent() {
             </div>
 
             <details className="group text-[11px] text-slate-600 print:hidden">
-              <summary className="cursor-pointer font-bold text-[#1e3a6e] select-none">
+              <summary className="cursor-pointer font-normal text-[#1e3a6e] select-none">
                 Ver Pilares de Soluções &amp; Arquitetura Seta Telecom ({SETA_TELECOM_PORTFOLIO_PILLARS.length} áreas)
               </summary>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2">
                 {SETA_TELECOM_PORTFOLIO_PILLARS.map((pillar) => (
                   <div key={pillar.code} className="rounded-md border border-slate-200 p-2.5 bg-white">
-                    <div className="text-[11px] font-extrabold text-slate-900">{pillar.title}</div>
-                    <div className="text-[10px] font-semibold text-[#1e3a6e] mb-1">{pillar.subtitle}</div>
+                    <div className="text-[11px] font-normal text-slate-900">{pillar.title}</div>
+                    <div className="text-[10px] font-normal text-[#1e3a6e] mb-1">{pillar.subtitle}</div>
                     <ul className="list-disc pl-4 text-[10px] text-slate-600 space-y-0.5">
                       {pillar.items.map((it) => (
                         <li key={it}>{it}</li>
@@ -1407,7 +1407,7 @@ function PublicProposalPrintContent() {
 
           <div className="print-avoid-break print-keep-with-next flex items-center gap-3 py-0.5">
             <span className="flex-1 h-px bg-slate-200" />
-            <span className="text-[11px] font-extrabold tracking-widest text-[#1e3a6e]">
+            <span className="text-[11px] font-normal tracking-widest text-[#1e3a6e]">
               PROPOSTA COMERCIAL - Solução
             </span>
             <span className="flex-1 h-px bg-slate-200" />
@@ -1416,65 +1416,65 @@ function PublicProposalPrintContent() {
           {/* BLOCO 3: CLIENTE & DADOS COMERCIAIS */}
           <div className={`print-avoid-break grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-4 print:gap-2.5 rounded-lg p-4 print:p-2.5 ${softBoxClass}`}>
             <div className="space-y-1">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+              <div className="text-[10px] font-normal uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 DADOS DA EMPRESA:
               </div>
-              <div className="text-sm sm:text-base font-extrabold text-slate-900">{proposal.companyName}</div>
+              <div className="text-sm sm:text-base font-normal text-slate-900">{proposal.companyName}</div>
               <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
+                <span className="text-slate-800">CNPJ / CPF:</span> {proposal.companyCnpj || "Sob consulta"}
               </div>
               <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
+                <span className="text-slate-800">Aos cuidados de:</span> {proposal.careOf || proposal.contactName}
                 {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
               </div>
               {proposal.deliveryAddress && (
                 <div className="text-xs text-slate-600">
-                  <strong className="text-slate-800">Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
+                  <span className="text-slate-800">Local de Entrega / Instalação:</span> {proposal.deliveryAddress}
                 </div>
               )}
             </div>
 
             <div className="space-y-1 sm:border-l print:border-l sm:border-slate-200 print:border-slate-200 sm:pl-4 print:pl-3">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+              <div className="text-[10px] font-normal uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 CONDIÇÕES GERAIS:
               </div>
-              <div className="text-sm font-extrabold text-slate-900">
+              <div className="text-sm font-normal text-slate-900">
                 {sellerContact.name}
               </div>
               <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {sellerContact.email && (
                   <span className="inline-flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5 text-slate-400" />
-                    <strong className="text-slate-800">E-mail:</strong> {sellerContact.email}
+                    <span className="text-slate-800">E-mail:</span> {sellerContact.email}
                   </span>
                 )}
                 {sellerContact.phone && (
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <strong className="text-slate-800">WhatsApp:</strong> {sellerContact.phone}
+                    <span className="text-slate-800">WhatsApp:</span> {sellerContact.phone}
                   </span>
                 )}
               </div>
               <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  Tempo de Contrato: <strong className="text-slate-800">{proposal.contractMonths} meses</strong>
+                  Tempo de Contrato: <span className="text-slate-800">{proposal.contractMonths} meses</span>
                 </span>
                 {deliveryLeadTime && (
                   <span>
-                    Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong>
+                    Prazo de Entrega: <span className="text-slate-800">{deliveryLeadTime}</span>
                   </span>
                 )}
                 {hasSelectedSla && (
                   <span>
-                    SLA: <strong className="text-slate-800">{resolvedSla.shortLabel}</strong>
+                    SLA: <span className="text-slate-800">{resolvedSla.shortLabel}</span>
                   </span>
                 )}
               </div>
               <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">Condição de Pagamento:</strong> {displayPaymentCondition}
+                <span className="text-slate-800">Condição de Pagamento:</span> {displayPaymentCondition}
               </div>
             </div>
           </div>
@@ -1482,52 +1482,52 @@ function PublicProposalPrintContent() {
           {/* BLOCO 4: FAIXA EXECUTIVA LEVE DE TEMPO DE CONTRATO, SLA E INVESTIMENTO */}
           <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
             <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-              <span className="text-[10px] uppercase text-slate-500 font-bold block">
+              <span className="text-[10px] uppercase text-slate-500 font-normal block">
                 Valor Mensal
               </span>
-              <strong className="font-extrabold text-emerald-700 text-sm">
+              <span className="font-normal text-emerald-700 text-sm">
                 {formatBRL(proposal.monthlyRecurringTotal)}/mês
-              </strong>
+              </span>
             </div>
             <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-              <span className="text-[10px] uppercase text-slate-500 font-bold block">
+              <span className="text-[10px] uppercase text-slate-500 font-normal block">
                 Tempo de Contrato
               </span>
-              <strong className="font-extrabold text-slate-900 text-sm">
+              <span className="font-normal text-slate-900 text-sm">
                 {contractDurationMonths} {contractDurationMonths === 1 ? "Mês" : "Meses"}
-              </strong>
+              </span>
             </div>
             <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-              <span className="text-[10px] uppercase text-slate-500 font-bold block">
+              <span className="text-[10px] uppercase text-slate-500 font-normal block">
                 {hasSelectedSla ? "SLA Contratado" : "Condição de Pagamento"}
               </span>
-              <strong className="font-bold text-slate-800">
+              <span className="font-normal text-slate-800">
                 {hasSelectedSla ? resolvedSla.shortLabel : displayPaymentCondition}
-              </strong>
+              </span>
             </div>
             {hasSetupSelected && (
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-amber-800 font-bold block">
+                <span className="text-[10px] uppercase text-amber-800 font-normal block">
                   Setup / Ativação
                 </span>
-                <strong className="font-extrabold text-amber-900">
+                <span className="font-normal text-amber-900">
                   {formatBRL(isolatedSetupTotal)}
-                </strong>
+                </span>
               </div>
             )}
             <div>
-              <span className="text-[10px] uppercase text-slate-500 font-bold block">
+              <span className="text-[10px] uppercase text-slate-500 font-normal block">
                 FRETE R$:
               </span>
-              <strong className="font-bold text-slate-800">
+              <span className="font-normal text-slate-800">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
-              </strong>
+              </span>
             </div>
           </div>
 
           {/* BLOCO 5: TÍTULO, TABELA LEVE DE ITENS E RESUMO DE SUBTOTAIS */}
           <div className={`print-avoid-break print-keep-with-next border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
-            <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+            <h2 className="text-sm sm:text-base font-semibold text-slate-900">
               {proposal.title}
             </h2>
             {proposal.introductionText && (
@@ -1538,19 +1538,19 @@ function PublicProposalPrintContent() {
           </div>
 
           <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
-            <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-extrabold tracking-wide`}>
+            <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-normal tracking-wide`}>
               <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs border-collapse">
               <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                 <tr className="print-avoid-break">
-                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código / SKU</th>
-                  <th className="py-2 print:py-1.5 px-2.5 font-extrabold">Descrição do Item / Escopo</th>
-                  <th className="py-2 print:py-1.5 px-2 text-center w-20 font-extrabold">Quantidade</th>
-                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Vlr. Unitário</th>
-                  <th className="py-2 print:py-1.5 px-2 text-right w-20 font-extrabold">Desconto</th>
-                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Subtotal</th>
+                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-normal">Código / SKU</th>
+                  <th className="py-2 print:py-1.5 px-2.5 font-normal">Descrição do Item / Escopo</th>
+                  <th className="py-2 print:py-1.5 px-2 text-center w-20 font-normal">Quantidade</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-normal">Vlr. Unitário</th>
+                  <th className="py-2 print:py-1.5 px-2 text-right w-20 font-normal">Desconto</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-normal">Subtotal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -1559,17 +1559,17 @@ function PublicProposalPrintContent() {
                     (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
                   return (
                     <tr key={item.id || idx} className="print-avoid-break even:bg-slate-50/40 hover:bg-slate-50/80">
-                      <td className="py-2.5 print:py-1.5 px-2.5 font-mono font-bold text-[#1e3a6e] text-[11px] whitespace-nowrap">{item.sku}</td>
+                      <td className="py-2.5 print:py-1.5 px-2.5 font-mono font-normal text-[#1e3a6e] text-[11px] whitespace-nowrap">{item.sku}</td>
                       <td className="py-2.5 print:py-1.5 px-2.5">
-                        <div className="font-bold text-slate-900 leading-snug">{item.description}</div>
+                        <div className="font-normal text-slate-900 leading-snug">{item.description}</div>
                       </td>
-                      <td className="py-2.5 print:py-1.5 px-2 text-center font-bold text-slate-900 whitespace-nowrap">
+                      <td className="py-2.5 print:py-1.5 px-2 text-center font-normal text-slate-900 whitespace-nowrap">
                         {item.quantity} {item.quantity === 1 ? "un" : "un"}
                       </td>
                       <td className="py-2.5 print:py-1.5 px-2.5 text-right text-slate-700 whitespace-nowrap">
                         {formatBRL(item.unitPrice)}
                       </td>
-                      <td className="py-2.5 print:py-1.5 px-2 text-right text-rose-600 font-semibold whitespace-nowrap">
+                      <td className="py-2.5 print:py-1.5 px-2 text-right text-rose-600 font-normal whitespace-nowrap">
                         {hasDisc ? (
                           <>
                             {(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ""}
@@ -1581,7 +1581,7 @@ function PublicProposalPrintContent() {
                           "—"
                         )}
                       </td>
-                      <td className="py-2.5 print:py-1.5 px-2.5 text-right font-extrabold text-slate-900 whitespace-nowrap">
+                      <td className="py-2.5 print:py-1.5 px-2.5 text-right font-normal text-slate-900 whitespace-nowrap">
                         {formatBRL(item.subtotal ?? item.totalMonthly)}
                       </td>
                     </tr>
@@ -1594,47 +1594,47 @@ function PublicProposalPrintContent() {
           {/* RESUMO DE SUBTOTAIS (SETUP SÓ APARECE SE SELECIONADO NA CRIAÇÃO DA PROPOSTA) */}
           <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6 print:grid-cols-6" : "sm:grid-cols-5 print:grid-cols-5"} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+              <span className="text-[10px] uppercase font-normal text-slate-500 block">
                 Subtotal Produtos
               </span>
-              <strong className="text-sm font-extrabold text-slate-900">
+              <span className="text-sm font-normal text-slate-900">
                 {formatBRL(productsSubtotal)}
-              </strong>
+              </span>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+              <span className="text-[10px] uppercase font-normal text-slate-500 block">
                 Subtotal Serviços
               </span>
-              <strong className="text-sm font-extrabold text-slate-900">
+              <span className="text-sm font-normal text-slate-900">
                 {formatBRL(servicesSubtotal)}
-              </strong>
+              </span>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+              <span className="text-[10px] uppercase font-normal text-slate-500 block">
                 Descontos Aplicados
               </span>
-              <strong className="text-sm font-extrabold text-rose-600">
+              <span className="text-sm font-normal text-rose-600">
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
-              </strong>
+              </span>
             </div>
             {hasSetupSelected && (
               <div>
-                <span className="text-[10px] uppercase font-bold text-amber-800 block">
+                <span className="text-[10px] uppercase font-normal text-amber-800 block">
                   Setup / Ativação
                 </span>
-                <strong className="text-sm font-extrabold text-amber-900">
+                <span className="text-sm font-normal text-amber-900">
                   {formatBRL(isolatedSetupTotal)}
-                </strong>
+                </span>
                 <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
               </div>
             )}
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 block">
+              <span className="text-[10px] uppercase font-normal text-slate-500 block">
                 Frete
               </span>
-              <strong className="text-sm font-extrabold text-slate-900">
+              <span className="text-sm font-normal text-slate-900">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
-              </strong>
+              </span>
               {proposal.shippingCarrier && (
                 <span className="block text-[10px] text-slate-500 truncate">
                   {proposal.shippingCarrier}
@@ -1642,19 +1642,19 @@ function PublicProposalPrintContent() {
               )}
             </div>
             <div className="text-right">
-              <span className="text-[10px] uppercase font-bold text-emerald-700 block">
+              <span className="text-[10px] uppercase font-normal text-emerald-700 block">
                 Valor Mensal
               </span>
-              <strong className="text-sm font-black text-emerald-700">
+              <span className="text-sm font-normal text-emerald-700">
                 {formatBRL(proposal.monthlyRecurringTotal)}
-              </strong>
+              </span>
             </div>
           </div>
 
           {/* BLOCO 6: QUADRO FISCAL E TOTAIS LEVES */}
           <div className="print-avoid-break grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4 print:gap-3">
             <div className="sm:col-span-2 print:col-span-2 p-4 print:p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2 print:space-y-1.5 text-xs">
-              <div className="flex items-center gap-2 font-extrabold text-emerald-900 text-xs">
+              <div className="flex items-center gap-2 font-normal text-emerald-900 text-xs">
                 <Scale className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>Fiscal</span>
               </div>
@@ -1666,24 +1666,24 @@ function PublicProposalPrintContent() {
             <div className={`p-4 print:p-2.5 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3 print:space-y-2`}>
               <div className="space-y-1.5">
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e] block">
+                  <span className="text-[10px] font-normal uppercase tracking-wider text-[#1e3a6e] block">
                     Valor Mensal
                   </span>
-                  <div className="text-2xl print:text-xl font-black text-emerald-700 mt-0.5">
+                  <div className="text-2xl print:text-xl font-normal text-emerald-700 mt-0.5">
                     {formatBRL(proposal.monthlyRecurringTotal)}
-                    <span className="text-xs font-semibold text-slate-500">/mês</span>
+                    <span className="text-xs font-normal text-slate-500">/mês</span>
                   </div>
                 </div>
                 <div className="pt-1.5 border-t border-slate-200 space-y-0.5 text-[11px] text-slate-600">
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
                       <span>Taxa de Setup (Isolada):</span>
-                      <strong className="text-slate-900">{formatBRL(isolatedSetupTotal)}</strong>
+                      <span className="text-slate-900">{formatBRL(isolatedSetupTotal)}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
                     <span>FRETE R$:</span>
-                    <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
+                    <span className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</span>
                   </div>
                 </div>
               </div>
@@ -1693,7 +1693,7 @@ function PublicProposalPrintContent() {
           {/* BLOCO 7: CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
           {Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
             <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
-              <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-extrabold`}>
+              <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-normal`}>
                 <span className="inline-flex items-center gap-1.5">
                   <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
                   CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
@@ -1703,26 +1703,26 @@ function PublicProposalPrintContent() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                   <tr className="print-avoid-break">
-                    <th className="py-2 px-3 w-20 font-extrabold">Parcela</th>
-                    <th className="py-2 px-3 w-36 font-extrabold">Data de Vencimento</th>
-                    <th className="py-2 px-3 w-48 font-extrabold">Forma de Pagamento</th>
-                    <th className="py-2 px-3 text-right w-36 font-extrabold">Valor da Parcela</th>
-                    <th className="py-2 px-3 font-extrabold">Observação</th>
+                    <th className="py-2 px-3 w-20 font-normal">Parcela</th>
+                    <th className="py-2 px-3 w-36 font-normal">Data de Vencimento</th>
+                    <th className="py-2 px-3 w-48 font-normal">Forma de Pagamento</th>
+                    <th className="py-2 px-3 text-right w-36 font-normal">Valor da Parcela</th>
+                    <th className="py-2 px-3 font-normal">Observação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/80">
                   {proposal.installments.map((inst, idx) => (
                     <tr key={idx} className="print-avoid-break even:bg-slate-50/40">
-                      <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
+                      <td className="py-2 px-3 font-mono font-normal text-[#1e3a6e]">
                         {inst.number}ª
                       </td>
-                      <td className="py-2 px-3 font-semibold text-slate-800">
+                      <td className="py-2 px-3 font-normal text-slate-800">
                         {inst.dueDate.includes("-")
                           ? new Date(`${inst.dueDate.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR")
                           : inst.dueDate}
                       </td>
                       <td className="py-2 px-3 text-slate-700">{inst.paymentMethod}</td>
-                      <td className="py-2 px-3 text-right font-extrabold text-slate-900">
+                      <td className="py-2 px-3 text-right font-normal text-slate-900">
                         {formatBRL(inst.amount)}
                       </td>
                       <td className="py-2 px-3 text-slate-600">{inst.notes || "—"}</td>
@@ -1739,15 +1739,15 @@ function PublicProposalPrintContent() {
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
                 <div>
-                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
+                  <span className="font-normal text-slate-800 uppercase text-[11px] block">
                     Logística, Remessa &amp; Instalação
                   </span>
                   <span className="text-slate-600">
-                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
+                    Modalidade: <span className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</span>{deliveryLeadTime ? <> • Prazo de Entrega: <span className="text-slate-800">{deliveryLeadTime}</span></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
                   </span>
                 </div>
               </div>
-              <div className="font-bold text-slate-800">
+              <div className="font-normal text-slate-800">
                 FRETE R$: {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </div>
             </div>
@@ -1755,7 +1755,7 @@ function PublicProposalPrintContent() {
 
           {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
-              <div className="font-extrabold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
+              <div className="font-normal text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
                 Condições Técnicas, Remessa CFOP 5.908 &amp; Acordo de Nível de Serviço (SLA)
               </div>
@@ -1769,7 +1769,7 @@ function PublicProposalPrintContent() {
           <div className="pt-4 print:pt-2 mt-2 border-t border-slate-200 space-y-4 print:space-y-3">
             {/* BLOCO 10: FLUXO DE CONTRATAÇÃO DE LOCAÇÃO — CLIENTE SETA TELECOM (INTEIRO JUNTO, SEM CORTAR NO MEIO) */}
             <div className={`print-avoid-break p-4 print:p-3.5 rounded-lg ${flowBoxClass} space-y-2.5 print:space-y-1.5`}>
-              <div className="text-xs font-extrabold uppercase tracking-wide text-[#1e3a6e]">
+              <div className="text-xs font-normal uppercase tracking-wide text-[#1e3a6e]">
                 {SETA_TELECOM_HIRING_FLOW_TITLE}
               </div>
               <div className="space-y-1.5 print:space-y-1">
@@ -1779,14 +1779,14 @@ function PublicProposalPrintContent() {
                     className="print-avoid-break flex items-baseline gap-2.5 bg-white border border-slate-200 rounded-md px-3 py-1.5 print:py-1 text-[11px] text-slate-700 leading-snug"
                   >
                     <span
-                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-extrabold shrink-0 ${stepBadgeClass}`}
+                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-normal shrink-0 ${stepBadgeClass}`}
                     >
                       {st.step}
                     </span>
                     <div>
-                      <strong className="text-slate-900">
+                      <span className="text-slate-900">
                         {st.step}. {st.title} —
-                      </strong>{" "}
+                      </span>{" "}
                       <span>{st.description}</span>
                     </div>
                   </div>
@@ -1798,7 +1798,7 @@ function PublicProposalPrintContent() {
             <div className="print-avoid-break space-y-3">
               {/* TERMO DE ACEITE E ASSINATURAS */}
               <div className="p-4 print:p-3.5 rounded-lg bg-white border border-slate-200">
-                <div className="text-xs font-extrabold uppercase text-slate-800 mb-2 print:mb-1.5">
+                <div className="text-xs font-normal uppercase text-slate-800 mb-2 print:mb-1.5">
                   Termo de Aceite e Aprovação da Proposta Comercial ({proposal.code})
                 </div>
                 <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
@@ -1807,7 +1807,7 @@ function PublicProposalPrintContent() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-8 pt-4 print:pt-3">
                   <div className="border-t border-slate-300 pt-2 text-center">
-                    <div className="text-xs font-extrabold text-slate-900">SETA TELECOM LTDA</div>
+                    <div className="text-xs font-normal text-slate-900">SETA TELECOM LTDA</div>
                     <div className="text-[11px] text-slate-500">
                       {sellerContact.name} • {sellerContact.email}
                       {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
@@ -1815,7 +1815,7 @@ function PublicProposalPrintContent() {
                   </div>
 
                   <div className="border-t border-slate-300 pt-2 text-center">
-                    <div className="text-xs font-extrabold text-slate-900">{proposal.companyName}</div>
+                    <div className="text-xs font-normal text-slate-900">{proposal.companyName}</div>
                     <div className="text-[11px] text-slate-500">
                       CNPJ {proposal.companyCnpj} •{" "}
                       {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}
@@ -1828,11 +1828,11 @@ function PublicProposalPrintContent() {
               {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL / GOV.BR NO RODAPÉ A4 */}
               <div className="p-4 print:p-3.5 rounded-lg border border-slate-200 border-l-4 border-l-emerald-500 bg-slate-50/70 text-xs space-y-2 print:space-y-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-extrabold text-slate-900 uppercase text-[11px]">
+                  <div className="flex items-center gap-2 font-normal text-slate-900 uppercase text-[11px]">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                     Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil / Gov.br (ITI)
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-normal">
                     {proposal.digitalSignature
                       ? `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
                       : "HABILITADO PARA ASSINATURA ICP-BRASIL / GOV.BR"}
@@ -1843,35 +1843,35 @@ function PublicProposalPrintContent() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2 text-[11px] text-slate-800 pt-1 border-t border-slate-200">
                     <div>
                       <div>
-                        <strong>Signatário:</strong> {proposal.digitalSignature.signerName} (CPF:{" "}
+                        <span>Signatário:</span> {proposal.digitalSignature.signerName} (CPF:{" "}
                         {proposal.digitalSignature.signerCpf})
                       </div>
                       <div>
-                        <strong>Cargo:</strong> {proposal.digitalSignature.signerRole} •{" "}
-                        <strong>Modalidade:</strong> {proposal.digitalSignature.modality}
+                        <span>Cargo:</span> {proposal.digitalSignature.signerRole} •{" "}
+                        <span>Modalidade:</span> {proposal.digitalSignature.modality}
                       </div>
                       <div>
-                        <strong>Autoridade Certificadora:</strong>{" "}
+                        <span>Autoridade Certificadora:</span>{" "}
                         {proposal.digitalSignature.certificateIssuer}
                       </div>
                     </div>
                     <div className="font-mono text-[10px] text-slate-700 space-y-0.5">
                       <div>
-                        <strong>Carimbo de Tempo (ACT/ITI):</strong>{" "}
+                        <span>Carimbo de Tempo (ACT/ITI):</span>{" "}
                         {proposal.digitalSignature.timestampToken}
                       </div>
                       <div>
-                        <strong>Data/Hora UTC:</strong> {proposal.digitalSignature.signedAt}
+                        <span>Data/Hora UTC:</span> {proposal.digitalSignature.signedAt}
                       </div>
                       <div className="break-all">
-                        <strong>Hash SHA-256:</strong> {proposal.digitalSignature.signatureHashSha256}
+                        <span>Hash SHA-256:</span> {proposal.digitalSignature.signatureHashSha256}
                       </div>
                     </div>
                     <div className="sm:col-span-2 flex justify-end pt-1 print:hidden">
                       <button
                         type="button"
                         onClick={handleValidateExistingSignature}
-                        className="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1"
+                        className="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-normal cursor-pointer inline-flex items-center gap-1"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Validar Integridade da Assinatura Digital (SHA-256)
@@ -1891,7 +1891,7 @@ function PublicProposalPrintContent() {
                         }
                         setShowIcpSignatureModal(true);
                       }}
-                      className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer print:hidden"
+                      className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-normal cursor-pointer print:hidden"
                     >
                       Assinar com ICP-Brasil / Gov.br
                     </button>
@@ -1912,7 +1912,7 @@ export default function PublicProposalPrintPage() {
       fallback={
         <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center p-6">
           <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-md w-full">
-            <p className="text-sm font-bold text-slate-800">
+            <p className="text-sm font-normal text-slate-800">
               Carregando Proposta Comercial Seta Telecom...
             </p>
           </div>
