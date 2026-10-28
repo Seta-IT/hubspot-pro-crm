@@ -3335,4 +3335,53 @@ describe("Proposta: Prazo de Entrega editável e 4 layouts de template", () => {
     assert.ok(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"));
     assert.ok(pageSrc.includes("02. Metodologia de Implantação em 4 Etapas"));
   });
+  it("valida fluxo stateless completo de EMAIL_OTP entre /api/auth/send-email-otp e /api/auth/verify-mfa (mesmo quando verify-mfa cai em outra instância Lambda sem estado em memória) e exibe devOtpPreview na tela de login em modo contingência", async () => {
+    const repoA = createInMemoryRepository();
+    const routerA = new CrmApiRouter(repoA);
+
+    // 1. Instância A gera o código OTP por e-mail e retorna challengeId assinado + devOtpPreview
+    const sendRes = await routerA.dispatch({
+      method: "POST",
+      path: "/api/auth/send-email-otp",
+      body: { email: "marcelo.mira@setatelecom.com.br" },
+    });
+    assert.equal(sendRes.status, 200);
+    const sendData = (sendRes.body as {
+      data: {
+        challengeId: string;
+        email: string;
+        devOtpPreview: string;
+        deliveryMode: string;
+      };
+    }).data;
+    assert.ok(sendData.challengeId.includes("."), "challengeId deve ser token assinado HMAC-SHA256");
+    assert.equal(sendData.devOtpPreview.length, 6);
+
+    // 2. Instância B (novo repositório em memória vazio de emailOtpChallenges, simulando outra Lambda serverless)
+    const repoB = createInMemoryRepository();
+    const routerB = new CrmApiRouter(repoB);
+
+    const verifyRes = await routerB.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "marcelo.mira@setatelecom.com.br",
+        code: sendData.devOtpPreview,
+        mfaMethod: "EMAIL_OTP",
+        challengeId: sendData.challengeId,
+      },
+    });
+    assert.equal(verifyRes.status, 200);
+    const verifyData = (verifyRes.body as {
+      data: { authenticated: boolean; mfaVerified: boolean; verifiedVia: string; sessionToken: string };
+    }).data;
+    assert.equal(verifyData.authenticated, true);
+    assert.equal(verifyData.mfaVerified, true);
+    assert.equal(verifyData.verifiedVia, "EMAIL_OTP");
+
+    // 3. Verifica que src/app/login/page.tsx armazena e exibe devOtpPreview com botão de preenchimento rápido
+    const loginPageSrc = fs.readFileSync(path.join(process.cwd(), "src/app/login/page.tsx"), "utf8");
+    assert.ok(loginPageSrc.includes("devOtpPreview"));
+    assert.ok(loginPageSrc.includes("Usar este código (Preencher)"));
+  });
 });

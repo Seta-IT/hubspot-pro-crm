@@ -6150,11 +6150,16 @@ export class CrmRepository {
           emailChallenge.consumed = true;
         }
       }
-    } else if (
+    }
+    if (
+      !isValidEmailOtp &&
       statelessChallenge?.emailOtpHash &&
       sha256Hex(rawCode) === statelessChallenge.emailOtpHash
     ) {
       isValidEmailOtp = true;
+      if (emailChallenge) {
+        emailChallenge.consumed = true;
+      }
     }
 
     if (!isValidTotp && !isValidEmailOtp) {

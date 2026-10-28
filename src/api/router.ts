@@ -482,25 +482,33 @@ export class CrmApiRouter {
     const protocol = `STI-OTP-${Date.now().toString(36).toUpperCase()}`;
     const resendKey = (process.env.RESEND_API_KEY || "").trim();
     if (resendKey) {
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${resendKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: "STI-hub Segurança <seguranca@setatelecom.com.br>",
-            to: [params.toEmail],
-            subject: `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`,
-            text: `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`,
-          }),
-        });
-        if (res.ok) {
-          return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
+      const configuredFrom =
+        (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || "").trim() ||
+        "STI-hub Segurança <seguranca@setatelecom.com.br>";
+      const subject = `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`;
+      const textBody = `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`;
+
+      for (const sender of [configuredFrom, "STI-hub Seta Telecom <onboarding@resend.dev>"]) {
+        try {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${resendKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: sender,
+              to: [params.toEmail],
+              subject,
+              text: textBody,
+            }),
+          });
+          if (res.ok) {
+            return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
+          }
+        } catch {
+          // try fallback sender or dev log fallback
         }
-      } catch {
-        // Fallback to dev log below
       }
     }
     return { delivered: true, deliveryMode: "DEV_LOG_FALLBACK", protocol };

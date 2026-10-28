@@ -43,6 +43,7 @@ export default function StiHubLoginPage() {
       ttlSeconds: number;
       deliveryMode?: string;
       protocol?: string;
+      devOtpPreview?: string;
     };
     user: {
       id: string;
@@ -133,6 +134,7 @@ export default function StiHubLoginPage() {
                 ttlSeconds: otpData.ttlSeconds,
                 deliveryMode: otpData.deliveryMode,
                 protocol: otpData.protocol,
+                devOtpPreview: otpData.devOtpPreview,
               },
             }
           : prev
@@ -401,21 +403,68 @@ export default function StiHubLoginPage() {
                 </div>
               )}
 
-              {/* Option 2: Email OTP info & resend */}
+              {/* Option 2: Email OTP info, contingency code preview & resend */}
               {activeMfaChannel === 'EMAIL_OTP' && (
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs">
-                  <div className="text-slate-700">
-                    Enviado para <strong>{challengeData?.user?.email || email}</strong>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-slate-700">
+                      Destinatário: <strong>{challengeData?.user?.email || email}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={sendingEmailOtp}
+                      onClick={handleSendOrResendEmailOtp}
+                      className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      <Send className="w-3 h-3" />
+                      <span>{sendingEmailOtp ? 'Gerando...' : 'Gerar novo código'}</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    disabled={sendingEmailOtp}
-                    onClick={handleSendOrResendEmailOtp}
-                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
-                  >
-                    <Send className="w-3 h-3" />
-                    <span>{sendingEmailOtp ? 'Enviando...' : 'Reenviar código'}</span>
-                  </button>
+
+                  {challengeData?.emailOtpStatus?.devOtpPreview &&
+                    challengeData?.emailOtpStatus?.deliveryMode !== 'RESEND_HTTP_API' && (
+                      <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-extrabold uppercase text-emerald-800 block">
+                              Código OTP de 6 Dígitos Gerado
+                            </span>
+                            <code className="font-mono text-lg font-black tracking-widest text-[#0d2b4e]">
+                              {challengeData.emailOtpStatus.devOtpPreview}
+                            </code>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const code = challengeData?.emailOtpStatus?.devOtpPreview || '';
+                                setMfaCode(code);
+                                setErrorMsg(null);
+                                mfaInputRef.current?.focus();
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                            >
+                              Usar este código (Preencher)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const code = challengeData?.emailOtpStatus?.devOtpPreview || '';
+                                navigator.clipboard?.writeText(code);
+                                setMfaCode(code);
+                                setInfoMsg(`Código ${code} copiado e preenchido!`);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-900 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Copy className="w-3 h-3" /> Copiar
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-emerald-800 leading-snug">
+                          Modo Contingência Ativo (Sem RESEND_API_KEY configurada): utilize o código gerado acima ou configure a chave SMTP/Resend em Configurações &gt; E-mail.
+                        </p>
+                      </div>
+                    )}
                 </div>
               )}
 
