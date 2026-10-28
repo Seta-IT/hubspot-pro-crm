@@ -2445,11 +2445,39 @@ export default function StiHubAdminRbacPanel({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Painel 1: Permissões CRM / HubSpot */}
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
-                    <div className="font-normal text-[#0d2b4e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
-                      <span>Painel 1: Permissões CRM / HubSpot</span>
-                      <span className="text-[10px] text-[#ff7a59]">
-                        {userMods.includes('CRM') ? 'CRM HABILITADO' : 'CRM DESABILITADO'}
-                      </span>
+                    <div className="font-normal text-[#0d2b4e] border-b border-slate-200 pb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">Painel 1: Permissões CRM &amp; Chamados</span>
+                        {isModuleFullControl(editingUser, 'CRM') && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                            Full Control CRM Ativo
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const patch = buildFullControlForModule('CRM', editingUser);
+                            setEditingUser({ ...editingUser, ...patch });
+                            handleApplyFullControlQuick(editingUser, 'CRM');
+                          }}
+                          className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-normal cursor-pointer"
+                        >
+                          Full Control — CRM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const patch = buildFullControlForModule('CHAMADOS', editingUser);
+                            setEditingUser({ ...editingUser, ...patch });
+                            handleApplyFullControlQuick(editingUser, 'CHAMADOS');
+                          }}
+                          className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-normal cursor-pointer"
+                        >
+                          Full Control — Chamados
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="font-normal text-slate-700">Escopo de Carteira:</span>
@@ -2546,11 +2574,26 @@ export default function StiHubAdminRbacPanel({
 
                   {/* Painel 2: Permissões ERP */}
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
-                    <div className="font-normal text-[#1e3a6e] border-b border-slate-200 pb-1.5 flex items-center justify-between">
-                      <span>Painel 2: Permissões ERP (SETA | IT)</span>
-                      <span className="text-[10px] text-emerald-700">
-                        {userMods.includes('ERP') ? 'ERP HABILITADO' : 'ERP DESABILITADO'}
-                      </span>
+                    <div className="font-normal text-[#1e3a6e] border-b border-slate-200 pb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">Painel 2: Permissões ERP (SETA | IT)</span>
+                        {isModuleFullControl(editingUser, 'ERP') && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                            Full Control ERP Ativo
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const patch = buildFullControlForModule('ERP', editingUser);
+                          setEditingUser({ ...editingUser, ...patch });
+                          handleApplyFullControlQuick(editingUser, 'ERP');
+                        }}
+                        className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#0d2b4e] text-white text-[10px] font-normal cursor-pointer"
+                      >
+                        Full Control — ERP
+                      </button>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="font-normal text-slate-700">Alçada Desconto (%):</span>

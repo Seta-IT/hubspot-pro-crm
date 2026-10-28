@@ -1070,57 +1070,48 @@ export default function HubSpotProCrmApp() {
     isActive: boolean;
     onClick: () => void;
   }> = [
-    {
-      id: 'CRM',
-      label: 'CRM',
-      shortLabel: 'CRM',
-      icon: Kanban,
-      badge: userModuleAccess.crm ? undefined : 'Bloqueado IAM',
-      isActive: isCrmActive,
-      onClick: () => {
-        if (!userModuleAccess.crm) {
-          showToast(
-            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo CRM habilitado.`
-          );
-          return;
-        }
-        setActiveModule(lastCrmSubModule || 'DEALS_KANBAN');
-      },
-    },
-    {
-      id: 'ERP',
-      label: 'ERP',
-      shortLabel: 'ERP',
-      icon: Receipt,
-      badge: userModuleAccess.erp ? undefined : 'Bloqueado IAM',
-      isActive: activeModule === 'ERP_GESTAOCLICK',
-      onClick: () => {
-        if (!userModuleAccess.erp) {
-          showToast(
-            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo ERP habilitado.`
-          );
-          return;
-        }
-        setActiveModule('ERP_GESTAOCLICK');
-      },
-    },
-    {
-      id: 'SERVICE_DESK',
-      label: 'Chamados',
-      shortLabel: 'Chamados',
-      icon: Ticket,
-      badge: userModuleAccess.chamados ? undefined : 'Bloqueado IAM',
-      isActive: activeModule === 'SERVICE_DESK',
-      onClick: () => {
-        if (!userModuleAccess.chamados) {
-          showToast(
-            `Acesso negado pela política IAM: o usuário ${activeRbacUser?.name} não possui o módulo de Chamados habilitado.`
-          );
-          return;
-        }
-        setActiveModule('SERVICE_DESK');
-      },
-    },
+    ...(userModuleAccess.crm
+      ? [
+          {
+            id: 'CRM',
+            label: 'CRM',
+            shortLabel: 'CRM',
+            icon: Kanban,
+            isActive: isCrmActive,
+            onClick: () => {
+              setActiveModule(lastCrmSubModule || 'DEALS_KANBAN');
+            },
+          },
+        ]
+      : []),
+    ...(userModuleAccess.erp
+      ? [
+          {
+            id: 'ERP',
+            label: 'ERP',
+            shortLabel: 'ERP',
+            icon: Receipt,
+            isActive: activeModule === 'ERP_GESTAOCLICK',
+            onClick: () => {
+              setActiveModule('ERP_GESTAOCLICK');
+            },
+          },
+        ]
+      : []),
+    ...(userModuleAccess.chamados
+      ? [
+          {
+            id: 'SERVICE_DESK',
+            label: 'Chamados',
+            shortLabel: 'Chamados',
+            icon: Ticket,
+            isActive: activeModule === 'SERVICE_DESK',
+            onClick: () => {
+              setActiveModule('SERVICE_DESK');
+            },
+          },
+        ]
+      : []),
   ];
 
   const activeSectionLabel =

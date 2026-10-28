@@ -1104,6 +1104,7 @@ export interface ErpRentalContract {
   deliveryDate?: string;
   pickupDate?: string;
   deliveryCarrier?: string;
+  deliveryCity?: string;
   deliveryAddress?: string;
   deliveryNotes?: string;
   customerPurchaseOrderNumber?: string;
@@ -1332,6 +1333,7 @@ export interface ErpFiscalInvoice {
   deliveryDate?: string | null;
   pickupDate?: string | null;
   deliveryCarrier?: string | null;
+  deliveryCity?: string | null;
   deliveryAddress?: string | null;
   deliveryNotes?: string | null;
   customerPurchaseOrderNumber?: string | null;
