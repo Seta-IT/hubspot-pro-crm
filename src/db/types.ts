@@ -1784,6 +1784,8 @@ export interface StiHubUserRecord {
   totpConfiguredAt?: string | null;
   lastUsedTotpTimeStep?: number | null;
   passwordHash?: string;
+  inviteStatus?: "PENDING_INVITE" | "ACTIVE";
+  invitedAt?: string | null;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   lastLoginAt: string | null;
   createdAt: string;

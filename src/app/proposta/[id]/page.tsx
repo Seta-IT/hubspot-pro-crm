@@ -622,19 +622,6 @@ function PublicProposalPrintContent() {
           </button>
 
           <select
-            value={resolvedSla.id}
-            onChange={(e) => handleSlaTierChange(e.target.value)}
-            className="px-2.5 py-2 rounded-md bg-white text-slate-900 text-xs font-extrabold border border-slate-300 cursor-pointer max-w-[230px]"
-            title="Selecionar opção de SLA da Proposta"
-          >
-            {PROPOSAL_SLA_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id} className="text-slate-900">
-                {opt.shortLabel ? `SLA: ${opt.shortLabel}` : "SLA: Escolher opção..."}
-              </option>
-            ))}
-          </select>
-
-          <select
             value={activeLayout}
             onChange={(e) =>
               handleTemplateStyleChange(
@@ -1145,6 +1132,11 @@ function PublicProposalPrintContent() {
                 {deliveryLeadTime && (
                   <span>
                     Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong>
+                  </span>
+                )}
+                {hasSelectedSla && (
+                  <span>
+                    SLA: <strong className="text-slate-800">{resolvedSla.shortLabel}</strong>
                   </span>
                 )}
               </div>

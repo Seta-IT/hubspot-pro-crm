@@ -659,6 +659,77 @@ export interface StiHubMfaChallengeClaims {
   exp: number;
 }
 
+export interface StiHubUserInviteClaims {
+  iid: string;
+  uid: string;
+  email: string;
+  name: string;
+  phone?: string;
+  department?: string;
+  jobTitle?: string;
+  roleId: string;
+  crmRole?: string;
+  erpRole?: string;
+  scope: string;
+  enabledModules: StiHubMacroModule[];
+  mfaEnabled: boolean;
+  mfaMethod: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+  totpSecret: string;
+  iat: number;
+  exp: number;
+}
+
+export function signUserInviteToken(
+  claims: StiHubUserInviteClaims,
+  secret: string = resolveStiHubSigningSecret()
+): string {
+  const payloadB64 = base64UrlEncodeString(JSON.stringify(claims));
+  const sigB64 = hmacSha256Base64Url(secret, payloadB64);
+  return `INV-${payloadB64}.${sigB64}`;
+}
+
+export function verifyUserInviteToken(
+  token: string | null | undefined,
+  secret: string = resolveStiHubSigningSecret()
+): { valid: boolean; claims: StiHubUserInviteClaims | null; reason: string } {
+  if (!token || typeof token !== "string") {
+    return { valid: false, claims: null, reason: "MISSING_INVITE_TOKEN" };
+  }
+  let cleaned = token.trim();
+  if (cleaned.includes("%")) {
+    try {
+      cleaned = decodeURIComponent(cleaned);
+    } catch {
+      // keep raw
+    }
+  }
+  if (!cleaned.startsWith("INV-")) {
+    return { valid: false, claims: null, reason: "INVALID_INVITE_PREFIX" };
+  }
+  const stripped = cleaned.slice(4);
+  const parts = stripped.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return { valid: false, claims: null, reason: "MALFORMED_INVITE_TOKEN" };
+  }
+  const [payloadB64, sigB64] = parts;
+  const expectedSig = hmacSha256Base64Url(secret, payloadB64);
+  if (sigB64 !== expectedSig) {
+    return { valid: false, claims: null, reason: "INVALID_INVITE_SIGNATURE" };
+  }
+  try {
+    const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as StiHubUserInviteClaims;
+    if (!parsed || !parsed.email || !parsed.uid) {
+      return { valid: false, claims: null, reason: "INVALID_INVITE_CLAIMS" };
+    }
+    if (parsed.exp && Date.now() > parsed.exp) {
+      return { valid: false, claims: null, reason: "INVITE_EXPIRED" };
+    }
+    return { valid: true, claims: parsed, reason: "INVITE_VALID" };
+  } catch {
+    return { valid: false, claims: null, reason: "INVALID_INVITE_JSON" };
+  }
+}
+
 export function signMfaChallengeToken(
   claims: StiHubMfaChallengeClaims,
   secret: string = resolveStiHubSigningSecret()

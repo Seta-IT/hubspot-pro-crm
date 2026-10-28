@@ -762,7 +762,7 @@ export function ProposalEditModal({
                 </div>
 
                 {/* Coluna 2: Cliente * (Busca Autocomplete + Aviso Cliente Não Cadastrado + Botão Verde "+ Adicionar novo") */}
-                <div className="sm:col-span-4 relative">
+                <div className="sm:col-span-3 relative">
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[11px] font-bold text-slate-700">
                       Cliente <span className="text-rose-600">*</span>
@@ -893,7 +893,7 @@ export function ProposalEditModal({
                 </div>
 
                 {/* Coluna 4: Validade */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-1">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
                   <input
                     type="text"
@@ -932,6 +932,31 @@ export function ProposalEditModal({
                     }
                     className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
                   />
+                </div>
+
+                {/* Coluna 6: SLA (Nível de Serviço) */}
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+                    SLA (Nível de Serviço)
+                  </label>
+                  <select
+                    value={resolveProposalSlaOption(draft).id}
+                    onChange={(e) => {
+                      const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === e.target.value) || PROPOSAL_SLA_OPTIONS[0];
+                      updateDraft({
+                        slaTier: opt.id,
+                        slaAvailabilityPercent: opt.slaAvailabilityPercent,
+                        slaResponseHours: opt.slaResponseHours,
+                      });
+                    }}
+                    className="w-full px-2.5 py-2 rounded border border-blue-300 bg-white font-extrabold text-[#1e3a6e]"
+                  >
+                    {PROPOSAL_SLA_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.shortLabel || opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

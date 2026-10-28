@@ -458,6 +458,7 @@ export default function ErpGestaoClickTab({
   const [propSerialNumber, setPropSerialNumber] = useState("");
   const [propPaymentCondition, setPropPaymentCondition] = useState("");
   const [propDeliveryForecast, setPropDeliveryForecast] = useState("10 dias úteis após o aceite");
+  const [propSlaTier, setPropSlaTier] = useState("CORPORATIVO_8X5_NBD");
   const [propSku, setPropSku] = useState("");
   const [propQty, setPropQty] = useState("1");
   const [propUnitPrice, setPropUnitPrice] = useState("");
@@ -907,6 +908,7 @@ export default function ErpGestaoClickTab({
         paymentCondition: propPaymentCondition,
         deliveryLeadTime: propDeliveryForecast.trim(),
         deliveryForecast: propDeliveryForecast.trim(),
+        slaTier: propSlaTier,
         monthlyRecurringTotal: monthlyTotal,
         items: allItems,
       }),
@@ -1790,7 +1792,9 @@ export default function ErpGestaoClickTab({
       status: 'RASCUNHO',
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
       templateStyle: defaultProposalTemplateStyle,
-      slaTier: 'SEM_SLA_ESPECIFICO',
+      slaTier: 'CORPORATIVO_8X5_NBD',
+      slaAvailabilityPercent: '99,50%',
+      slaResponseHours: 4,
       readjustmentIndex: 'IPCA',
       contractMonths: 24,
       paymentCondition: '',
@@ -7496,7 +7500,7 @@ export default function ErpGestaoClickTab({
               </div>
 
               <div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
                   <div>
                     <label className="block font-bold text-[#33475b] mb-1">Prazo de Entrega</label>
                     <input
@@ -7506,6 +7510,21 @@ export default function ErpGestaoClickTab({
                       placeholder="Ex: 10 dias úteis após o aceite"
                       className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2]"
                     />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-[#33475b] mb-1">SLA (Nível de Serviço)</label>
+                    <select
+                      value={propSlaTier}
+                      onChange={(e) => setPropSlaTier(e.target.value)}
+                      className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold text-[#1e3a6e]"
+                    >
+                      <option value="CORPORATIVO_8X5_NBD">SLA 8x5 NBD</option>
+                      <option value="SLA_ESTENDIDO_6H">SLA Estendido 8x5 (Atend. até 6h úteis)</option>
+                      <option value="SLA_PRIORITARIO_4H">SLA Prioritário (Atend. até 4h)</option>
+                      <option value="NOC_24X7_CRITICO_2H">SLA Missão Crítica 24x7 (Atend. até 2h)</option>
+                      <option value="SEM_SLA_AVULSO">Garantia Padrão (Sob Demanda)</option>
+                      <option value="SEM_SLA_ESPECIFICO">Sem SLA específico</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block font-bold text-[#33475b] mb-1">Condição de Pagamento &amp; Validade</label>

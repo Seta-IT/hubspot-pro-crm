@@ -7,6 +7,7 @@ import type { StiHubMacroModule } from './db/types';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
+  '/convite',
   '/api/auth',
   '/proposta',
   '/portal',
