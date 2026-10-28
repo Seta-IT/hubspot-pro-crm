@@ -11,6 +11,7 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
+  PanelLeftClose,
   X,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
@@ -24,6 +25,13 @@ export type CrmModuleId =
   | 'DATA_HEALTH'
   | 'ADMIN_RBAC';
 
+export const CRM_CORPORATE_BLOCKS = [
+  'VISÃO GERAL',
+  'COMERCIAL & CLIENTES',
+  'MARKETING & AUTOMAÇÃO',
+  'GOVERNANÇA CRM',
+] as const;
+
 interface CrmSidebarProps {
   activeModule: CrmModuleId;
   pipelines: EnrichedPipeline[];
@@ -36,6 +44,7 @@ interface CrmSidebarProps {
   formsCount: number;
   automationsCount: number;
   healthScore: number;
+  onToggleCollapse?: () => void;
   mobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
   onSelectOverview?: () => void;
@@ -53,13 +62,13 @@ export default function CrmSidebar({
   pipelines,
   selectedPipelineId,
   contactsSubView,
-  dataHealthScope,
   contactsCount,
   companiesCount,
   dealsCount,
   formsCount,
   automationsCount,
   healthScore,
+  onToggleCollapse,
   mobileDrawerOpen = false,
   onCloseMobileDrawer,
   onSelectOverview,
@@ -71,14 +80,13 @@ export default function CrmSidebar({
   onSelectAdminRbac,
   activeAdminSubView = 'USERS_RBAC',
 }: CrmSidebarProps) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    DEALS_KANBAN: true,
-    CONTACTS_COMPANIES: true,
-    DATA_HEALTH: true,
-  });
+  // Modo Acordeão Inteligente: inicia apenas o grupo ativo expandido
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => ({
+    [activeModule]: true,
+  }));
 
   useEffect(() => {
-    setExpanded((prev) => ({ ...prev, [activeModule]: true }));
+    setExpanded({ [activeModule]: true });
   }, [activeModule]);
 
   const closeMobileIfOpen = () => {
@@ -87,9 +95,9 @@ export default function CrmSidebar({
 
   const toggleGroup = (key: string, defaultAction: () => void) => {
     if (activeModule === key) {
-      setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+      setExpanded((prev) => ({ [key]: !prev[key] }));
     } else {
-      setExpanded((prev) => ({ ...prev, [key]: true }));
+      setExpanded({ [key]: true });
       defaultAction();
     }
   };
@@ -97,360 +105,448 @@ export default function CrmSidebar({
   const renderSidebarContent = (isMobileDrawer = false) => (
     <>
       <div>
-        {/* HEADER DO MÓDULO CRM */}
-        <div className="p-3.5 bg-[#f8f9fb] flex items-center justify-between gap-2">
-          <div
+        {/* CABEÇALHO CORPORATIVO COMPACTO DO MÓDULO CRM */}
+        <div className="px-3 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
+          <button
+            type="button"
             onClick={() => {
               if (onSelectOverview) onSelectOverview();
               else onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
               closeMobileIfOpen();
             }}
-            className="flex-1 bg-white border border-slate-200 rounded-lg py-3 px-4 flex flex-col items-center justify-center gap-0.5 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+            className="text-left min-w-0 cursor-pointer group"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
-              <span className="w-[2px] h-5 bg-[#f26522] inline-block" />
-              <span className="text-xl font-black tracking-tight text-[#f26522]">CRM</span>
-            </div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-              Sales Hub &amp; Marketing Hub
+            <span className="text-[10px] font-black uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
+              MÓDULO CRM • SALES &amp; MARKETING
             </span>
-          </div>
-          {isMobileDrawer && (
+            <span className="text-[10px] text-slate-500 font-semibold block truncate">
+              Funil Comercial, Clientes &amp; IA
+            </span>
+          </button>
+
+          {isMobileDrawer ? (
             <button
               type="button"
               onClick={closeMobileIfOpen}
               aria-label="Fechar Menu CRM"
-              className="p-2 rounded-lg bg-slate-200/80 text-slate-700 hover:bg-slate-300 cursor-pointer shrink-0"
+              className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
+          ) : (
+            onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title="Recolher menu lateral do CRM"
+                aria-label="Recolher menu lateral do CRM"
+                className="p-1.5 rounded-md text-slate-500 hover:text-[#0d2b4e] hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            )
           )}
         </div>
 
-        {/* NAVEGAÇÃO VERTICAL DO CRM */}
-        <nav className="px-2 pb-4 space-y-1">
-          {/* 0. VISÃO GERAL & COPILOTO */}
-          {onSelectOverview && (
+        {/* NAVEGAÇÃO VERTICAL DO CRM EM 4 BLOCOS CORPORATIVOS */}
+        <nav className="px-2 py-2.5 space-y-3">
+          {/* BLOCO 1: VISÃO GERAL */}
+          <div className="space-y-0.5">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+              VISÃO GERAL
+            </div>
+            {onSelectOverview && (
+              <div className="rounded-md">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpanded({});
+                    onSelectOverview();
+                    closeMobileIfOpen();
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                    activeModule === 'OVERVIEW_AI'
+                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <LayoutDashboard
+                      className={`w-4 h-4 shrink-0 ${
+                        activeModule === 'OVERVIEW_AI' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      }`}
+                    />
+                    <span className="truncate">Dashboard CRM</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* BLOCO 2: COMERCIAL & CLIENTES */}
+          <div className="space-y-0.5">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+              COMERCIAL &amp; CLIENTES
+            </div>
+
+            {/* Negócios (Funil Kanban) */}
             <div className="rounded-md">
               <button
                 type="button"
-                onClick={() => {
-                  onSelectOverview();
-                  closeMobileIfOpen();
-                }}
-                className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                  activeModule === 'OVERVIEW_AI'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2.5 truncate">
-                  <LayoutDashboard
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'OVERVIEW_AI' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                    }`}
-                  />
-                  <span className="truncate">Visão Geral &amp; IA</span>
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* 1. CONTATOS & EMPRESAS (BASE CRM) */}
-          <div className="rounded-md">
-            <button
-              type="button"
-              onClick={() =>
-                toggleGroup('CONTACTS_COMPANIES', () => {
-                  onSelectContactsSubView('CONTACTS');
-                  closeMobileIfOpen();
-                })
-              }
-              className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                activeModule === 'CONTACTS_COMPANIES'
-                  ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                  : 'text-[#1e3a6e] hover:bg-white font-bold'
-              }`}
-            >
-              <span className="flex items-center gap-2.5 truncate">
-                <Users
-                  className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'CONTACTS_COMPANIES' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                  }`}
-                />
-                <span className="truncate">Contatos &amp; Empresas</span>
-              </span>
-              {expanded.CONTACTS_COMPANIES ? (
-                <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-              )}
-            </button>
-
-            {expanded.CONTACTS_COMPANIES && (
-              <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectContactsSubView('CONTACTS');
-                    closeMobileIfOpen();
-                  }}
-                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                    activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
-                      ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                      : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
-                  }`}
-                >
-                  <span>Contatos CRM</span>
-                  
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectContactsSubView('COMPANIES');
-                    closeMobileIfOpen();
-                  }}
-                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                    activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
-                      ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                      : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
-                  }`}
-                >
-                  <span>Empresas CRM</span>
-                  
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 2. SALES HUB — FUNIL & PIPELINES */}
-          <div className="rounded-md">
-            <button
-              type="button"
-              onClick={() =>
-                toggleGroup('DEALS_KANBAN', () => {
-                  onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
-                  closeMobileIfOpen();
-                })
-              }
-              className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                activeModule === 'DEALS_KANBAN'
-                  ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                  : 'text-[#1e3a6e] hover:bg-white font-bold'
-              }`}
-            >
-              <span className="flex items-center gap-2.5 truncate">
-                <Kanban
-                  className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'DEALS_KANBAN' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                  }`}
-                />
-                <span className="truncate">Sales Hub</span>
-              </span>
-              {expanded.DEALS_KANBAN ? (
-                <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-              )}
-            </button>
-
-            {expanded.DEALS_KANBAN && (
-              <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                {pipelines.map((pipe) => {
-                  const isPipeActive =
-                    activeModule === 'DEALS_KANBAN' && selectedPipelineId === pipe.id;
-                  return (
-                    <button
-                      key={pipe.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectPipeline(pipe.id);
-                        closeMobileIfOpen();
-                      }}
-                      className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
-                        isPipeActive
-                          ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                          : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
-                      }`}
-                    >
-                      <span className="truncate">{pipe.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 3. MARKETING HUB — FORMULÁRIOS & CAMPANHAS */}
-          <div className="rounded-md">
-            <button
-              type="button"
-              onClick={() => {
-                onSelectForms();
-                closeMobileIfOpen();
-              }}
-              className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                activeModule === 'MARKETING_FORMS'
-                  ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                  : 'text-[#1e3a6e] hover:bg-white font-bold'
-              }`}
-            >
-              <span className="flex items-center gap-2.5 truncate">
-                <FileCode2
-                  className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                  }`}
-                />
-                <span className="truncate">Marketing Hub</span>
-              </span>
-            </button>
-          </div>
-
-          {/* 4. AUTOMAÇÕES */}
-          <div className="rounded-md">
-            <button
-              type="button"
-              onClick={() => {
-                onSelectAutomations();
-                closeMobileIfOpen();
-              }}
-              className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                activeModule === 'AUTOMATIONS'
-                  ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                  : 'text-[#1e3a6e] hover:bg-white font-bold'
-              }`}
-            >
-              <span className="flex items-center gap-2.5 truncate">
-                <Workflow
-                  className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'AUTOMATIONS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                  }`}
-                />
-                <span className="truncate">Automações</span>
-              </span>
-            </button>
-          </div>
-
-          {/* 5. DATA HEALTH (EXCLUSIVO DO CRM) */}
-          <div className="rounded-md pt-2 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() =>
-                toggleGroup('DATA_HEALTH', () => {
-                  onSelectDataHealth('CRM');
-                  closeMobileIfOpen();
-                })
-              }
-              className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                activeModule === 'DATA_HEALTH'
-                  ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                  : 'text-[#1e3a6e] hover:bg-white font-bold'
-              }`}
-            >
-              <span className="flex items-center gap-2.5 truncate">
-                <ShieldCheck
-                  className={`w-4 h-4 shrink-0 ${
-                    activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
-                  }`}
-                />
-                <span className="truncate">Data Health (CRM)</span>
-              </span>
-              {expanded.DATA_HEALTH ? (
-                <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-              )}
-            </button>
-
-            {expanded.DATA_HEALTH && (
-              <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectDataHealth('CRM');
-                    closeMobileIfOpen();
-                  }}
-                  className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                    activeModule === 'DATA_HEALTH'
-                      ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
-                      : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
-                  }`}
-                >
-                  <span>Auditoria Base CRM</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 6. CONFIGURAÇÕES & USUÁRIOS (CRM) */}
-          {onSelectAdminRbac && (
-            <div className="rounded-md pt-2 border-t border-slate-200">
-              <button
-                type="button"
                 onClick={() =>
-                  toggleGroup('ADMIN_RBAC', () => {
-                    onSelectAdminRbac('USERS_RBAC');
+                  toggleGroup('DEALS_KANBAN', () => {
+                    onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+                    closeMobileIfOpen();
                   })
                 }
-                className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                  activeModule === 'ADMIN_RBAC'
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  activeModule === 'DEALS_KANBAN'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
                     : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
-                <span className="flex items-center gap-2.5 truncate">
-                  <Settings
+                <span className="flex items-center gap-2 truncate">
+                  <Kanban
                     className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'ADMIN_RBAC' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      activeModule === 'DEALS_KANBAN' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                     }`}
                   />
-                  <span className="truncate">Configurações</span>
+                  <span className="truncate">Negócios (Funil Kanban)</span>
                 </span>
-                {expanded.ADMIN_RBAC ? (
-                  <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                )}
+                <span className="flex items-center gap-1 shrink-0">
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      activeModule === 'DEALS_KANBAN'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {dealsCount}
+                  </span>
+                  {expanded.DEALS_KANBAN ? (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                </span>
               </button>
 
-              {expanded.ADMIN_RBAC && (
-                <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  {[
-                    { id: 'USERS_RBAC', label: 'Usuários' },
-                    { id: 'CUSTOM_PROPERTIES', label: 'Campos Customizáveis' },
-                    { id: 'EMAIL_TEMPLATES', label: 'E-mail & Modelos' },
-                    { id: 'COMPANY_EMITTER', label: 'Dados da Empresa' },
-                    { id: 'SUBDOMAIN_SECURITY', label: 'Segurança 2FA & Domínio' },
-                  ].map((sub) => {
-                    const isSubActive =
-                      activeModule === 'ADMIN_RBAC' && activeAdminSubView === sub.id;
+              {expanded.DEALS_KANBAN && (
+                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                  {pipelines.map((pipe) => {
+                    const isPipeActive =
+                      activeModule === 'DEALS_KANBAN' && selectedPipelineId === pipe.id;
                     return (
                       <button
-                        key={sub.id}
+                        key={pipe.id}
                         type="button"
                         onClick={() => {
-                          onSelectAdminRbac(sub.id);
+                          onSelectPipeline(pipe.id);
                           closeMobileIfOpen();
                         }}
-                        className={`w-full px-2.5 py-2 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                          isSubActive
+                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
+                          isPipeActive
                             ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
                             : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                         }`}
                       >
-                        <span className="truncate">{sub.label}</span>
+                        <span className="truncate">{pipe.name}</span>
                       </button>
                     );
                   })}
                 </div>
               )}
             </div>
-          )}
+
+            {/* Contatos & Empresas */}
+            <div className="rounded-md">
+              <button
+                type="button"
+                onClick={() =>
+                  toggleGroup('CONTACTS_COMPANIES', () => {
+                    onSelectContactsSubView('CONTACTS');
+                    closeMobileIfOpen();
+                  })
+                }
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  activeModule === 'CONTACTS_COMPANIES'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Users
+                    className={`w-4 h-4 shrink-0 ${
+                      activeModule === 'CONTACTS_COMPANIES' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                    }`}
+                  />
+                  <span className="truncate">Contatos &amp; Empresas</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      activeModule === 'CONTACTS_COMPANIES'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {contactsCount + companiesCount}
+                  </span>
+                  {expanded.CONTACTS_COMPANIES ? (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                </span>
+              </button>
+
+              {expanded.CONTACTS_COMPANIES && (
+                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectContactsSubView('CONTACTS');
+                      closeMobileIfOpen();
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                    }`}
+                  >
+                    <span>Contatos CRM</span>
+                    <span className="text-[10px] font-bold text-slate-400">({contactsCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectContactsSubView('COMPANIES');
+                      closeMobileIfOpen();
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                    }`}
+                  >
+                    <span>Empresas CRM</span>
+                    <span className="text-[10px] font-bold text-slate-400">({companiesCount})</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* BLOCO 3: MARKETING & AUTOMAÇÃO */}
+          <div className="space-y-0.5">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+              MARKETING &amp; AUTOMAÇÃO
+            </div>
+
+            <div className="rounded-md">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpanded({});
+                  onSelectForms();
+                  closeMobileIfOpen();
+                }}
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  activeModule === 'MARKETING_FORMS'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <FileCode2
+                    className={`w-4 h-4 shrink-0 ${
+                      activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                    }`}
+                  />
+                  <span className="truncate">Formulários &amp; Leads</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    activeModule === 'MARKETING_FORMS'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {formsCount}
+                </span>
+              </button>
+            </div>
+
+            <div className="rounded-md">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpanded({});
+                  onSelectAutomations();
+                  closeMobileIfOpen();
+                }}
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  activeModule === 'AUTOMATIONS'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Workflow
+                    className={`w-4 h-4 shrink-0 ${
+                      activeModule === 'AUTOMATIONS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                    }`}
+                  />
+                  <span className="truncate">Fluxos de Automação</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    activeModule === 'AUTOMATIONS'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {automationsCount}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* BLOCO 4: GOVERNANÇA CRM */}
+          <div className="space-y-0.5">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+              GOVERNANÇA CRM
+            </div>
+
+            <div className="rounded-md">
+              <button
+                type="button"
+                onClick={() =>
+                  toggleGroup('DATA_HEALTH', () => {
+                    onSelectDataHealth('CRM');
+                    closeMobileIfOpen();
+                  })
+                }
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  activeModule === 'DATA_HEALTH'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <ShieldCheck
+                    className={`w-4 h-4 shrink-0 ${
+                      activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
+                    }`}
+                  />
+                  <span className="truncate">Data Health (CRM)</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      activeModule === 'DATA_HEALTH'
+                        ? 'bg-emerald-500/30 text-emerald-200'
+                        : 'bg-emerald-50 text-emerald-700'
+                    }`}
+                  >
+                    {healthScore}%
+                  </span>
+                  {expanded.DATA_HEALTH ? (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                </span>
+              </button>
+
+              {expanded.DATA_HEALTH && (
+                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectDataHealth('CRM');
+                      closeMobileIfOpen();
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                      activeModule === 'DATA_HEALTH'
+                        ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                    }`}
+                  >
+                    <span>Auditoria Base CRM</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {onSelectAdminRbac && (
+              <div className="rounded-md">
+                <button
+                  type="button"
+                  onClick={() =>
+                    toggleGroup('ADMIN_RBAC', () => {
+                      onSelectAdminRbac('USERS_RBAC');
+                    })
+                  }
+                  className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                    activeModule === 'ADMIN_RBAC'
+                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Settings
+                      className={`w-4 h-4 shrink-0 ${
+                        activeModule === 'ADMIN_RBAC' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      }`}
+                    />
+                    <span className="truncate">Políticas IAM &amp; Perfis</span>
+                  </span>
+                  {expanded.ADMIN_RBAC ? (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                </button>
+
+                {expanded.ADMIN_RBAC && (
+                  <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                    {[
+                      { id: 'USERS_RBAC', label: 'Usuários & Perfis RBAC' },
+                      { id: 'CUSTOM_PROPERTIES', label: 'Campos Customizáveis' },
+                      { id: 'EMAIL_TEMPLATES', label: 'E-mail & Modelos' },
+                      { id: 'COMPANY_EMITTER', label: 'Dados da Empresa' },
+                      { id: 'SUBDOMAIN_SECURITY', label: 'Segurança 2FA & Domínio' },
+                    ].map((sub) => {
+                      const isSubActive =
+                        activeModule === 'ADMIN_RBAC' && activeAdminSubView === sub.id;
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectAdminRbac(sub.id);
+                            closeMobileIfOpen();
+                          }}
+                          className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                            isSubActive
+                              ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                              : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                          }`}
+                        >
+                          <span className="truncate">{sub.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </nav>
       </div>
 
-      <div className="p-3 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
+      <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
         <div className="font-bold text-[#0d2b4e]">CRM • SETA TELECOM</div>
         <div>Portal HubSpot #4369067</div>
         <div>4 Pipelines Ativos • Base Independente</div>
@@ -461,7 +557,7 @@ export default function CrmSidebar({
   return (
     <>
       {/* DESKTOP SIDEBAR (>= md) */}
-      <aside className="hidden md:flex w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none rounded-l-lg">
+      <aside className="hidden md:flex w-60 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none rounded-l-lg">
         {renderSidebarContent(false)}
       </aside>
 

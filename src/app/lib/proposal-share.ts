@@ -80,13 +80,17 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
   },
 ];
 
+export type ProposalLightTemplateId =
+  | 'CLEAN_CORPORATE_LIGHT'
+  | 'MINIMAL_SWISS_PAPER'
+  | 'EXECUTIVE_SOFT_INDIGO'
+  | 'FOLHA_ORCAMENTO'
+  | 'EXECUTIVO_CORPORATIVO'
+  | 'DESIGN_CONSULTORIA'
+  | 'INSTITUCIONAL_SETA_TELECOM';
 
 export interface ProposalTemplateOptionSpec {
-  id:
-    | 'FOLHA_ORCAMENTO'
-    | 'EXECUTIVO_CORPORATIVO'
-    | 'DESIGN_CONSULTORIA'
-    | 'INSTITUCIONAL_SETA_TELECOM';
+  id: ProposalLightTemplateId;
   label: string;
   shortLabel: string;
   description: string;
@@ -96,77 +100,164 @@ export const PROPOSAL_TEMPLATE_STYLE_OPTIONS: ProposalTemplateOptionSpec[] = [
   {
     id: 'FOLHA_ORCAMENTO',
     label: '1. Folha de Orçamento Direta (Comercial & Objetiva)',
-    shortLabel: 'Folha de Orçamento Direta',
-    description:
-      'Design estilo folha de orçamento comercial: cabeçalho compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite na mesma folha.',
+    shortLabel: '1. Folha de Orçamento',
+    description: 'Cabeçalho técnico compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite comercial na mesma folha.',
   },
   {
     id: 'EXECUTIVO_CORPORATIVO',
     label: '2. Proposta Corporativa Executiva (B2B Formal)',
-    shortLabel: 'Corporativo Executivo B2B',
-    description:
-      'Layout executivo formal com Quadro de Resumo Financeiro em destaque no topo, blocos de Proponente e Destinatário, condições contratuais e assinatura digital.',
+    shortLabel: '2. Corporativo Executivo',
+    description: 'Design corporativo formal com Quadro de Resumo Financeiro em destaque antes dos itens, blocos de Proponente/Destinatário e assinatura digital.',
   },
   {
     id: 'DESIGN_CONSULTORIA',
-    label: '3. Proposta de Consultoria & Arquitetura Técnica',
-    shortLabel: 'Design de Consultoria Técnica',
-    description:
-      'Estrutura consultiva numerada por seções (01. Diagnóstico & Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Investimento & Ativos, 04. Formalização).',
+    label: '3. Design de Consultoria & Arquitetura Técnica',
+    shortLabel: '3. Design Consultoria',
+    description: 'Estrutura consultiva numerada por capítulos (01. Diagnóstico & Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Composição do Investimento, 04. Formalização).',
   },
   {
     id: 'INSTITUCIONAL_SETA_TELECOM',
-    label: '4. Institucional Seta Telecom + Portfólio de Tecnologias + Folha de Orçamento',
-    shortLabel: 'Institucional Seta + Tecnologias + Orçamento',
-    description:
-      'Apresenta no início uma introdução sobre a Seta Telecom e os serviços e tecnologias em que atua (PABX IP/VoIP, SD-WAN/Redes, Wi-Fi 6/Switches PoE, Locação HaaS & Suporte) antes de trazer a Folha de Orçamento completa.',
+    label: '4. Institucional Seta Telecom + Tecnologias + Folha de Orçamento',
+    shortLabel: '4. Institucional Seta + Orçamento',
+    description: 'Apresentação da Seta Telecom e portfólio de tecnologias seguida da Folha de Orçamento completa.',
   },
 ];
 
+export const SETA_TELECOM_INSTITUTIONAL_SUMMARY = {
+  eyebrow: 'Apresentação Institucional — Seta Telecom (setatelecom.com.br)',
+  headline:
+    'Seta Telecom & Seta | IT — Infraestrutura de TI, Redes, Segurança & Locação Corporativa (HaaS)',
+  marketTimeLabel: 'Tempo de mercado',
+  marketTime: 'Mais de 18 anos de atuação no mercado corporativo brasileiro;',
+  locationLabel: 'Localização',
+  location:
+    'Sede em Alphaville, Campinas/SP (Rua Guapuruvu, 242 — 3º andar, CEP 13098-323), com estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
+  partnersLabel: 'Parceiros estratégicos (Multi-Vendor)',
+  partners:
+    'Cisco, Dell, HPE, Fortinet, Aruba, Palo Alto, SonicWall, Juniper, NetApp, Acronis, Lenovo e Meraki;',
+  servicesTitle:
+    'Serviços e Soluções — Portfólio Oficial Seta Telecom (setatelecom.com.br)',
+} as const;
+
+export const SETA_TELECOM_OFFICIAL_SERVICES_TOPICS: readonly string[] = [
+  'Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX)',
+  'Switching Corporativo & Data Center (Cisco Catalyst, Nexus, Aruba, Fortinet)',
+  'Roteadores & SD-WAN',
+  'Cybersecurity & Firewalls NGFW Multi-Vendor',
+  'Access Points & Wi-Fi Corporativo (Wi-Fi 6 / 6E / 7)',
+  'Servidores (Dell PowerEdge, HPE ProLiant, Lenovo, Cisco UCS), Storages & Nobreaks',
+  'Endpoints Corporativos (Notebooks & Desktops)',
+  'NOC Gerenciado 24/7, Suporte Técnico L1+L2 & Manutenção de Redes',
+  'Spare Parts Premium (+500 SKUs para substituição rápida) & Cobertura SmartNet / ProSupport',
+  'Backup Imutável & Disaster Recovery (Acronis Cyber Protect / Compliance LGPD)',
+] as const;
+
 export const SETA_TELECOM_PORTFOLIO_PILLARS = [
   {
-    code: 'VOIP_PABX_UC',
-    title: 'Telefonia IP, PABX Cloud & Comunicação Unificada',
-    subtitle: 'Voz Corporativa de Alta Disponibilidade',
+    code: 'HAAS_SERVERS_ENDPOINTS',
+    title: 'Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX)',
+    subtitle: 'Servidores, Storages, Nobreaks & Endpoints Corporativos',
     items: [
-      'Centrais PABX IP Seta Cloud (Cluster / High-Availability) e Appliances dedicados',
-      'Gateways de Voz E1 / SIP / FXO / FXS e sobrevivência de chamadas',
-      'Terminais IP Gigabit PoE (Yealink, Grandstream, Cisco) e headsets corporativos',
-      'URA inteligente, gravação de chamadas, filas de atendimento e tarifação',
+      'Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX)',
+      'Servidores (Dell PowerEdge, HPE ProLiant, Lenovo, Cisco UCS), Storages & Nobreaks',
+      'Endpoints Corporativos (Notebooks & Desktops)',
     ],
   },
   {
-    code: 'SDWAN_SECURITY',
-    title: 'Conectividade Corporativa, SD-WAN & Segurança de Borda',
-    subtitle: 'Continuidade de Negócios e Tráfego Crítico',
+    code: 'SWITCHING_WIFI_ROUTING',
+    title: 'Switching Corporativo, Roteadores, SD-WAN & Wi-Fi 6 / 6E / 7',
+    subtitle: 'Infraestrutura de Redes & Data Center Multi-Vendor',
     items: [
-      'Roteadores Corporativos (Cisco ISR, FortiGate, Mikrotik Enterprise)',
-      'Arquitetura SD-WAN com balanceamento e failover automático Dual-WAN / 5G',
-      'Firewalls Next-Generation (NGFW / UTM), VPN Site-to-Site e Client-to-Site',
-      'Priorização inteligente de tráfego (QoS) para voz, vídeo e ERP em nuvem',
+      'Switching Corporativo & Data Center (Cisco Catalyst, Nexus, Aruba, Fortinet)',
+      'Roteadores & SD-WAN',
+      'Access Points & Wi-Fi Corporativo (Wi-Fi 6 / 6E / 7)',
     ],
   },
   {
-    code: 'INFRA_SWITCH_WIFI',
-    title: 'Infraestrutura de Redes, Switches PoE+ & Wi-Fi 6 Corporativo',
-    subtitle: 'Switching L2/L3 e Cobertura de Alta Densidade',
+    code: 'CYBERSECURITY_BACKUP_DR',
+    title: 'Cybersecurity NGFW, Backup Imutável & Disaster Recovery',
+    subtitle: 'Proteção de Borda & Continuidade de Negócios LGPD',
     items: [
-      'Switches Gerenciáveis L2/L3 Gigabit e 10G com alimentação PoE/PoE+',
-      'Projetos de Wi-Fi 6 Corporativo para escritórios, indústrias e centros logísticos',
-      'Segmentação lógica de redes (VLANs), cabeamento estruturado e certificação',
-      'Sistemas de energia ininterrupta (Nobreaks Online Dupla Conversão para racks)',
+      'Cybersecurity & Firewalls NGFW Multi-Vendor',
+      'Backup Imutável & Disaster Recovery (Acronis Cyber Protect / Compliance LGPD)',
     ],
   },
   {
-    code: 'HAAS_NOC_SERVICES',
-    title: 'Locação de Ativos (HaaS) & Engenharia / Suporte Especializado',
-    subtitle: 'Outsourcing de Hardware e Gestão Fim a Fim',
+    code: 'NOC_24X7_SPARE_PARTS',
+    title: 'NOC Gerenciado 24/7, Suporte L1+L2 & Spare Parts (+500 SKUs)',
+    subtitle: 'Manutenção de Redes & Cobertura SmartNet / ProSupport',
     items: [
-      'Locação pura de equipamentos TI/Telecom (100% OPEX • Súmula Vinculante 31 STF)',
-      'Implantação técnica assistida, homologação de troncos SIP e migração sem parada',
-      'Monitoramento proativo, manutenção preventiva e corretiva especializada',
-      'Substituição expressa de equipamentos e gestão completa do ciclo de vida',
+      'NOC Gerenciado 24/7, Suporte Técnico L1+L2 & Manutenção de Redes',
+      'Spare Parts Premium (+500 SKUs para substituição rápida) & Cobertura SmartNet / ProSupport',
     ],
+  },
+] as const;
+
+export const SETA_TELECOM_HIRING_FLOW_TITLE =
+  'Fluxo de contratação de locação — Cliente Seta Telecom';
+
+export interface SetaHiringFlowStep {
+  step: number;
+  title: string;
+  description: string;
+  fullText: string;
+}
+
+export const SETA_TELECOM_HIRING_FLOW_STEPS: readonly SetaHiringFlowStep[] = [
+  {
+    step: 1,
+    title: 'Solicitar uma cotação',
+    description:
+      'O cliente informa quais equipamentos ou soluções precisa, as quantidades e o período desejado de locação.',
+    fullText:
+      '1. Solicitar uma cotação — O cliente informa quais equipamentos ou soluções precisa, as quantidades e o período desejado de locação.',
+  },
+  {
+    step: 2,
+    title: 'Receber a proposta comercial',
+    description:
+      'A Seta apresenta equipamentos, valores mensais, prazo contratual, SLA e condições de entrega.',
+    fullText:
+      '2. Receber a proposta comercial — A Seta apresenta equipamentos, valores mensais, prazo contratual, SLA e condições de entrega.',
+  },
+  {
+    step: 3,
+    title: 'Aprovar a proposta',
+    description: 'O cliente confirma formalmente o aceite das condições comerciais.',
+    fullText:
+      '3. Aprovar a proposta — O cliente confirma formalmente o aceite das condições comerciais.',
+  },
+  {
+    step: 4,
+    title: 'Enviar documentação cadastral',
+    description:
+      'O cliente fornece dados da empresa, documentação necessária e informações do responsável legal para análise cadastral e financeira.',
+    fullText:
+      '4. Enviar documentação cadastral — O cliente fornece dados da empresa, documentação necessária e informações do responsável legal para análise cadastral e financeira.',
+  },
+  {
+    step: 5,
+    title: 'Assinar o contrato de locação',
+    description:
+      'Após aprovação cadastral, o representante legal assina eletronicamente o contrato.',
+    fullText:
+      '5. Assinar o contrato de locação — Após aprovação cadastral, o representante legal assina eletronicamente o contrato.',
+  },
+  {
+    step: 6,
+    title: 'Receber os equipamentos',
+    description:
+      'A Seta realiza a entrega no endereço acordado. O cliente confere e formaliza o recebimento.',
+    fullText:
+      '6. Receber os equipamentos — A Seta realiza a entrega no endereço acordado. O cliente confere e formaliza o recebimento.',
+  },
+  {
+    step: 7,
+    title: 'Iniciar a locação',
+    description:
+      'Começa a vigência operacional e o faturamento conforme as condições estabelecidas no contrato.',
+    fullText:
+      '7. Iniciar a locação — Começa a vigência operacional e o faturamento conforme as condições estabelecidas no contrato.',
   },
 ] as const;
 
@@ -200,10 +291,19 @@ export function resolveProposalDeliveryLeadTime(
 
 export function resolveProposalLayoutKind(
   templateStyle?: string
-): 'FOLHA_ORCAMENTO' | 'EXECUTIVO_CORPORATIVO' | 'DESIGN_CONSULTORIA' | 'INSTITUCIONAL_SETA_TELECOM' {
-  if (templateStyle === 'FOLHA_ORCAMENTO') return 'FOLHA_ORCAMENTO';
-  if (templateStyle === 'EXECUTIVO_CORPORATIVO') return 'EXECUTIVO_CORPORATIVO';
-  if (templateStyle === 'DESIGN_CONSULTORIA' || templateStyle === 'LOCACAO_DETALHADA_SLA') {
+): ProposalLightTemplateId {
+  if (
+    templateStyle === 'FOLHA_ORCAMENTO' ||
+    templateStyle === 'EXECUTIVO_CORPORATIVO' ||
+    templateStyle === 'DESIGN_CONSULTORIA' ||
+    templateStyle === 'INSTITUCIONAL_SETA_TELECOM'
+  ) {
+    return templateStyle;
+  }
+  if (templateStyle === 'MINIMAL_SWISS_PAPER') {
+    return 'FOLHA_ORCAMENTO';
+  }
+  if (templateStyle === 'EXECUTIVE_SOFT_INDIGO' || templateStyle === 'LOCACAO_DETALHADA_SLA') {
     return 'DESIGN_CONSULTORIA';
   }
   return 'INSTITUCIONAL_SETA_TELECOM';
@@ -455,7 +555,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     paymentCondition: cleanedPaymentCondition || next.paymentCondition || '',
     deliveryLeadTime: resolvedDeliveryLeadTime,
     deliveryForecast: resolvedDeliveryLeadTime,
-    templateStyle: next.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
+    templateStyle: next.templateStyle || 'CLEAN_CORPORATE_LIGHT',
     slaTier: resolvedSla.id,
     slaAvailabilityPercent: resolvedSla.slaAvailabilityPercent,
     slaResponseHours: resolvedSla.slaResponseHours,
@@ -554,7 +654,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       c: computed.code,
       t: computed.title,
       bt: computed.budgetType,
-      ts: computed.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
+      ts: computed.templateStyle || 'CLEAN_CORPORATE_LIGHT',
       sl: computed.slaTier,
       sa: computed.slaAvailabilityPercent,
       sr: computed.slaResponseHours,
@@ -696,7 +796,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       title: p.t,
       budgetType: (p.bt as ErpCommercialProposal['budgetType']) || undefined,
       templateStyle:
-        (p.ts as ErpCommercialProposal['templateStyle']) || 'INSTITUCIONAL_SETA_TELECOM',
+        (p.ts as ErpCommercialProposal['templateStyle']) || 'CLEAN_CORPORATE_LIGHT',
       slaTier: p.sl || undefined,
       slaAvailabilityPercent: p.sa || undefined,
       slaResponseHours: p.sr !== undefined ? Number(p.sr) : undefined,

@@ -18,10 +18,16 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronRight,
-  Plus,
+  PanelLeftClose,
   X,
 } from 'lucide-react';
 import { GestaoClickMenuSection } from './ErpGestaoClickTab';
+
+export type GestaoClickCorporateCategory =
+  | 'VISÃO GERAL'
+  | 'COMERCIAL & LOCAÇÃO'
+  | 'OPERAÇÃO & TÉCNICO'
+  | 'FINANCEIRO, FISCAL & GOVERNANÇA';
 
 export interface GestaoClickSubItem {
   id: string;
@@ -32,19 +38,29 @@ export interface GestaoClickSubItem {
 export interface GestaoClickNavGroup {
   id: GestaoClickMenuSection;
   label: string;
+  category: GestaoClickCorporateCategory;
   icon: React.ComponentType<{ className?: string }>;
   subItems?: GestaoClickSubItem[];
 }
+
+export const GESTAO_CLICK_CORPORATE_BLOCKS: GestaoClickCorporateCategory[] = [
+  'VISÃO GERAL',
+  'COMERCIAL & LOCAÇÃO',
+  'OPERAÇÃO & TÉCNICO',
+  'FINANCEIRO, FISCAL & GOVERNANÇA',
+];
 
 export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'INICIO',
     label: 'Início (Visão Geral)',
+    category: 'VISÃO GERAL',
     icon: Home,
   },
   {
     id: 'CADASTROS',
     label: 'Cadastros',
+    category: 'COMERCIAL & LOCAÇÃO',
     icon: Users,
     subItems: [
       { id: 'CAD_CLIENTES', label: 'Clientes' },
@@ -57,6 +73,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'ITENS',
     label: 'Itens',
+    category: 'COMERCIAL & LOCAÇÃO',
     icon: Barcode,
     subItems: [
       { id: 'ITENS_TODOS', label: 'Todos os itens' },
@@ -68,6 +85,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'ORCAMENTOS',
     label: 'Orçamentos / Propostas',
+    category: 'COMERCIAL & LOCAÇÃO',
     icon: FileText,
     subItems: [
       { id: 'ORC_TODOS', label: 'Todos os orçamentos' },
@@ -77,8 +95,22 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     ],
   },
   {
+    id: 'CONTRATOS',
+    label: 'Contratos',
+    category: 'COMERCIAL & LOCAÇÃO',
+    icon: FileSignature,
+    subItems: [
+      { id: 'CTR_TODOS', label: 'Todos os contratos' },
+      { id: 'CTR_LOCACOES', label: 'Locações' },
+      { id: 'CTR_SERVICOS', label: 'Serviços' },
+      { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },
+      { id: 'CTR_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
+    ],
+  },
+  {
     id: 'VENDAS',
     label: 'Vendas',
+    category: 'COMERCIAL & LOCAÇÃO',
     icon: ShoppingBasket,
     subItems: [
       { id: 'VENDAS_TODAS', label: 'Todas as vendas' },
@@ -91,6 +123,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'ORDENS_SERVICOS',
     label: 'Ordens de serviços',
+    category: 'OPERAÇÃO & TÉCNICO',
     icon: Wrench,
     subItems: [
       { id: 'OS_GERENCIAR', label: 'Gerenciar O.S.' },
@@ -101,6 +134,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'ESTOQUE',
     label: 'Estoque',
+    category: 'OPERAÇÃO & TÉCNICO',
     icon: Boxes,
     subItems: [
       { id: 'EST_MOVIMENTACOES', label: 'Movimentações' },
@@ -112,8 +146,15 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     ],
   },
   {
+    id: 'ATENDIMENTOS',
+    label: 'Atendimentos',
+    category: 'OPERAÇÃO & TÉCNICO',
+    icon: MessageSquare,
+  },
+  {
     id: 'FINANCEIRO',
     label: 'Financeiro',
+    category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: Wallet,
     subItems: [
       { id: 'FIN_PAGAR', label: 'Contas a pagar' },
@@ -127,6 +168,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'FISCAL',
     label: 'Fiscal',
+    category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: Receipt,
     subItems: [
       { id: 'FIS_TODAS', label: 'Todas as notas e faturas' },
@@ -139,25 +181,9 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     ],
   },
   {
-    id: 'CONTRATOS',
-    label: 'Contratos',
-    icon: FileSignature,
-    subItems: [
-      { id: 'CTR_TODOS', label: 'Todos os contratos' },
-      { id: 'CTR_LOCACOES', label: 'Locações' },
-      { id: 'CTR_SERVICOS', label: 'Serviços' },
-      { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },
-      { id: 'CTR_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
-    ],
-  },
-  {
-    id: 'ATENDIMENTOS',
-    label: 'Atendimentos',
-    icon: MessageSquare,
-  },
-  {
     id: 'RELATORIOS',
     label: 'Relatórios',
+    category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: LineChart,
     subItems: [
       { id: 'REL_CADASTROS', label: 'Cadastros' },
@@ -174,11 +200,13 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
     id: 'DATA_HEALTH_ERP',
     label: 'Data Health (ERP)',
+    category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: ShieldCheck,
   },
   {
     id: 'CONFIGURACOES',
     label: 'Configurações',
+    category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: Settings,
     subItems: [
       { id: 'CFG_USUARIOS', label: 'Usuários' },
@@ -203,6 +231,8 @@ interface GestaoClickSidebarProps {
   onNewProposal: () => void;
   companyCnpj: string;
   taxRegime: string;
+  moduleCounts?: Partial<Record<GestaoClickMenuSection, number>>;
+  onToggleCollapse?: () => void;
   mobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
 }
@@ -211,46 +241,40 @@ export default function GestaoClickSidebar({
   activeSection,
   activeSubId,
   onSelect,
-  onNewProposal,
   companyCnpj,
   taxRegime,
+  moduleCounts = {},
+  onToggleCollapse,
   mobileDrawerOpen = false,
   onCloseMobileDrawer,
 }: GestaoClickSidebarProps) {
   const closeMobileIfOpen = () => {
     if (onCloseMobileDrawer) onCloseMobileDrawer();
   };
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    CADASTROS: true,
-    ITENS: true,
-    ORCAMENTOS: true,
-    VENDAS: false,
-    ORDENS_SERVICOS: false,
-    ESTOQUE: false,
-    FINANCEIRO: false,
-    FISCAL: false,
-    CONTRATOS: true,
-    RELATORIOS: false,
-    CONFIGURACOES: false,
-  });
+
+  // Modo Acordeão Inteligente: inicia apenas o grupo ativo expandido
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => ({
+    [activeSection]: true,
+  }));
 
   useEffect(() => {
     if (activeSection) {
-      setExpanded((prev) => ({ ...prev, [activeSection]: true }));
+      setExpanded({ [activeSection]: true });
     }
   }, [activeSection]);
 
   const handleGroupClick = (group: GestaoClickNavGroup) => {
     if (!group.subItems || group.subItems.length === 0) {
+      setExpanded({});
       onSelect(group.id, group.id);
       closeMobileIfOpen();
       return;
     }
     const isCurrentlyOpen = Boolean(expanded[group.id]);
     if (activeSection === group.id) {
-      setExpanded((prev) => ({ ...prev, [group.id]: !isCurrentlyOpen }));
+      setExpanded({ [group.id]: !isCurrentlyOpen });
     } else {
-      setExpanded((prev) => ({ ...prev, [group.id]: true }));
+      setExpanded({ [group.id]: true });
       onSelect(group.id, group.subItems[0].id);
     }
   };
@@ -258,125 +282,148 @@ export default function GestaoClickSidebar({
   const renderSidebarInner = (isMobileDrawer = false) => (
     <>
       <div>
-        {/* LOGO OFICIAL SETA | IT */}
-        <div className="p-3.5 bg-[#f8f9fb] flex items-center justify-between gap-2">
-          <div
+        {/* CABEÇALHO CORPORATIVO COMPACTO DO MÓDULO ERP */}
+        <div className="px-3 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
+          <button
+            type="button"
             onClick={() => {
               onSelect('INICIO', 'INICIO');
               closeMobileIfOpen();
             }}
-            className="flex-1 bg-white border border-slate-200 rounded-lg py-3.5 px-4 flex flex-col items-center justify-center gap-1 shadow-2xs cursor-pointer hover:border-slate-300 transition"
+            className="text-left min-w-0 cursor-pointer group"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
-              <span className="w-[2px] h-6 bg-[#f26522] inline-block" />
-              <span className="text-2xl font-black tracking-tight text-[#f26522]">IT</span>
-            </div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-              Módulo ERP
+            <span className="text-[10px] font-black uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#ff7a59] transition block truncate">
+              MÓDULO ERP • GESTÃOCLICK
             </span>
-          </div>
-          {isMobileDrawer && (
+            <span className="text-[10px] text-slate-500 font-semibold block truncate">
+              Backoffice, Locação &amp; Fiscal
+            </span>
+          </button>
+
+          {isMobileDrawer ? (
             <button
               type="button"
               onClick={closeMobileIfOpen}
               aria-label="Fechar Menu ERP"
-              className="p-2 rounded-lg bg-slate-200/80 text-slate-700 hover:bg-slate-300 cursor-pointer shrink-0"
+              className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
+          ) : (
+            onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title="Recolher menu lateral do ERP"
+                aria-label="Recolher menu lateral do ERP"
+                className="p-1.5 rounded-md text-slate-500 hover:text-[#0d2b4e] hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            )
           )}
         </div>
 
-        {/* BOTÃO RÁPIDO + NOVA PROPOSTA / ORÇAMENTO */}
-        <div className="px-3.5 pb-2.5">
-          <button
-            type="button"
-            onClick={() => {
-              onNewProposal();
-              closeMobileIfOpen();
-            }}
-            className="w-full py-2 px-3 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> + Nova Proposta / Orçamento
-          </button>
-        </div>
-
-        {/* ÁRVORE VERTICAL DE MENUS E SUBMENUS DO ERP */}
-        <nav className="px-2 pb-4 space-y-0.5">
-          {GESTAO_CLICK_MENU_TREE.map((group) => {
-            const Icon = group.icon;
-            const hasSubs = Boolean(group.subItems && group.subItems.length > 0);
-            const isOpen = Boolean(expanded[group.id]);
-            const isGroupActive = activeSection === group.id;
-
+        {/* ÁRVORE VERTICAL EM 4 BLOCOS CORPORATIVOS + ACORDEÃO INTELIGENTE */}
+        <nav className="px-2 py-2.5 space-y-3">
+          {GESTAO_CLICK_CORPORATE_BLOCKS.map((blockName) => {
+            const groups = GESTAO_CLICK_MENU_TREE.filter((g) => g.category === blockName);
             return (
-              <div key={group.id} className="rounded-md">
-                <button
-                  type="button"
-                  onClick={() => handleGroupClick(group)}
-                  className={`w-full px-3 py-2.5 rounded-md flex items-center justify-between text-[13px] transition cursor-pointer ${
-                    isGroupActive
-                      ? 'bg-[#1e3a6e] text-white font-extrabold shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-bold'
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5 truncate">
-                    <Icon
-                      className={`w-4 h-4 shrink-0 ${
-                        isGroupActive ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
-                      }`}
-                    />
-                    <span className="truncate">{group.label}</span>
-                  </span>
-                  {hasSubs && (
-                    <span className={isGroupActive ? 'text-white' : 'text-slate-400'}>
-                      {isOpen ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      )}
-                    </span>
-                  )}
-                </button>
+              <div key={blockName} className="space-y-0.5">
+                <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                  {blockName}
+                </div>
+                {groups.map((group) => {
+                  const Icon = group.icon;
+                  const hasSubs = Boolean(group.subItems && group.subItems.length > 0);
+                  const isOpen = Boolean(expanded[group.id]);
+                  const isGroupActive = activeSection === group.id;
+                  const countVal = moduleCounts[group.id];
 
-                {hasSubs && isOpen && (
-                  <div className="ml-4 pl-2.5 my-1 border-l-2 border-[#1e3a6e]/25 space-y-0.5">
-                    {group.subItems!.map((sub) => {
-                      const isSubActive =
-                        isGroupActive &&
-                        (activeSubId === sub.id ||
-                          (!activeSubId && sub === group.subItems![0]));
-                      return (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          onClick={() => {
-                            onSelect(group.id, sub.id);
-                            closeMobileIfOpen();
-                          }}
-                          className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                            isSubActive
-                              ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                              : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
-                          }`}
-                        >
-                          <span className="truncate">{sub.label}</span>
-                          {sub.hasArrowRight && (
-                            <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                  return (
+                    <div key={group.id} className="rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => handleGroupClick(group)}
+                        className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                          isGroupActive
+                            ? 'bg-[#1e3a6e] text-white font-extrabold shadow-xs'
+                            : 'text-[#1e3a6e] hover:bg-white font-bold'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <Icon
+                            className={`w-4 h-4 shrink-0 ${
+                              isGroupActive ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                            }`}
+                          />
+                          <span className="truncate">{group.label}</span>
+                        </span>
+
+                        <span className="flex items-center gap-1 shrink-0">
+                          {typeof countVal === 'number' && (
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                isGroupActive
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-slate-200/80 text-slate-600'
+                              }`}
+                            >
+                              {countVal}
+                            </span>
                           )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                          {hasSubs && (
+                            <span className={isGroupActive ? 'text-white' : 'text-slate-400'}>
+                              {isOpen ? (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+
+                      {hasSubs && isOpen && (
+                        <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#1e3a6e]/25 space-y-0.5">
+                          {group.subItems!.map((sub) => {
+                            const isSubActive =
+                              isGroupActive &&
+                              (activeSubId === sub.id ||
+                                (!activeSubId && sub === group.subItems![0]));
+                            return (
+                              <button
+                                key={sub.id}
+                                type="button"
+                                onClick={() => {
+                                  onSelect(group.id, sub.id);
+                                  closeMobileIfOpen();
+                                }}
+                                className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                                  isSubActive
+                                    ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                                    : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
+                                }`}
+                              >
+                                <span className="truncate">{sub.label}</span>
+                                {sub.hasArrowRight && (
+                                  <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
         </nav>
       </div>
 
-      <div className="p-3 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
+      <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
         <div className="font-bold text-[#0d2b4e]">ERP • SETA TELECOM LTDA</div>
         <div>CNPJ {companyCnpj}</div>
         <div>Regime: {taxRegime}</div>
@@ -387,7 +434,7 @@ export default function GestaoClickSidebar({
   return (
     <>
       {/* DESKTOP SIDEBAR (>= md) */}
-      <aside className="hidden md:flex w-64 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none">
+      <aside className="hidden md:flex w-60 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none">
         {renderSidebarInner(false)}
       </aside>
 

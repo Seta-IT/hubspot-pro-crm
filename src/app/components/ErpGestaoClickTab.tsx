@@ -273,7 +273,7 @@ function computeContractValidityInfo(endDateStr: string, status: ErpRentalContra
   if (diffDays <= 60) {
     return {
       daysRemaining: diffDays,
-      label: `⚠️ Vence em ${diffDays} dia(s) (Janela de Renovação)`,
+      label: `Vence em ${diffDays} dia(s) (Janela de Renovação)`,
       cls: "bg-amber-100 text-amber-900 border border-amber-300",
       isWarning: true,
     };
@@ -1290,6 +1290,50 @@ export default function ErpGestaoClickTab({
     setEditingProposal(draftNew);
   };
 
+
+  const handleOpenErpCustomerByCompany = (companyId?: string | null, companyName?: string, companyCnpj?: string) => {
+    const matched = companies.find(
+      (c) =>
+        (companyId && c.id === companyId) ||
+        (companyCnpj && c.cnpj && c.cnpj.replace(/\D+/g, "") === companyCnpj.replace(/\D+/g, "")) ||
+        (companyName && c.name.toLowerCase() === companyName.toLowerCase())
+    );
+    if (matched) {
+      setEditingCustomerModal({ company: matched, isNew: false, readOnly: true });
+    } else {
+      setCadastrosSubTab("CLIENTES");
+      setActiveSubId("CAD_CLIENTES");
+      setCadastrosSearch(companyName || companyCnpj || "");
+      setActiveSection("CADASTROS");
+    }
+  };
+
+  const handleNavigateToContractFromDoc = (contractIdOrNumber?: string | null, companyName?: string) => {
+    const matched = rentalContracts.find(
+      (c) =>
+        (contractIdOrNumber && (c.id === contractIdOrNumber || c.contractNumber === contractIdOrNumber)) ||
+        (companyName && c.companyName.toLowerCase() === companyName.toLowerCase())
+    );
+    setContractsSubFilter("TODOS");
+    setActiveSubId("CTR_TODOS");
+    if (matched) {
+      setHighlightedContractId(matched.id);
+      setContractsSearchQuery(matched.contractNumber);
+    } else if (contractIdOrNumber) {
+      setContractsSearchQuery(contractIdOrNumber);
+    } else if (companyName) {
+      setContractsSearchQuery(companyName);
+    }
+    setActiveSection("CONTRATOS");
+  };
+
+  const handleNavigateToFiscalFromContract = (nfeNumberOrQuery: string) => {
+    setActiveSubId("FIS_TODOS");
+    setInvoicesStatusFilter("TODOS");
+    setInvoicesSearchQuery(nfeNumberOrQuery);
+    setActiveSection("FISCAL");
+  };
+
   const renderProposalsList = () => {
     const effectiveOrcTab: 'TODOS' | 'ORC_PRODUTOS' | 'ORC_SERVICOS' | 'ORC_AUXILIARES' =
       activeSubId === 'ORC_PRODUTOS' ||
@@ -1566,7 +1610,7 @@ export default function ErpGestaoClickTab({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
               <h3 className="text-sm font-extrabold text-slate-900">
-                🏷️ Situações de Orçamento &amp; Canais de Venda (GestãoClick)
+                Situações de Orçamento &amp; Canais de Venda (GestãoClick)
               </h3>
               <p className="text-xs text-slate-500">
                 Fluxo de aprovação comercial sincronizado com o Kanban de Negócios e Geração Automática de Contratos.
@@ -1611,7 +1655,7 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-extrabold text-slate-900">
-                  📄 Seletor de Template Padrão A4 &amp; Modelos de Proposta
+                  Seletor de Template Padrão A4 &amp; Modelos de Proposta
                 </h3>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">
                   Padrão Ativo: {defaultProposalTemplateStyle}
@@ -1652,7 +1696,7 @@ export default function ErpGestaoClickTab({
                             : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                         }`}
                       >
-                        {isActive ? `✓ ${tpl.label}` : tpl.label}
+                        {isActive ? `[Ativo] ${tpl.label}` : tpl.label}
                       </button>
                     );
                   })}
@@ -1692,7 +1736,7 @@ export default function ErpGestaoClickTab({
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-slate-400 bg-white text-slate-900 text-[11px] font-bold"
                     >
-                      👁️ Ver Exemplo A4
+                      Ver Exemplo A4
                     </a>
                   </div>
                 </div>
@@ -1732,7 +1776,7 @@ export default function ErpGestaoClickTab({
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
                     >
-                      👁️ Ver Exemplo A4
+                      Ver Exemplo A4
                     </a>
                   </div>
                 </div>
@@ -1772,7 +1816,7 @@ export default function ErpGestaoClickTab({
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
                     >
-                      👁️ Ver Exemplo A4
+                      Ver Exemplo A4
                     </a>
                   </div>
                 </div>
@@ -1810,7 +1854,7 @@ export default function ErpGestaoClickTab({
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-amber-600 bg-white text-amber-900 text-[11px] font-bold"
                     >
-                      👁️ Ver Exemplo A4
+                      Ver Exemplo A4
                     </a>
                   </div>
                 </div>
@@ -1906,10 +1950,27 @@ export default function ErpGestaoClickTab({
                             v{prop.version || 1}.0 ({(prop.versionHistory || []).length || 1} rev.)
                           </span>
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{prop.companyName}</div>
-                          <div className="text-[10px] text-slate-500">
-                            CNPJ: {prop.companyCnpj} • A/C: {prop.careOf || prop.contactName}
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenErpCustomerByCompany(prop.companyId, prop.companyName, prop.companyCnpj)}
+                            className="font-bold text-[#1e3a6e] hover:underline text-left cursor-pointer block"
+                            title="Abrir cadastro do cliente (Navegação Cruzada)"
+                          >
+                            {prop.companyName}
+                          </button>
+                          <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5">
+                            <span>CNPJ: {prop.companyCnpj} • A/C: {prop.careOf || prop.contactName}</span>
+                            {isConverted && (
+                              <button
+                                type="button"
+                                onClick={() => handleNavigateToContractFromDoc(prop.convertedContractId, prop.companyName)}
+                                className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono text-[9px] font-extrabold hover:bg-emerald-100 cursor-pointer"
+                                title="Ir direto para o Contrato vinculado"
+                              >
+                                Contrato &rarr;
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td className="py-2.5 px-3">
@@ -1972,7 +2033,7 @@ export default function ErpGestaoClickTab({
                               title="Editar Orçamento"
                               className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-extrabold cursor-pointer"
                             >
-                              ✏️ Editar
+                              Editar
                             </button>
                             <a
                               href={printUrl}
@@ -1981,7 +2042,7 @@ export default function ErpGestaoClickTab({
                               title="Imprimir PDF A4"
                               className="px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-bold"
                             >
-                              🖨️ PDF
+                              PDF
                             </a>
                             <button
                               type="button"
@@ -1992,7 +2053,7 @@ export default function ErpGestaoClickTab({
                               title="Copiar Link Público"
                               className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-[11px] font-bold cursor-pointer"
                             >
-                              📋
+                              Copiar
                             </button>
                             {!isConverted && (
                               <button
@@ -2002,7 +2063,7 @@ export default function ErpGestaoClickTab({
                                 title="Aprovar e Gerar Contrato"
                                 className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer"
                               >
-                                ✓
+                                Aprovar
                               </button>
                             )}
                           </div>
@@ -2098,7 +2159,7 @@ export default function ErpGestaoClickTab({
                       }}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar Orçamento
+                      <Edit3 className="w-3.5 h-3.5" /> Editar Orçamento
                     </button>
 
                     <button
@@ -2388,7 +2449,7 @@ export default function ErpGestaoClickTab({
                 onClick={() => setShowBatchBillingModal(true)}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer shadow-xs"
               >
-                ⚡ Faturamento em Massa &amp; E-mails ({selectedContractIdsForBatch.length > 0 ? selectedContractIdsForBatch.length : rentalContracts.filter((c) => c.status !== "ENCERRADO").length})
+                Faturamento em Massa &amp; E-mails ({selectedContractIdsForBatch.length > 0 ? selectedContractIdsForBatch.length : rentalContracts.filter((c) => c.status !== "ENCERRADO").length})
               </button>
               <button
                 type="button"
@@ -2501,7 +2562,7 @@ export default function ErpGestaoClickTab({
                         onClick={() => setEditingProposal(prop)}
                         className="px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 text-[11px] font-bold hover:bg-slate-50 cursor-pointer"
                       >
-                        ✏️ Editar
+                        Editar
                       </button>
                       <button
                         type="button"
@@ -2694,14 +2755,14 @@ export default function ErpGestaoClickTab({
                             }
                             className="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-900 text-white text-[11px] font-bold cursor-pointer"
                           >
-                            🔄 Substituir S/N (RMA)
+                            Substituir S/N (RMA)
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditingContract(row.contract)}
                             className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
                           >
-                            ✏️ Contrato
+                            Contrato
                           </button>
                         </td>
                       </tr>
@@ -2807,10 +2868,27 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3 font-mono font-black text-[#1e3a6e]">
                           {ctr.contractNumber}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{ctr.companyName}</div>
-                          <div className="font-mono text-[11px] text-slate-500">
-                            {ctr.companyCnpj || '—'}
+                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenErpCustomerByCompany(ctr.companyId, ctr.companyName, ctr.companyCnpj)}
+                            className="font-bold text-[#1e3a6e] hover:underline text-left cursor-pointer block"
+                            title="Abrir cadastro do cliente (Navegação Cruzada)"
+                          >
+                            {ctr.companyName}
+                          </button>
+                          <div className="font-mono text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5">
+                            <span>{ctr.companyCnpj || '—'}</span>
+                            {ctr.remessaNfeNumber && (
+                              <button
+                                type="button"
+                                onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
+                                className="px-1.5 py-0.2 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 font-mono text-[9px] font-extrabold hover:bg-blue-100 cursor-pointer"
+                                title="Ir para Nota Fiscal de Remessa / Fatura no módulo Fiscal"
+                              >
+                                NF {ctr.remessaNfeNumber} &rarr;
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td className="py-2.5 px-3">
@@ -2948,7 +3026,7 @@ export default function ErpGestaoClickTab({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs">
-              📤 Enviar Arquivo .TXT / .XML (NF-e Importação)
+              Enviar Arquivo .TXT / .XML (NF-e Importação)
               <input
                 type="file"
                 accept=".txt,.xml,text/plain,text/xml,application/xml"
@@ -3107,7 +3185,7 @@ export default function ErpGestaoClickTab({
                         className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
                         title="Confirmar recebimento físico da NF-e e incrementar saldo no catálogo"
                       >
-                        📦 Receber no Estoque
+                        Receber no Estoque
                       </button>
                       <button
                         type="button"
@@ -3129,7 +3207,7 @@ export default function ErpGestaoClickTab({
                         }
                         className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
                       >
-                        ✏️ Editar
+                        Editar
                       </button>
                       <button
                         type="button"
@@ -3138,7 +3216,7 @@ export default function ErpGestaoClickTab({
                         }
                         className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
                       >
-                        🗑️
+                        Excluir
                       </button>
                     </td>
                   </tr>
@@ -3303,7 +3381,7 @@ export default function ErpGestaoClickTab({
                 + Emitir NFS-e Serviço
               </button>
               <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer">
-                📤 Enviar Arquivo .TXT / .XML (NF-e Importação)
+                Enviar Arquivo .TXT / .XML (NF-e Importação)
                 <input
                   type="file"
                   accept=".txt,.xml,text/plain,text/xml,application/xml"
@@ -3587,7 +3665,7 @@ export default function ErpGestaoClickTab({
                   }
                   className="px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
                 >
-                  ✏️ Editar Parâmetros Fiscais
+                  Editar Parâmetros Fiscais
                 </button>
               </div>
             </div>
@@ -3777,14 +3855,41 @@ export default function ErpGestaoClickTab({
                         {inv.status}
                       </span>
                     </div>
-                    <h3 className="text-base font-extrabold text-slate-900">
-                      {inv.companyName} — <span className="font-mono text-sm">CNPJ {inv.companyCnpj}</span>
+                    <h3 className="text-base font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenErpCustomerByCompany(inv.companyId, inv.companyName, inv.companyCnpj)}
+                        className="text-[#1e3a6e] hover:underline cursor-pointer text-left"
+                        title="Abrir cadastro do cliente"
+                      >
+                        {inv.companyName}
+                      </button>
+                      <span>—</span>
+                      <span className="font-mono text-sm">CNPJ {inv.companyCnpj}</span>
                     </h3>
                     <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span>Competência: <strong>{inv.competenceMonth}</strong></span>
                       <span>Emissão: <strong>{inv.issueDate}</strong></span>
                       <span>Vencimento: <strong>{inv.dueDate}</strong></span>
                       {inv.cfop && <span>CFOP: <strong className="font-mono text-slate-700">{inv.cfop}</strong></span>}
+                      {(() => {
+                        const linkedCtr = rentalContracts.find(
+                          (c) =>
+                            (inv.rentalContractId && c.id === inv.rentalContractId) ||
+                            (inv.companyCnpj && c.companyCnpj && c.companyCnpj.replace(/\D+/g, "") === inv.companyCnpj.replace(/\D+/g, "")) ||
+                            c.companyName.toLowerCase() === inv.companyName.toLowerCase()
+                        );
+                        return linkedCtr ? (
+                          <button
+                            type="button"
+                            onClick={() => handleNavigateToContractFromDoc(linkedCtr.id, linkedCtr.companyName)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-[#1e3a6e] border border-indigo-200 font-mono text-[10px] font-extrabold cursor-pointer"
+                            title="Abrir Contrato vinculado (Navegação Cruzada)"
+                          >
+                            Contrato {linkedCtr.contractNumber} &rarr;
+                          </button>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
 
@@ -3807,7 +3912,7 @@ export default function ErpGestaoClickTab({
                       onClick={() => setEditingInvoice(inv)}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" /> ✏️ Editar
+                      <Edit3 className="w-3.5 h-3.5" /> Editar
                     </button>
                     <button
                       type="button"
@@ -3825,7 +3930,7 @@ export default function ErpGestaoClickTab({
                       }
                       className="inline-flex items-center gap-1 px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold cursor-pointer"
                     >
-                      <Mail className="w-3.5 h-3.5" /> ✉️ Enviar p/ Cliente
+                      <Mail className="w-3.5 h-3.5" /> Enviar p/ Cliente
                     </button>
                     <button
                       type="button"
@@ -3880,9 +3985,9 @@ export default function ErpGestaoClickTab({
 
   return (
     <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8]">
-      {/* TOP BAR AZUL MARINHO GESTÃOCLICK (#1e3a6e) */}
-      <div className="bg-[#1e3a6e] text-white px-3 sm:px-4 min-h-12 py-2 flex flex-wrap items-center justify-between gap-2 select-none">
-        <div className="flex items-center gap-2 sm:gap-3">
+      {/* BARRA DE CONTEXTO ULTRACOMPACTA E BREADCRUMB VIVO DO ERP (SEM DUPLICAÇÃO DE TOPO) */}
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 select-none">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setErpMobileDrawerOpen(true)}
@@ -3892,44 +3997,46 @@ export default function ErpGestaoClickTab({
             <Menu className="w-4 h-4" />
             <span>Menu ERP</span>
           </button>
-          <span className="text-sm sm:text-base font-extrabold tracking-tight">SETA ERP</span>
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
-            className="hidden md:inline-flex p-1.5 rounded hover:bg-white/10 cursor-pointer"
+            className="hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
             title="Recolher/Expandir menu lateral"
           >
             <Menu className="w-4 h-4" />
           </button>
-          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-            API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
-          </span>
+          <div className="flex items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSection('INICIO');
+                setActiveSubId('INICIO');
+              }}
+              className="font-extrabold text-[#1e3a6e] hover:underline cursor-pointer"
+            >
+              ERP
+            </button>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            <span className="font-bold text-slate-800">
+              {GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection)?.label || activeSection}
+            </span>
+            {(() => {
+              const activeGrp = GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection);
+              const subObj = activeGrp?.subItems?.find((s) => s.id === activeSubId);
+              return subObj ? (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-semibold text-[#ff7a59]">{subObj.label}</span>
+                </>
+              ) : null;
+            })()}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveSection('ORCAMENTOS');
-              openFullNewProposalModal('LOCACAO');
-            }}
-            className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] sm:text-xs font-extrabold shadow-xs cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" /> Nova Proposta
-          </button>
-          <button type="button" onClick={() => setActiveSection('CADASTROS')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Buscar">
-            <Search className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={() => setActiveSection('CONFIGURACOES')} className="p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Ajuda & API">
-            <HelpCircle className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={() => setActiveSection('FINANCEIRO')} className="relative p-1.5 rounded hover:bg-white/10 cursor-pointer" title="Notificações">
-            <Bell className="w-4 h-4" />
-            <span className="w-2 h-2 rounded-full bg-amber-400 absolute top-1 right-1" />
-          </button>
-          <div className="w-7 h-7 rounded-full bg-amber-400 text-slate-900 font-black text-xs flex items-center justify-center" title="Marcelo Lopes Mira">
-            MM
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
+          </span>
         </div>
       </div>
 
@@ -4011,6 +4118,19 @@ export default function ErpGestaoClickTab({
           <GestaoClickSidebar
             activeSection={activeSection}
             activeSubId={activeSubId}
+            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+            moduleCounts={{
+              CADASTROS: companies.length + suppliers.length + employees.length,
+              ITENS: catalog.length,
+              ORCAMENTOS: proposals.length,
+              CONTRATOS: rentalContracts.length,
+              VENDAS: salesOrders.length,
+              ORDENS_SERVICOS: serviceOrders.length,
+              ESTOQUE: catalog.length + purchaseOrders.length,
+              FINANCEIRO: financialEntries.length,
+              FISCAL: invoices.length,
+              ATENDIMENTOS: serviceOrders.length,
+            }}
             mobileDrawerOpen={erpMobileDrawerOpen}
             onCloseMobileDrawer={() => setErpMobileDrawerOpen(false)}
             onSelect={(sec, subId) => {
@@ -4923,7 +5043,7 @@ export default function ErpGestaoClickTab({
                             onClick={() => setEditingProductModal({ item: selItem, isNew: false })}
                             className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
                           >
-                            ✏️ Editar Item Selecionado ({selItem.gestaoClickCode})
+                            Editar Item Selecionado ({selItem.gestaoClickCode})
                           </button>
                         ) : null;
                       })()}
@@ -5051,14 +5171,14 @@ export default function ErpGestaoClickTab({
                               }
                               className="px-2 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
                             >
-                              ⚙️ Rápido
+                              Rápido
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingProductModal({ item: it, isNew: false })}
                               className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-bold cursor-pointer"
                             >
-                              ✏️ Editar (7 Abas)
+                              Editar (7 Abas)
                             </button>
                             <button
                               type="button"
@@ -5070,7 +5190,7 @@ export default function ErpGestaoClickTab({
                               }}
                               className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
                             >
-                              🗑️
+                              Excluir
                             </button>
                           </td>
                         </tr>
@@ -5225,7 +5345,7 @@ export default function ErpGestaoClickTab({
                           }
                           className="px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
                         >
-                          ↩️ + Registrar Devolução
+                          + Registrar Devolução
                         </button>
                         <button
                           type="button"
@@ -5292,14 +5412,14 @@ export default function ErpGestaoClickTab({
                                 }
                                 className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
                               >
-                                ✏️ Editar
+                                Editar
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteCollectionRecord('salesOrders', v.id, `Venda #${v.code}`)}
                                 className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
                               >
-                                🗑️
+                                Excluir
                               </button>
                             </td>
                           </tr>
@@ -5352,10 +5472,10 @@ export default function ErpGestaoClickTab({
               nextStatus?: 'Aguardando peça' | 'Concluída' | 'Em andamento';
               nextLabel?: string;
             }> = [
-              { status: 'Em andamento', title: '🔧 Em andamento', nextStatus: 'Concluída', nextLabel: '✅ Concluir' },
-              { status: 'Aguardando peça', title: '⏳ Aguardando peça', nextStatus: 'Em andamento', nextLabel: '🔧 Retomar' },
-              { status: 'Concluída', title: '✅ Concluída' },
-              { status: 'Cancelada', title: '🚫 Cancelada' },
+              { status: 'Em andamento', title: 'Em andamento', nextStatus: 'Concluída', nextLabel: 'Concluir' },
+              { status: 'Aguardando peça', title: 'Aguardando peça', nextStatus: 'Em andamento', nextLabel: 'Retomar' },
+              { status: 'Concluída', title: 'Concluída' },
+              { status: 'Cancelada', title: 'Cancelada' },
             ];
 
             const osEditorFields: GenericFieldSpec[] = [
@@ -5394,7 +5514,7 @@ export default function ErpGestaoClickTab({
                         !isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
-                      📋 Gerenciar O.S. (Lista)
+                      Gerenciar O.S. (Lista)
                     </button>
                     <button
                       type="button"
@@ -5406,7 +5526,7 @@ export default function ErpGestaoClickTab({
                         isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
-                      🗂️ Painel Kanban Técnico &amp; SLA
+                      Painel Kanban Técnico &amp; SLA
                     </button>
                     <button
                       type="button"
@@ -5527,7 +5647,7 @@ export default function ErpGestaoClickTab({
                                 <div className="font-bold text-slate-900">{os.companyName}</div>
                                 <div className="p-2 rounded bg-slate-50 border border-slate-100 text-[11px] space-y-0.5">
                                   <div className="font-semibold text-slate-800">
-                                    🖥️ {os.equipmentName || 'Appliance PABX IP / Switch PoE Seta'}
+                                    {os.equipmentName || 'Appliance PABX IP / Switch PoE Seta'}
                                   </div>
                                   <div className="font-mono text-[10px] text-indigo-800">
                                     S/N: {os.serialNumber || `SN-SETA-${os.code}`}
@@ -5540,7 +5660,7 @@ export default function ErpGestaoClickTab({
                                   )}
                                 </div>
                                 <div className="flex items-center justify-between text-[11px] text-slate-600">
-                                  <span>👷 {os.technicianName}</span>
+                                  <span>Técnico: {os.technicianName}</span>
                                   <strong className="text-slate-900">{formatBRL(os.totalAmount)}</strong>
                                 </div>
                                 <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
@@ -5583,7 +5703,7 @@ export default function ErpGestaoClickTab({
                                     }
                                     className="px-2 py-1 rounded bg-amber-500 text-white text-[10px] font-bold cursor-pointer"
                                   >
-                                    ✏️ Editar
+                                    Editar
                                   </button>
                                 </div>
                               </div>
@@ -5630,14 +5750,14 @@ export default function ErpGestaoClickTab({
                               }
                               className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
                             >
-                              ✏️ Editar
+                              Editar
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteCollectionRecord('serviceOrders', os.id, `O.S. #${os.code}`)}
                               className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
                             >
-                              🗑️
+                              Excluir
                             </button>
                           </td>
                         </tr>
@@ -5736,7 +5856,7 @@ export default function ErpGestaoClickTab({
                     }
                     className="px-3.5 py-2 rounded bg-amber-500 text-white text-xs font-extrabold cursor-pointer"
                   >
-                    ✏️ Editar Dados da Empresa
+                    Editar Dados da Empresa
                   </button>
                   <select
                     value={gestaoClickConfig.taxRegime}

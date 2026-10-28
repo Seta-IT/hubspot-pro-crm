@@ -3385,3 +3385,52 @@ describe("Proposta: Prazo de Entrega editável e 4 layouts de template", () => {
     assert.ok(loginPageSrc.includes("Usar este código (Preencher)"));
   });
 });
+
+describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP e Chamados)", () => {
+  it("valida indicadores de topo 100% contextuais, sidebars corporativas em blocos com acordeão único, navegação cruzada 1-clique no ERP e zero emojis nas 5 superfícies", () => {
+    const rootDir = process.cwd();
+    const pageSrc = fs.readFileSync(path.join(rootDir, "src/app/page.tsx"), "utf8");
+    const crmSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/CrmSidebar.tsx"), "utf8");
+    const gcSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/GestaoClickSidebar.tsx"), "utf8");
+    const erpTabSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ErpGestaoClickTab.tsx"), "utf8");
+    const sdSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ServiceDeskTab.tsx"), "utf8");
+
+    // 1. Indicadores de topo 100% contextuais por sistema ativo
+    assert.ok(pageSrc.includes("Forecast CRM:"));
+    assert.ok(pageSrc.includes("Saúde CRM:"));
+    assert.ok(pageSrc.includes("MRR Locação:"));
+    assert.ok(pageSrc.includes("Saúde ERP:"));
+    assert.ok(pageSrc.includes("SLA no Prazo:"));
+    assert.ok(pageSrc.includes("Saúde Chamados:"));
+
+    // 2. Sidebars corporativas em blocos nos 3 sistemas (ERP, CRM e Chamados)
+    assert.ok(gcSidebarSrc.includes("MÓDULO ERP • GESTÃOCLICK"));
+    assert.ok(gcSidebarSrc.includes("COMERCIAL & LOCAÇÃO"));
+    assert.ok(gcSidebarSrc.includes("OPERAÇÃO & TÉCNICO"));
+    assert.ok(gcSidebarSrc.includes("FINANCEIRO, FISCAL & GOVERNANÇA"));
+
+    assert.ok(crmSidebarSrc.includes("MÓDULO CRM • SALES &amp; MARKETING"));
+    assert.ok(crmSidebarSrc.includes("COMERCIAL &amp; CLIENTES"));
+    assert.ok(crmSidebarSrc.includes("MARKETING &amp; AUTOMAÇÃO"));
+    assert.ok(crmSidebarSrc.includes("GOVERNANÇA CRM"));
+
+    assert.ok(sdSrc.includes("MÓDULO CHAMADOS • SERVICE HUB"));
+    assert.ok(sdSrc.includes("ATENDIMENTO &amp; FILAS NOC"));
+    assert.ok(sdSrc.includes("QUALIDADE &amp; AUDITORIA"));
+    assert.ok(sdSrc.includes("Fila de Chamados (5 Visões)"));
+    assert.ok(sdSrc.includes("Ordens de Serviço Vinculadas"));
+
+    // 3. Navegação cruzada 1-clique no ERP (Orçamentos <-> Contratos <-> Fiscal <-> Cliente)
+    assert.ok(erpTabSrc.includes("handleOpenErpCustomerByCompany"));
+    assert.ok(erpTabSrc.includes("handleNavigateToContractFromDoc"));
+    assert.ok(erpTabSrc.includes("handleNavigateToFiscalFromContract"));
+
+    // 4. Zero emojis nas 5 superfícies principais de navegação e operação
+    const emojiRegex = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+    assert.equal(emojiRegex.test(pageSrc), false);
+    assert.equal(emojiRegex.test(crmSidebarSrc), false);
+    assert.equal(emojiRegex.test(gcSidebarSrc), false);
+    assert.equal(emojiRegex.test(erpTabSrc), false);
+    assert.equal(emojiRegex.test(sdSrc), false);
+  });
+});

@@ -118,6 +118,10 @@ export default function HubSpotProCrmApp() {
   const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
   const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
   const [crmMobileDrawerOpen, setCrmMobileDrawerOpen] = useState(false);
+  const [crmSidebarCollapsed, setCrmSidebarCollapsed] = useState(false);
+  const [serviceDeskInitialTab, setServiceDeskInitialTab] = useState<"OPERATIONS" | "DASHBOARD_CHAMADOS" | "DATA_HEALTH_CHAMADOS">("OPERATIONS");
+  const [serviceDeskNavTrigger, setServiceDeskNavTrigger] = useState<number>(0);
+  const [openNewTicketTrigger, setOpenNewTicketTrigger] = useState<number>(0);
   const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
@@ -1128,6 +1132,31 @@ export default function HubSpotProCrmApp() {
             ? 'Admin & RBAC'
             : 'Visão Geral';
 
+  const activeSubModuleBreadcrumbLabel =
+    activeModule === 'ERP_GESTAOCLICK'
+      ? erpInitialSection
+      : activeModule === 'SERVICE_DESK'
+        ? serviceDeskInitialTab === 'DASHBOARD_CHAMADOS'
+          ? 'Dashboard de Chamados & SLA'
+          : serviceDeskInitialTab === 'DATA_HEALTH_CHAMADOS'
+            ? 'Data Health (Chamados)'
+            : 'Fila de Chamados NOC 24x7'
+        : activeModule === 'OVERVIEW_AI'
+          ? 'Dashboard CRM'
+          : activeModule === 'DEALS_KANBAN'
+            ? 'Negócios (Funil Kanban)'
+            : activeModule === 'CONTACTS_COMPANIES'
+              ? contactsInitialSubView === 'COMPANIES'
+                ? 'Empresas CRM'
+                : 'Contatos CRM'
+              : activeModule === 'MARKETING_FORMS'
+                ? 'Formulários & Leads'
+                : activeModule === 'AUTOMATIONS'
+                  ? 'Fluxos de Automação'
+                  : activeModule === 'DATA_HEALTH'
+                    ? 'Data Health (CRM)'
+                    : 'Políticas IAM & Perfis';
+
   const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
     ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
     : "Matriz #118887";
@@ -1288,25 +1317,100 @@ export default function HubSpotProCrmApp() {
 
           {/* Right Status & Profile Controls */}
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveModule("DEALS_KANBAN")}
-              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
-            >
-              <TrendingUp className="w-3.5 h-3.5 text-[#00bda5]" />
-              <span>Forecast:</span>
-              <strong className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</strong>
-            </button>
+            {isCrmActive && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLastCrmSubModule("DEALS_KANBAN");
+                    setActiveModule("DEALS_KANBAN");
+                  }}
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <TrendingUp className="w-3.5 h-3.5 text-[#00bda5]" />
+                  <span>Forecast CRM:</span>
+                  <strong className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</strong>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveModule("DATA_HEALTH")}
-              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
-            >
-              <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
-              <span>Saúde:</span>
-              <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDataHealthScope("CRM");
+                    setLastCrmSubModule("DATA_HEALTH");
+                    setActiveModule("DATA_HEALTH");
+                  }}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <span>Saúde CRM:</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
+                </button>
+              </>
+            )}
+
+            {activeModule === "ERP_GESTAOCLICK" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("CONTRATOS");
+                    setErpNavigationTrigger((n) => n + 1);
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <Receipt className="w-3.5 h-3.5 text-[#00bda5]" />
+                  <span>MRR Locação:</span>
+                  <strong className="text-[#00bda5]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</strong>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErpInitialSection("DATA_HEALTH_ERP");
+                    setErpNavigationTrigger((n) => n + 1);
+                    setActiveModule("ERP_GESTAOCLICK");
+                  }}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <span>Saúde ERP:</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 96}%</strong>
+                </button>
+              </>
+            )}
+
+            {activeModule === "SERVICE_DESK" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setServiceDeskInitialTab("DASHBOARD_CHAMADOS");
+                    setServiceDeskNavTrigger((n) => n + 1);
+                    setActiveModule("SERVICE_DESK");
+                  }}
+                  className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <Ticket className="w-3.5 h-3.5 text-[#00bda5]" />
+                  <span>SLA no Prazo:</span>
+                  <strong className="text-[#00bda5]">{ticketKpis.slaComplianceRate}%</strong>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setServiceDeskInitialTab("DATA_HEALTH_CHAMADOS");
+                    setServiceDeskNavTrigger((n) => n + 1);
+                    setActiveModule("SERVICE_DESK");
+                  }}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <span>Saúde Chamados:</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 98}%</strong>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -1477,6 +1581,10 @@ export default function HubSpotProCrmApp() {
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
               <span className="font-bold text-[#33475b] text-sm">
                 {activeSectionLabel}
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
+              <span className="font-semibold text-[#ff7a59] text-xs">
+                {activeSubModuleBreadcrumbLabel}
               </span>
             </div>
 
@@ -1672,7 +1780,11 @@ export default function HubSpotProCrmApp() {
             {activeModule === "SERVICE_DESK" && (
               <button
                 type="button"
-                onClick={() => setActiveModule("SERVICE_DESK")}
+                onClick={() => {
+                  setServiceDeskInitialTab("OPERATIONS");
+                  setOpenNewTicketTrigger((n) => n + 1);
+                  setActiveModule("SERVICE_DESK");
+                }}
                 className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
               >
                 + Novo Chamado NOC
@@ -1731,6 +1843,9 @@ export default function HubSpotProCrmApp() {
               tickets={tickets}
               initialSelectedTicketId={initialTicketIdForDrawer}
               onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
+              initialMacroTab={serviceDeskInitialTab}
+              navigationTrigger={serviceDeskNavTrigger}
+              openNewTicketTrigger={openNewTicketTrigger}
               kpis={ticketKpis}
               contacts={contacts}
               companies={companies}
@@ -1868,10 +1983,12 @@ export default function HubSpotProCrmApp() {
                 </div>
               </div>
 
-              <CrmSidebar
-                activeModule={activeModule as CrmModuleId}
-                mobileDrawerOpen={crmMobileDrawerOpen}
-                onCloseMobileDrawer={() => setCrmMobileDrawerOpen(false)}
+              {!crmSidebarCollapsed && (
+                <CrmSidebar
+                  activeModule={activeModule as CrmModuleId}
+                  onToggleCollapse={() => setCrmSidebarCollapsed((v) => !v)}
+                  mobileDrawerOpen={crmMobileDrawerOpen}
+                  onCloseMobileDrawer={() => setCrmMobileDrawerOpen(false)}
                 pipelines={pipelines}
                 selectedPipelineId={selectedPipelineId}
                 contactsSubView={contactsInitialSubView}
@@ -1916,9 +2033,23 @@ export default function HubSpotProCrmApp() {
                   setLastCrmSubModule('ADMIN_RBAC');
                   setActiveModule('ADMIN_RBAC');
                 }}
-              />
+                />
+              )}
 
               <div className="flex-1 p-4 sm:p-6 overflow-x-hidden">
+                {crmSidebarCollapsed && (
+                  <div className="hidden md:flex items-center gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setCrmSidebarCollapsed(false)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0d2b4e] cursor-pointer shadow-2xs"
+                      title="Expandir menu lateral do CRM"
+                    >
+                      <Menu className="w-3.5 h-3.5 text-[#ff7a59]" />
+                      <span>Expandir Menu CRM</span>
+                    </button>
+                  </div>
+                )}
                 {activeModule === 'OVERVIEW_AI' && (
                   <OverviewAiCopilotTab
                     report={aiReport}

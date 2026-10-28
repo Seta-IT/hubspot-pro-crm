@@ -25,6 +25,11 @@ import {
   Trash2,
   Timer,
   Radio,
+  Menu,
+  ChevronDown,
+  ChevronRight,
+  PanelLeftClose,
+  LayoutDashboard,
 } from 'lucide-react';
 import {
   Company,
@@ -101,6 +106,9 @@ interface ServiceDeskTabProps {
   serviceOrders?: ErpServiceOrder[];
   initialSelectedTicketId?: string | null;
   onClearInitialTicket?: () => void;
+  initialMacroTab?: 'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS';
+  navigationTrigger?: number;
+  openNewTicketTrigger?: number;
   onCreateTicket: (payload: {
     subject: string;
     description: string;
@@ -229,6 +237,9 @@ export default function ServiceDeskTab({
   serviceOrders = [],
   initialSelectedTicketId,
   onClearInitialTicket,
+  initialMacroTab,
+  navigationTrigger,
+  openNewTicketTrigger,
   onCreateTicket,
   onUpdateTicket,
   onDeleteTicket,
@@ -250,7 +261,23 @@ export default function ServiceDeskTab({
   const [mobileStatusFilter, setMobileStatusFilter] = useState<string>('ALL');
   const [chamadosMacroTab, setChamadosMacroTab] = useState<
     'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS'
-  >('OPERATIONS');
+  >(initialMacroTab || 'OPERATIONS');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chamadosMobileDrawerOpen, setChamadosMobileDrawerOpen] = useState(false);
+  const [linkedOsOnlyFilter, setLinkedOsOnlyFilter] = useState(false);
+  const [queuesAccordionOpen, setQueuesAccordionOpen] = useState(true);
+
+  useEffect(() => {
+    if (initialMacroTab) {
+      setChamadosMacroTab(initialMacroTab);
+    }
+  }, [initialMacroTab, navigationTrigger]);
+
+  useEffect(() => {
+    if (openNewTicketTrigger && openNewTicketTrigger > 0) {
+      setShowNewModal(true);
+    }
+  }, [openNewTicketTrigger]);
 
   const handleSelectTicketViewMode = (mode: TicketsViewMode) => {
     setViewMode(mode);
@@ -317,6 +344,7 @@ export default function ServiceDeskTab({
       .trim();
 
   const filteredTickets = tickets.filter((t) => {
+    if (linkedOsOnlyFilter && !t.serviceOrderId && !t.serviceOrder) return false;
     const liveSla = computeLiveSlaCountdown(t, nowMs);
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
     if (slaFilter !== 'ALL' && liveSla.slaStatus !== slaFilter) return false;
@@ -473,59 +501,346 @@ export default function ServiceDeskTab({
       null
     : null;
 
-  return (
-    <div className="space-y-6">
-      {/* TOP BANNER: NOC TELECOM + PORTAL DO CLIENTE LINK */}
-      <div className="bg-[#0d2b4e] text-white rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3 border border-[#1e3a6e]">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#f26522] flex items-center justify-center text-white shadow-sm shrink-0">
-            <Radio className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-extrabold tracking-tight">
-                NOC Seta Telecom • Service Desk, Filas N1/N2/N3 &amp; RMA de Locação
-              </h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                SLA Dinâmico 24x7 Ativo
+  const renderChamadosSidebarInner = (isMobileDrawer = false) => {
+    const closeMobile = () => setChamadosMobileDrawerOpen(false);
+    return (
+      <>
+        <div>
+          <div className="px-3 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setChamadosMacroTab('OPERATIONS');
+                setLinkedOsOnlyFilter(false);
+                closeMobile();
+              }}
+              className="text-left min-w-0 cursor-pointer group"
+            >
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
+                MÓDULO CHAMADOS • SERVICE HUB
               </span>
-            </div>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Integrado aos Contratos de Locação (SV 31 STF), Equipamentos por Serial Number e Ordens de Serviço (O.S.) do GestãoClick ERP.
-            </p>
+              <span className="text-[10px] text-slate-500 font-semibold block truncate">
+                NOC 24x7, Filas &amp; RMA Locação
+              </span>
+            </button>
+            {isMobileDrawer ? (
+              <button
+                type="button"
+                onClick={closeMobile}
+                aria-label="Fechar Menu Chamados"
+                className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((v) => !v)}
+                title="Recolher menu lateral de Chamados"
+                aria-label="Recolher menu lateral de Chamados"
+                className="p-1.5 rounded-md text-slate-500 hover:text-[#0d2b4e] hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            )}
           </div>
+
+          <nav className="px-2 py-2.5 space-y-3">
+            {/* BLOCO 1: VISÃO GERAL */}
+            <div className="space-y-0.5">
+              <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                VISÃO GERAL
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChamadosMacroTab('DASHBOARD_CHAMADOS');
+                  setLinkedOsOnlyFilter(false);
+                  closeMobile();
+                }}
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  chamadosMacroTab === 'DASHBOARD_CHAMADOS'
+                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <LayoutDashboard
+                    className={`w-4 h-4 shrink-0 ${
+                      chamadosMacroTab === 'DASHBOARD_CHAMADOS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                    }`}
+                  />
+                  <span className="truncate">Dashboard de Chamados &amp; SLA</span>
+                </span>
+              </button>
+            </div>
+
+            {/* BLOCO 2: ATENDIMENTO & FILAS NOC */}
+            <div className="space-y-0.5">
+              <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                ATENDIMENTO &amp; FILAS NOC
+              </div>
+              <div className="rounded-md">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter) {
+                      setQueuesAccordionOpen((v) => !v);
+                    } else {
+                      setChamadosMacroTab('OPERATIONS');
+                      setLinkedOsOnlyFilter(false);
+                      setQueuesAccordionOpen(true);
+                    }
+                  }}
+                  className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                    chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter
+                      ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Ticket
+                      className={`w-4 h-4 shrink-0 ${
+                        chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter
+                          ? 'text-[#ff7a59]'
+                          : 'text-[#1e3a6e]'
+                      }`}
+                    />
+                    <span className="truncate">Fila de Chamados (5 Visões)</span>
+                  </span>
+                  <span className="flex items-center gap-1 shrink-0">
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                        chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-200/80 text-slate-600'
+                      }`}
+                    >
+                      {tickets.length}
+                    </span>
+                    {queuesAccordionOpen ? (
+                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                  </span>
+                </button>
+
+                {queuesAccordionOpen && (
+                  <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#0d2b4e]/25 space-y-0.5">
+                    {[
+                      {
+                        id: 'ALL',
+                        label: 'Todos os Chamados',
+                        active:
+                          chamadosMacroTab === 'OPERATIONS' &&
+                          !linkedOsOnlyFilter &&
+                          queueFilter === 'ALL' &&
+                          priorityFilter === 'ALL',
+                        onClick: () => {
+                          setChamadosMacroTab('OPERATIONS');
+                          setLinkedOsOnlyFilter(false);
+                          setQueueFilter('ALL');
+                          setPriorityFilter('ALL');
+                          closeMobile();
+                        },
+                      },
+                      {
+                        id: 'NOC_24X7',
+                        label: 'Fila NOC 24x7 (N1)',
+                        active:
+                          chamadosMacroTab === 'OPERATIONS' &&
+                          queueFilter === SETA_NOC_QUEUES[0],
+                        onClick: () => {
+                          setChamadosMacroTab('OPERATIONS');
+                          setLinkedOsOnlyFilter(false);
+                          setQueueFilter(SETA_NOC_QUEUES[0]);
+                          setPriorityFilter('ALL');
+                          closeMobile();
+                        },
+                      },
+                      {
+                        id: 'PABX_VOIP',
+                        label: 'PABX/VoIP & SD-WAN (N2)',
+                        active:
+                          chamadosMacroTab === 'OPERATIONS' &&
+                          queueFilter === SETA_NOC_QUEUES[1],
+                        onClick: () => {
+                          setChamadosMacroTab('OPERATIONS');
+                          setLinkedOsOnlyFilter(false);
+                          setQueueFilter(SETA_NOC_QUEUES[1]);
+                          setPriorityFilter('ALL');
+                          closeMobile();
+                        },
+                      },
+                      {
+                        id: 'LINKS_SDWAN',
+                        label: 'Links & SD-WAN Core (N3)',
+                        active:
+                          chamadosMacroTab === 'OPERATIONS' &&
+                          queueFilter === SETA_NOC_QUEUES[2],
+                        onClick: () => {
+                          setChamadosMacroTab('OPERATIONS');
+                          setLinkedOsOnlyFilter(false);
+                          setQueueFilter(SETA_NOC_QUEUES[2]);
+                          setPriorityFilter('ALL');
+                          closeMobile();
+                        },
+                      },
+                      {
+                        id: 'CRITICOS_SLA',
+                        label: 'Críticos / SLA (P1)',
+                        active:
+                          chamadosMacroTab === 'OPERATIONS' &&
+                          priorityFilter === 'CRITICAL',
+                        onClick: () => {
+                          setChamadosMacroTab('OPERATIONS');
+                          setLinkedOsOnlyFilter(false);
+                          setQueueFilter('ALL');
+                          setPriorityFilter('CRITICAL');
+                          closeMobile();
+                        },
+                      },
+                    ].map((sub) => (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={sub.onClick}
+                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                          sub.active
+                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        }`}
+                      >
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setChamadosMacroTab('OPERATIONS');
+                  setLinkedOsOnlyFilter(true);
+                  setQueueFilter('ALL');
+                  setPriorityFilter('ALL');
+                  closeMobile();
+                }}
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  chamadosMacroTab === 'OPERATIONS' && linkedOsOnlyFilter
+                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Wrench
+                    className={`w-4 h-4 shrink-0 ${
+                      chamadosMacroTab === 'OPERATIONS' && linkedOsOnlyFilter
+                        ? 'text-[#ff7a59]'
+                        : 'text-[#1e3a6e]'
+                    }`}
+                  />
+                  <span className="truncate">Ordens de Serviço Vinculadas</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    chamadosMacroTab === 'OPERATIONS' && linkedOsOnlyFilter
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {serviceOrders.length}
+                </span>
+              </button>
+            </div>
+
+            {/* BLOCO 3: QUALIDADE & AUDITORIA */}
+            <div className="space-y-0.5">
+              <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                QUALIDADE &amp; AUDITORIA
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChamadosMacroTab('DATA_HEALTH_CHAMADOS');
+                  setLinkedOsOnlyFilter(false);
+                  closeMobile();
+                }}
+                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
+                  chamadosMacroTab === 'DATA_HEALTH_CHAMADOS'
+                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <ShieldCheck
+                    className={`w-4 h-4 shrink-0 ${
+                      chamadosMacroTab === 'DATA_HEALTH_CHAMADOS' ? 'text-[#00bda5]' : 'text-emerald-600'
+                    }`}
+                  />
+                  <span className="truncate">Data Health (Chamados)</span>
+                </span>
+              </button>
+            </div>
+          </nav>
         </div>
 
+        <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
+          <div className="font-bold text-[#0d2b4e]">CHAMADOS • NOC 24x7</div>
+          <div>SLA no Prazo: {kpis.slaComplianceRate}%</div>
+          <div>5 Filas Operacionais Telecom</div>
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8]">
+      {/* BARRA CONTEXTUAL COMPACTA DO SISTEMA 3: CHAMADOS (SEM DUPLICAÇÃO DE TOPO) */}
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 select-none">
         <div className="flex items-center gap-2">
-          <a
-            href={activeTicket ? `/portal?ticket=${activeTicket.key}` : '/portal'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-extrabold border border-white/20 transition"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-[#ff987f]" />
-            Abrir Portal do Cliente ({activeTicket ? activeTicket.key : '/portal'})
-          </a>
           <button
             type="button"
-            onClick={() => setShowNewModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-sm transition cursor-pointer"
+            onClick={() => setChamadosMobileDrawerOpen(true)}
+            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            Abrir Novo Chamado NOC
+            <Menu className="w-4 h-4" />
+            <span>Menu Chamados</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            className="hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
+            title="Recolher/Expandir menu lateral de Chamados"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          <div className="flex items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setChamadosMacroTab('OPERATIONS');
+                setLinkedOsOnlyFilter(false);
+              }}
+              className="font-extrabold text-[#0d2b4e] hover:underline cursor-pointer"
+            >
+              Chamados (NOC 24x7)
+            </button>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            <span className="font-bold text-slate-700">
+              {chamadosMacroTab === 'DASHBOARD_CHAMADOS'
+                ? 'Visão Geral (Dashboard Chamados)'
+                : chamadosMacroTab === 'DATA_HEALTH_CHAMADOS'
+                  ? 'Data Health (Chamados)'
+                  : linkedOsOnlyFilter
+                    ? 'Ordens de Serviço Vinculadas'
+                    : 'Operação de Chamados & Filas NOC'}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {emailModalPayload && (
-        <ClientEmailComposerModal
-          payload={emailModalPayload}
-          onClose={() => setEmailModalPayload(null)}
-        />
-      )}
-
-      {/* BARRA DE NAVEGAÇÃO INTERNA EXCLUSIVA DO SISTEMA 3: CHAMADOS (OPERAÇÃO | DASHBOARD CHAMADOS | DATA HEALTH CHAMADOS) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-2.5 shadow-2xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             {
@@ -546,22 +861,69 @@ export default function ServiceDeskTab({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setChamadosMacroTab(tab.id)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                onClick={() => {
+                  setChamadosMacroTab(tab.id);
+                  setLinkedOsOnlyFilter(false);
+                }}
+                className={`px-2.5 py-1.5 rounded-md text-xs font-extrabold transition cursor-pointer ${
                   act
-                    ? 'bg-[#0d2b4e] text-white shadow-xs'
-                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    ? 'bg-[#0d2b4e] text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
                 {tab.label}
               </button>
             );
           })}
+
+          <a
+            href={activeTicket ? `/portal?ticket=${activeTicket.key}` : '/portal'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] text-xs font-bold border border-slate-300 transition"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-[#ff7a59]" />
+            <span>Abrir Portal do Cliente ({activeTicket ? activeTicket.key : '/portal'})</span>
+          </a>
+
+          <button
+            type="button"
+            onClick={() => setShowNewModal(true)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Abrir Novo Chamado NOC</span>
+          </button>
         </div>
-        <span className="text-[11px] font-bold text-slate-500 px-2">
-          Sistema Exclusivo: 3. Chamados (Service Hub &amp; NOC Seta Telecom)
-        </span>
       </div>
+
+      {emailModalPayload && (
+        <ClientEmailComposerModal
+          payload={emailModalPayload}
+          onClose={() => setEmailModalPayload(null)}
+        />
+      )}
+
+      {chamadosMobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+            onClick={() => setChamadosMobileDrawerOpen(false)}
+          />
+          <aside className="relative z-10 w-72 max-w-[86vw] bg-[#f8f9fb] h-full overflow-y-auto flex flex-col justify-between shadow-2xl select-none">
+            {renderChamadosSidebarInner(true)}
+          </aside>
+        </div>
+      )}
+
+      <div className="flex flex-col md:flex-row min-h-[760px]">
+        {!sidebarCollapsed && (
+          <aside className="hidden md:flex w-60 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none">
+            {renderChamadosSidebarInner(false)}
+          </aside>
+        )}
+
+        <div className="flex-1 p-4 sm:p-5 space-y-5 overflow-x-hidden">
 
       {chamadosMacroTab === 'DATA_HEALTH_CHAMADOS' && (
         <DataHealthTab
@@ -1599,6 +1961,9 @@ export default function ServiceDeskTab({
 
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* NEW TICKET MODAL */}
       {showNewModal && (
