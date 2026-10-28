@@ -75,7 +75,7 @@ function PublicProposalPrintContent() {
 
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
-  const [showInternalVersionsModal, setShowInternalVersionsModal] = useState(false);
+  const [showInternalVersionsModal, setShowInternalVersionsModal] = useState(() => searchParams?.get("versions") === "1");
   const [savedNotice, setSavedNotice] = useState(false);
   const [approvingContract, setApprovingContract] = useState(false);
   const [convertedContractInfo, setConvertedContractInfo] = useState<{
