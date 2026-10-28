@@ -83,11 +83,15 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
 export type ProposalLightTemplateId =
   | 'CLEAN_CORPORATE_LIGHT'
   | 'MINIMAL_SWISS_PAPER'
-  | 'EXECUTIVE_SOFT_INDIGO'
+  | 'EXECUTIVE_SOFT_INDIGO';
+
+export type ProposalLegacyTemplateId =
   | 'FOLHA_ORCAMENTO'
   | 'EXECUTIVO_CORPORATIVO'
   | 'DESIGN_CONSULTORIA'
-  | 'INSTITUCIONAL_SETA_TELECOM';
+  | 'INSTITUCIONAL_SETA_TELECOM'
+  | 'SETA_PREMIUM_TELECOM'
+  | 'LOCACAO_DETALHADA_SLA';
 
 export interface ProposalTemplateOptionSpec {
   id: ProposalLightTemplateId;
@@ -98,28 +102,25 @@ export interface ProposalTemplateOptionSpec {
 
 export const PROPOSAL_TEMPLATE_STYLE_OPTIONS: ProposalTemplateOptionSpec[] = [
   {
-    id: 'FOLHA_ORCAMENTO',
-    label: '1. Folha de Orçamento Direta (Comercial & Objetiva)',
-    shortLabel: '1. Folha de Orçamento',
-    description: 'Cabeçalho técnico compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite comercial na mesma folha.',
+    id: 'CLEAN_CORPORATE_LIGHT',
+    label: 'Opção 1 — Clean Corporate Light (Azul Suave & Ardósia Clara) [Padrão]',
+    shortLabel: 'Opção 1 • Clean Corporate Light',
+    description:
+      'Cabeçalho em azul-claro acetinado, tabelas em ardósia suave (#f8fafc), linhas finas (1px), apresentação institucional Seta Telecom e fluxo de contratação em 7 etapas.',
   },
   {
-    id: 'EXECUTIVO_CORPORATIVO',
-    label: '2. Proposta Corporativa Executiva (B2B Formal)',
-    shortLabel: '2. Corporativo Executivo',
-    description: 'Design corporativo formal com Quadro de Resumo Financeiro em destaque antes dos itens, blocos de Proponente/Destinatário e assinatura digital.',
+    id: 'MINIMAL_SWISS_PAPER',
+    label: 'Opção 2 — Minimal Swiss Paper (Branco Puro & Linhas Finas Cinza/Esmeralda)',
+    shortLabel: 'Opção 2 • Minimal Swiss Paper',
+    description:
+      'Estética editorial 100% fundo branco, linhas horizontais ultra-finas (#e5e7eb), apresentação institucional Seta Telecom, fluxo em 7 etapas e máxima economia de impressão.',
   },
   {
-    id: 'DESIGN_CONSULTORIA',
-    label: '3. Design de Consultoria & Arquitetura Técnica',
-    shortLabel: '3. Design Consultoria',
-    description: 'Estrutura consultiva numerada por capítulos (01. Diagnóstico & Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Composição do Investimento, 04. Formalização).',
-  },
-  {
-    id: 'INSTITUCIONAL_SETA_TELECOM',
-    label: '4. Institucional Seta Telecom + Tecnologias + Folha de Orçamento',
-    shortLabel: '4. Institucional Seta + Orçamento',
-    description: 'Apresentação da Seta Telecom e portfólio de tecnologias seguida da Folha de Orçamento completa.',
+    id: 'EXECUTIVE_SOFT_INDIGO',
+    label: 'Opção 3 — Executive Soft Indigo (Tons Pastéis de Índigo & Tabelas Arejadas)',
+    shortLabel: 'Opção 3 • Executive Soft Indigo',
+    description:
+      'Design consultivo B2B em tons pastéis de índigo (#eef2ff), bordas suaves (#e0e7ff), apresentação institucional Seta Telecom e fluxo de contratação em 7 etapas.',
   },
 ];
 
@@ -293,20 +294,18 @@ export function resolveProposalLayoutKind(
   templateStyle?: string
 ): ProposalLightTemplateId {
   if (
-    templateStyle === 'FOLHA_ORCAMENTO' ||
-    templateStyle === 'EXECUTIVO_CORPORATIVO' ||
-    templateStyle === 'DESIGN_CONSULTORIA' ||
-    templateStyle === 'INSTITUCIONAL_SETA_TELECOM'
+    templateStyle === 'MINIMAL_SWISS_PAPER' ||
+    templateStyle === 'FOLHA_ORCAMENTO'
   ) {
-    return templateStyle;
+    return 'MINIMAL_SWISS_PAPER';
   }
-  if (templateStyle === 'MINIMAL_SWISS_PAPER') {
-    return 'FOLHA_ORCAMENTO';
+  if (
+    templateStyle === 'EXECUTIVE_SOFT_INDIGO' ||
+    templateStyle === 'DESIGN_CONSULTORIA'
+  ) {
+    return 'EXECUTIVE_SOFT_INDIGO';
   }
-  if (templateStyle === 'EXECUTIVE_SOFT_INDIGO' || templateStyle === 'LOCACAO_DETALHADA_SLA') {
-    return 'DESIGN_CONSULTORIA';
-  }
-  return 'INSTITUCIONAL_SETA_TELECOM';
+  return 'CLEAN_CORPORATE_LIGHT';
 }
 
 export interface ProposalSellerContactInfo {

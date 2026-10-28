@@ -315,7 +315,7 @@ export default function ErpGestaoClickTab({
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
-  const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("INSTITUCIONAL_SETA_TELECOM");
+  const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -1666,202 +1666,163 @@ export default function ErpGestaoClickTab({
                   Escolher Template Visual Padrão para Propostas (PDF A4):
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {(
-                    [
-                      { id: "FOLHA_ORCAMENTO", label: "1. Folha de Orçamento Direta" },
-                      { id: "EXECUTIVO_CORPORATIVO", label: "2. Corporativo Executivo B2B" },
-                      { id: "DESIGN_CONSULTORIA", label: "3. Design de Consultoria Técnica" },
-                      { id: "INSTITUCIONAL_SETA_TELECOM", label: "4. Institucional Seta + Tecnologias + Orçamento" },
-                    ] as const
-                  ).map((tpl) => {
-                    const isActive = defaultProposalTemplateStyle === tpl.id;
-                    return (
+                  {[
+                      { id: "CLEAN_CORPORATE_LIGHT", label: "Opção 1 — Clean Corporate Light [Padrão]" },
+                      { id: "MINIMAL_SWISS_PAPER", label: "Opção 2 — Minimal Swiss Paper" },
+                      { id: "EXECUTIVE_SOFT_INDIGO", label: "Opção 3 — Executive Soft Indigo" },
+                    ].map((tpl) => {
+                      const isActive = defaultProposalTemplateStyle === tpl.id;
+                      return (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => {
+                            setDefaultProposalTemplateStyle(
+                              tpl.id as NonNullable<ErpCommercialProposal["templateStyle"]>
+                            );
+                            if (typeof window !== "undefined") {
+                              try {
+                                window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
+                              } catch {
+                                // ignore
+                              }
+                            }
+                            onShowToast(`Layout padrão alterado para: ${tpl.label}`);
+                          }}
+                          className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition text-left ${
+                            isActive
+                              ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
+                              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                          }`}
+                        >
+                          {isActive ? `[Ativo] ${tpl.label}` : tpl.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-3 rounded border border-blue-200 bg-blue-50/40 space-y-1.5">
+                    <div className="font-extrabold text-[#0d2b4e]">
+                      Opção 1: Clean Corporate Light (Azul Suave &amp; Ardósia Clara) [Padrão]
+                    </div>
+                    <p className="text-[11px] text-slate-700">
+                      Cabeçalho em azul-claro acetinado, tabelas leves em ardósia suave (#f8fafc), linhas finas de 1px, apresentação institucional da Seta Telecom no início e fluxo de contratação em 7 etapas no final.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
                       <button
-                        key={tpl.id}
                         type="button"
                         onClick={() => {
-                          setDefaultProposalTemplateStyle(tpl.id);
-                          if (typeof window !== "undefined") {
-                            try {
-                              window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
-                            } catch {
-                              // ignore
-                            }
-                          }
-                          onShowToast(`Layout padrão alterado para: ${tpl.label}`);
+                          setDefaultProposalTemplateStyle("CLEAN_CORPORATE_LIGHT");
+                          openFullNewProposalModal("LOCACAO", {
+                            title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
+                            templateStyle: "CLEAN_CORPORATE_LIGHT",
+                            slaTier: "CORPORATIVO_8X5_NBD",
+                            slaAvailabilityPercent: "99,50%",
+                            slaResponseHours: 4,
+                            deliveryLeadTime: "7 dias úteis após o aceite",
+                            deliveryForecast: "7 dias úteis após o aceite",
+                            contractMonths: 24,
+                            introductionText:
+                              "Apresentamos nossa proposta comercial para fornecimento em regime de Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX) com cobertura de Spare Parts e suporte Seta Telecom.",
+                          });
                         }}
-                        className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition text-left ${
-                          isActive
-                            ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
-                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                        }`}
+                        className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer"
                       >
-                        {isActive ? `[Ativo] ${tpl.label}` : tpl.label}
+                        + Usar Opção 1 (Clean Corporate Light)
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="space-y-2.5 text-xs">
-                <div className="p-3 rounded border border-slate-300 bg-slate-50 space-y-1.5">
-                  <div className="font-extrabold text-slate-900">
-                    Layout 1: Folha de Orçamento Direta (Comercial &amp; Objetiva)
+                      <a
+                        href="/proposta/prop-seta-001"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded border border-blue-300 bg-white text-[#1e3a6e] text-[11px] font-bold"
+                      >
+                        Ver Exemplo A4
+                      </a>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-700">
-                    Cabeçalho técnico compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite comercial na mesma folha.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDefaultProposalTemplateStyle("FOLHA_ORCAMENTO");
-                        openFullNewProposalModal("PRODUTOS", {
-                          title: "Orçamento Comercial de Equipamentos & Licenciamento Telecom",
-                          templateStyle: "FOLHA_ORCAMENTO",
-                          slaTier: "SEM_SLA_ESPECIFICO",
-                          deliveryLeadTime: "7 dias úteis após o aceite",
-                          deliveryForecast: "7 dias úteis após o aceite",
-                          contractMonths: 12,
-                          introductionText:
-                            "Apresentamos a folha de orçamento comercial com os itens, quantidades e condições de fornecimento.",
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-extrabold cursor-pointer"
-                    >
-                      + Usar Layout 1 (Folha de Orçamento)
-                    </button>
-                    <a
-                      href="/proposta/prop-gc-4695"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded border border-slate-400 bg-white text-slate-900 text-[11px] font-bold"
-                    >
-                      Ver Exemplo A4
-                    </a>
-                  </div>
-                </div>
 
-                <div className="p-3 rounded border border-emerald-200 bg-emerald-50/50 space-y-1.5">
-                  <div className="font-extrabold text-emerald-950">
-                    Layout 2: Proposta Corporativa Executiva (B2B Formal)
+                  <div className="p-3 rounded border border-emerald-200 bg-emerald-50/40 space-y-1.5">
+                    <div className="font-extrabold text-emerald-950">
+                      Opção 2: Minimal Swiss Paper (Branco Puro &amp; Linhas Finas Cinza/Esmeralda)
+                    </div>
+                    <p className="text-[11px] text-emerald-900">
+                      Estética editorial 100% fundo branco, linhas horizontais ultra-finas (#e5e7eb), apresentação institucional Seta Telecom, fluxo em 7 etapas e máxima economia de impressão.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDefaultProposalTemplateStyle("MINIMAL_SWISS_PAPER");
+                          openFullNewProposalModal("PRODUTOS", {
+                            title: "Orçamento Comercial — Switching Corporativo, Firewalls NGFW & Wi-Fi 6",
+                            templateStyle: "MINIMAL_SWISS_PAPER",
+                            slaTier: "SEM_SLA_ESPECIFICO",
+                            deliveryLeadTime: "7 dias úteis após o aceite",
+                            deliveryForecast: "7 dias úteis após o aceite",
+                            contractMonths: 24,
+                            introductionText:
+                              "Apresentamos a folha de orçamento comercial com especificações técnicas, valores mensais e condições de fornecimento Seta Telecom.",
+                          });
+                        }}
+                        className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
+                      >
+                        + Usar Opção 2 (Minimal Swiss Paper)
+                      </button>
+                      <a
+                        href="/proposta/prop-gc-4695"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
+                      >
+                        Ver Exemplo A4
+                      </a>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-emerald-900">
-                    Design corporativo formal com Quadro de Resumo Financeiro em destaque antes dos itens, blocos de Proponente/Destinatário e assinatura digital.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDefaultProposalTemplateStyle("EXECUTIVO_CORPORATIVO");
-                        openFullNewProposalModal("CONJUNTO", {
-                          title: "Proposta Executiva Corporativa: Fornecimento & Implantação",
-                          templateStyle: "EXECUTIVO_CORPORATIVO",
-                          slaTier: "CORPORATIVO_8X5_NBD",
-                          slaAvailabilityPercent: "99,50%",
-                          slaResponseHours: 4,
-                          deliveryLeadTime: "10 dias úteis após o aceite",
-                          deliveryForecast: "10 dias úteis após o aceite",
-                          contractMonths: 36,
-                          introductionText:
-                            "Proposta executiva estruturada para fornecimento integrado de equipamentos, ativação técnica e suporte continuado.",
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
-                    >
-                      + Usar Layout 2 (Corporativo Executivo)
-                    </button>
-                    <a
-                      href="/proposta/prop-seta-002"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
-                    >
-                      Ver Exemplo A4
-                    </a>
-                  </div>
-                </div>
 
-                <div className="p-3 rounded border border-indigo-200 bg-indigo-50/50 space-y-1.5">
-                  <div className="font-extrabold text-indigo-950">
-                    Layout 3: Proposta de Consultoria &amp; Arquitetura Técnica
-                  </div>
-                  <p className="text-[11px] text-indigo-900">
-                    Estrutura consultiva numerada por capítulos (01. Diagnóstico &amp; Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Composição do Investimento, 04. Formalização).
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDefaultProposalTemplateStyle("DESIGN_CONSULTORIA");
-                        openFullNewProposalModal("SERVICOS", {
-                          title: "Projeto Consultivo de Arquitetura Telecom, SD-WAN & Voz IP",
-                          templateStyle: "DESIGN_CONSULTORIA",
-                          slaTier: "PADRAO_COMERCIAL_8H",
-                          slaAvailabilityPercent: "99,00%",
-                          slaResponseHours: 8,
-                          deliveryLeadTime: "15 dias úteis conforme cronograma do projeto",
-                          deliveryForecast: "15 dias úteis conforme cronograma do projeto",
-                          contractMonths: 24,
-                          introductionText:
-                            "Documento técnico-consultivo contemplando diagnóstico de conectividade, arquitetura proposta, cronograma de implantação e investimento.",
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
-                    >
-                      + Usar Layout 3 (Design Consultoria)
-                    </button>
-                    <a
-                      href="/proposta/prop-seta-001"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
-                    >
-                      Ver Exemplo A4
-                    </a>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded border border-amber-200 bg-amber-50/50 space-y-1.5">
-                  <div className="font-extrabold text-amber-950">
-                    Layout 4: Institucional Seta Telecom + Portfólio de Serviços &amp; Tecnologias + Folha de Orçamento
-                  </div>
-                  <p className="text-[11px] text-amber-900">
-                    Abre a proposta apresentando a <strong>Seta Telecom</strong> e os serviços e tecnologias com que trabalha (PABX IP/VoIP, SD-WAN/Firewall, Switches PoE/Wi-Fi 6, Locação HaaS &amp; Suporte) e, em seguida, traz a Folha de Orçamento completa.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDefaultProposalTemplateStyle("INSTITUCIONAL_SETA_TELECOM");
-                        openFullNewProposalModal("LOCACAO", {
-                          title: "Apresentação Seta Telecom & Proposta de Infraestrutura IP / Conectividade",
-                          templateStyle: "INSTITUCIONAL_SETA_TELECOM",
-                          slaTier: "SEM_SLA_ESPECIFICO",
-                          deliveryLeadTime: "10 dias úteis após o aceite",
-                          deliveryForecast: "10 dias úteis após o aceite",
-                          contractMonths: 24,
-                          introductionText:
-                            "A Seta Telecom apresenta seu portfólio de soluções corporativas em telecomunicações e TI, seguido da folha de orçamento dimensionada para a sua operação.",
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
-                    >
-                      + Usar Layout 4 (Institucional Seta + Orçamento)
-                    </button>
-                    <a
-                      href="/proposta/prop-gc-4695"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded border border-amber-600 bg-white text-amber-900 text-[11px] font-bold"
-                    >
-                      Ver Exemplo A4
-                    </a>
+                  <div className="p-3 rounded border border-indigo-200 bg-indigo-50/40 space-y-1.5">
+                    <div className="font-extrabold text-indigo-950">
+                      Opção 3: Executive Soft Indigo (Tons Pastéis de Índigo &amp; Tabelas Arejadas)
+                    </div>
+                    <p className="text-[11px] text-indigo-900">
+                      Design consultivo B2B em tons pastéis de índigo (#eef2ff), bordas suaves (#e0e7ff), apresentação institucional Seta Telecom e fluxo de contratação em 7 etapas.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDefaultProposalTemplateStyle("EXECUTIVE_SOFT_INDIGO");
+                          openFullNewProposalModal("CONJUNTO", {
+                            title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
+                            templateStyle: "EXECUTIVE_SOFT_INDIGO",
+                            slaTier: "PADRAO_COMERCIAL_8H",
+                            slaAvailabilityPercent: "99,00%",
+                            slaResponseHours: 8,
+                            deliveryLeadTime: "10 dias úteis após o aceite",
+                            deliveryForecast: "10 dias úteis após o aceite",
+                            contractMonths: 24,
+                            introductionText:
+                              "Proposta técnico-consultiva contemplando infraestrutura de redes, segurança multi-vendor, suporte NOC 24/7 e locação HaaS.",
+                          });
+                        }}
+                        className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
+                      >
+                        + Usar Opção 3 (Executive Soft Indigo)
+                      </button>
+                      <a
+                        href="/proposta/prop-seta-002"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
+                      >
+                        Ver Exemplo A4
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* VISÃO TABELA GESTÃOCLICK */}
         {effectiveOrcTab !== 'ORC_AUXILIARES' && proposalsViewMode === 'TABLE' && (

@@ -3315,25 +3315,63 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
   });
 });
 
-describe("Proposta: Prazo de Entrega editável e 4 layouts de template", () => {
-  it("usa deliveryLeadTime sem 48h fixo e renderiza os 4 layouts distintos", async () => {
+describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (com institucional Seta Telecom e fluxo em 7 etapas)", () => {
+  it("usa deliveryLeadTime sem 48h fixo, disponibiliza as 3 opções leves (Opção 1 Clean Corporate Light como padrão), remove Telefonia IP/PABX, exibe apresentação institucional e as 7 etapas do fluxo de contratação", async () => {
     const share = await import("../src/app/lib/proposal-share");
     const pageSrc = fs.readFileSync(path.join(process.cwd(), "src/app/proposta/[id]/page.tsx"), "utf8");
+    const shareSrc = fs.readFileSync(path.join(process.cwd(), "src/app/lib/proposal-share.ts"), "utf8");
+
     assert.ok(!pageSrc.includes("Imediato (até 48h)"));
     assert.ok(pageSrc.includes("resolveProposalDeliveryLeadTime(proposal)"));
     assert.ok(pageSrc.includes("handleDeliveryLeadTimeChange"));
     assert.ok(pageSrc.includes("Tempo de Contrato: {contractDurationMonths}"));
     assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryLeadTime: "10 dias úteis após o aceite" } as never), "10 dias úteis após o aceite");
     assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryForecast: "Imediato (até 48h)" } as never), "");
+
+    // 1. As 3 opções leves no seletor com CLEAN_CORPORATE_LIGHT como padrão
     const ids = share.PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((o) => o.id);
-    for (const id of ["FOLHA_ORCAMENTO", "EXECUTIVO_CORPORATIVO", "DESIGN_CONSULTORIA", "INSTITUCIONAL_SETA_TELECOM"]) {
-      assert.ok(ids.includes(id as never), id);
-      assert.equal(share.resolveProposalLayoutKind(id), id);
-      assert.ok(pageSrc.includes(`activeLayout === "${id}"`), `layout ${id} renderizado`);
-    }
+    assert.deepEqual(ids, [
+      "CLEAN_CORPORATE_LIGHT",
+      "MINIMAL_SWISS_PAPER",
+      "EXECUTIVE_SOFT_INDIGO",
+    ]);
+    assert.equal(share.resolveProposalLayoutKind(undefined), "CLEAN_CORPORATE_LIGHT");
+    assert.equal(share.resolveProposalLayoutKind("CLEAN_CORPORATE_LIGHT"), "CLEAN_CORPORATE_LIGHT");
+    assert.equal(share.resolveProposalLayoutKind("MINIMAL_SWISS_PAPER"), "MINIMAL_SWISS_PAPER");
+    assert.equal(share.resolveProposalLayoutKind("EXECUTIVE_SOFT_INDIGO"), "EXECUTIVE_SOFT_INDIGO");
+    // Compatibilidade retroativa com IDs antigos
+    assert.equal(share.resolveProposalLayoutKind("FOLHA_ORCAMENTO"), "MINIMAL_SWISS_PAPER");
+    assert.equal(share.resolveProposalLayoutKind("DESIGN_CONSULTORIA"), "EXECUTIVE_SOFT_INDIGO");
+    assert.equal(share.resolveProposalLayoutKind("EXECUTIVO_CORPORATIVO"), "CLEAN_CORPORATE_LIGHT");
+    assert.equal(share.resolveProposalLayoutKind("INSTITUCIONAL_SETA_TELECOM"), "CLEAN_CORPORATE_LIGHT");
+
+    // 2. Nenhuma referência a Telefonia IP, PABX Cloud & Comunicação Unificada ou Voz Corporativa de Alta Disponibilidade
+    assert.equal(pageSrc.includes("Telefonia IP, PABX Cloud & Comunicação Unificada"), false);
+    assert.equal(pageSrc.includes("Voz Corporativa de Alta Disponibilidade"), false);
+    assert.equal(shareSrc.includes("Telefonia IP, PABX Cloud & Comunicação Unificada"), false);
+    assert.equal(shareSrc.includes("Voz Corporativa de Alta Disponibilidade"), false);
+
+    // 3. Bloco institucional resumido da Seta Telecom + 10 tópicos de serviços
+    assert.ok(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime.includes("18 anos"));
+    assert.ok(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.location.includes("Rua Guapuruvu, 242"));
+    assert.ok(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.partners.includes("Cisco, Dell, HPE, Fortinet"));
+    assert.equal(share.SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.length, 10);
+    assert.ok(pageSrc.includes("SETA_TELECOM_INSTITUTIONAL_SUMMARY"));
+    assert.ok(pageSrc.includes("SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.map"));
     assert.ok(pageSrc.includes("SETA_TELECOM_PORTFOLIO_PILLARS.map"));
     assert.ok(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"));
-    assert.ok(pageSrc.includes("02. Metodologia de Implantação em 4 Etapas"));
+
+    // 4. Fluxo de contratação de locação em 7 etapas no final da proposta
+    assert.equal(
+      share.SETA_TELECOM_HIRING_FLOW_TITLE,
+      "Fluxo de contratação de locação — Cliente Seta Telecom"
+    );
+    assert.equal(share.SETA_TELECOM_HIRING_FLOW_STEPS.length, 7);
+    assert.ok(pageSrc.includes("SETA_TELECOM_HIRING_FLOW_TITLE"));
+    assert.ok(pageSrc.includes("SETA_TELECOM_HIRING_FLOW_STEPS.map"));
+
+    // 5. Documento A4 leve (sem border-2 border-slate-900 no container do documento)
+    assert.equal(pageSrc.includes("border-2 border-slate-900"), false);
   });
   it("valida fluxo stateless completo de EMAIL_OTP entre /api/auth/send-email-otp e /api/auth/verify-mfa (mesmo quando verify-mfa cai em outra instância Lambda sem estado em memória) e exibe devOtpPreview na tela de login em modo contingência", async () => {
     const repoA = createInMemoryRepository();
@@ -3441,5 +3479,235 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.equal(emojiRegex.test(gcSidebarSrc), false);
     assert.equal(emojiRegex.test(erpTabSrc), false);
     assert.equal(emojiRegex.test(sdSrc), false);
+  });
+});
+
+
+describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)", () => {
+  it("valida roadmaps atualizados (ROADMAP-CRM.md e ROADMAP.md) e zero emojis em MarketingAndSalesHubSuites.tsx e FormsBuilderTab.tsx", () => {
+    const rootDir = process.cwd();
+    const roadmapCrm = fs.readFileSync(path.join(rootDir, "ROADMAP-CRM.md"), "utf8");
+    const roadmapMain = fs.readFileSync(path.join(rootDir, "ROADMAP.md"), "utf8");
+    const mktSuiteSrc = fs.readFileSync(
+      path.join(rootDir, "src/app/components/MarketingAndSalesHubSuites.tsx"),
+      "utf8"
+    );
+    const formsSrc = fs.readFileSync(
+      path.join(rootDir, "src/app/components/FormsBuilderTab.tsx"),
+      "utf8"
+    );
+
+    assert.ok(
+      roadmapCrm.includes(
+        "PLATAFORMA ENTERPRISE DE EMAIL MARKETING, CADÊNCIAS E SALES ENGAGEMENT (HUBSPOT PRO + MAILCHIMP — SETA TELECOM)"
+      )
+    );
+    assert.ok(roadmapCrm.includes("MÓDULO A — GESTÃO COMPLETA DE CONTATOS E AUDIÊNCIAS"));
+    assert.ok(roadmapCrm.includes("MÓDULO C — CADÊNCIAS COMERCIAIS AVANÇADAS"));
+    assert.ok(roadmapCrm.includes("MÓDULO H — DESCADASTRO, SUPRESSÃO E PREFERÊNCIAS"));
+    assert.ok(roadmapCrm.includes("MÓDULO L — INTEGRAÇÃO DE E-MAILS E INFRAESTRUTURA DE ENVIO"));
+    assert.ok(roadmapMain.includes("Seção 6 — Plataforma Enterprise de Email Marketing"));
+
+    const emojiRegex = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+    assert.equal(
+      emojiRegex.test(mktSuiteSrc),
+      false,
+      "MarketingAndSalesHubSuites.tsx deve ser 100% corporativo e sem emojis"
+    );
+    assert.equal(
+      emojiRegex.test(formsSrc),
+      false,
+      "FormsBuilderTab.tsx deve ser 100% corporativo e sem emojis"
+    );
+  });
+
+  it("persiste Campanhas, Segmentos Dinâmicos (com Account-Based Engagement por Empresa) e Landing Pages e atribui UTMs + LGPD na submissão de formulário", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Listar campanhas, funil de engajamento e engajamento por empresa (ABM)
+    const getCmpRes = await router.dispatch({
+      method: "GET",
+      path: "/api/marketing/campaigns",
+    });
+    assert.equal(getCmpRes.status, 200);
+    const cmpBody = getCmpRes.body as {
+      data: Array<{ id: string; utmCampaign: string; attributedRevenueBrl: number }>;
+      engagementFunnel: { sentCount: number; deliveredCount: number; opportunitiesCount: number };
+      accountEngagement: Array<{ companyId: string; engagedContactsCount: number }>;
+    };
+    assert.ok(cmpBody.data.length >= 3);
+    assert.equal(cmpBody.engagementFunnel.sentCount, 12450);
+    assert.equal(cmpBody.engagementFunnel.deliveredCount, 12080);
+    assert.equal(cmpBody.engagementFunnel.opportunitiesCount, 184);
+    assert.ok(cmpBody.accountEngagement.some((a) => a.companyId === "comp-nubank" && a.engagedContactsCount >= 2));
+
+    // 2. Criar nova campanha, segmento e landing page
+    const createCmpRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/campaigns",
+      body: {
+        name: "Campanha Locação Servidores Dell PowerEdge Q4",
+        utmCampaign: "locacao-servidores-dell-q4",
+        sendingProvider: "MARKETING_ESP",
+        budgetBrl: 22000,
+      },
+    });
+    assert.equal(createCmpRes.status, 201);
+
+    const createSegRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/segments",
+      body: {
+        name: "Decisores Tier 1 Score >= 85",
+        type: "DYNAMIC",
+        filterExpression: "company.icpTier = 'TIER_1' AND contact.leadScore >= 85",
+        criteria: { icpTier: "TIER_1", minLeadScore: 85, onlySubscribedEligible: true },
+      },
+    });
+    assert.equal(createSegRes.status, 201);
+
+    const createLpRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/landing-pages",
+      body: {
+        name: "LP Locação Servidores Dell",
+        utmCampaign: "locacao-servidores-dell-q4",
+        formId: "form-enterprise-demo",
+      },
+    });
+    assert.equal(createLpRes.status, 201);
+
+    // 3. Submeter formulário com UTMs e Consentimento LGPD -> Deve atribuir Deal e Receita à campanha!
+    const submitRes = await router.dispatch({
+      method: "POST",
+      path: "/api/forms/submit",
+      body: {
+        formId: "form-enterprise-demo",
+        values: {
+          firstName: "Carlos",
+          lastName: "Mendes",
+          email: "carlos.mendes@totvs.com.br",
+          phone: "(11) 98888-1122",
+          jobTitle: "Diretor de Infraestrutura",
+          companyName: "TOTVS S.A.",
+          estimatedValue: "180000",
+          utm_source: "linkedin",
+          utm_medium: "cpc",
+          utm_campaign: "locacao-servidores-dell-q4",
+          lgpdConsent: "true",
+        },
+      },
+    });
+    assert.equal(submitRes.status, 201);
+    const subData = (submitRes.body as {
+      data: {
+        submission: { utmSource: string; utmCampaign: string; lgpdConsent: boolean; campaignId: string };
+        contact: { lgpdConsent: boolean; subscriptionStatus: string; utmCampaign: string };
+        deal: { value: number; customProperties: Record<string, unknown> };
+      };
+    }).data;
+    assert.equal(subData.submission.utmSource, "linkedin");
+    assert.equal(subData.submission.utmCampaign, "locacao-servidores-dell-q4");
+    assert.equal(subData.submission.lgpdConsent, true);
+    assert.equal(subData.contact.lgpdConsent, true);
+    assert.equal(subData.contact.subscriptionStatus, "SUBSCRIBED");
+    assert.equal(subData.deal.customProperties.utm_campaign, "locacao-servidores-dell-q4");
+
+    const updatedCmp = repo.getMarketingCampaignById("locacao-servidores-dell-q4");
+    assert.ok(updatedCmp);
+    assert.equal(updatedCmp.attributedRevenueBrl, 72000 + 180000);
+  });
+
+  it("separa estritamente saída de cadência (EXIT_SEQUENCE_ONLY) de descadastro global (UNSUBSCRIBE_MARKETING), bloqueia envio a suprimidos e transfere proposta para negociação ao responder cadência", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Camila está ativa na cadência seq-proposal-followup vinculada ao deal-vtex-automation (stage-proposal)
+    const exitSeqOnlyRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/preferences",
+      body: {
+        contactId: "cont-camila",
+        action: "EXIT_SEQUENCE_ONLY",
+        reason: "Pausa operacional apenas na cadência atual",
+      },
+    });
+    assert.equal(exitSeqOnlyRes.status, 200);
+    const exitData = (exitSeqOnlyRes.body as {
+      data: {
+        exitedEnrollmentsCount: number;
+        globalSubscriptionPreserved: boolean;
+        contact: { subscriptionStatus: string };
+      };
+    }).data;
+    assert.equal(exitData.exitedEnrollmentsCount, 1);
+    assert.equal(exitData.globalSubscriptionPreserved, true);
+    assert.equal(exitData.contact.subscriptionStatus, "SUBSCRIBED");
+    assert.equal(repo.canSendMarketingEmailToContact("cont-camila").allowed, true);
+
+    // 2. Descadastro de marketing (UNSUBSCRIBE_MARKETING) -> bloqueia disparo de campanha
+    const unsubRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/preferences",
+      body: {
+        contactId: "cont-camila",
+        action: "UNSUBSCRIBE_MARKETING",
+        reason: "Solicitou opt-out de newsletters no Preference Center",
+      },
+    });
+    assert.equal(unsubRes.status, 200);
+    assert.equal(repo.canSendMarketingEmailToContact("cont-camila").allowed, false);
+
+    const dispatchRes = await router.dispatch({
+      method: "POST",
+      path: "/api/marketing/campaigns/dispatch",
+      body: {
+        campaignId: "cmp-1",
+        contactIds: ["cont-marina", "cont-camila", "cont-pedro-invalid"],
+      },
+    });
+    assert.equal(dispatchRes.status, 200);
+    const dispData = (dispatchRes.body as {
+      data: {
+        dispatchedCount: number;
+        blockedSuppressedCount: number;
+        deliveredContacts: Array<{ id: string }>;
+        blockedContacts: Array<{ id: string }>;
+      };
+    }).data;
+    assert.equal(dispData.dispatchedCount, 1);
+    assert.equal(dispData.deliveredContacts[0].id, "cont-marina");
+    assert.equal(dispData.blockedSuppressedCount, 2);
+
+    // 3. Diferencial #1 Seta Telecom: Resposta em cadência vinculada a proposta transfere Deal para negociação
+    const enrollRicardo = await router.dispatch({
+      method: "POST",
+      path: "/api/sequences/enroll",
+      body: {
+        sequenceId: "seq-proposal-followup",
+        contactId: "cont-ricardo",
+        dealId: "deal-totvs-erp-sync", // stage-demo
+      },
+    });
+    assert.equal(enrollRicardo.status, 201);
+    const enrId = (enrollRicardo.body as { data: { enrollment: { id: string } } }).data.enrollment.id;
+
+    const replyRicardo = await router.dispatch({
+      method: "POST",
+      path: "/api/sequences/interaction",
+      body: {
+        enrollmentId: enrId,
+        interactionType: "REPLY",
+        replySnippet: "Aprovamos o escopo técnico, vamos avançar para a minuta jurídica!",
+      },
+    });
+    assert.equal(replyRicardo.status, 200);
+    const replyBody = (replyRicardo.body as {
+      data: { autoPaused: boolean; dealTransferredToNegotiation: boolean; updatedDealStageId: string };
+    }).data;
+    assert.equal(replyBody.autoPaused, true);
+    assert.equal(replyBody.dealTransferredToNegotiation, true);
+    assert.equal(replyBody.updatedDealStageId, "stage-negotiation");
   });
 });
