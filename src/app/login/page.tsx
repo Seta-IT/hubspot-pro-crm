@@ -21,8 +21,8 @@ import {
 
 export default function StiHubLoginPage() {
   const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
-  const [email, setEmail] = useState('marcelo.mira@setatelecom.com.br');
-  const [password, setPassword] = useState('Seta@2026#StiHub');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteUser, setInviteUser] = useState<{
     id: string;
@@ -87,6 +87,9 @@ export default function StiHubLoginPage() {
       .trim()
       .toLowerCase();
 
+    if (userObj?.id) {
+      localStorage.setItem('stihub_active_rbac_user_id_v1', String(userObj.id));
+    }
     localStorage.setItem(
       'stihub_active_session_v1',
       JSON.stringify({
@@ -546,6 +549,7 @@ export default function StiHubLoginPage() {
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
+                    autoComplete="username"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -563,6 +567,7 @@ export default function StiHubLoginPage() {
                   <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
+                    autoComplete="current-password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

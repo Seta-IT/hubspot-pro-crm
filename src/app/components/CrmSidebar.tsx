@@ -12,12 +12,9 @@ import {
   ChevronDown,
   ChevronRight,
   PanelLeftClose,
-  Mail,
-  Megaphone,
   X,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
-import type { MarketingHubSubView } from './MarketingAndSalesHubSuites';
 
 export type CrmModuleId =
   | 'OVERVIEW_AI'
@@ -47,8 +44,6 @@ interface CrmSidebarProps {
   formsCount: number;
   automationsCount: number;
   healthScore: number;
-  marketingEmailsCount?: number;
-  activeMarketingSubView?: MarketingHubSubView;
   onToggleCollapse?: () => void;
   mobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
@@ -56,8 +51,7 @@ interface CrmSidebarProps {
   onSelectPipeline: (pipelineId: string) => void;
   onSelectContactsSubView: (sub: 'CONTACTS' | 'COMPANIES' | 'TASKS') => void;
   onSelectForms: () => void;
-  onSelectMarketingSubView?: (subView: MarketingHubSubView) => void;
-  onSelectAutomations: (initialTab?: 'WORKFLOWS' | 'SEQUENCES') => void;
+  onSelectAutomations: () => void;
   onSelectDataHealth: (scope: 'CRM' | 'ERP') => void;
   onSelectAdminRbac?: (subView?: string) => void;
   activeAdminSubView?: string;
@@ -74,8 +68,6 @@ export default function CrmSidebar({
   formsCount,
   automationsCount,
   healthScore,
-  marketingEmailsCount = 14,
-  activeMarketingSubView = 'EMAIL_MARKETING',
   onToggleCollapse,
   mobileDrawerOpen = false,
   onCloseMobileDrawer,
@@ -83,7 +75,6 @@ export default function CrmSidebar({
   onSelectPipeline,
   onSelectContactsSubView,
   onSelectForms,
-  onSelectMarketingSubView,
   onSelectAutomations,
   onSelectDataHealth,
   onSelectAdminRbac,
@@ -125,10 +116,10 @@ export default function CrmSidebar({
             }}
             className="text-left min-w-0 cursor-pointer group"
           >
-            <span className="text-[10px] font-normal uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
+            <span className="text-[10px] font-black uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
               MÓDULO CRM • SALES &amp; MARKETING
             </span>
-            <span className="text-[10px] text-slate-500 font-normal block truncate">
+            <span className="text-[10px] text-slate-500 font-semibold block truncate">
               Funil Comercial, Clientes &amp; IA
             </span>
           </button>
@@ -161,7 +152,7 @@ export default function CrmSidebar({
         <nav className="px-2 py-2.5 space-y-3">
           {/* BLOCO 1: VISÃO GERAL */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-normal uppercase tracking-wider text-slate-400">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
               VISÃO GERAL
             </div>
             {onSelectOverview && (
@@ -175,8 +166,8 @@ export default function CrmSidebar({
                   }}
                   className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                     activeModule === 'OVERVIEW_AI'
-                      ? 'bg-[#213343] text-white font-normal shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-normal'
+                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2 truncate">
@@ -194,7 +185,7 @@ export default function CrmSidebar({
 
           {/* BLOCO 2: COMERCIAL & CLIENTES */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-normal uppercase tracking-wider text-slate-400">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
               COMERCIAL &amp; CLIENTES
             </div>
 
@@ -210,8 +201,8 @@ export default function CrmSidebar({
                 }
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'DEALS_KANBAN'
-                    ? 'bg-[#213343] text-white font-normal shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-normal'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -224,7 +215,7 @@ export default function CrmSidebar({
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                       activeModule === 'DEALS_KANBAN'
                         ? 'bg-white/20 text-white'
                         : 'bg-slate-200/80 text-slate-600'
@@ -255,8 +246,8 @@ export default function CrmSidebar({
                         }}
                         className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
                           isPipeActive
-                            ? 'bg-orange-50 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
+                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                         }`}
                       >
                         <span className="truncate">{pipe.name}</span>
@@ -279,8 +270,8 @@ export default function CrmSidebar({
                 }
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'CONTACTS_COMPANIES'
-                    ? 'bg-[#213343] text-white font-normal shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-normal'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -293,7 +284,7 @@ export default function CrmSidebar({
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                       activeModule === 'CONTACTS_COMPANIES'
                         ? 'bg-white/20 text-white'
                         : 'bg-slate-200/80 text-slate-600'
@@ -319,12 +310,12 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
-                        ? 'bg-orange-50 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Contatos CRM</span>
-                    <span className="text-[10px] font-normal text-slate-400">({contactsCount})</span>
+                    <span className="text-[10px] font-bold text-slate-400">({contactsCount})</span>
                   </button>
                   <button
                     type="button"
@@ -334,12 +325,26 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
-                        ? 'bg-orange-50 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Empresas CRM</span>
-                    <span className="text-[10px] font-normal text-slate-400">({companiesCount})</span>
+                    <span className="text-[10px] font-bold text-slate-400">({companiesCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectContactsSubView('TASKS');
+                      closeMobileIfOpen();
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
+                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS'
+                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                    }`}
+                  >
+                    <span>Tarefas &amp; Follow-up</span>
                   </button>
                 </div>
               )}
@@ -348,149 +353,56 @@ export default function CrmSidebar({
 
           {/* BLOCO 3: MARKETING & AUTOMAÇÃO */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-normal uppercase tracking-wider text-slate-400">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
               MARKETING &amp; AUTOMAÇÃO
             </div>
 
-            {/* Marketing (E-mails & Campanhas) - Acordeão com as sub-visões do Marketing Hub */}
             <div className="rounded-md">
               <button
                 type="button"
-                onClick={() =>
-                  toggleGroup('MARKETING_FORMS', () => {
-                    if (onSelectMarketingSubView) {
-                      onSelectMarketingSubView('EMAIL_MARKETING');
-                    } else {
-                      onSelectForms();
-                    }
-                    closeMobileIfOpen();
-                  })
-                }
+                onClick={() => {
+                  setExpanded({});
+                  onSelectForms();
+                  closeMobileIfOpen();
+                }}
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'MARKETING_FORMS'
-                    ? 'bg-[#213343] text-white font-normal shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-normal'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
-                  <Megaphone
+                  <FileCode2
                     className={`w-4 h-4 shrink-0 ${
                       activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                     }`}
                   />
-                  <span className="truncate">Marketing &amp; E-mails</span>
+                  <span className="truncate">Formulários &amp; Leads</span>
                 </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
-                      activeModule === 'MARKETING_FORMS'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-200/80 text-slate-600'
-                    }`}
-                  >
-                    {marketingEmailsCount}
-                  </span>
-                  {expanded.MARKETING_FORMS ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    activeModule === 'MARKETING_FORMS'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {formsCount}
                 </span>
               </button>
-
-              {expanded.MARKETING_FORMS && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  {[
-                    {
-                      id: 'EMAIL_MARKETING' as MarketingHubSubView,
-                      label: 'E-mails de Marketing',
-                      badge: String(marketingEmailsCount),
-                    },
-                    {
-                      id: 'CAMPAIGNS_ROI' as MarketingHubSubView,
-                      label: 'Campanhas & ROI',
-                      badge: '3',
-                    },
-                    {
-                      id: 'SEGMENTS_SCORING' as MarketingHubSubView,
-                      label: 'Segmentos & Lead Scoring',
-                      badge: '4',
-                    },
-                    {
-                      id: 'FORMS_LANDING_PAGES' as MarketingHubSubView,
-                      label: 'Formulários & Leads',
-                      badge: String(formsCount),
-                    },
-                  ].map((sub) => {
-                    const isSubActive =
-                      activeModule === 'MARKETING_FORMS' && activeMarketingSubView === sub.id;
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => {
-                          if (onSelectMarketingSubView) {
-                            onSelectMarketingSubView(sub.id);
-                          } else {
-                            onSelectForms();
-                          }
-                          closeMobileIfOpen();
-                        }}
-                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                          isSubActive
-                            ? 'bg-orange-50 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
-                        }`}
-                      >
-                        <span className="truncate">{sub.label}</span>
-                        <span className="text-[10px] font-normal text-slate-400">({sub.badge})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
 
-            {/* Atalho direto Formulários & Leads quando o acordeão estiver recolhido */}
-            {!expanded.MARKETING_FORMS && (
-              <div className="rounded-md">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onSelectMarketingSubView) {
-                      onSelectMarketingSubView('FORMS_LANDING_PAGES');
-                    } else {
-                      onSelectForms();
-                    }
-                    closeMobileIfOpen();
-                  }}
-                  className="w-full px-2.5 py-1.5 rounded-md flex items-center justify-between text-[11px] text-[#1e3a6e] hover:bg-white font-normal transition cursor-pointer"
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <FileCode2 className="w-3.5 h-3.5 shrink-0 text-[#1e3a6e]" />
-                    <span className="truncate">Formulários &amp; Leads</span>
-                  </span>
-                  <span className="px-1.5 py-0.2 rounded text-[10px] font-normal bg-slate-200/80 text-slate-600">
-                    {formsCount}
-                  </span>
-                </button>
-              </div>
-            )}
-
-            {/* Cadências & Fluxos de Automação */}
             <div className="rounded-md">
               <button
                 type="button"
-                onClick={() =>
-                  toggleGroup('AUTOMATIONS', () => {
-                    onSelectAutomations('SEQUENCES');
-                    closeMobileIfOpen();
-                  })
-                }
+                onClick={() => {
+                  setExpanded({});
+                  onSelectAutomations();
+                  closeMobileIfOpen();
+                }}
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'AUTOMATIONS'
-                    ? 'bg-[#213343] text-white font-normal shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-normal'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -501,57 +413,22 @@ export default function CrmSidebar({
                   />
                   <span className="truncate">Fluxos de Automação</span>
                 </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
-                      activeModule === 'AUTOMATIONS'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-200/80 text-slate-600'
-                    }`}
-                  >
-                    {automationsCount}
-                  </span>
-                  {expanded.AUTOMATIONS ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    activeModule === 'AUTOMATIONS'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200/80 text-slate-600'
+                  }`}
+                >
+                  {automationsCount}
                 </span>
               </button>
-
-              {expanded.AUTOMATIONS && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectAutomations('SEQUENCES');
-                      closeMobileIfOpen();
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal transition cursor-pointer"
-                  >
-                    <span className="truncate flex items-center gap-1.5">
-                      <Mail className="w-3 h-3 text-[#ff7a59]" />
-                      Cadências Comerciais (21d)
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectAutomations('WORKFLOWS');
-                      closeMobileIfOpen();
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal transition cursor-pointer"
-                  >
-                    <span className="truncate">Workflows DAG</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
           {/* BLOCO 4: GOVERNANÇA CRM */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-normal uppercase tracking-wider text-slate-400">
+            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
               GOVERNANÇA CRM
             </div>
 
@@ -566,8 +443,8 @@ export default function CrmSidebar({
                 }
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'DATA_HEALTH'
-                    ? 'bg-[#213343] text-white font-normal shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-normal'
+                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                    : 'text-[#1e3a6e] hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -580,7 +457,7 @@ export default function CrmSidebar({
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                       activeModule === 'DATA_HEALTH'
                         ? 'bg-emerald-500/30 text-emerald-200'
                         : 'bg-emerald-50 text-emerald-700'
@@ -606,8 +483,8 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'DATA_HEALTH'
-                        ? 'bg-emerald-50 text-[#0d2b4e] font-normal border-l-2 border-[#00bda5]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
+                        ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
+                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Auditoria Base CRM</span>
@@ -627,8 +504,8 @@ export default function CrmSidebar({
                   }
                   className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                     activeModule === 'ADMIN_RBAC'
-                      ? 'bg-[#213343] text-white font-normal shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-normal'
+                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
+                      : 'text-[#1e3a6e] hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2 truncate">
@@ -667,8 +544,8 @@ export default function CrmSidebar({
                           }}
                           className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                             isSubActive
-                              ? 'bg-orange-50 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                              : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-normal'
+                              ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                              : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
                           }`}
                         >
                           <span className="truncate">{sub.label}</span>
@@ -684,7 +561,7 @@ export default function CrmSidebar({
       </div>
 
       <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
-        <div className="font-normal text-[#0d2b4e]">CRM • SETA TELECOM</div>
+        <div className="font-bold text-[#0d2b4e]">CRM • SETA TELECOM</div>
         <div>Portal HubSpot #4369067</div>
         <div>4 Pipelines Ativos • Base Independente</div>
       </div>

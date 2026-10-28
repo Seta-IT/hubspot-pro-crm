@@ -264,6 +264,94 @@ export const SETA_TELECOM_HIRING_FLOW_STEPS: readonly SetaHiringFlowStep[] = [
   },
 ] as const;
 
+
+export const PROPOSAL_SERVICE_PILL_OPTIONS: readonly string[] = [
+  "Suporte Técnico",
+  "Spare Parts / Hard Parts",
+  "Configuração",
+  "Instalação",
+] as const;
+
+export const PROPOSAL_SERVICE_TYPE_OPTIONS: readonly string[] = [
+  "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação",
+  "Suporte Técnico",
+  "Spare Parts / Hard Parts",
+  "Configuração",
+  "Instalação",
+  "Configuração & Instalação",
+  "Suporte Técnico & Spare Parts (Hard Parts)",
+] as const;
+
+export function resolveProposalServiceType(prop: Partial<ErpCommercialProposal>): string {
+  const raw = String(prop.serviceType || "").trim();
+  if (raw) return raw;
+  if (prop.budgetType === "SERVICOS" || prop.budgetType === "CONJUNTO") {
+    return "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação";
+  }
+  return "";
+}
+
+export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialProposal>): {
+  effectiveBudgetType: "PRODUTOS" | "LOCACAO" | "SERVICOS" | "CONJUNTO";
+  headerDocLabel: string;
+  dividerTitle: string;
+  serviceTypeLabel: string;
+  isProductsOnly: boolean;
+  isRental: boolean;
+  isServices: boolean;
+} {
+  const bt = prop.budgetType || "LOCACAO";
+  const serviceTypeLabel = resolveProposalServiceType({ ...prop, budgetType: bt });
+
+  if (bt === "PRODUTOS") {
+    return {
+      effectiveBudgetType: "PRODUTOS",
+      headerDocLabel: "PROPOSTA COMERCIAL",
+      dividerTitle: "PROPOSTA COMERCIAL - Produtos",
+      serviceTypeLabel: "",
+      isProductsOnly: true,
+      isRental: false,
+      isServices: false,
+    };
+  }
+
+  if (bt === "SERVICOS") {
+    const suffix = serviceTypeLabel || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação";
+    return {
+      effectiveBudgetType: "SERVICOS",
+      headerDocLabel: `PROPOSTA DE SERVIÇOS — ${suffix}`,
+      dividerTitle: `PROPOSTA DE SERVIÇOS — ${suffix}`,
+      serviceTypeLabel: suffix,
+      isProductsOnly: false,
+      isRental: false,
+      isServices: true,
+    };
+  }
+
+  if (bt === "CONJUNTO") {
+    const suffix = serviceTypeLabel || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação";
+    return {
+      effectiveBudgetType: "CONJUNTO",
+      headerDocLabel: "PROPOSTA DE LOCAÇÃO & SERVIÇOS",
+      dividerTitle: `PROPOSTA DE LOCAÇÃO & SERVIÇOS — ${suffix}`,
+      serviceTypeLabel: suffix,
+      isProductsOnly: false,
+      isRental: true,
+      isServices: true,
+    };
+  }
+
+  return {
+    effectiveBudgetType: "LOCACAO",
+    headerDocLabel: "PROPOSTA DE LOCAÇÃO",
+    dividerTitle: "PROPOSTA DE LOCAÇÃO - Solução",
+    serviceTypeLabel: "",
+    isProductsOnly: false,
+    isRental: true,
+    isServices: false,
+  };
+}
+
 export const PROPOSAL_DELIVERY_SUGGESTIONS: string[] = [
   '5 dias úteis após o aceite',
   '7 dias úteis após o aceite',
@@ -543,43 +631,48 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           ) / 100
         );
 
-  const totalContractValue =
-    Math.round((monthlyRecurringTotal * contractMonths + oneTimeSetupTotal + shippingCost) * 100) /
-    100;
-
   const inferredBudgetType =
     next.budgetType ||
     (productsSubtotal > 0 && servicesSubtotal > 0
-      ? 'CONJUNTO'
+      ? "CONJUNTO"
       : servicesSubtotal > 0 && productsSubtotal === 0
-        ? 'SERVICOS'
-        : items.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
-          ? 'LOCACAO'
-          : 'PRODUTOS');
+        ? "SERVICOS"
+        : items.some((i) => i.fiscalNature === "LOCACAO_BENS_MOVEIS")
+          ? "LOCACAO"
+          : "PRODUTOS");
 
-  const resolvedSla = resolveProposalSlaOption(next);
+  const isProductsProposal = inferredBudgetType === "PRODUTOS";
+  const effectiveContractMonths = isProductsProposal ? 1 : contractMonths;
+
+  const totalContractValue = isProductsProposal
+    ? Math.round((monthlyRecurringTotal + oneTimeSetupTotal + shippingCost) * 100) / 100
+    : Math.round((monthlyRecurringTotal * effectiveContractMonths + oneTimeSetupTotal + shippingCost) * 100) / 100;
+
+  const resolvedSla = isProductsProposal ? PROPOSAL_SLA_OPTIONS[0] : resolveProposalSlaOption(next);
   const sellerInfo = resolveProposalSellerContact(next);
   const cleanedPaymentCondition = cleanProposalPaymentCondition(next.paymentCondition);
   const cleanedTechnicalClauses = cleanProposalTechnicalClauses(next.technicalClauses);
   const resolvedDeliveryLeadTime = resolveProposalDeliveryLeadTime(next);
+  const resolvedServiceType = resolveProposalServiceType({ ...next, budgetType: inferredBudgetType });
 
   return {
     ...next,
     sellerName: sellerInfo.name,
     sellerEmail: next.sellerEmail ? sellerInfo.email : sellerInfo.email,
     sellerPhone: next.sellerPhone ? sellerInfo.phone : sellerInfo.phone,
-    paymentCondition: cleanedPaymentCondition || next.paymentCondition || '',
+    paymentCondition: cleanedPaymentCondition || next.paymentCondition || "",
     technicalClauses: cleanedTechnicalClauses,
     deliveryLeadTime: resolvedDeliveryLeadTime,
     deliveryForecast: resolvedDeliveryLeadTime,
-    templateStyle: next.templateStyle || 'CLEAN_CORPORATE_LIGHT',
-    slaTier: resolvedSla.id,
-    slaAvailabilityPercent: resolvedSla.slaAvailabilityPercent,
-    slaResponseHours: resolvedSla.slaResponseHours,
+    templateStyle: next.templateStyle || "CLEAN_CORPORATE_LIGHT",
+    slaTier: isProductsProposal ? "SEM_SLA_ESPECIFICO" : resolvedSla.id,
+    slaAvailabilityPercent: isProductsProposal ? "" : resolvedSla.slaAvailabilityPercent,
+    slaResponseHours: isProductsProposal ? 0 : resolvedSla.slaResponseHours,
     setupFee: explicitSetupFee,
     budgetType: inferredBudgetType,
+    serviceType: resolvedServiceType || undefined,
     items,
-    contractMonths,
+    contractMonths: effectiveContractMonths,
     discountAmount,
     discountPercentGlobal,
     shippingCost,
@@ -597,6 +690,7 @@ export interface CompactProposalPayload {
   c: string; // code
   t: string; // title
   bt?: string; // budgetType
+  svt?: string; // serviceType
   ts?: string; // templateStyle
   sl?: string; // slaTier
   sa?: string; // slaAvailabilityPercent
@@ -671,6 +765,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       c: computed.code,
       t: computed.title,
       bt: computed.budgetType,
+      svt: computed.serviceType || undefined,
       ts: computed.templateStyle || 'CLEAN_CORPORATE_LIGHT',
       sl: computed.slaTier,
       sa: computed.slaAvailabilityPercent,
@@ -812,6 +907,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       code: p.c || 'PROP-SETA',
       title: p.t,
       budgetType: (p.bt as ErpCommercialProposal['budgetType']) || undefined,
+      serviceType: p.svt || undefined,
       templateStyle:
         (p.ts as ErpCommercialProposal['templateStyle']) || 'CLEAN_CORPORATE_LIGHT',
       slaTier: p.sl || undefined,
@@ -895,6 +991,7 @@ export function buildSnapshotFromProposal(prop: ErpCommercialProposal): ErpPropo
     title: c.title || "",
     status: c.status || "ENVIADA",
     budgetType: c.budgetType,
+    serviceType: c.serviceType,
     companyId: c.companyId ?? null,
     companyName: c.companyName || "",
     companyCnpj: c.companyCnpj || "",
@@ -945,6 +1042,7 @@ export function proposalFromVersionSnapshot(
     title: s.title || baseProposal.title,
     status: s.status || baseProposal.status,
     budgetType: s.budgetType || baseProposal.budgetType,
+    serviceType: s.serviceType ?? baseProposal.serviceType,
     companyId: s.companyId ?? baseProposal.companyId,
     companyName: s.companyName || baseProposal.companyName,
     companyCnpj: s.companyCnpj || baseProposal.companyCnpj,

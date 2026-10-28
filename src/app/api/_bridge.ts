@@ -41,6 +41,23 @@ export async function forwardToCrmRouter(
     }
   }
 
+  const iamUsersHdr = req.headers.get('x-stihub-iam-users');
+  const iamDeletedHdr = req.headers.get('x-stihub-iam-deleted');
+  if (iamUsersHdr || iamDeletedHdr) {
+    if (!body || typeof body !== 'object') body = {};
+    const bObj = body as Record<string, unknown>;
+    if (iamUsersHdr && !bObj.iamUsersOverride) {
+      try {
+        bObj.iamUsersOverride = JSON.parse(decodeURIComponent(iamUsersHdr));
+      } catch {}
+    }
+    if (iamDeletedHdr && !bObj.iamDeletedUsersOverride) {
+      try {
+        bObj.iamDeletedUsersOverride = JSON.parse(decodeURIComponent(iamDeletedHdr));
+      } catch {}
+    }
+  }
+
   const res = await router.dispatch({
     method: req.method,
     path,

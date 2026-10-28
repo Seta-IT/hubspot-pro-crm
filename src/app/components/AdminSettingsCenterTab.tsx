@@ -1136,13 +1136,7 @@ export default function AdminSettingsCenterTab({
                         </td>
                         <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedUserProfile(u)}
-                              className="px-3 py-1 rounded bg-[#0d2b4e] text-white text-[11px] font-normal cursor-pointer"
-                            >
-                              Abrir Perfil
-                            </button>
+
                             <button
                               type="button"
                               onClick={() => onSwitchRoleSession(u)}

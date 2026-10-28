@@ -103,15 +103,8 @@ html, body {
   scrollbar-width: none;
 }
 
-/* Corporate Typography Hierarchy: Bold ONLY on Titles (h1-h6) */
-body, p, span, div, td, th, button, a, label, input, select, textarea, li, strong, b {
-  font-weight: 400;
-}
 
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 600 !important;
-}
-
-h1 span, h2 span, h3 span, h4 span, h5 span, h6 span {
-  font-weight: 600 !important;
+/* Corporate Typography Hierarchy: Semibold/Bold on Titles, Menus & Headers */
+h1, h2, h3, h4, h5, h6, th {
+  font-weight: 600;
 }

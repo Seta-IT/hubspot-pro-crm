@@ -93,6 +93,7 @@ import {
   StiHubSecurityAndMailerConfig,
   StiHubSecurityAuditLogEntry,
   StiHubUserModuleAccess,
+  StiHubVisibilityScope,
   StiHubUserRecord,
 } from './types';
 import {
@@ -133,6 +134,7 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     title: p.title || '',
     status: p.status || 'ENVIADA',
     budgetType: p.budgetType,
+    serviceType: p.serviceType,
     companyId: p.companyId ?? null,
     companyName: p.companyName || '',
     companyCnpj: p.companyCnpj || '',
@@ -701,7 +703,9 @@ export class CrmRepository {
             .trim();
           return {
             ...p,
-            slaTier: p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
+            budgetType: p.id === "prop-gc-4695" ? "PRODUTOS" : p.id === "prop-seta-001" ? "LOCACAO" : p.id === "prop-seta-004" ? "SERVICOS" : p.budgetType,
+            serviceType: p.id === "prop-seta-004" || p.budgetType === "SERVICOS" ? (p.serviceType || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação") : p.serviceType,
+            slaTier: p.id === "prop-gc-4695" || p.budgetType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
             deliveryLeadTime: p.id === "prop-seta-001" && (!p.deliveryLeadTime || p.deliveryLeadTime.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryLeadTime,
             deliveryForecast: p.id === "prop-seta-001" && (!p.deliveryForecast || p.deliveryForecast.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryForecast,
             technicalClauses: cleanedTc,
@@ -7703,12 +7707,45 @@ export class CrmRepository {
     if (token) {
       const verified = verifyStiHubSessionToken(token);
       if (verified.valid && verified.claims) {
-        const resolved = this.getEffectiveUserAndRole(
-          verified.claims.uid || verified.claims.email
+        const c = verified.claims;
+        const rbac = this.ensureRbacState();
+        const qId = String(c.uid || "").toLowerCase();
+        const qEmail = String(c.email || "").toLowerCase();
+        const exists = rbac.users.find(
+          (u) =>
+            (qId && u.id.toLowerCase() === qId) ||
+            (qEmail && u.email.toLowerCase() === qEmail)
         );
+        if (!exists && c.email) {
+          // Rehydrate custom user from signed session token on cold serverless instance
+          this.upsertRbacUser({
+            id: c.uid,
+            email: c.email,
+            name: c.name || c.email,
+            roleId: (c.roleId as StiHubRoleId) || "VENDEDOR_SALES",
+            scope: (c.scope as StiHubVisibilityScope) || "PROPRIOS",
+            enabledModules: c.enabledModules,
+            moduleAccess: c.moduleAccess,
+            crmPermissions: c.crmPermissions,
+            erpPermissions: c.erpPermissions,
+            mfaEnabled: true,
+            mfaMethod: c.mfaMethod || "TOTP_AUTHENTICATOR",
+            totpConfigured: true,
+            active: true,
+          });
+        } else if (exists) {
+          // Preserve custom moduleAccess/enabledModules from the signed session if the instance had unhydrated seed defaults
+          if (Array.isArray(c.enabledModules) && c.enabledModules.length > 0 && !exists.invitedAt) {
+            exists.enabledModules = c.enabledModules;
+          }
+          if (c.moduleAccess && !exists.invitedAt) {
+            exists.moduleAccess = c.moduleAccess;
+          }
+        }
+        const resolved = this.getEffectiveUserAndRole(c.uid || c.email);
         return {
           authenticated: true,
-          mfaVerified: Boolean(verified.claims.mfaVerified),
+          mfaVerified: Boolean(c.mfaVerified),
           ...resolved,
         };
       }

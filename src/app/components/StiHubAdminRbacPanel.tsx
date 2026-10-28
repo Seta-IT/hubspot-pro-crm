@@ -20,6 +20,7 @@ import {
   generateTotpCodeSync,
   generateTotpSecretBase32,
   loadClientDeletedUsersOverride,
+  loadClientIamUsersOverride,
   saveClientDeletedUserOverride,
   saveClientIamUserOverride,
 } from '../lib/auth';
@@ -256,7 +257,7 @@ export default function StiHubAdminRbacPanel({
       const res = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ ...patch, iamUsersOverride: loadClientIamUsersOverride(), iamDeletedUsersOverride: loadClientDeletedUsersOverride() }),
       });
       if (res.ok) {
         const json = await res.json();
@@ -352,13 +353,38 @@ export default function StiHubAdminRbacPanel({
   }, [initialSubView]);
 
   const roles = rbacState?.roles || [];
-  const deletedSet = new Set([
-    ...localDeletedIds,
-    ...(typeof window !== 'undefined' ? loadClientDeletedUsersOverride() : []),
-  ]);
-  const users = (rbacState?.users || []).filter(
-    (u) => !deletedSet.has(u.id) && !deletedSet.has(u.email.toLowerCase())
+  const deletedSet = new Set(
+    [
+      ...localDeletedIds,
+      ...(typeof window !== 'undefined' ? loadClientDeletedUsersOverride() : []),
+    ].map((x) => String(x).toLowerCase())
   );
+  const users = (() => {
+    const map = new Map<string, StiHubUserRecord>();
+    for (const u of rbacState?.users || []) {
+      if (deletedSet.has(u.id.toLowerCase()) || deletedSet.has(u.email.toLowerCase())) continue;
+      map.set(u.id, u);
+    }
+    if (typeof window !== 'undefined') {
+      const overrides = loadClientIamUsersOverride() as unknown as StiHubUserRecord[];
+      for (const ov of overrides) {
+        if (!ov || (!ov.id && !ov.email)) continue;
+        if (
+          (ov.id && deletedSet.has(String(ov.id).toLowerCase())) ||
+          (ov.email && deletedSet.has(String(ov.email).toLowerCase()))
+        ) {
+          continue;
+        }
+        const key =
+          Array.from(map.keys()).find(
+            (k) => k === ov.id || map.get(k)?.email.toLowerCase() === String(ov.email || "").toLowerCase()
+          ) || ov.id;
+        const prev = map.get(key);
+        map.set(key, prev ? { ...prev, ...ov } : ov);
+      }
+    }
+    return Array.from(map.values());
+  })();
   const securityConfig = rbacState?.securityConfig;
 
   const selectedRole: StiHubRoleDefinition | undefined =
@@ -455,6 +481,7 @@ export default function StiHubAdminRbacPanel({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mode: nextEnabled ? 'ENABLE_2FA' : 'DISABLE_2FA',
+        iamUsersOverride: loadClientIamUsersOverride(),
       }),
     });
     if (res.ok) {
@@ -508,7 +535,7 @@ export default function StiHubAdminRbacPanel({
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/full-control`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ module: mod }),
+      body: JSON.stringify({ module: mod, iamUsersOverride: loadClientIamUsersOverride() }),
     });
     if (res.ok) {
       const json = await res.json();
@@ -527,7 +554,7 @@ export default function StiHubAdminRbacPanel({
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-mfa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'RESET_QR' }),
+      body: JSON.stringify({ mode: 'RESET_QR', iamUsersOverride: loadClientIamUsersOverride() }),
     });
     if (res.ok) {
       const json = await res.json();
@@ -554,7 +581,7 @@ export default function StiHubAdminRbacPanel({
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ origin, resetTotp: true }),
+      body: JSON.stringify({ origin, resetTotp: true, iamUsersOverride: loadClientIamUsersOverride() }),
     });
     if (res.ok) {
       const json = await res.json();

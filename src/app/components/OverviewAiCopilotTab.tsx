@@ -20,6 +20,7 @@ import { formatBRL } from './ui-helpers';
 
 interface OverviewAiCopilotTabProps {
   report: AiInsightsReport | null;
+  userName?: string;
   loading: boolean;
   onRefresh: () => void;
   onAskQuestion: (question: string) => Promise<void>;
@@ -67,6 +68,7 @@ function greeting(): string {
 
 export default function OverviewAiCopilotTab({
   report,
+  userName,
   onNavigateToDeals,
   onNavigateToContacts,
   onNavigateToDataHealth,
@@ -452,7 +454,7 @@ export default function OverviewAiCopilotTab({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-800">{greeting()}, Marcelo</h1>
+            <h1 className="text-xl font-semibold text-slate-800">{greeting()}, {(userName || "Colaborador").trim().split(/\s+/)[0]}</h1>
             <span className="px-2.5 py-0.5 rounded-full bg-orange-50 text-[#e05835] border border-orange-200 text-[11px] font-normal">
               Dashboard Exclusivo CRM (Sales Hub &amp; Marketing Hub)
             </span>

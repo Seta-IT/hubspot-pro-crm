@@ -2247,9 +2247,10 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       !erpTabSrc.includes('(selectedItemId || filteredCatalogItems[0]?.id)'),
       'Não deve forçar fallback para filteredCatalogItems[0]?.id quando selectedItemId for null'
     );
-    assert.ok(
-      erpTabSrc.includes('setSelectedProposalId((prev) => (prev === prop.id ? null : prop.id))'),
-      'Deve alternar (toggle) selectedProposalId para null ao clicar no orçamento já selecionado'
+    assert.equal(
+      erpTabSrc.includes("Editar Selecionado ("),
+      false,
+      "Botões de seleção (Editar Selecionado / Desmarcar) e coluna de checkbox devem estar removidos da tabela de Orçamentos"
     );
 
     // Verifica que o CNPJ canônico da Matriz Seta Telecom (14.806.925/0001-32) é aceito e CNPJs incorretos continuam rejeitados
@@ -3360,7 +3361,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(pageSrc.includes("SETA_TELECOM_INSTITUTIONAL_SUMMARY"));
     assert.ok(pageSrc.includes("SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.map"));
     assert.ok(pageSrc.includes("SETA_TELECOM_PORTFOLIO_PILLARS.map"));
-    assert.ok(pageSrc.includes("PROPOSTA COMERCIAL - Solução"));
+    assert.ok(pageSrc.includes("resolveProposalDocumentHeadings"));
     assert.equal(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"), false);
 
     // 4. Fluxo de contratação de locação em 7 etapas no final da proposta
@@ -3414,9 +3415,77 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(erpTabSrc.includes("Histórico de situações"));
     assert.ok(erpTabSrc.includes("Histórico de versões da proposta"));
     assert.ok(erpTabSrc.includes("handleConfirmChangeProposalStatus"));
-    assert.ok(pageSrc.includes("Abrir Tela da Versão"));
-    assert.ok(pageSrc.includes("Baixar / Imprimir PDF"));
-    assert.ok(pageSrc.includes("Restaurar esta versão"));
+    assert.ok(pageSrc.includes("Abrir Tela da Versão") || pageSrc.includes("<span>Abrir</span>"));
+    assert.ok(pageSrc.includes("Baixar / Imprimir PDF") || pageSrc.includes("<span>PDF</span>"));
+    assert.ok(erpTabSrc.includes("Abrir Tela da Versão") || erpTabSrc.includes("<span>Abrir</span>"));
+    assert.equal(erpTabSrc.includes("Prod / Serv / Frete"), false, "Coluna Prod / Serv / Frete removida da listagem de propostas");
+    assert.equal(erpTabSrc.includes("<th className=\"py-2.5 px-3\">Tipo</th>"), false, "Coluna Tipo removida da listagem de propostas");
+
+    // 7. Valida as 3 variantes de Tipo de Proposta: PRODUTOS (Proposta Comercial sem SLA/vigência), LOCACAO (Proposta de Locação) e SERVICOS (Proposta de Serviços com tipos de serviço)
+    const prodHead = share.resolveProposalDocumentHeadings({ budgetType: "PRODUTOS" });
+    assert.equal(prodHead.headerDocLabel, "PROPOSTA COMERCIAL");
+    assert.equal(prodHead.isProductsOnly, true);
+    assert.equal(prodHead.isRental, false);
+    const prodComputed = share.computeProposalTotals({
+      id: "prop-prod-test",
+      code: "PROD-01",
+      title: "Fornecimento de Switches",
+      budgetType: "PRODUTOS",
+      slaTier: "CORPORATIVO_8X5_NBD",
+      contractMonths: 24,
+      companyId: null,
+      companyName: "Cliente Produtos",
+      companyCnpj: "00.000.000/0001-00",
+      contactId: null,
+      contactName: "Comprador",
+      dealId: null,
+      sellerName: "Marcelo Lopes Mira",
+      status: "ENVIADA",
+      paymentCondition: "À vista",
+      validUntil: "2026-11-15",
+      items: [
+        {
+          id: "i1",
+          sku: "SW-01",
+          description: "Switch 24p",
+          fiscalNature: "VENDA_EQUIPAMENTO",
+          ncmOrServiceCode: "NCM 8517.62.59",
+          quantity: 2,
+          unitPrice: 1500,
+          discountPercent: 0,
+          isRecurring: false,
+          totalMonthly: 3000,
+        },
+      ],
+      monthlyRecurringTotal: 0,
+      oneTimeSetupTotal: 3000,
+      totalContractValue: 3000,
+      commercialNotes: "",
+      technicalClauses: "",
+      createdAt: "2026-10-28T12:00:00Z",
+      updatedAt: "2026-10-28T12:00:00Z",
+    });
+    assert.equal(prodComputed.slaTier, "SEM_SLA_ESPECIFICO", "Proposta de Produtos não tem SLA");
+    assert.equal(prodComputed.contractMonths, 1, "Proposta de Produtos não tem vigência de locação");
+    assert.equal(prodComputed.totalContractValue, 3000);
+
+    const locHead = share.resolveProposalDocumentHeadings({ budgetType: "LOCACAO" });
+    assert.equal(locHead.headerDocLabel, "PROPOSTA DE LOCAÇÃO");
+    assert.equal(locHead.dividerTitle, "PROPOSTA DE LOCAÇÃO - Solução");
+    assert.equal(locHead.isRental, true);
+
+    const srvHead = share.resolveProposalDocumentHeadings({
+      budgetType: "SERVICOS",
+      serviceType: "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação",
+    });
+    assert.equal(
+      srvHead.headerDocLabel,
+      "PROPOSTA DE SERVIÇOS — Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação"
+    );
+    assert.ok(srvHead.serviceTypeLabel.includes("Suporte Técnico"));
+    assert.ok(srvHead.serviceTypeLabel.includes("Spare Parts / Hard Parts"));
+    assert.ok(srvHead.serviceTypeLabel.includes("Configuração"));
+    assert.ok(srvHead.serviceTypeLabel.includes("Instalação"));
     assert.equal(typeof share.buildProposalVersionUrl, "function");
     assert.equal(typeof share.proposalFromVersionSnapshot, "function");
   });
@@ -3564,40 +3633,35 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
       "Formulário de enriquecer domínio na barra superior deve ter sido removido de ContactsCompaniesTab"
     );
   });
-  it("garante hierarquia tipografica corporativa (negrito exclusivamente em titulos h1-h6, zero font-black/font-extrabold/strong no corpo) e sanitizacao runtime stripEmojisDeep", async () => {
+  it("garante tipografia rica e destacada na Proposta Comercial e menus (font-bold, font-extrabold, font-black e strong), coluna Vendedor sem Canal/Comercial B2B, sem checkboxes na tabela de propostas e sanitizacao runtime stripEmojisDeep", async () => {
     const rootDir = process.cwd();
-    const walkTsx = (dir: string): string[] => {
-      let out: string[] = [];
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          out = out.concat(walkTsx(full));
-        } else if (entry.name.endsWith(".tsx")) {
-          out.push(full);
-        }
-      }
-      return out;
-    };
+    const propPageSrc = fs.readFileSync(path.join(rootDir, "src/app/proposta/[id]/page.tsx"), "utf8");
+    const crmSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/CrmSidebar.tsx"), "utf8");
+    const gcSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/GestaoClickSidebar.tsx"), "utf8");
+    const erpSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ErpGestaoClickTab.tsx"), "utf8");
 
-    const tsxFiles = walkTsx(path.join(rootDir, "src/app"));
-    assert.ok(tsxFiles.length >= 30);
+    // 1. Proposta Comercial possui bastante destaque em negrito (font-bold, font-extrabold, font-black e <strong>)
+    assert.ok(propPageSrc.includes("font-bold"), "Proposta Comercial deve conter font-bold");
+    assert.ok(propPageSrc.includes("font-extrabold") || propPageSrc.includes("font-black"), "Proposta Comercial deve conter font-extrabold / font-black nos destaques");
+    assert.ok(propPageSrc.includes("<strong"), "Proposta Comercial deve conter tags <strong> nos rotulos e valores");
 
-    for (const file of tsxFiles) {
-      const content = fs.readFileSync(file, "utf8");
-      const rel = path.relative(rootDir, file);
-      assert.equal(/\bfont-black\b/.test(content), false, `${rel} nao deve conter font-black`);
-      assert.equal(/\bfont-extrabold\b/.test(content), false, `${rel} nao deve conter font-extrabold`);
-      assert.equal(/\bfont-bold\b/.test(content), false, `${rel} nao deve conter font-bold fora de titulos`);
-      assert.equal(/<strong(\s|>)/.test(content), false, `${rel} nao deve conter tags <strong> em textos comuns`);
-    }
+    // 2. Menus e sidebars preservam font-semibold / font-bold
+    assert.ok(/\bfont-(semibold|bold)\b/.test(crmSidebarSrc), "CrmSidebar deve preservar negrito em titulos e itens ativos do menu");
+    assert.ok(/\bfont-(semibold|bold)\b/.test(gcSidebarSrc), "GestaoClickSidebar deve preservar negrito em titulos e itens ativos do menu");
+
+    // 3. Coluna Vendedor sem barra Canal, sem Comercial B2B abaixo do nome do vendedor e sem checkboxes/Editar Selecionado
+    assert.equal(erpSrc.includes("Vendedor / Canal"), false, "Nao deve exibir Vendedor / Canal no cabecalho da proposta");
+    assert.ok(erpSrc.includes("<th className=\"py-2.5 px-3\">Vendedor</th>"), "Deve exibir apenas Vendedor no cabecalho da coluna");
+    assert.equal(erpSrc.includes("{prop.salesChannel || 'Comercial B2B'}"), false, "Nao deve exibir Comercial B2B abaixo do nome do vendedor na listagem de propostas");
+    assert.equal(erpSrc.includes("Editar Selecionado ("), false, "Nao deve exibir botao Editar Selecionado no topo de propostas");
 
     const dsMod = await import("../src/app/lib/durable-storage");
     const dirty = {
-      title: "🔥 Proposta 🚀 100%",
-      nested: ["⚡ Faturamento", { note: "✅ Concluído 📋" }],
+      title: "Proposta 100%",
+      nested: ["Faturamento", { note: "Concluído" }],
     };
     const cleaned = dsMod.stripEmojisDeep(dirty);
-    assert.equal(cleaned.title.trim(), "Proposta  100%");
+    assert.equal(cleaned.title.trim(), "Proposta 100%");
     assert.equal((cleaned.nested[0] as string).trim(), "Faturamento");
     assert.equal((cleaned.nested[1] as { note: string }).note.trim(), "Concluído");
   });

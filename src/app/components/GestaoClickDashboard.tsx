@@ -215,6 +215,7 @@ function SalesChart({
 }
 
 interface Props {
+  userName?: string;
   summary?: ErpDashboardSummary;
   bankAccounts?: ErpBankAccount[];
   hideBalances: boolean;
@@ -228,6 +229,7 @@ interface Props {
 }
 
 export default function GestaoClickDashboard({
+  userName,
   summary,
   bankAccounts,
   hideBalances,
@@ -253,7 +255,7 @@ export default function GestaoClickDashboard({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-slate-800">{greeting()}, Marcelo</h1>
+          <h1 className="text-lg font-semibold text-slate-800">{greeting()}, {(userName || "Colaborador").trim().split(/\s+/)[0]}</h1>
           <p className="text-[11px] text-slate-500">
             Clique em qualquer card, gráfico, conta bancária ou aplicativo abaixo para abrir a tela completa correspondente.
           </p>

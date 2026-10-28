@@ -4732,7 +4732,7 @@ export class CrmApiRouter {
         };
       }
 
-      if (cleanPath === '/api/auth/session' && method === 'GET') {
+      if ((cleanPath === '/api/auth/session' || cleanPath === '/api/auth/me') && (method === 'GET' || method === 'POST')) {
         const token = query.token || query._sessionToken || null;
         const session = this.repo.resolveSessionFromToken(token);
         return {

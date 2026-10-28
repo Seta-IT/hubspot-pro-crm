@@ -89,8 +89,9 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     icon: FileText,
     subItems: [
       { id: 'ORC_TODOS', label: 'Todos os orçamentos' },
-      { id: 'ORC_PRODUTOS', label: 'Produtos & Locação' },
-      { id: 'ORC_SERVICOS', label: 'Serviços' },
+      { id: 'ORC_PRODUTOS', label: 'Propostas de Produtos' },
+      { id: 'ORC_LOCACAO', label: 'Propostas de Locação' },
+      { id: 'ORC_SERVICOS', label: 'Propostas de Serviços' },
       { id: 'ORC_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },
@@ -292,10 +293,10 @@ export default function GestaoClickSidebar({
             }}
             className="text-left min-w-0 cursor-pointer group"
           >
-            <span className="text-[10px] font-normal uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#ff7a59] transition block truncate">
+            <span className="text-[10px] font-black uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#ff7a59] transition block truncate">
               MÓDULO ERP • GESTÃOCLICK
             </span>
-            <span className="text-[10px] text-slate-500 font-normal block truncate">
+            <span className="text-[10px] text-slate-500 font-semibold block truncate">
               Backoffice, Locação &amp; Fiscal
             </span>
           </button>
@@ -330,7 +331,7 @@ export default function GestaoClickSidebar({
             const groups = GESTAO_CLICK_MENU_TREE.filter((g) => g.category === blockName);
             return (
               <div key={blockName} className="space-y-0.5">
-                <div className="px-2.5 pb-1 text-[9px] font-normal uppercase tracking-wider text-slate-400">
+                <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
                   {blockName}
                 </div>
                 {groups.map((group) => {
@@ -347,8 +348,8 @@ export default function GestaoClickSidebar({
                         onClick={() => handleGroupClick(group)}
                         className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                           isGroupActive
-                            ? 'bg-[#1e3a6e] text-white font-normal shadow-xs'
-                            : 'text-[#1e3a6e] hover:bg-white font-normal'
+                            ? 'bg-[#1e3a6e] text-white font-extrabold shadow-xs'
+                            : 'text-[#1e3a6e] hover:bg-white font-bold'
                         }`}
                       >
                         <span className="flex items-center gap-2 truncate">
@@ -363,7 +364,7 @@ export default function GestaoClickSidebar({
                         <span className="flex items-center gap-1 shrink-0">
                           {typeof countVal === 'number' && (
                             <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-normal ${
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                                 isGroupActive
                                   ? 'bg-white/20 text-white'
                                   : 'bg-slate-200/80 text-slate-600'
@@ -401,8 +402,8 @@ export default function GestaoClickSidebar({
                                 }}
                                 className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                                   isSubActive
-                                    ? 'bg-blue-100 text-[#0d2b4e] font-normal border-l-2 border-[#ff7a59]'
-                                    : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-normal'
+                                    ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                                    : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
                                 }`}
                               >
                                 <span className="truncate">{sub.label}</span>
@@ -424,7 +425,7 @@ export default function GestaoClickSidebar({
       </div>
 
       <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-        <div className="font-normal text-[#0d2b4e]">ERP • SETA TELECOM LTDA</div>
+        <div className="font-bold text-[#0d2b4e]">ERP • SETA TELECOM LTDA</div>
         <div>CNPJ {companyCnpj}</div>
         <div>Regime: {taxRegime}</div>
       </div>
