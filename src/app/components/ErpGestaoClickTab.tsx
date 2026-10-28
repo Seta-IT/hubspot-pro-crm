@@ -95,7 +95,7 @@ import {
 } from '../lib/durable-storage';
 import { appendClientProposalVersion, buildProposalVersionUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
-import { CONTRACT_DOCUMENT_TEMPLATES, printOrDownloadContractA4 } from '../lib/contract-billing-utils';
+import { CONTRACT_DOCUMENT_TEMPLATES, buildStandaloneContractA4Html, printOrDownloadContractA4 } from '../lib/contract-billing-utils';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
@@ -378,12 +378,28 @@ export default function ErpGestaoClickTab({
   const [showContractMoreActions, setShowContractMoreActions] = useState(false);
   const [contractsViewMode, setContractsViewMode] = useState<"LISTA" | "GRADE">("LISTA");
   const [contractsPeriodFilter, setContractsPeriodFilter] = useState<string>("TODOS");
-  const [contractMinutaDrafts, setContractMinutaDrafts] = useState<Record<"LOCACAO" | "SERVICO" | "ASSINATURA", string>>({
-    LOCACAO: CONTRACT_DOCUMENT_TEMPLATES.LOCACAO.clauses.join("\n\n"),
-    SERVICO: CONTRACT_DOCUMENT_TEMPLATES.SERVICO.clauses.join("\n\n"),
-    ASSINATURA: CONTRACT_DOCUMENT_TEMPLATES.ASSINATURA.clauses.join("\n\n"),
+  const [contractMinutaDrafts, setContractMinutaDrafts] = useState<Record<"LOCACAO" | "SERVICO" | "ASSINATURA", string>>(() => {
+    const defaults = {
+      LOCACAO: CONTRACT_DOCUMENT_TEMPLATES.LOCACAO.clauses.join("\n\n"),
+      SERVICO: CONTRACT_DOCUMENT_TEMPLATES.SERVICO.clauses.join("\n\n"),
+      ASSINATURA: CONTRACT_DOCUMENT_TEMPLATES.ASSINATURA.clauses.join("\n\n"),
+    };
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem("stihub_contract_minutas_v1");
+        if (saved) return { ...defaults, ...JSON.parse(saved) };
+      } catch {
+        // ignore
+      }
+    }
+    return defaults;
   });
   const [contractMinutaPreviewKey, setContractMinutaPreviewKey] = useState<"LOCACAO" | "SERVICO" | "ASSINATURA">("LOCACAO");
+  const [contractA4PreviewModal, setContractA4PreviewModal] = useState<{
+    contract: ErpRentalContract;
+    modality: ErpContractModality;
+    html: string;
+  } | null>(null);
   const [highlightedProposalId, setHighlightedProposalId] = useState<string | null>(null);
   const [assetSearchQuery, setAssetSearchQuery] = useState<string>("");
   const [assetStatusFilter, setAssetStatusFilter] = useState<"TODOS" | ErpAssetStatus>("TODOS");
@@ -2732,34 +2748,55 @@ export default function ErpGestaoClickTab({
       return `${typeof window !== "undefined" ? window.location.origin : ""}/assinatura/contrato/${encodeURIComponent(c.id)}`;
     }
     async function copyText(t: string) { try { await navigator.clipboard?.writeText(t); } catch { /* ignore */ } }
+    function getCustomClausesForModality(modality: ErpContractModality): string | undefined {
+      const k = modality === "SERVICO" ? "SERVICO" : modality === "ASSINATURA" ? "ASSINATURA" : "LOCACAO";
+      const original = CONTRACT_DOCUMENT_TEMPLATES[k].clauses.join("\n\n");
+      const draft = contractMinutaDrafts[k];
+      return draft && draft !== original ? draft : undefined;
+    }
+    function handleOpenContractA4(ctr: ErpRentalContract, modality: ErpContractModality) {
+      const custom = getCustomClausesForModality(modality);
+      const html = buildStandaloneContractA4Html(ctr, modality, custom);
+      setContractA4PreviewModal({ contract: ctr, modality, html });
+      if (custom) { printOrDownloadContractA4(ctr, modality, custom); } else { printOrDownloadContractA4(ctr, modality); }
+    }
     function buildContractRowActions(ctr: ErpRentalContract, modality: ErpContractModality) {
       const renewLabel = modality === "SERVICO" ? "Renovar locação / contrato" : modality === "ASSINATURA" ? "Renovar locação / assinatura" : "Renovar locação";
       return [
-        { key: "LINK_COBRANCA", label: "Link de cobrança", run: async () => { const l = contractChargeLink(ctr); await copyText(l); window.open(l, "_blank"); onShowToast(`Link de cobrança do contrato ${ctr.contractNumber} copiado: ${l}`); } },
-        { key: "IMPRIMIR_A4", label: "Imprimir A4", run: () => printOrDownloadContractA4(ctr, modality) },
-        { key: "ALTERAR_SITUACAO", label: "Alterar situação", run: () => setContractStatusPickerFor(ctr) },
-        { key: "ENVIAR_EMAIL", label: "Enviar por e-mail", run: () => { setEditingContractReadOnly(false); setEditingContractTab("DADOS_GERAIS"); setEditingContract(ctr); onShowToast(`Abra a ação de e-mail do contrato ${ctr.contractNumber} para enviar contrato e fatura ao cliente.`); } },
-        { key: "ENVIAR_WHATSAPP", label: "Enviar por WhatsApp", run: () => { const txt = `Contrato ${ctr.contractNumber} - ${ctr.companyName}\nValor: ${formatBRL(ctr.monthlyValue)}/mês\nPróximo vencimento: ${fmtBrDate(ctr.nextDueDate)}\nCobrança: ${contractChargeLink(ctr)}\nAssinatura: ${contractSignLink(ctr)}`; window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank"); } },
-        { key: "GERAR_FATURA", label: "Gerar próxima fatura", run: () => handleGenerateContractInvoice(ctr.id) },
-        { key: "DEVOLUCAO", label: "Devolução de produtos", run: () => setContractReturnFor(ctr) },
-        { key: "RENOVAR", label: renewLabel, run: () => handleRenewContract(ctr, 12) },
-        { key: "AGENDAR", label: "Agendar compromisso", run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
-        { key: "VER_FINANCEIRO", label: "Ver no financeiro", run: () => { setActiveSection("FINANCEIRO" as GestaoClickMenuSection); onShowToast(`Financeiro filtrado por ${ctr.companyName} / contrato ${ctr.contractNumber}.`); } },
-        { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil / Gov.br registrada. Link copiado: ${l}`); } },
-        { key: "EXCLUIR", label: "Excluir", danger: true, run: () => { if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr); } },
-      ] as { key: string; label: string; danger?: boolean; run: () => unknown }[];
+        { key: "LINK_COBRANCA", label: "Link de cobrança", icon: ExternalLink, run: async () => { const l = contractChargeLink(ctr); await copyText(l); onShowToast(`Link de cobrança do contrato ${ctr.contractNumber} copiado: ${l}`); } },
+        { key: "IMPRIMIR_A4", label: "Imprimir A4", icon: Printer, run: () => handleOpenContractA4(ctr, modality) },
+        { key: "ALTERAR_SITUACAO", label: "Alterar situação", icon: CheckCircle2, run: () => setContractStatusPickerFor(ctr) },
+        { key: "ENVIAR_EMAIL", label: "Enviar por e-mail", icon: Mail, run: () => {
+          setEmailModalPayload({
+            docType: "RENTAL_RECEIPT",
+            companyName: ctr.companyName,
+            companyCnpj: ctr.companyCnpj,
+            documentCode: `Contrato #${ctr.contractNumber}`,
+            amountBrl: ctr.monthlyValue,
+            dueDate: fmtBrDate(ctr.nextDueDate),
+          });
+        } },
+        { key: "ENVIAR_WHATSAPP", label: "Enviar por WhatsApp", icon: ArrowUpRight, run: () => { const txt = `Contrato ${ctr.contractNumber} - ${ctr.companyName}\nValor: ${formatBRL(ctr.monthlyValue)}/mês\nPróximo vencimento: ${fmtBrDate(ctr.nextDueDate)}\nCobrança: ${contractChargeLink(ctr)}\nAssinatura: ${contractSignLink(ctr)}`; window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank"); } },
+        { key: "GERAR_FATURA", label: "Gerar próxima fatura", icon: Receipt, run: () => handleGenerateContractInvoice(ctr.id) },
+        { key: "DEVOLUCAO", label: "Devolução de produtos", icon: RotateCcw, run: () => setContractReturnFor(ctr) },
+        { key: "RENOVAR", label: renewLabel, icon: RefreshCw, run: () => handleRenewContract(ctr, 12) },
+        { key: "AGENDAR", label: "Agendar compromisso", icon: Calendar, run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
+        { key: "VER_FINANCEIRO", label: "Ver no financeiro", icon: Wallet, run: () => { setActiveSection("FINANCEIRO" as GestaoClickMenuSection); onShowToast(`Financeiro filtrado por ${ctr.companyName} / contrato ${ctr.contractNumber}.`); } },
+        { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", icon: FileCheck2, run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil / Gov.br registrada. Link copiado: ${l}`); } },
+        { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, run: () => { if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr); } },
+      ] as { key: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean; run: () => unknown }[];
     }
     const effectiveTab: "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES" =
       activeSubId === "CTR_TODOS"
         ? "TODOS"
-        : contractsSubFilter !== "TODOS"
-          ? contractsSubFilter
-          : activeSubId === "CTR_SERVICOS" ||
-              activeSubId === "CTR_ASSINATURAS" ||
-              activeSubId === "CTR_AUXILIARES" ||
-              activeSubId === "CTR_LOCACOES"
-            ? (activeSubId as "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES")
-            : "TODOS";
+        : activeSubId === "CTR_SERVICOS" ||
+            activeSubId === "CTR_ASSINATURAS" ||
+            activeSubId === "CTR_AUXILIARES" ||
+            activeSubId === "CTR_LOCACOES"
+          ? (activeSubId as "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES")
+          : contractsSubFilter !== "TODOS"
+            ? contractsSubFilter
+            : "CTR_LOCACOES";
 
     const locacoesList = rentalContracts.filter((c) => {
       const m = inferContractModality(c);
@@ -2863,185 +2900,160 @@ export default function ErpGestaoClickTab({
     const ipcaContractsCount = rentalContracts.filter((c) => c.readjustmentIndex === "IPCA").length;
     const igpmContractsCount = rentalContracts.filter((c) => c.readjustmentIndex === "IGP-M").length;
 
+    const sectionTitleLabel =
+      effectiveTab === "CTR_LOCACOES"
+        ? "Locações"
+        : effectiveTab === "CTR_SERVICOS"
+          ? "Serviços"
+          : effectiveTab === "CTR_ASSINATURAS"
+            ? "Assinaturas"
+            : effectiveTab === "CTR_AUXILIARES"
+              ? "Opções auxiliares & Minutas de Contrato"
+              : "Contratos";
+
     return (
-      <div className="space-y-4">
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                Contratos &amp; Locação &gt; {effectiveTab}
-              </span>
-              <h2 className="text-base font-extrabold text-slate-900">
-                Gestão de Contratos de Locação, Serviços Técnicos, Assinaturas &amp; Patrimônios S/N ({rentalContracts.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Controle de vigência, reajuste anual (IPCA / IGP-M), rastreamento de S/N em clientes, Fatura de Locação (0% ISS — SV 31 STF) e NF-e de Remessa CFOP 5.908/6.908.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowBatchBillingModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer shadow-xs"
-              >
-                Faturamento em Massa &amp; E-mails ({selectedContractIdsForBatch.length > 0 ? selectedContractIdsForBatch.length : rentalContracts.filter((c) => c.status !== "ENCERRADO").length})
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewContractPreset("LOCACAO")}
-                className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Novo Contrato Locação (SV 31)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewContractPreset("SERVICO")}
-                className="px-3 py-2 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Novo Contrato Serviços (LC 116)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewContractPreset("ASSINATURA")}
-                className="px-3 py-2 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Nova Assinatura / SCM
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowNewProposalModal(true)}
-                className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Nova Proposta Comercial
-              </button>
+      <div className="space-y-3">
+        {/* CABEÇALHO LIMPO PADRÃO GESTÃOCLICK (TÍTULO À ESQUERDA + ABAS + BREADCRUMB À DIREITA) */}
+        <div className="bg-white rounded-md border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-extrabold text-slate-900">{sectionTitleLabel}</h2>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: "CTR_LOCACOES", label: `Locações (${locacoesList.length})` },
+                { id: "CTR_SERVICOS", label: `Serviços (${servicosList.length})` },
+                { id: "CTR_ASSINATURAS", label: `Assinaturas (${assinaturasList.length})` },
+                { id: "TODOS", label: `Todos (${rentalContracts.length})` },
+                {
+                  id: "CTR_AUXILIARES",
+                  label: `Opções auxiliares & Minutas (${allAllocatedAssets.length} S/N)`,
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setContractsSubFilter(tab.id as typeof contractsSubFilter);
+                    setActiveSubId(tab.id === "TODOS" ? "CTR_TODOS" : tab.id);
+                  }}
+                  className={`px-2.5 py-1 rounded text-xs font-extrabold transition cursor-pointer ${
+                    effectiveTab === tab.id
+                      ? "bg-[#1e3a6e] text-white shadow-2xs"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-            {[
-              { id: "TODOS", label: `Todos os Contratos (${rentalContracts.length})` },
-              { id: "CTR_LOCACOES", label: `Locações & Híbridos SV 31 (${locacoesList.length})` },
-              { id: "CTR_SERVICOS", label: `Serviços Técnicos LC 116 (${servicosList.length})` },
-              { id: "CTR_ASSINATURAS", label: `Assinaturas / Telecom SCM (${assinaturasList.length})` },
-              {
-                id: "CTR_AUXILIARES",
-                label: `Parque Instalado, Patrimônios (S/N) & Reajustes (${allAllocatedAssets.length} S/Ns)`,
-              },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  setContractsSubFilter(tab.id as typeof contractsSubFilter);
-                  setActiveSubId(tab.id === "TODOS" ? "CTR_TODOS" : tab.id);
-                }}
-                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                  effectiveTab === tab.id
-                    ? "bg-[#1e3a6e] text-white shadow-2xs"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
+            <span>Início</span>
+            <span>&gt;</span>
+            <span>Contratos</span>
+            <span>&gt;</span>
+            <span className="text-slate-800 font-bold">Listar</span>
           </div>
         </div>
 
-        {proposals.filter((p) => p.status !== "CONVERTIDA_CONTRATO" && !p.convertedContractId).length > 0 && (
-          <div className="bg-amber-50/90 rounded-md border border-amber-300 p-4 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="text-[10px] font-black uppercase text-amber-800 block">
-                  Propostas de Locação / Serviços Prontas para Gerar Contrato
-                </span>
-                <h3 className="text-xs font-extrabold text-slate-900">
-                  Converta orçamentos aprovados em Contratos de Locação ativos com 1 clique (preservando S/N e índice de reajuste):
-                </h3>
-              </div>
+        {/* BARRA DE AÇÕES PADRÃO GESTÃOCLICK (+ ADICIONAR | DEVOLUÇÕES | MAIS AÇÕES | FILTROS) */}
+        {effectiveTab !== "CTR_AUXILIARES" && (
+          <div data-testid="contracts-gc-toolbar" className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-md px-3.5 py-2.5 text-xs shadow-2xs">
+            <div className="flex flex-wrap items-center gap-2 relative">
               <button
                 type="button"
-                onClick={() => setActiveSection("ORCAMENTOS")}
-                className="text-xs font-bold text-[#1e3a6e] underline cursor-pointer"
+                onClick={() => openNewContractPreset(tabModalityOf())}
+                className="inline-flex items-center gap-1 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer shadow-2xs"
               >
-                Ver todos os orçamentos ({proposals.length}) →
+                <Plus className="w-3.5 h-3.5" /> + Adicionar
               </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {proposals
-                .filter((p) => p.status !== "CONVERTIDA_CONTRATO" && !p.convertedContractId)
-                .slice(0, 4)
-                .map((prop) => (
-                  <div
-                    key={prop.id}
-                    className="bg-white rounded border border-amber-200 p-3 flex items-center justify-between gap-2 text-xs shadow-2xs"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-2 py-0.5 rounded bg-[#1e3a6e] text-white font-mono text-[10px] font-black">
-                          {prop.code}
-                        </span>
-                        <span className="font-bold text-slate-900 truncate max-w-[220px]">
-                          {prop.companyName}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          {formatBRL(prop.monthlyRecurringTotal)}/mês
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 truncate max-w-xs mt-0.5">
-                        {prop.title} ({prop.contractMonths}m • {prop.readjustmentIndex || "IPCA"})
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setEditingProposal(prop)}
-                        className="px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 text-[11px] font-bold hover:bg-slate-50 cursor-pointer"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === prop.id}
-                        onClick={() => handleApproveProposal(prop.id)}
-                        className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        Gerar Contrato
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
-
-        {effectiveTab !== "CTR_AUXILIARES" && (
-          <div data-testid="contracts-gc-toolbar" className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-md px-3 py-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2 relative">
-              <button type="button" onClick={() => openNewContractPreset(tabModalityOf())} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer">+ Adicionar</button>
-              <button type="button" onClick={() => setShowContractReturnsPanel((v) => !v)} className="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-bold text-slate-700 cursor-pointer"><span className="inline-flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" /> Devoluções</span></button>
-              <button type="button" onClick={() => setShowContractMoreActions((v) => !v)} className="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-bold text-slate-700 cursor-pointer"><span className="inline-flex items-center gap-1"><Settings className="w-3.5 h-3.5" /> Mais ações ▾</span></button>
+              <button
+                type="button"
+                onClick={() => setShowContractReturnsPanel((v) => !v)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-bold text-slate-700 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Devoluções</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowContractMoreActions((v) => !v)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-bold text-slate-700 cursor-pointer"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Mais ações ▾</span>
+              </button>
               {showContractMoreActions && (
-                <div className="absolute left-40 top-9 z-30 w-56 bg-white border border-slate-200 rounded-md shadow-lg py-1">
+                <div className="absolute left-40 top-10 z-40 w-64 bg-white border border-slate-200 rounded-md shadow-xl py-1.5">
                   {[
-                    { label: "Faturamento em Massa", run: async () => { for (const c of displayedContracts) await handleGenerateContractInvoice(c.id); } },
+                    { label: "Faturamento em Massa & E-mails", run: () => setShowBatchBillingModal(true) },
+                    { label: "Gerar Contrato de Proposta Aprovada", run: () => setActiveSection("ORCAMENTOS") },
+                    { label: "Gerar Faturas da Listagem Atual", run: async () => { for (const c of displayedContracts) await handleGenerateContractInvoice(c.id); } },
                     { label: "Exportar CSV", run: () => exportContractsCsv(displayedContracts) },
-                    { label: "Reajuste Anual", run: () => onShowToast(`Reajuste anual: ${displayedContracts.length} contrato(s) elegíveis conforme índice (IGP-M/IPCA/IST). Abra o contrato para aplicar.`) },
+                    { label: "Reajuste Anual (IPCA / IGP-M)", run: () => onShowToast(`Reajuste anual: ${displayedContracts.length} contrato(s) elegíveis conforme índice (IGP-M/IPCA/IST). Abra o contrato para aplicar.`) },
+                    { label: "Minutas de Contrato (Locação / Serviço / Assinatura)", run: () => { setContractsSubFilter("CTR_AUXILIARES"); setActiveSubId("CTR_AUXILIARES"); } },
                     { label: "Ver Parque S/N", run: () => { setContractsSubFilter("CTR_AUXILIARES"); setActiveSubId("CTR_AUXILIARES"); } },
                   ].map((a) => (
-                    <button key={a.label} type="button" onClick={() => { setShowContractMoreActions(false); void a.run(); }} className="block w-full text-left px-3 py-1.5 hover:bg-slate-50 cursor-pointer">{a.label}</button>
+                    <button key={a.label} type="button" onClick={() => { setShowContractMoreActions(false); void a.run(); }} className="block w-full text-left px-3.5 py-2 hover:bg-slate-50 font-semibold text-slate-700 cursor-pointer">{a.label}</button>
                   ))}
                 </div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" title="Alternar grade/lista" onClick={() => setContractsViewMode((m) => (m === "LISTA" ? "GRADE" : "LISTA"))} className="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold cursor-pointer">{contractsViewMode === "LISTA" ? "Grade" : "Lista"}</button>
-              <select aria-label="Período dos contratos" value={contractsPeriodFilter} onChange={(e) => setContractsPeriodFilter(e.target.value)} className="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold">
-                <option value="TODOS">Todos os períodos</option>
-                <option value="2026-10">Outubro de 2026 ▾</option>
+              <button
+                type="button"
+                title="Alternar grade/lista"
+                onClick={() => setContractsViewMode((m) => (m === "LISTA" ? "GRADE" : "LISTA"))}
+                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 font-bold text-slate-700 cursor-pointer"
+              >
+                {contractsViewMode === "LISTA" ? "Grade" : "Lista"}
+              </button>
+              <select
+                aria-label="Período dos contratos"
+                value={contractsPeriodFilter}
+                onChange={(e) => setContractsPeriodFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold text-slate-700"
+              >
+                <option value="TODOS">Outubro de 2026 ▾ (Todos)</option>
+                <option value="2026-10">Outubro de 2026</option>
                 <option value="2026-11">Novembro de 2026</option>
                 <option value="2026-09">Setembro de 2026</option>
               </select>
-              <span className="px-2 py-1.5 rounded border border-slate-300 bg-white inline-flex"><Search className="w-3.5 h-3.5" /></span>
+              <select
+                aria-label="Filtrar Contratos por Situação"
+                value={contractsStatusFilter}
+                onChange={(e) => setContractsStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+              >
+                <option value="TODOS">Situação: Todos ({baseTabContracts.length})</option>
+                <option value="ATIVO">Ativo ({baseTabContracts.filter((c) => c.status === "ATIVO").length})</option>
+                <option value="FATURAMENTO">Faturamento ({baseTabContracts.filter((c) => c.status === "FATURAMENTO").length})</option>
+                <option value="EM_IMPLANTACAO">Em Implantação ({baseTabContracts.filter((c) => c.status === "EM_IMPLANTACAO").length})</option>
+                <option value="VENCENDO">Renovação Próxima ({baseTabContracts.filter((c) => c.status === "RENOVACAO_PROXIMA" || computeContractValidityInfo(c.endDate, c.status).isWarning).length})</option>
+                <option value="ENCERRADO">Encerrado ({baseTabContracts.filter((c) => c.status === "ENCERRADO").length})</option>
+              </select>
+              <div className="relative inline-flex items-center">
+                <input
+                  type="text"
+                  value={contractsSearchQuery}
+                  onChange={(e) => setContractsSearchQuery(e.target.value)}
+                  placeholder="Buscar Nº, cliente, CNPJ, S/N..."
+                  className="pl-3 pr-8 py-1.5 rounded border border-slate-300 bg-white text-xs w-56"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 pointer-events-none" />
+              </div>
+              {(contractsSearchQuery.trim() !== "" || contractsStatusFilter !== "TODOS" || contractsPeriodFilter !== "TODOS") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContractsSearchQuery("");
+                    setContractsStatusFilter("TODOS");
+                    setContractsPeriodFilter("TODOS");
+                  }}
+                  className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                >
+                  Limpar
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -3058,10 +3070,10 @@ export default function ErpGestaoClickTab({
 
         {contractStatusPickerFor && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={() => setContractStatusPickerFor(null)}>
-            <div className="bg-white rounded-md p-4 w-80 space-y-2 text-xs" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-md p-4 w-80 space-y-2 text-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="font-extrabold text-[#0d2b4e]">Alterar situação — Contrato {contractStatusPickerFor.contractNumber}</div>
               {(["ATIVO", "FATURAMENTO", "EM_IMPLANTACAO", "RENOVACAO_PROXIMA", "SUSPENSO", "ENCERRADO"] as const).map((st) => (
-                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
+                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300 font-bold" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
               ))}
             </div>
           </div>
@@ -3069,7 +3081,7 @@ export default function ErpGestaoClickTab({
 
         {contractReturnFor && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={() => setContractReturnFor(null)}>
-            <div className="bg-white rounded-md p-4 w-[28rem] space-y-2 text-xs" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-md p-4 w-[28rem] space-y-2 text-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="font-extrabold text-[#0d2b4e]">Devolução de produtos — Contrato {contractReturnFor.contractNumber}</div>
               {contractReturnFor.equipments.length === 0 && <div>Nenhum equipamento vinculado.</div>}
               {contractReturnFor.equipments.map((e) => (
@@ -3083,10 +3095,51 @@ export default function ErpGestaoClickTab({
           </div>
         )}
 
+        {contractA4PreviewModal && (
+          <div data-testid="contract-a4-preview-modal" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setContractA4PreviewModal(null)}>
+            <div className="bg-white rounded-lg border border-slate-300 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-4 py-3 bg-[#0d2b4e] text-white flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-extrabold uppercase text-orange-300">
+                    Minuta Contratual A4 — {contractTypeLabel(contractA4PreviewModal.modality)}
+                  </div>
+                  <div className="text-sm font-bold">
+                    Contrato Nº {contractA4PreviewModal.contract.contractNumber} — {contractA4PreviewModal.contract.companyName}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => printOrDownloadContractA4(contractA4PreviewModal.contract, contractA4PreviewModal.modality, getCustomClausesForModality(contractA4PreviewModal.modality))}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> Imprimir / Salvar PDF A4
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setContractA4PreviewModal(null)}
+                    className="px-2.5 py-1.5 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+              <iframe
+                title={`Minuta A4 Contrato ${contractA4PreviewModal.contract.contractNumber}`}
+                srcDoc={contractA4PreviewModal.html}
+                className="w-full h-[72vh] bg-white border-0"
+              />
+            </div>
+          </div>
+        )}
+
         {effectiveTab === "CTR_AUXILIARES" ? (
           <div className="space-y-4">
             <div data-testid="contract-minutas-panel" className="bg-white p-4 rounded-md border border-slate-200 shadow-2xs space-y-3">
               <div className="font-extrabold text-[#0d2b4e] text-sm">Modelos &amp; Minutas de Contrato por Tipo (Locações vs. Serviços Técnicos vs. Assinaturas)</div>
+              <p className="text-xs text-slate-600">
+                Cada modalidade possui minuta jurídica própria aplicada automaticamente em <strong>Imprimir A4</strong> nos 3 pontos (<strong>Locações</strong> = Locação de Bens Móveis SV 31 STF / CFOP 5.908; <strong>Serviços</strong> = Prestação de Serviços Técnicos LC 116 / NFS-e / SLA NOC; <strong>Assinaturas</strong> = Termo de Assinatura Recorrente SCM/Cloud).
+              </p>
               <div className="flex flex-wrap gap-2">
                 {(["LOCACAO", "SERVICO", "ASSINATURA"] as const).map((k) => (
                   <button key={k} type="button" onClick={() => setContractMinutaPreviewKey(k)} className={`px-3 py-1.5 rounded text-xs font-bold border cursor-pointer ${contractMinutaPreviewKey === k ? "bg-[#0d2b4e] text-white border-[#0d2b4e]" : "bg-white border-slate-300 text-slate-700"}`}>
@@ -3096,16 +3149,45 @@ export default function ErpGestaoClickTab({
               </div>
               <div className="text-xs font-bold text-slate-700">{CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].title}</div>
               <div className="text-[11px] italic text-slate-500">Fundamento legal: {CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].legalBasis}</div>
-              <textarea aria-label="Editar minuta" value={contractMinutaDrafts[contractMinutaPreviewKey]} onChange={(e) => setContractMinutaDrafts((d) => ({ ...d, [contractMinutaPreviewKey]: e.target.value }))} rows={8} className="w-full border border-slate-300 rounded p-2 text-xs font-mono" />
+              <textarea
+                aria-label="Editar minuta"
+                value={contractMinutaDrafts[contractMinutaPreviewKey]}
+                onChange={(e) => {
+                  const next = { ...contractMinutaDrafts, [contractMinutaPreviewKey]: e.target.value };
+                  setContractMinutaDrafts(next);
+                  if (typeof window !== "undefined") {
+                    try { window.localStorage.setItem("stihub_contract_minutas_v1", JSON.stringify(next)); } catch { /* ignore */ }
+                  }
+                }}
+                rows={8}
+                className="w-full border border-slate-300 rounded p-2 text-xs font-mono"
+              />
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      try { window.localStorage.setItem("stihub_contract_minutas_v1", JSON.stringify(contractMinutaDrafts)); } catch { /* ignore */ }
+                    }
+                    onShowToast(`Minuta de ${CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].title} salva com sucesso!`);
+                  }}
+                  className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
+                >
+                  Salvar Modelo de Minuta
+                </button>
                 <button type="button" onClick={() => {
                   const sample = rentalContracts.find((c) => inferContractModality(c) === contractMinutaPreviewKey) || rentalContracts[0];
                   if (!sample) { onShowToast("Cadastre um contrato para testar a impressão A4."); return; }
-                  const original = CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].clauses.join("\n\n");
-                  const draft = contractMinutaDrafts[contractMinutaPreviewKey];
-                  printOrDownloadContractA4(sample, contractMinutaPreviewKey, draft !== original ? draft : undefined);
-                }} className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer">Testar Imprimir A4</button>
-                <button type="button" onClick={() => setContractMinutaDrafts((d) => ({ ...d, [contractMinutaPreviewKey]: CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].clauses.join("\n\n") }))} className="px-3 py-1.5 rounded border border-slate-300 text-xs font-bold cursor-pointer">Restaurar padrão</button>
+                  handleOpenContractA4(sample, contractMinutaPreviewKey);
+                }} className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer">Testar Imprimir A4</button>
+                <button type="button" onClick={() => {
+                  const next = { ...contractMinutaDrafts, [contractMinutaPreviewKey]: CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].clauses.join("\n\n") };
+                  setContractMinutaDrafts(next);
+                  if (typeof window !== "undefined") {
+                    try { window.localStorage.setItem("stihub_contract_minutas_v1", JSON.stringify(next)); } catch { /* ignore */ }
+                  }
+                  onShowToast("Minuta restaurada para o texto jurídico padrão.");
+                }} className="px-3 py-1.5 rounded border border-slate-300 text-xs font-bold cursor-pointer">Restaurar padrão</button>
                 <span className="text-[11px] text-slate-500">Periodicidades disponíveis: A cada 1 mês • A cada 3 meses • A cada 6 meses • A cada 12 meses</span>
               </div>
             </div>
@@ -3301,52 +3383,25 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
         ) : (
-          <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
-            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="font-extrabold text-[#0d2b4e]">
-                Listagem de Contratos ({displayedContracts.length}) — Clique na Lupa para Consultar ou no Lápis para Editar
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={contractsSearchQuery}
-                  onChange={(e) => setContractsSearchQuery(e.target.value)}
-                  placeholder="Buscar por contrato, cliente, CNPJ ou S/N..."
-                  className="px-3 py-1.5 rounded border border-slate-300 bg-white text-xs w-64"
-                />
-                <select
-                  aria-label="Filtrar Contratos por Situação"
-                  value={contractsStatusFilter}
-                  onChange={(e) => setContractsStatusFilter(e.target.value)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
-                >
-                  <option value="TODOS">Situação: Todos ({baseTabContracts.length})</option>
-                  <option value="ATIVO">Ativos ({baseTabContracts.filter((c) => c.status === "ATIVO").length})</option>
-                  <option value="EM_IMPLANTACAO">Em Implantação ({baseTabContracts.filter((c) => c.status === "EM_IMPLANTACAO").length})</option>
-                  <option value="VENCENDO">Renovação Próxima / Vencendo ({baseTabContracts.filter((c) => c.status === "RENOVACAO_PROXIMA" || computeContractValidityInfo(c.endDate, c.status).isWarning).length})</option>
-                  <option value="ENCERRADO">Encerrados ({baseTabContracts.filter((c) => c.status === "ENCERRADO").length})</option>
-                </select>
-                {(contractsSearchQuery.trim() !== "" || contractsStatusFilter !== "TODOS" || effectiveTab !== "TODOS") && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setContractsSearchQuery("");
-                      setContractsStatusFilter("TODOS");
-                      setContractsSubFilter("TODOS");
-                      setActiveSubId("CTR_TODOS");
-                    }}
-                    className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
-                  >
-                    Limpar filtros
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
+          <div className={`bg-white rounded-md border border-slate-200 shadow-xs ${contractRowMenuId ? "pb-72" : ""}`}>
+            <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full min-w-[880px] text-left text-xs">
-                <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
+                <thead className="bg-slate-100 text-slate-800 border-b border-slate-200 font-bold text-xs">
                   <tr>
-                    <th className="py-2.5 px-3 w-8">Sel.</th>
+                    <th className="py-2.5 px-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={displayedContracts.length > 0 && displayedContracts.every((c) => selectedContractIdsForBatch.includes(c.id))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedContractIdsForBatch(displayedContracts.map((c) => c.id));
+                          } else {
+                            setSelectedContractIdsForBatch([]);
+                          }
+                        }}
+                        className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
+                      />
+                    </th>
                     <th className="py-2.5 px-3">Nº</th>
                     <th className="py-2.5 px-3 whitespace-nowrap">Tipo</th>
                     <th className="py-2.5 px-3">Cliente</th>
@@ -3361,9 +3416,7 @@ export default function ErpGestaoClickTab({
                 <tbody className="divide-y divide-slate-200">
                   {displayedContracts.map((ctr) => {
                     const modality = inferContractModality(ctr);
-                    const modalityMeta = getModalityBadgeMeta(modality);
                     const statusMeta = getContractStatusBadgeMeta(ctr.status);
-                    const validityInfo = computeContractValidityInfo(ctr.endDate, ctr.status);
                     const isChecked = selectedContractIdsForBatch.includes(ctr.id);
 
                     return (
@@ -3394,27 +3447,25 @@ export default function ErpGestaoClickTab({
                             className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                           />
                         </td>
-                        <td className="py-2.5 px-3 font-mono font-black text-[#1e3a6e]">
+                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
                           {ctr.gestaoClickCode || ctr.contractNumber}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <span className={`inline-block px-2 py-0.2 rounded text-[10px] font-bold ${modalityMeta.cls}`} title={ctr.title}>
-                            {contractTypeLabel(modality)}
-                          </span>
+                        <td className="py-2.5 px-3 font-semibold text-slate-700">
+                          {contractTypeLabel(modality)}
                         </td>
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleOpenErpCustomerByCompany(ctr.companyId, ctr.companyName, ctr.companyCnpj)}
-                            className="font-bold text-[#1e3a6e] hover:underline text-left cursor-pointer block"
+                            className="font-bold text-blue-700 hover:underline text-left cursor-pointer block"
                             title="Abrir cadastro do cliente (Navegação Cruzada)"
                           >
                             <span className="text-blue-700 underline">{ctr.companyName}</span>
                           </button>
                           <div className="italic text-[11px] text-slate-600">({ctr.companyName})</div>
-                          <div className="font-mono text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5">
-                            <span>{ctr.companyCnpj || '—'}</span>
-                            {ctr.remessaNfeNumber && (
+                          {ctr.remessaNfeNumber && (
+                            <div className="font-mono text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
+                              <span>{ctr.companyCnpj || '—'}</span>
                               <button
                                 type="button"
                                 onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
@@ -3423,30 +3474,28 @@ export default function ErpGestaoClickTab({
                               >
                                 NF {ctr.remessaNfeNumber} &rarr;
                               </button>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </td>
-                        <td className="py-2.5 px-3 text-[11px]">
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
                           {fmtBrDate(ctr.startDate)}
-                          <div className={`text-[10px] font-bold ${validityInfo.cls} inline-block px-1 rounded`}>{validityInfo.label}</div>
                         </td>
-                        <td className="py-2.5 px-3 text-[11px]">{fmtBrDate(ctr.nextDueDate)}</td>
-                        <td className="py-2.5 px-3 text-[11px]">{ctr.periodicityLabel || "A cada 1 mês"}</td>
-                        <td className="py-2.5 px-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${statusMeta.cls}`}>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{fmtBrDate(ctr.nextDueDate)}</td>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{ctr.periodicityLabel || "A cada 1 mês"}</td>
+                        <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setContractStatusPickerFor(ctr)}
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold cursor-pointer ${statusMeta.cls}`}
+                          >
                             • {statusMeta.label}
-                          </span>
+                          </button>
                         </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <div className="font-black text-emerald-700">
-                            {formatBRL(ctr.monthlyValue)}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            TCV: {formatBRL(ctr.monthlyValue * ctr.contractMonths)}
-                          </div>
+                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                          {(Number(ctr.monthlyValue) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center justify-end gap-1.5">
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
                               title="Consultar / Visualizar Contrato (6 Abas)"
@@ -3456,7 +3505,7 @@ export default function ErpGestaoClickTab({
                                 setEditingContractTab('DADOS_GERAIS');
                                 setEditingContract(ctr);
                               }}
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition shadow-2xs cursor-pointer"
+                              className="w-8 h-8 rounded bg-[#17a2b8] hover:bg-[#138496] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
                             >
                               <Search className="w-3.5 h-3.5" />
                             </button>
@@ -3469,9 +3518,9 @@ export default function ErpGestaoClickTab({
                                 setEditingContractTab('DADOS_GERAIS');
                                 setEditingContract(ctr);
                               }}
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition shadow-2xs cursor-pointer"
+                              className="w-8 h-8 rounded bg-[#f39c12] hover:bg-[#d68910] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
                             >
-                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                              <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <div className="relative">
                               <button
@@ -3479,22 +3528,26 @@ export default function ErpGestaoClickTab({
                                 title="Mais ações do contrato"
                                 aria-label="Mais ações do contrato"
                                 onClick={() => setContractRowMenuId((id) => (id === ctr.id ? null : ctr.id))}
-                                className="inline-flex items-center justify-center px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 font-black text-slate-700 cursor-pointer"
+                                className="w-8 h-8 rounded bg-[#2c3e50] hover:bg-[#1a252f] text-white inline-flex items-center justify-center font-black transition shadow-2xs cursor-pointer"
                               >
                                 ⋮
                               </button>
                               {contractRowMenuId === ctr.id && (
-                                <div data-testid="contract-row-actions-menu" className="absolute right-0 top-9 z-40 w-56 bg-white border border-slate-200 rounded-md shadow-lg py-1 text-left">
-                                  {buildContractRowActions(ctr, modality).map((act) => (
-                                    <button
-                                      key={act.key}
-                                      type="button"
-                                      onClick={() => { setContractRowMenuId(null); void act.run(); }}
-                                      className={`block w-full text-left px-3 py-1.5 text-xs cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold" : "text-slate-700 hover:bg-slate-50"}`}
-                                    >
-                                      {act.label}
-                                    </button>
-                                  ))}
+                                <div data-testid="contract-row-actions-menu" className="absolute right-0 top-9 z-50 w-60 bg-white border border-slate-200 rounded-md shadow-xl py-1.5 text-left">
+                                  {buildContractRowActions(ctr, modality).map((act) => {
+                                    const ActIcon = act.icon;
+                                    return (
+                                      <button
+                                        key={act.key}
+                                        type="button"
+                                        onClick={() => { setContractRowMenuId(null); void act.run(); }}
+                                        className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
+                                      >
+                                        <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
+                                        <span>{act.label}</span>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>

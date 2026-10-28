@@ -101,10 +101,10 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     category: 'COMERCIAL & LOCAÇÃO',
     icon: FileSignature,
     subItems: [
-      { id: 'CTR_TODOS', label: 'Todos os contratos' },
       { id: 'CTR_LOCACOES', label: 'Locações' },
       { id: 'CTR_SERVICOS', label: 'Serviços' },
       { id: 'CTR_ASSINATURAS', label: 'Assinaturas' },
+      { id: 'CTR_TODOS', label: 'Todos os contratos' },
       { id: 'CTR_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },

@@ -5,7 +5,7 @@
 > - **Unidade Operacional:** Loja Matriz `#118887` (Conector Ao Vivo `ERP-GROK` • API REST + MCP)
 > - **Plataforma Unificada:** `STI-hub | Seta Telecom CRM & ERP` (`/workspace/hubspot-pro-crm`)
 > - **Agente Responsável:** `ERP - Supervisor & Roadmap`
-> - **Última Atualização:** Segunda-feira, 26 de Outubro de 2026 (America/New_York / UTC-4)
+> - **Última Atualização:** Quarta-feira, 28 de Outubro de 2026 (America/New_York / UTC-4)
 
 ---
 
@@ -156,6 +156,8 @@
 - **Entregas Concluídas:**
   - Gestão completa de Contratos de Locação Pura (`0% ISS — SV 31 STF`), Híbridos, Serviços Técnicos (`LC 116 01.07`) e Assinaturas SCM (`Mod. 62`).
   - Rastreamento individual por `S/N` e Tag, RMA, devolução parcial com cálculo Pro-Rata mantendo o contrato `ATIVO`, reajuste anual IGP-M/IPCA/IST Anatel e faturamento em lote.
+  - **Layout GestãoClick Padronizado nos 3 Pontos (`Locações`, `Serviços`, `Assinaturas`):** Barra `+ Adicionar`, `Devoluções`, `Mais ações ▾`, seletor de competência, colunas `Nº`, `Tipo` (`Aluguel`, `Serviço`, `Assinatura`), `Cliente`, `Data`, `Próximo vencimento`, `Periodicidade`, `Situação`, `Valor` e botões `Lupa`, `Lápis` e menu `⋮` com as **12 funcionalidades** (`Link de cobrança`, `Imprimir A4`, `Alterar situação`, `Enviar por e-mail`, `Enviar por WhatsApp`, `Gerar próxima fatura`, `Devolução de produtos`, `Renovar locação/contrato`, `Agendar compromisso`, `Ver no financeiro`, `Solicitar assinatura` e `Excluir`).
+  - **Minutas Jurídicas Distintas por Tipo (`Opções auxiliares` e `Imprimir A4`):** Modelos editáveis separados para **Contrato de Locação de Equipamentos** (Arts. 565-578 CC, Súmula Vinculante 31 STF, CFOP 5.908/6.908), **Contrato de Prestação de Serviços Técnicos** (LC 116/2003, NFS-e, SLA NOC) e **Termo de Assinatura Recorrente** (SCM/SVA/Cloud).
 
 ---
 
