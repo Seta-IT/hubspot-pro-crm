@@ -139,6 +139,22 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
 
 ---
 
+## Seção 6 — Plataforma Enterprise de Email Marketing, Cadências e Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)
+
+Especificação completa sincronizada com `ROADMAP-CRM.md (Seção 9)` para substituir e unificar **HubSpot Sales Hub Pro**, **HubSpot Marketing Hub Pro** e **Mailchimp** em uma plataforma própria integrada ao CRM e ao ERP da Seta Telecom:
+
+1. **Ciclo Comercial Completo**: `Prospecção → Cadências → Engajamento → Qualificação → Oportunidade → Conversão → Reativação`, compartilhando a mesma base de contatos, empresas, propostas (`#4695`) e contratos (`LOC-...`).
+2. **Cinco Diferenciais Decisivos Seta Telecom**:
+   - **Cadências ligadas às oportunidades comerciais**: Resposta a proposta de locação de servidores/PABX ou avanço de etapa encerra/transfere a cadência automaticamente.
+   - **Visão de engajamento por empresa (Account-Based Engagement)**: Priorização da conta inteira quando múltiplos decisores da mesma empresa interagem com uma campanha ou cadência.
+   - **Separação de Motores de Envio**: **Outlook / Microsoft 365 (Graph OAuth)** para cadências comerciais 1:1 dos vendedores e **Provedor Especializado (SES / SendGrid / Mailgun / Postmark / Resend)** para campanhas de marketing em massa.
+   - **Relatórios que conectam Marketing a Receita**: Rastreamento ponta a ponta desde a campanha/UTM até propostas emitidas, negociações, contratos assinados e faturamento real.
+   - **Base própria com controle total do histórico**: Soberania sobre contatos, consentimentos LGPD, listas de supressão, eventos de envio e cadências sem dependência operacional do HubSpot.
+3. **13 Módulos Obrigatórios (A a M), Schema de 37 Entidades, 6 Fases e 14 Cenários de Aceite**:
+   - Documentados integralmente na **Seção 9 do `ROADMAP-CRM.md`** (Matriz Comparativa HubSpot × Mailchimp × STI-hub, Módulos A–M, 13 regras de saída de cadência, 10 estados diferenciados separados do descadastro global, 20 perguntas de identificação analítica com drill-down, 37 tabelas relacionais e 14 cenários de teste de aceite).
+
+---
+
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**

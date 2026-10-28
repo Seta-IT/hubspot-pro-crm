@@ -91,11 +91,29 @@ export type IssueStatus = 'OPEN' | 'MERGED' | 'IGNORED' | 'RESOLVED';
 
 export type SequenceEnrollmentStatus =
   | 'ACTIVE'
+  | 'WAITING_NEXT_STEP'
   | 'PAUSED_ON_REPLY'
   | 'REPLIED'
+  | 'MEETING_BOOKED'
   | 'COMPLETED'
   | 'PAUSED_MANUAL'
+  | 'REMOVED_MANUAL'
+  | 'REMOVED_AUTOMATIC'
+  | 'UNSUBSCRIBED_GLOBAL'
+  | 'BLOCKED_DELIVERABILITY'
   | 'BOUNCED';
+
+export type ContactSubscriptionStatus =
+  | 'SUBSCRIBED'
+  | 'UNSUBSCRIBED_MARKETING'
+  | 'SUPPRESSED_BOUNCE'
+  | 'SUPPRESSED_SPAM';
+
+export type LgpdLegalBasis =
+  | 'CONSENTIMENTO_OPT_IN'
+  | 'LEGITIMO_INTERESSE_B2B'
+  | 'EXECUCAO_CONTRATO'
+  | 'OBRIGACAO_LEGAL';
 
 export interface NextBestAction {
   actionType: 'CALL' | 'EMAIL' | 'MEETING' | 'ENRICH' | 'FOLLOW_UP' | 'PROPOSAL' | 'CLEAN_DATA' | 'CREATE_DEAL';
@@ -132,6 +150,18 @@ export interface Contact {
   enrichedAt: string | null;
   enrichmentSource: string | null;
   nextBestAction: NextBestAction | null;
+  lgpdConsent?: boolean;
+  lgpdConsentAt?: string | null;
+  lgpdLegalBasis?: LgpdLegalBasis;
+  subscriptionStatus?: ContactSubscriptionStatus;
+  unsubscribedAt?: string | null;
+  unsubscribeReason?: string | null;
+  communicationCategories?: string[];
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmTerm?: string | null;
+  utmContent?: string | null;
   customProperties: Record<string, unknown>;
   lastActivityAt: string | null;
   createdAt: string;
@@ -410,6 +440,9 @@ export interface WebForm {
   viewsCount: number;
   submissionsCount: number;
   conversionRate: number;
+  requireLgpdConsent?: boolean;
+  lgpdConsentText?: string;
+  defaultCampaignId?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -424,7 +457,122 @@ export interface FormSubmission {
   companyId: string | null;
   dealId: string | null;
   ticketId: string | null;
+  lgpdConsent?: boolean;
+  lgpdConsentAt?: string | null;
+  lgpdLegalBasis?: LgpdLegalBasis;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmTerm?: string | null;
+  utmContent?: string | null;
+  campaignId?: string | null;
   submittedAt: string;
+}
+
+export type MarketingSendingProvider = 'MARKETING_ESP' | 'OUTLOOK_M365';
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  objective: string;
+  status: 'ACTIVE' | 'IN_PROGRESS' | 'SCHEDULED' | 'COMPLETED' | 'PAUSED';
+  channel: string;
+  sendingProvider: MarketingSendingProvider;
+  utmCampaign: string;
+  budgetBrl: number;
+  sessions: number;
+  sentCount: number;
+  deliveredCount: number;
+  uniqueClicksCount: number;
+  repliesCount: number;
+  unsubscribesCount: number;
+  bouncesCount: number;
+  contactsGenerated: number;
+  mqlCount: number;
+  sqlCount: number;
+  opportunitiesCount: number;
+  attributedDeals: number;
+  wonDealsCount: number;
+  attributedRevenueBrl: number;
+  ownerName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketingSegmentCriteria {
+  icpTier?: 'TIER_1' | 'TIER_2' | 'TIER_3';
+  minLeadScore?: number;
+  buyingRole?: string;
+  lifecycleStage?: LifecycleStage;
+  targetAccountOnly?: boolean;
+  onlySubscribedEligible?: boolean;
+  minCompanyEngagedContacts?: number;
+}
+
+export interface MarketingSegment {
+  id: string;
+  name: string;
+  description: string;
+  type: 'DYNAMIC' | 'STATIC';
+  filterExpression: string;
+  criteria: MarketingSegmentCriteria;
+  matchedContactIds?: string[];
+  count: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MarketingLandingPage {
+  id: string;
+  name: string;
+  slug: string;
+  title: string;
+  subtitle: string;
+  formId: string;
+  campaignId: string | null;
+  utmCampaign: string;
+  status: 'PUBLISHED' | 'DRAFT';
+  viewsCount: number;
+  submissionsCount: number;
+  conversionRate: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SuppressionEntry {
+  id: string;
+  email: string;
+  contactId: string | null;
+  reason:
+    | 'UNSUBSCRIBED_MARKETING'
+    | 'HARD_BOUNCE'
+    | 'SPAM_COMPLAINT'
+    | 'MANUAL_SUPPRESSION'
+    | 'LGPD_REVOCATION';
+  scope: 'MARKETING_ONLY' | 'GLOBAL_ALL';
+  source: string;
+  createdAt: string;
+}
+
+export interface AccountEngagementSummary {
+  companyId: string;
+  companyName: string;
+  icpTier: 'TIER_1' | 'TIER_2' | 'TIER_3' | null;
+  isTargetAccount: boolean;
+  engagedContactsCount: number;
+  totalContactsCount: number;
+  engagedContacts: Array<{
+    id: string;
+    name: string;
+    email: string;
+    jobTitle: string | null;
+    leadScore: number;
+    buyingRole?: BuyingRoleType | null;
+  }>;
+  activeCadencesCount: number;
+  openDealsCount: number;
+  openPipelineValueBrl: number;
+  accountHeatLevel: 'HOT_MULTI_THREADED' | 'WARM_ENGAGED' | 'COLD';
 }
 
 export type TicketCategory = 'INCIDENT' | 'SUPPORT' | 'BILLING' | 'BUG' | 'FEATURE_REQUEST';
@@ -1563,6 +1711,10 @@ export interface CrmDatabaseState {
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
   snippets?: CrmSnippet[];
+  marketingCampaigns?: MarketingCampaign[];
+  marketingSegments?: MarketingSegment[];
+  marketingLandingPages?: MarketingLandingPage[];
+  suppressionList?: SuppressionEntry[];
   erp?: ErpDatabaseState;
   rbac?: StiHubRbacState;
 }

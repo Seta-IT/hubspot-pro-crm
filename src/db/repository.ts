@@ -60,6 +60,13 @@ import {
   CrmEmailTemplate,
   CrmEmailTemplateCategory,
   CrmSnippet,
+  MarketingCampaign,
+  MarketingSegment,
+  MarketingLandingPage,
+  SuppressionEntry,
+  AccountEngagementSummary,
+  ContactSubscriptionStatus,
+  LgpdLegalBasis,
 } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
 import {
@@ -137,7 +144,7 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     shippingCarrier: p.shippingCarrier || '',
     shippingCost: Number(p.shippingCost || 0),
     setupFee: Number(p.setupFee || 0),
-    templateStyle: p.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
+    templateStyle: p.templateStyle || 'CLEAN_CORPORATE_LIGHT',
     slaTier: p.slaTier,
     slaResponseHours: p.slaResponseHours,
     slaAvailabilityPercent: p.slaAvailabilityPercent,
@@ -546,6 +553,22 @@ export class CrmRepository {
         Array.isArray(parsed.snippets) && parsed.snippets.length > 0
           ? parsed.snippets
           : seedFallback.snippets || [],
+      marketingCampaigns:
+        Array.isArray(parsed.marketingCampaigns) && parsed.marketingCampaigns.length > 0
+          ? parsed.marketingCampaigns
+          : seedFallback.marketingCampaigns || [],
+      marketingSegments:
+        Array.isArray(parsed.marketingSegments) && parsed.marketingSegments.length > 0
+          ? parsed.marketingSegments
+          : seedFallback.marketingSegments || [],
+      marketingLandingPages:
+        Array.isArray(parsed.marketingLandingPages) && parsed.marketingLandingPages.length > 0
+          ? parsed.marketingLandingPages
+          : seedFallback.marketingLandingPages || [],
+      suppressionList:
+        Array.isArray(parsed.suppressionList) && parsed.suppressionList.length > 0
+          ? parsed.suppressionList
+          : seedFallback.suppressionList || [],
       erp: (() => {
         const seedErp = createSeedErpState();
         if (!parsed.erp || !Array.isArray(parsed.erp.proposals)) {
@@ -1027,6 +1050,22 @@ export class CrmRepository {
       companyId: resolvedCompanyId,
       enrichedAt: input.enrichedAt ?? null,
       enrichmentSource: input.enrichmentSource ?? null,
+      lgpdConsent: input.lgpdConsent ?? true,
+      lgpdConsentAt: input.lgpdConsentAt !== undefined ? input.lgpdConsentAt : now,
+      lgpdLegalBasis: input.lgpdLegalBasis || "LEGITIMO_INTERESSE_B2B",
+      subscriptionStatus: input.subscriptionStatus || "SUBSCRIBED",
+      unsubscribedAt: input.unsubscribedAt ?? null,
+      unsubscribeReason: input.unsubscribeReason ?? null,
+      communicationCategories: input.communicationCategories || [
+        "COMERCIAL_1_1",
+        "NEWSLETTER_TECNICA",
+        "EVENTOS_ABM",
+      ],
+      utmSource: input.utmSource ?? null,
+      utmMedium: input.utmMedium ?? null,
+      utmCampaign: input.utmCampaign ?? null,
+      utmTerm: input.utmTerm ?? null,
+      utmContent: input.utmContent ?? null,
       nextBestAction: null,
       customProperties: customProps,
       lastActivityAt: input.lastActivityAt ?? now,
@@ -1565,6 +1604,27 @@ export class CrmRepository {
     this.state.deals[idx] = updated;
 
     if (stageChanged) {
+      // Seta Telecom Differential #1 & Module C: Exit active cadences linked to this deal when stage changes to closed or negotiation
+      const linkedActiveEnrollments = this.state.sequenceEnrollments.filter(
+        (enr) => enr.dealId === updated.id && enr.status === 'ACTIVE'
+      );
+      for (const enr of linkedActiveEnrollments) {
+        enr.status = 'REMOVED_AUTOMATIC';
+        enr.nextStepDueAt = null;
+        enr.updatedAt = now;
+        enr.history.push({
+          stepOrder: enr.currentStepOrder,
+          subject: `Mudança de etapa comercial: ${targetStageName}`,
+          action: 'PAUSED_ON_REPLY',
+          timestamp: now,
+          details: `Cadência encerrada automaticamente porque o negócio "${updated.title}" avançou para a etapa "${targetStageName}". O contato permanece inscrito nas comunicações (subscriptionStatus preservado).`,
+        });
+        const seq = this.getSequenceById(enr.sequenceId);
+        if (seq) {
+          seq.activeCount = Math.max(0, seq.activeCount - 1);
+        }
+      }
+
       this.createTimelineEvent({
         type: "STAGE_CHANGE",
         title: `Estágio do negócio alterado para ${targetStageName}`,
@@ -1899,6 +1959,574 @@ export class CrmRepository {
 
     this.save();
     return sub;
+  }
+
+
+  // ==========================================================================
+  // MARKETING HUB ENTERPRISE: CAMPAIGNS, SEGMENTS, LANDING PAGES, LGPD & ABM
+  // ==========================================================================
+  listMarketingCampaigns(): MarketingCampaign[] {
+    if (!this.state.marketingCampaigns) {
+      this.state.marketingCampaigns = createInitialSeedState().marketingCampaigns || [];
+    }
+    return [...this.state.marketingCampaigns];
+  }
+
+  getMarketingCampaignById(idOrUtm: string): MarketingCampaign | undefined {
+    const list = this.listMarketingCampaigns();
+    const clean = (idOrUtm || '').trim().toLowerCase();
+    return list.find(
+      (c) => c.id.toLowerCase() === clean || c.utmCampaign.toLowerCase() === clean
+    );
+  }
+
+  createMarketingCampaign(
+    input: Partial<MarketingCampaign> & { name: string }
+  ): MarketingCampaign {
+    if (!this.state.marketingCampaigns) {
+      this.state.marketingCampaigns = createInitialSeedState().marketingCampaigns || [];
+    }
+    const now = new Date().toISOString();
+    const slugUtm =
+      (input.utmCampaign || input.name)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || `cmp-${Date.now()}`;
+
+    const cmp: MarketingCampaign = {
+      id: input.id || `cmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      objective:
+        input.objective ||
+        'Gerar leads qualificados (MQL/SQL), propostas comerciais e receita recorrente B2B.',
+      status: input.status || 'ACTIVE',
+      channel: input.channel || 'E-mail Marketing ABM + Landing Page',
+      sendingProvider: input.sendingProvider || 'MARKETING_ESP',
+      utmCampaign: slugUtm,
+      budgetBrl: Number(input.budgetBrl ?? 15000),
+      sessions: Number(input.sessions ?? 450),
+      sentCount: Number(input.sentCount ?? 1200),
+      deliveredCount: Number(input.deliveredCount ?? 1165),
+      uniqueClicksCount: Number(input.uniqueClicksCount ?? 164),
+      repliesCount: Number(input.repliesCount ?? 48),
+      unsubscribesCount: Number(input.unsubscribesCount ?? 2),
+      bouncesCount: Number(input.bouncesCount ?? 35),
+      contactsGenerated: Number(input.contactsGenerated ?? 18),
+      mqlCount: Number(input.mqlCount ?? 9),
+      sqlCount: Number(input.sqlCount ?? 4),
+      opportunitiesCount: Number(input.opportunitiesCount ?? 4),
+      attributedDeals: Number(input.attributedDeals ?? 1),
+      wonDealsCount: Number(input.wonDealsCount ?? 0),
+      attributedRevenueBrl: Number(input.attributedRevenueBrl ?? 72000),
+      ownerName: input.ownerName || 'Marcelo Lopes Mira',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.state.marketingCampaigns.unshift(cmp);
+    this.save();
+    return cmp;
+  }
+
+  updateMarketingCampaign(
+    id: string,
+    patch: Partial<MarketingCampaign>
+  ): MarketingCampaign | null {
+    if (!this.state.marketingCampaigns) {
+      this.state.marketingCampaigns = createInitialSeedState().marketingCampaigns || [];
+    }
+    const idx = this.state.marketingCampaigns.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    const updated: MarketingCampaign = {
+      ...this.state.marketingCampaigns[idx],
+      ...patch,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.marketingCampaigns[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  getAccountBasedEngagementSummary(): AccountEngagementSummary[] {
+    const companies = this.listCompanies();
+    const contacts = this.listContacts();
+    const deals = this.listDeals();
+    const enrollments = this.listSequenceEnrollments();
+    const timeline = this.listTimelineEvents();
+
+    return companies
+      .map((comp) => {
+        const companyContacts = contacts.filter((c) => c.companyId === comp.id);
+        const additionalFromProps = Array.isArray(
+          (comp.customProperties as { additionalContacts?: Array<{ id?: string; name?: string; email?: string; role?: string }> })?.additionalContacts
+        )
+          ? ((comp.customProperties as { additionalContacts: Array<{ id?: string; name?: string; email?: string; role?: string }> }).additionalContacts)
+          : [];
+
+        const engagedList = companyContacts.filter((c) => {
+          const hasTimeline = timeline.some((e) => e.contactId === c.id || e.companyId === comp.id);
+          const hasEnrollment = enrollments.some((enr) => enr.contactId === c.id);
+          return c.leadScore >= 50 || hasTimeline || hasEnrollment;
+        });
+
+        const engagedContactsFormatted = [
+          ...engagedList.map((c) => ({
+            id: c.id,
+            name: `${c.firstName} ${c.lastName}`.trim(),
+            email: c.email,
+            jobTitle: c.jobTitle,
+            leadScore: c.leadScore,
+            buyingRole: c.buyingRole || null,
+          })),
+          ...additionalFromProps.map((ac, i) => ({
+            id: ac.id || `ac-${comp.id}-${i}`,
+            name: ac.name || 'Contato Corporativo',
+            email: ac.email || `contato@${comp.domain || 'empresa.com.br'}`,
+            jobTitle: ac.role || 'Comitê de Compras',
+            leadScore: 78,
+            buyingRole: 'DECISOR' as const,
+          })),
+        ];
+
+        // Deduplicate by email or name in case Marina & Marina S. Costa are both on comp-nubank, or keep distinct professionals
+        const activeCadencesCount = enrollments.filter(
+          (enr) =>
+            enr.status === 'ACTIVE' &&
+            companyContacts.some((c) => c.id === enr.contactId)
+        ).length;
+
+        const companyOpenDeals = deals.filter(
+          (d) => d.companyId === comp.id && d.status === 'OPEN'
+        );
+        const openPipelineValueBrl = companyOpenDeals.reduce((s, d) => s + d.value, 0);
+        const engagedContactsCount = engagedContactsFormatted.length;
+        const totalContactsCount = Math.max(
+          companyContacts.length + additionalFromProps.length,
+          engagedContactsCount
+        );
+
+        const accountHeatLevel: AccountEngagementSummary['accountHeatLevel'] =
+          engagedContactsCount >= 2 || (engagedContactsCount >= 1 && openPipelineValueBrl >= 200000)
+            ? 'HOT_MULTI_THREADED'
+            : engagedContactsCount >= 1
+              ? 'WARM_ENGAGED'
+              : 'COLD';
+
+        return {
+          companyId: comp.id,
+          companyName: comp.name,
+          icpTier: comp.icpTier || null,
+          isTargetAccount: Boolean(comp.isTargetAccount),
+          engagedContactsCount,
+          totalContactsCount,
+          engagedContacts: engagedContactsFormatted,
+          activeCadencesCount,
+          openDealsCount: companyOpenDeals.length,
+          openPipelineValueBrl,
+          accountHeatLevel,
+        };
+      })
+      .sort((a, b) => b.engagedContactsCount - a.engagedContactsCount || b.openPipelineValueBrl - a.openPipelineValueBrl);
+  }
+
+  listMarketingSegments(): MarketingSegment[] {
+    if (!this.state.marketingSegments) {
+      this.state.marketingSegments = createInitialSeedState().marketingSegments || [];
+    }
+    const contacts = this.listContacts();
+    const companiesMap = new Map(this.listCompanies().map((c) => [c.id, c]));
+    const accountEngagementMap = new Map(
+      this.getAccountBasedEngagementSummary().map((a) => [a.companyId, a])
+    );
+
+    return this.state.marketingSegments.map((seg) => {
+      if (seg.type === 'STATIC') {
+        return { ...seg };
+      }
+      const crit = seg.criteria || {};
+      const matched = contacts.filter((c) => {
+        if (crit.onlySubscribedEligible !== false && !this.canSendMarketingEmailToContact(c.id).allowed) {
+          return false;
+        }
+        const comp = c.companyId ? companiesMap.get(c.companyId) : null;
+        if (crit.icpTier && comp?.icpTier !== crit.icpTier) {
+          return false;
+        }
+        if (crit.targetAccountOnly && !comp?.isTargetAccount) {
+          return false;
+        }
+        if (typeof crit.minLeadScore === 'number' && c.leadScore < crit.minLeadScore) {
+          return false;
+        }
+        if (crit.buyingRole && c.buyingRole !== crit.buyingRole) {
+          return false;
+        }
+        if (crit.lifecycleStage && c.lifecycleStage !== crit.lifecycleStage) {
+          return false;
+        }
+        if (typeof crit.minCompanyEngagedContacts === 'number') {
+          const acc = c.companyId ? accountEngagementMap.get(c.companyId) : null;
+          if (!acc || acc.engagedContactsCount < crit.minCompanyEngagedContacts) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      return {
+        ...seg,
+        matchedContactIds: matched.map((m) => m.id),
+        count: matched.length,
+      };
+    });
+  }
+
+  createMarketingSegment(
+    input: Partial<MarketingSegment> & { name: string }
+  ): MarketingSegment {
+    if (!this.state.marketingSegments) {
+      this.state.marketingSegments = createInitialSeedState().marketingSegments || [];
+    }
+    const now = new Date().toISOString();
+    const seg: MarketingSegment = {
+      id: input.id || `seg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      description: input.description || 'Segmento dinâmico B2B avaliado em tempo real.',
+      type: input.type || 'DYNAMIC',
+      filterExpression:
+        input.filterExpression || "subscriptionStatus = 'SUBSCRIBED' AND isValidEmail = true",
+      criteria: input.criteria || { onlySubscribedEligible: true },
+      count: Number(input.count ?? 0),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.marketingSegments.unshift(seg);
+    this.save();
+    return this.listMarketingSegments().find((s) => s.id === seg.id) || seg;
+  }
+
+  listMarketingLandingPages(): MarketingLandingPage[] {
+    if (!this.state.marketingLandingPages) {
+      this.state.marketingLandingPages = createInitialSeedState().marketingLandingPages || [];
+    }
+    return [...this.state.marketingLandingPages];
+  }
+
+  createMarketingLandingPage(
+    input: Partial<MarketingLandingPage> & { name: string }
+  ): MarketingLandingPage {
+    if (!this.state.marketingLandingPages) {
+      this.state.marketingLandingPages = createInitialSeedState().marketingLandingPages || [];
+    }
+    const now = new Date().toISOString();
+    const slug =
+      (input.slug || input.name)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || `lp-${Date.now()}`;
+
+    const views = Number(input.viewsCount ?? 100);
+    const subs = Number(input.submissionsCount ?? 0);
+    const lp: MarketingLandingPage = {
+      id: input.id || `lp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: input.name.trim(),
+      slug,
+      title: input.title || input.name.trim(),
+      subtitle:
+        input.subtitle ||
+        'Soluções corporativas Seta Telecom com alta disponibilidade e eficiência tributária.',
+      formId: input.formId || 'form-enterprise-demo',
+      campaignId: input.campaignId ?? 'cmp-1',
+      utmCampaign: input.utmCampaign || slug,
+      status: input.status || 'PUBLISHED',
+      viewsCount: views,
+      submissionsCount: subs,
+      conversionRate: views > 0 ? Number(((subs / views) * 100).toFixed(2)) : 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.state.marketingLandingPages.unshift(lp);
+    this.save();
+    return lp;
+  }
+
+  listSuppressionEntries(): SuppressionEntry[] {
+    if (!this.state.suppressionList) {
+      this.state.suppressionList = createInitialSeedState().suppressionList || [];
+    }
+    return [...this.state.suppressionList];
+  }
+
+  canSendMarketingEmailToContact(contactIdOrEmail: string): {
+    allowed: boolean;
+    reason: string;
+    contact: Contact | null;
+  } {
+    const clean = (contactIdOrEmail || '').trim().toLowerCase();
+    const contact =
+      this.state.contacts.find(
+        (c) => c.id === contactIdOrEmail || c.email.toLowerCase() === clean
+      ) || null;
+    const emailToCheck = contact ? contact.email.toLowerCase() : clean;
+
+    const suppressed = this.listSuppressionEntries().find(
+      (s) => s.email.toLowerCase() === emailToCheck || (contact && s.contactId === contact.id)
+    );
+    if (suppressed) {
+      return {
+        allowed: false,
+        reason: `Contato bloqueado pela Lista de Supressão (${suppressed.reason}).`,
+        contact,
+      };
+    }
+
+    if (contact) {
+      if (!contact.isValidEmail || contact.isDisposableEmail) {
+        return {
+          allowed: false,
+          reason: 'E-mail inválido ou descartável bloqueado pelo motor de entregabilidade.',
+          contact,
+        };
+      }
+      if (
+        contact.subscriptionStatus === 'UNSUBSCRIBED_MARKETING' ||
+        contact.subscriptionStatus === 'SUPPRESSED_BOUNCE' ||
+        contact.subscriptionStatus === 'SUPPRESSED_SPAM'
+      ) {
+        return {
+          allowed: false,
+          reason: `Contato não elegível para marketing (status: ${contact.subscriptionStatus}).`,
+          contact,
+        };
+      }
+      if (contact.lgpdConsent === false) {
+        return {
+          allowed: false,
+          reason: 'Contato sem consentimento/base legal LGPD ativa para marketing.',
+          contact,
+        };
+      }
+    }
+
+    return {
+      allowed: true,
+      reason: 'Elegível para disparo (Consentimento LGPD ativo e fora da lista de supressão).',
+      contact,
+    };
+  }
+
+  updateContactSubscriptionPreference(input: {
+    contactId?: string;
+    email?: string;
+    action:
+      | 'UNSUBSCRIBE_MARKETING'
+      | 'RESUBSCRIBE_WITH_CONSENT'
+      | 'EXIT_SEQUENCE_ONLY'
+      | 'RECORD_HARD_BOUNCE';
+    reason?: string;
+    legalBasis?: LgpdLegalBasis;
+    categories?: string[];
+    sequenceId?: string;
+  }): {
+    contact: Contact | null;
+    suppressionEntry: SuppressionEntry | null;
+    exitedEnrollmentsCount: number;
+    globalSubscriptionPreserved: boolean;
+  } {
+    if (!this.state.suppressionList) {
+      this.state.suppressionList = createInitialSeedState().suppressionList || [];
+    }
+    const now = new Date().toISOString();
+    const cleanEmail = (input.email || '').trim().toLowerCase();
+    const contact =
+      this.state.contacts.find(
+        (c) =>
+          (input.contactId && c.id === input.contactId) ||
+          (cleanEmail && c.email.toLowerCase() === cleanEmail)
+      ) || null;
+
+    let suppressionEntry: SuppressionEntry | null = null;
+    let exitedEnrollmentsCount = 0;
+
+    if (input.action === 'EXIT_SEQUENCE_ONLY') {
+      // Module C Golden Rule: Exiting a cadence NEVER unsubscribes the contact from global/marketing communications!
+      if (contact) {
+        const activeEnrollments = this.state.sequenceEnrollments.filter(
+          (e) =>
+            e.contactId === contact.id &&
+            e.status === 'ACTIVE' &&
+            (!input.sequenceId || e.sequenceId === input.sequenceId)
+        );
+        for (const enr of activeEnrollments) {
+          enr.status = 'REMOVED_MANUAL';
+          enr.nextStepDueAt = null;
+          enr.updatedAt = now;
+          enr.history.push({
+            stepOrder: enr.currentStepOrder,
+            subject: 'Saída exclusiva da cadência comercial',
+            action: 'PAUSED_ON_REPLY',
+            timestamp: now,
+            details:
+              input.reason ||
+              'Contato removido apenas desta cadência comercial; elegibilidade global de comunicação mantida.',
+          });
+          exitedEnrollmentsCount++;
+          const seq = this.getSequenceById(enr.sequenceId);
+          if (seq) {
+            seq.activeCount = Math.max(0, seq.activeCount - 1);
+          }
+        }
+        if (!contact.subscriptionStatus) {
+          contact.subscriptionStatus = 'SUBSCRIBED';
+        }
+        contact.updatedAt = now;
+      }
+      this.save();
+      return {
+        contact,
+        suppressionEntry: null,
+        exitedEnrollmentsCount,
+        globalSubscriptionPreserved: contact ? contact.subscriptionStatus === 'SUBSCRIBED' : true,
+      };
+    }
+
+    if (input.action === 'UNSUBSCRIBE_MARKETING') {
+      const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
+      if (contact) {
+        contact.subscriptionStatus = 'UNSUBSCRIBED_MARKETING';
+        contact.lgpdConsent = false;
+        contact.unsubscribedAt = now;
+        contact.unsubscribeReason =
+          input.reason || 'Solicitação de descadastro via Preference Center / One-Click Unsubscribe';
+        contact.communicationCategories = [];
+        contact.updatedAt = now;
+      }
+      if (targetEmail) {
+        const existingSup = this.state.suppressionList.find(
+          (s) => s.email.toLowerCase() === targetEmail
+        );
+        if (!existingSup) {
+          suppressionEntry = {
+            id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            email: targetEmail,
+            contactId: contact?.id || null,
+            reason: 'UNSUBSCRIBED_MARKETING',
+            scope: 'MARKETING_ONLY',
+            source: input.reason || 'Preference Center / One-Click Unsubscribe',
+            createdAt: now,
+          };
+          this.state.suppressionList.unshift(suppressionEntry);
+        } else {
+          suppressionEntry = existingSup;
+        }
+      }
+      if (contact) {
+        this.createTimelineEvent({
+          type: 'HEALTH_ALERT',
+          title: 'Descadastro de Marketing registrado (Preference Center / LGPD)',
+          body: `O contato ${contact.email} solicitou descadastro de campanhas de marketing. Motivo: ${
+            input.reason || 'Opt-out direto'
+          }.`,
+          contactId: contact.id,
+          companyId: contact.companyId,
+          actor: 'Preference Center LGPD',
+          metadata: { action: input.action, reason: input.reason },
+        });
+      }
+      this.save();
+      return {
+        contact,
+        suppressionEntry,
+        exitedEnrollmentsCount: 0,
+        globalSubscriptionPreserved: false,
+      };
+    }
+
+    if (input.action === 'RECORD_HARD_BOUNCE') {
+      const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
+      if (contact) {
+        contact.subscriptionStatus = 'SUPPRESSED_BOUNCE';
+        contact.isValidEmail = false;
+        contact.unsubscribedAt = now;
+        contact.unsubscribeReason = input.reason || 'Hard Bounce 550 User Unknown';
+        contact.updatedAt = now;
+
+        const activeEnrollments = this.state.sequenceEnrollments.filter(
+          (e) => e.contactId === contact.id && e.status === 'ACTIVE'
+        );
+        for (const enr of activeEnrollments) {
+          enr.status = 'BOUNCED';
+          enr.nextStepDueAt = null;
+          enr.updatedAt = now;
+          exitedEnrollmentsCount++;
+          const seq = this.getSequenceById(enr.sequenceId);
+          if (seq) {
+            seq.activeCount = Math.max(0, seq.activeCount - 1);
+          }
+        }
+      }
+      if (targetEmail) {
+        suppressionEntry = {
+          id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          email: targetEmail,
+          contactId: contact?.id || null,
+          reason: 'HARD_BOUNCE',
+          scope: 'GLOBAL_ALL',
+          source: input.reason || 'Provedor SMTP / ESP Bounce Webhook',
+          createdAt: now,
+        };
+        this.state.suppressionList.unshift(suppressionEntry);
+      }
+      this.save();
+      return {
+        contact,
+        suppressionEntry,
+        exitedEnrollmentsCount,
+        globalSubscriptionPreserved: false,
+      };
+    }
+
+    if (input.action === 'RESUBSCRIBE_WITH_CONSENT') {
+      const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
+      if (contact) {
+        contact.subscriptionStatus = 'SUBSCRIBED';
+        contact.lgpdConsent = true;
+        contact.lgpdConsentAt = now;
+        contact.lgpdLegalBasis = input.legalBasis || 'CONSENTIMENTO_OPT_IN';
+        contact.unsubscribedAt = null;
+        contact.unsubscribeReason = null;
+        contact.communicationCategories = input.categories || [
+          'COMERCIAL_1_1',
+          'NEWSLETTER_TECNICA',
+          'EVENTOS_ABM',
+        ];
+        contact.updatedAt = now;
+      }
+      if (targetEmail) {
+        this.state.suppressionList = this.state.suppressionList.filter(
+          (s) => s.email.toLowerCase() !== targetEmail || s.reason === 'HARD_BOUNCE'
+        );
+      }
+      this.save();
+      return {
+        contact,
+        suppressionEntry: null,
+        exitedEnrollmentsCount: 0,
+        globalSubscriptionPreserved: true,
+      };
+    }
+
+    return {
+      contact,
+      suppressionEntry: null,
+      exitedEnrollmentsCount: 0,
+      globalSubscriptionPreserved: true,
+    };
   }
 
   // ==========================================================================
@@ -2586,7 +3214,7 @@ export class CrmRepository {
         'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
       internalNotes: input.internalNotes || '',
       setupFee: explicitSetupFee,
-      templateStyle: input.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
+      templateStyle: input.templateStyle || 'CLEAN_CORPORATE_LIGHT',
       slaTier: input.slaTier && input.slaTier !== 'NOC_24X7_ALTA_DISP_4H' ? input.slaTier : 'SEM_SLA_ESPECIFICO',
       slaAvailabilityPercent: input.slaAvailabilityPercent || '',
       slaResponseHours: input.slaResponseHours ?? 0,

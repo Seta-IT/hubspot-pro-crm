@@ -231,7 +231,13 @@ export class SequenceService {
       interactionType: 'OPEN' | 'CLICK' | 'REPLY';
       replySnippet?: string;
     }
-  ): { enrollment: SequenceEnrollment; sequence: EmailSequence; autoPaused: boolean } {
+  ): {
+    enrollment: SequenceEnrollment;
+    sequence: EmailSequence;
+    autoPaused: boolean;
+    dealTransferredToNegotiation?: boolean;
+    updatedDealStageId?: string | null;
+  } {
     const enrollment = repo.getSequenceEnrollmentById(params.enrollmentId);
     if (!enrollment) {
       throw new Error(`Inscrição de cadência (${params.enrollmentId}) não encontrada.`);
@@ -245,6 +251,8 @@ export class SequenceService {
       seq.steps.find((s) => s.stepOrder === enrollment.currentStepOrder) || seq.steps[0];
     const nowIso = new Date().toISOString();
     let autoPaused = false;
+    let dealTransferredToNegotiation = false;
+    let updatedDealStageId: string | null = null;
 
     if (params.interactionType === 'OPEN') {
       enrollment.openCount += 1;
@@ -314,6 +322,31 @@ export class SequenceService {
           actor: `${contact.firstName} ${contact.lastName}`.trim(),
         });
       }
+
+      // Seta Telecom Differential #1: Se o cliente responder a uma proposta vinculada à cadência,
+      // transfere automaticamente o negócio para a etapa de negociação!
+      if (enrollment.dealId) {
+        const linkedDeal = repo.getDealById(enrollment.dealId);
+        if (linkedDeal && linkedDeal.status === 'OPEN') {
+          const proposalToNegotiationMap: Record<string, string> = {
+            'stage-proposal': 'stage-negotiation',
+            'stage-demo': 'stage-negotiation',
+            'stage-loc-simulacao': 'stage-loc-minuta',
+            'stage-loc-levantamento': 'stage-loc-minuta',
+            'stage-exp-proposta': 'stage-exp-aprovacao',
+          };
+          const targetNegotiationStage = proposalToNegotiationMap[linkedDeal.stageId];
+          if (targetNegotiationStage) {
+            const moved = repo.updateDeal(linkedDeal.id, {
+              stageId: targetNegotiationStage,
+            });
+            if (moved) {
+              dealTransferredToNegotiation = true;
+              updatedDealStageId = moved.stageId;
+            }
+          }
+        }
+      }
     }
 
     enrollment.updatedAt = nowIso;
@@ -321,6 +354,12 @@ export class SequenceService {
     this.recalculateSequenceRates(seq);
     repo.updateSequence(seq.id, seq);
 
-    return { enrollment, sequence: seq, autoPaused };
+    return {
+      enrollment,
+      sequence: seq,
+      autoPaused,
+      dealTransferredToNegotiation,
+      updatedDealStageId,
+    };
   }
 }

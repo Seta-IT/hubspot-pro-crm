@@ -2525,6 +2525,242 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
   ];
 
+
+  for (const c of contacts) {
+    if (c.id === 'cont-pedro-invalid') {
+      c.lgpdConsent = false;
+      c.lgpdConsentAt = null;
+      c.lgpdLegalBasis = 'LEGITIMO_INTERESSE_B2B';
+      c.subscriptionStatus = 'SUPPRESSED_BOUNCE';
+      c.unsubscribedAt = daysAgoIso(10);
+      c.unsubscribeReason = 'Hard bounce / domínio descartável bloqueado pelo motor de entregabilidade';
+      c.communicationCategories = [];
+    } else {
+      c.lgpdConsent = true;
+      c.lgpdConsentAt = c.createdAt;
+      c.lgpdLegalBasis = c.id === 'cont-marina' || c.id === 'cont-ricardo' ? 'CONSENTIMENTO_OPT_IN' : 'LEGITIMO_INTERESSE_B2B';
+      c.subscriptionStatus = 'SUBSCRIBED';
+      c.communicationCategories = ['COMERCIAL_1_1', 'NEWSLETTER_TECNICA', 'EVENTOS_ABM', 'ATUALIZACAO_CONTRATUAL'];
+      if (c.id === 'cont-marina') {
+        c.utmSource = 'linkedin';
+        c.utmMedium = 'cpc';
+        c.utmCampaign = 'abm-q4-locacao-sv31';
+      } else if (c.id === 'cont-ricardo') {
+        c.utmSource = 'google';
+        c.utmMedium = 'organic';
+        c.utmCampaign = 'modernizacao-pabx-ip-ha';
+      }
+    }
+  }
+
+  for (const f of webForms) {
+    f.requireLgpdConsent = true;
+    f.lgpdConsentText =
+      'Concordo com o tratamento dos meus dados corporativos pela Seta Telecom LTDA conforme a LGPD (Lei nº 13.709/2018), podendo gerenciar minhas preferências ou solicitar descadastro a qualquer momento.';
+    f.defaultCampaignId = f.id === 'form-enterprise-demo' ? 'cmp-1' : f.id === 'form-revops-guide' ? 'cmp-2' : 'cmp-3';
+  }
+
+  for (const sub of formSubmissions) {
+    sub.lgpdConsent = true;
+    sub.lgpdConsentAt = sub.submittedAt;
+    sub.lgpdLegalBasis = 'CONSENTIMENTO_OPT_IN';
+    sub.utmSource = 'linkedin';
+    sub.utmMedium = 'cpc';
+    sub.utmCampaign = 'abm-q4-locacao-sv31';
+    sub.campaignId = 'cmp-1';
+  }
+
+  const marketingCampaigns: NonNullable<CrmDatabaseState['marketingCampaigns']> = [
+    {
+      id: 'cmp-1',
+      name: 'Campanha ABM Q4 — Substituição CAPEX por Locação Pura (0% ISS — SV 31 STF)',
+      objective: 'Gerar oportunidades de locação recorrente de servidores, switches PoE e FortiGate SD-WAN em contas Enterprise Tier 1.',
+      status: 'ACTIVE',
+      channel: 'LinkedIn Ads + E-mail ABM + Landing Page',
+      sendingProvider: 'MARKETING_ESP',
+      utmCampaign: 'abm-q4-locacao-sv31',
+      budgetBrl: 18500,
+      sessions: 4820,
+      sentCount: 6450,
+      deliveredCount: 6280,
+      uniqueClicksCount: 840,
+      repliesCount: 512,
+      unsubscribesCount: 18,
+      bouncesCount: 170,
+      contactsGenerated: 142,
+      mqlCount: 64,
+      sqlCount: 28,
+      opportunitiesCount: 94,
+      attributedDeals: 9,
+      wonDealsCount: 3,
+      attributedRevenueBrl: 634000,
+      ownerName: 'Marcelo Lopes Mira',
+      createdAt: daysAgoIso(45),
+      updatedAt: daysAgoIso(1),
+    },
+    {
+      id: 'cmp-2',
+      name: 'Modernização Telefonia IP & Cluster PABX Cloud High-Availability',
+      objective: 'Substituir centrais legadas E1 por clusters PABX IP Yealink/Seta Cloud com entroncamento SIP TLS.',
+      status: 'ACTIVE',
+      channel: 'Google Search + Cadência Outlook 1:1 + Webinar',
+      sendingProvider: 'OUTLOOK_M365',
+      utmCampaign: 'modernizacao-pabx-ip-ha',
+      budgetBrl: 12000,
+      sessions: 3190,
+      sentCount: 3800,
+      deliveredCount: 3690,
+      uniqueClicksCount: 490,
+      repliesCount: 344,
+      unsubscribesCount: 11,
+      bouncesCount: 110,
+      contactsGenerated: 96,
+      mqlCount: 41,
+      sqlCount: 19,
+      opportunitiesCount: 56,
+      attributedDeals: 6,
+      wonDealsCount: 2,
+      attributedRevenueBrl: 412000,
+      ownerName: 'Evelyn Ternero Seta Telecom',
+      createdAt: daysAgoIso(35),
+      updatedAt: daysAgoIso(2),
+    },
+    {
+      id: 'cmp-3',
+      name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base GestãoClick (#118887)',
+      objective: 'Expansão de contratos ativos, renovação 24/36m e oferta de redundância BGP/SD-WAN na carteira Seta Telecom.',
+      status: 'IN_PROGRESS',
+      channel: 'E-mail Marketing Base GestãoClick (#118887)',
+      sendingProvider: 'MARKETING_ESP',
+      utmCampaign: 'sdwan-fortigate-renovacao-gc',
+      budgetBrl: 8500,
+      sessions: 2150,
+      sentCount: 2200,
+      deliveredCount: 2110,
+      uniqueClicksCount: 290,
+      repliesCount: 190,
+      unsubscribesCount: 8,
+      bouncesCount: 90,
+      contactsGenerated: 78,
+      mqlCount: 35,
+      sqlCount: 14,
+      opportunitiesCount: 34,
+      attributedDeals: 5,
+      wonDealsCount: 2,
+      attributedRevenueBrl: 298000,
+      ownerName: 'Marcelo Lopes Mira',
+      createdAt: daysAgoIso(20),
+      updatedAt: daysAgoIso(1),
+    },
+  ];
+
+  const marketingSegments: NonNullable<CrmDatabaseState['marketingSegments']> = [
+    {
+      id: 'seg-abm-tier1-decisores',
+      name: 'Contas Alvo ABM Tier 1 (Decisores C-Level & VP)',
+      description: 'Decisores e Compradores Econômicos em contas corporativas Tier 1 elegíveis para campanhas e cadências.',
+      type: 'DYNAMIC',
+      filterExpression: "company.icpTier = 'TIER_1' AND contact.buyingRole IN ('DECISOR','COMPRADOR_ECONOMICO') AND subscriptionStatus = 'SUBSCRIBED'",
+      criteria: {
+        icpTier: 'TIER_1',
+        targetAccountOnly: true,
+        onlySubscribedEligible: true,
+      },
+      count: 6,
+      createdAt: daysAgoIso(40),
+      updatedAt: daysAgoIso(1),
+    },
+    {
+      id: 'seg-sql-high-score',
+      name: 'Leads Quentes & Oportunidades (Lead Score >= 80 pts)',
+      description: 'Contatos altamente engajados com Lead Score >= 80 e opt-in LGPD válido.',
+      type: 'DYNAMIC',
+      filterExpression: 'contact.leadScore >= 80 AND contact.lgpdConsent = true',
+      criteria: {
+        minLeadScore: 80,
+        onlySubscribedEligible: true,
+      },
+      count: 6,
+      createdAt: daysAgoIso(30),
+      updatedAt: daysAgoIso(1),
+    },
+    {
+      id: 'seg-multi-thread-accounts',
+      name: 'Contas com Engajamento Multi-Contato (Account-Based Engagement)',
+      description: 'Empresas onde múltiplos decisores/profissionais interagiram com campanhas, cadências ou propostas da Seta Telecom.',
+      type: 'DYNAMIC',
+      filterExpression: 'company.engagedContactsCount >= 2',
+      criteria: {
+        minCompanyEngagedContacts: 2,
+        onlySubscribedEligible: true,
+      },
+      count: 4,
+      createdAt: daysAgoIso(25),
+      updatedAt: daysAgoIso(1),
+    },
+    {
+      id: 'seg-clientes-locacao-gc',
+      name: 'Carteira Ativa Locação & Contratos GestãoClick (#118887)',
+      description: 'Base de clientes com contrato de locação/serviços ativo para campanhas de renovação, aditivos e spare parts.',
+      type: 'STATIC',
+      filterExpression: "lifecyclestage = 'CUSTOMER' AND gestaoclick_contract_active = true",
+      criteria: {
+        lifecycleStage: 'CUSTOMER',
+        onlySubscribedEligible: true,
+      },
+      count: 344,
+      createdAt: daysAgoIso(50),
+      updatedAt: daysAgoIso(2),
+    },
+  ];
+
+  const marketingLandingPages: NonNullable<CrmDatabaseState['marketingLandingPages']> = [
+    {
+      id: 'lp-locacao-sv31',
+      name: 'LP Executiva — Locação Pura de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
+      slug: 'locacao-equipamentos-ti-telecom-sv31',
+      title: 'Substitua CAPEX por Locação Pura com 0% de ISSQN e SLA NOC 24x7',
+      subtitle: 'Simule a redução imediata de TCO em servidores, switches PoE, terminais IP Yealink e firewalls FortiGate.',
+      formId: 'form-enterprise-demo',
+      campaignId: 'cmp-1',
+      utmCampaign: 'abm-q4-locacao-sv31',
+      status: 'PUBLISHED',
+      viewsCount: 2480,
+      submissionsCount: 184,
+      conversionRate: 7.42,
+      createdAt: daysAgoIso(40),
+      updatedAt: daysAgoIso(1),
+    },
+    {
+      id: 'lp-playbook-revops',
+      name: 'LP Inbound — Guia de Alta Disponibilidade Telecom & Governança B2B',
+      slug: 'guia-alta-disponibilidade-telecom-2026',
+      title: 'Arquitetura de Redundância BGP, Entroncamento SIP TLS e Continuidade Operacional',
+      subtitle: 'Material técnico elaborado pela Engenharia N3 da Seta Telecom para CTOs e gestores de infraestrutura.',
+      formId: 'form-revops-guide',
+      campaignId: 'cmp-2',
+      utmCampaign: 'modernizacao-pabx-ip-ha',
+      status: 'PUBLISHED',
+      viewsCount: 3250,
+      submissionsCount: 645,
+      conversionRate: 19.85,
+      createdAt: daysAgoIso(30),
+      updatedAt: daysAgoIso(2),
+    },
+  ];
+
+  const suppressionList: NonNullable<CrmDatabaseState['suppressionList']> = [
+    {
+      id: 'sup-seed-1',
+      email: 'pedro.teste@mailinator.com',
+      contactId: 'cont-pedro-invalid',
+      reason: 'HARD_BOUNCE',
+      scope: 'GLOBAL_ALL',
+      source: 'Motor de Entregabilidade & Higienização STI-hub',
+      createdAt: daysAgoIso(10),
+    },
+  ];
+
   return {
     contacts,
     companies,
@@ -2578,6 +2814,10 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     tasks,
     emailTemplates,
     snippets,
+    marketingCampaigns,
+    marketingSegments,
+    marketingLandingPages,
+    suppressionList,
     erp: createSeedErpState(),
     rbac: createSeedRbacState(),
   };

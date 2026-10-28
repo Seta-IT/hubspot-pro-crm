@@ -76,6 +76,8 @@ export function classifyRouteRequiredModule(
     clean.startsWith('/api/sequences/') ||
     clean === '/api/forms' ||
     clean.startsWith('/api/forms/') ||
+    clean === '/api/marketing' ||
+    clean.startsWith('/api/marketing/') ||
     clean === '/api/data-health' ||
     clean.startsWith('/api/data-health/') ||
     clean === '/api/enrichment' ||

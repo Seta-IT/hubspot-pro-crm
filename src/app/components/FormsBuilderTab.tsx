@@ -100,6 +100,10 @@ const SIMULATOR_PRESETS: Array<{
       subject: 'Dúvida sobre SLA de Webhook em Produção',
       priority: 'HIGH',
       description: 'Precisamos validar a taxa de transferência para 500 req/s no cluster dedicado.',
+      utm_source: 'linkedin',
+      utm_medium: 'cpc',
+      utm_campaign: 'abm-q4-locacao-sv31',
+      lgpdConsent: 'true',
     },
   },
   {
@@ -114,6 +118,10 @@ const SIMULATOR_PRESETS: Array<{
       subject: 'Cotação de Locação 120 Ramais IP + Firewall SD-WAN (24 meses)',
       priority: 'HIGH',
       description: 'Solicitamos proposta comercial de locação de equipamentos (Súmula Vinculante 31 STF) para matriz SP.',
+      utm_source: 'google',
+      utm_medium: 'organic',
+      utm_campaign: 'modernizacao-pabx-ip-ha',
+      lgpdConsent: 'true',
     },
   },
   {
@@ -128,6 +136,10 @@ const SIMULATOR_PRESETS: Array<{
       subject: 'INCIDENTE P1: Queda de Tronco SIP Principal',
       priority: 'CRITICAL',
       description: 'Acionamento imediato de SLA 24x7 para failover de gateway de voz.',
+      utm_source: 'portal',
+      utm_medium: 'direct',
+      utm_campaign: 'sdwan-fortigate-renovacao-gc',
+      lgpdConsent: 'true',
     },
   },
 ];
@@ -911,6 +923,78 @@ export default function FormsBuilderTab({
                     ))}
                   </div>
 
+                  {/* Rastreamento UTM & Consentimento LGPD (Opt-in Auditado) */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
+                        Rastreamento de Atribuição UTM &amp; Conformidade LGPD (Lei nº 13.709/2018)
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-500">
+                        Atribui automaticamente Lead + Deal à Campanha correspondente
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                          utm_source
+                        </label>
+                        <input
+                          type="text"
+                          value={simValues.utm_source || ''}
+                          onChange={(e) =>
+                            setSimValues((prev) => ({ ...prev, utm_source: e.target.value }))
+                          }
+                          placeholder="linkedin / google / email"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                          utm_medium
+                        </label>
+                        <input
+                          type="text"
+                          value={simValues.utm_medium || ''}
+                          onChange={(e) =>
+                            setSimValues((prev) => ({ ...prev, utm_medium: e.target.value }))
+                          }
+                          placeholder="cpc / abm / organic"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                          utm_campaign
+                        </label>
+                        <input
+                          type="text"
+                          value={simValues.utm_campaign || ''}
+                          onChange={(e) =>
+                            setSimValues((prev) => ({ ...prev, utm_campaign: e.target.value }))
+                          }
+                          placeholder="abm-q4-locacao-sv31"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-mono bg-white"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={simValues.lgpdConsent !== 'false'}
+                        onChange={(e) =>
+                          setSimValues((prev) => ({
+                            ...prev,
+                            lgpdConsent: e.target.checked ? 'true' : 'false',
+                          }))
+                        }
+                        className="mt-0.5 rounded border-slate-300 text-[#ff7a59]"
+                      />
+                      <span>
+                        <strong>Consentimento LGPD (Opt-in):</strong> Autorizo o tratamento dos meus dados corporativos pela Seta Telecom LTDA para contato comercial e envio de conteúdos técnicos, com direito de gerenciar preferências ou descadastrar a qualquer momento.
+                      </span>
+                    </label>
+                  </div>
+
                   <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold">
@@ -1089,7 +1173,17 @@ export default function FormsBuilderTab({
                         <div className="text-[11px] text-slate-500">
                           {formatDateTimeBR(sub.submittedAt)}
                         </div>
-                        <div className="flex items-center justify-end gap-1.5 mt-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 mt-1">
+                          {sub.utmCampaign && (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] font-mono font-bold text-[10px]">
+                              UTM: {sub.utmCampaign}
+                            </span>
+                          )}
+                          {sub.lgpdConsent !== false && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px]">
+                              LGPD Opt-in
+                            </span>
+                          )}
                           {sub.dealId && (
                             <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold text-[10px]">
                               Deal Criado
