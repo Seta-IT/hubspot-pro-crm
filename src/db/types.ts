@@ -1123,6 +1123,10 @@ export interface ErpRentalContract {
   autoSendEmailOnBilling?: boolean;
   dunningRuleEnabled?: boolean;
   nextBillingDate?: string;
+  customDueRuleEnabled?: boolean;
+  customDueOffsetDays?: number;
+  customDueTargetWeekday?: "NONE" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY";
+  customDueRuleLabel?: string;
   totalInstallmentsCount?: number;
   billedInstallmentsCount?: number;
   contractNotes?: string;
@@ -1345,6 +1349,9 @@ export interface ErpFiscalInvoice {
   paymentMethodLabel?: string | null;
   billingRecipientEmails?: string[];
   contractNotes?: string | null;
+  customDueRuleLabel?: string | null;
+  customDueOffsetDays?: number;
+  customDueTargetWeekday?: "NONE" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | null;
   createdAt: string;
   updatedAt: string;
 }

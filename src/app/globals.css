@@ -104,7 +104,7 @@ html, body {
 }
 
 
-/* Corporate Typography Hierarchy: Semibold/Bold on Titles, Menus & Headers */
-h1, h2, h3, h4, h5, h6, th {
+/* Corporate Typography Hierarchy: Semibold on Titles, Headers, Labels, Buttons & Strong Elements */
+h1, h2, h3, h4, h5, h6, th, strong, b, label, summary {
   font-weight: 600;
 }

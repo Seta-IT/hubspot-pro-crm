@@ -620,7 +620,7 @@ export default function GlobalHeaderSearch({
                 setQuery('');
                 inputRef.current?.focus();
               }}
-              className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-slate-200/20 text-[#99acc2] hover:text-white cursor-pointer"
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200/20 text-[#99acc2] hover:text-white cursor-pointer"
             >
               Limpar
             </button>
@@ -637,13 +637,13 @@ export default function GlobalHeaderSearch({
           {/* 1. HEADER + SYSTEM FILTER & CATEGORY PILLS */}
           <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-normal text-slate-700">
+              <span className="text-xs font-semibold text-slate-700">
                 Pesquisar no STI-hub
               </span>
 
               {/* Seletor de Sistema (Buscar em: Todos | CRM | ERP | Chamados) */}
               <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]">
-                <span className="px-2 text-[10px] font-normal uppercase text-slate-500">
+                <span className="px-2 text-[10px] font-semibold uppercase text-slate-500">
                   Buscar em:
                 </span>
                 {(
@@ -660,7 +660,7 @@ export default function GlobalHeaderSearch({
                       key={sys.id}
                       type="button"
                       onClick={() => handleSelectSystemFilter(sys.id)}
-                      className={`px-2.5 py-1 rounded-md font-normal transition cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-md font-semibold transition cursor-pointer ${
                         isAct
                           ? 'bg-[#213343] text-white shadow-2xs'
                           : 'text-slate-600 hover:text-slate-900'
@@ -684,7 +684,7 @@ export default function GlobalHeaderSearch({
                     key={pill.key}
                     type="button"
                     onClick={(e) => toggleCategory(pill.key, e.ctrlKey || e.metaKey || e.shiftKey)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-normal border transition cursor-pointer ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer ${
                       active
                         ? pill.pillActiveCls
                         : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -706,7 +706,7 @@ export default function GlobalHeaderSearch({
                       ? "Modo Multi-Filtro Ativo (clique para voltar ao filtro único direto)"
                       : "Ativar seleção múltipla de categorias"
                   }
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-normal border transition cursor-pointer ${
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition cursor-pointer ${
                     multiSelectMode
                       ? "bg-[#0f766e] text-white border-[#0f766e]"
                       : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
@@ -721,7 +721,7 @@ export default function GlobalHeaderSearch({
                   <button
                     type="button"
                     onClick={clearAllFilters}
-                    className="text-xs font-normal text-[#0f766e] hover:underline cursor-pointer"
+                    className="text-xs font-semibold text-[#0f766e] hover:underline cursor-pointer"
                   >
                     Limpar filtros ({activeFiltersCount})
                   </button>
@@ -732,7 +732,7 @@ export default function GlobalHeaderSearch({
 
           {/* 2. RESULTS LIST ("Resultados selecionados recentemente" ou "Resultados filtrados") */}
           <div className="max-h-96 overflow-y-auto">
-            <div className="px-4 py-2 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between text-[11px] font-normal text-slate-600">
+            <div className="px-4 py-2 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-600">
               <span>
                 {query.trim() || activeFiltersCount > 0
                   ? `Resultados filtrados (${matchingPool.length} encontrado${matchingPool.length === 1 ? '' : 's'})`
@@ -747,13 +747,13 @@ export default function GlobalHeaderSearch({
                       setOpen(false);
                       onNavigateToCategory(cat, query);
                     }}
-                    className="px-2.5 py-0.5 rounded bg-[#0f766e] hover:bg-[#115e59] text-white text-[10px] font-normal transition cursor-pointer"
+                    className="px-2.5 py-0.5 rounded bg-[#0f766e] hover:bg-[#115e59] text-white text-[10px] font-semibold transition cursor-pointer"
                   >
                     Abrir aba de {SEARCH_CATEGORY_PILLS.find((p) => p.key === selectedCategories[0])?.label} →
                   </button>
                 )}
                 {activeFiltersCount > 0 && (
-                  <span className="px-2 py-0.5 rounded bg-teal-50 text-[#0f766e] border border-teal-200 text-[10px] font-normal">
+                  <span className="px-2 py-0.5 rounded bg-teal-50 text-[#0f766e] border border-teal-200 text-[10px] font-semibold">
                     {selectedCategories.length > 0
                       ? selectedCategories
                           .map((c) => SEARCH_CATEGORY_PILLS.find((p) => p.key === c)?.label)
@@ -766,14 +766,14 @@ export default function GlobalHeaderSearch({
 
             {filteredEntries.length === 0 ? (
               <div className="p-8 text-center space-y-2 text-xs text-slate-500">
-                <div className="font-normal text-slate-700">
+                <div className="font-semibold text-slate-700">
                   Nenhum registro encontrado{query ? ` para "${query}"` : ''} nos filtros selecionados.
                 </div>
                 {activeFiltersCount > 0 && (
                   <button
                     type="button"
                     onClick={clearAllFilters}
-                    className="px-3 py-1.5 rounded-lg bg-teal-50 text-[#0f766e] border border-teal-200 font-normal cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-teal-50 text-[#0f766e] border border-teal-200 font-semibold cursor-pointer"
                   >
                     Limpar filtros ({activeFiltersCount}) e buscar em todas as categorias
                   </button>
@@ -803,7 +803,7 @@ export default function GlobalHeaderSearch({
                         <Icon className="w-4 h-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-normal text-slate-900 truncate">
+                        <div className="text-xs font-semibold text-slate-900 truncate">
                           {item.title}
                         </div>
                         <div className="text-[11px] text-slate-500 truncate mt-0.5">

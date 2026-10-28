@@ -381,7 +381,7 @@ export function MarketingHubSuiteTop({
       {/* MARKETING HUB NAVIGATION BAR (CORPORATE CLEAN — ZERO EMOJIS) */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div>
-          <span className="text-[10px] font-normal uppercase text-[#e05835] block">
+          <span className="text-[10px] font-semibold uppercase text-[#e05835] block">
             STI-hub • Email Marketing, Cadências &amp; Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)
           </span>
           <h2 className="text-base sm:text-lg font-semibold text-slate-900">
@@ -404,7 +404,7 @@ export function MarketingHubSuiteTop({
                 key={id}
                 type="button"
                 onClick={() => onSelectView(id)}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-normal cursor-pointer transition ${
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold cursor-pointer transition ${
                   on
                     ? 'bg-[#ff7a59] text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -422,7 +422,7 @@ export function MarketingHubSuiteTop({
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
-            <span className="text-[10px] font-normal uppercase tracking-wider text-[#1e3a6e]">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e]">
               Email &amp; Sales Engagement • Últimos 30 dias
             </span>
             <h3 className="text-sm font-semibold text-slate-900">
@@ -430,10 +430,10 @@ export function MarketingHubSuiteTop({
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1e3a6e] border border-blue-200 font-normal">
+            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1e3a6e] border border-blue-200 font-semibold">
               Vendas 1:1: Microsoft 365 / Outlook Graph
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-normal">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
               Marketing em Massa: Provedor ESP Dedicado (SPF/DKIM/DMARC)
             </span>
           </div>
@@ -443,21 +443,21 @@ export function MarketingHubSuiteTop({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-slate-500 block">E-mails enviados</span>
-            <span className="text-xl font-normal text-slate-900">
+            <strong className="text-xl font-semibold text-slate-900">
               {totalSent.toLocaleString('pt-BR')}
-            </span>
+            </strong>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-slate-500 block">Taxa de resposta</span>
-            <span className="text-xl font-normal text-emerald-700">{replyRatePct}%</span>
+            <strong className="text-xl font-semibold text-emerald-700">{replyRatePct}%</strong>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-slate-500 block">Contatos engajados</span>
-            <span className="text-xl font-normal text-[#0091ae]">1.280</span>
+            <strong className="text-xl font-semibold text-[#0091ae]">1.280</strong>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-slate-500 block">Descadastros</span>
-            <span className="text-xl font-normal text-rose-700">{totalUnsubscribes}</span>
+            <strong className="text-xl font-semibold text-rose-700">{totalUnsubscribes}</strong>
           </div>
         </div>
 
@@ -472,12 +472,12 @@ export function MarketingHubSuiteTop({
             { label: 'Cadências ativas (Locação/Renovação/Spare Parts)', value: '24', tone: 'text-[#e05835]' },
           ].map((step) => (
             <div key={step.label} className="p-3 rounded-lg border border-slate-200 bg-white">
-              <span className="text-[10px] font-normal uppercase text-slate-500 block truncate">
+              <span className="text-[10px] font-semibold uppercase text-slate-500 block truncate">
                 {step.label}
               </span>
-              <span className={`text-base font-normal mt-0.5 block ${step.tone}`}>
+              <strong className={`text-base font-semibold mt-0.5 block ${step.tone}`}>
                 {step.value}
-              </span>
+              </strong>
             </div>
           ))}
         </div>
@@ -489,28 +489,28 @@ export function MarketingHubSuiteTop({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <span className="text-slate-500 block">Investimento em Campanhas</span>
-              <span className="text-lg font-normal text-slate-900">
+              <strong className="text-lg font-semibold text-slate-900">
                 {formatBRL(campaigns.reduce((s, c) => s + c.budgetBrl, 0))}
-              </span>
+              </strong>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <span className="text-slate-500 block">Leads &amp; MQLs Gerados</span>
-              <span className="text-lg font-normal text-[#0091ae]">
+              <strong className="text-lg font-semibold text-[#0091ae]">
                 {campaigns.reduce((s, c) => s + c.contactsGenerated, 0)} Contatos (
                 {campaigns.reduce((s, c) => s + c.mqlCount, 0)} MQLs)
-              </span>
+              </strong>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <span className="text-slate-500 block">Negócios Influenciados</span>
-              <span className="text-lg font-normal text-indigo-700">
+              <strong className="text-lg font-semibold text-indigo-700">
                 {campaigns.reduce((s, c) => s + c.attributedDeals, 0)} Deals B2B
-              </span>
+              </strong>
             </div>
             <div className="bg-white rounded-xl border border-emerald-200 p-4">
-              <span className="text-emerald-700 font-normal block">Receita Atribuída (Propostas &amp; Contratos)</span>
-              <span className="text-lg font-normal text-emerald-700">
+              <span className="text-emerald-700 font-semibold block">Receita Atribuída (Propostas &amp; Contratos)</span>
+              <strong className="text-lg font-semibold text-emerald-700">
                 {formatBRL(campaigns.reduce((s, c) => s + c.attributedRevenueBrl, 0))}
-              </span>
+              </strong>
             </div>
           </div>
 
@@ -535,7 +535,7 @@ export function MarketingHubSuiteTop({
             <select
               value={newCmpProvider}
               onChange={(e) => setNewCmpProvider(e.target.value as 'MARKETING_ESP' | 'OUTLOOK_M365')}
-              className="px-3 py-2 rounded border border-slate-300 bg-white font-normal"
+              className="px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
             >
               <option value="MARKETING_ESP">Motor: Provedor Marketing ESP</option>
               <option value="OUTLOOK_M365">Motor: Outlook / M365 Vendas 1:1</option>
@@ -549,7 +549,7 @@ export function MarketingHubSuiteTop({
             />
             <button
               type="submit"
-              className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
+              className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer"
             >
               + Criar Campanha
             </button>
@@ -572,12 +572,12 @@ export function MarketingHubSuiteTop({
                 {campaigns.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50">
                     <td className="py-3 px-3">
-                      <div className="font-normal text-slate-900">{c.name}</div>
+                      <div className="font-semibold text-slate-900">{c.name}</div>
                       <div className="text-[11px] text-slate-500">{c.channel}</div>
                     </td>
                     <td className="py-3 px-3">
                       <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-normal ${
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
                           c.sendingProvider === 'OUTLOOK_M365'
                             ? 'bg-blue-50 text-[#1e3a6e] border border-blue-200'
                             : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
@@ -589,18 +589,18 @@ export function MarketingHubSuiteTop({
                         utm_campaign={c.utmCampaign}
                       </div>
                     </td>
-                    <td className="py-3 px-3 text-right font-normal">{formatBRL(c.budgetBrl)}</td>
+                    <td className="py-3 px-3 text-right font-semibold">{formatBRL(c.budgetBrl)}</td>
                     <td className="py-3 px-3 text-right">
-                      <span>{(c.sentCount || 0).toLocaleString('pt-BR')}</span> env. /{' '}
-                      <span className="text-emerald-700 font-normal">{c.repliesCount || 0} resp.</span>
+                      <strong>{(c.sentCount || 0).toLocaleString('pt-BR')}</strong> env. /{' '}
+                      <span className="text-emerald-700 font-semibold">{c.repliesCount || 0} resp.</span>
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <span>{c.contactsGenerated}</span> ({c.mqlCount} MQL / {c.sqlCount} SQL)
+                      <strong>{c.contactsGenerated}</strong> ({c.mqlCount} MQL / {c.sqlCount} SQL)
                     </td>
-                    <td className="py-3 px-3 text-right font-normal text-indigo-700">
+                    <td className="py-3 px-3 text-right font-semibold text-indigo-700">
                       {c.attributedDeals}
                     </td>
-                    <td className="py-3 px-3 text-right font-normal text-emerald-700">
+                    <td className="py-3 px-3 text-right font-semibold text-emerald-700">
                       {formatBRL(c.attributedRevenueBrl)}
                     </td>
                   </tr>
@@ -627,7 +627,7 @@ export function MarketingHubSuiteTop({
               <button
                 type="button"
                 onClick={() => handleValidatedCampaignDispatch(campaigns[0]?.id || 'cmp-1')}
-                className="px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#152a52] text-white font-normal cursor-pointer inline-flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#152a52] text-white font-semibold cursor-pointer inline-flex items-center gap-1.5"
               >
                 <ShieldCheck className="w-3.5 h-3.5" /> Validar Supressão &amp; Simular Lote ESP
               </button>
@@ -642,7 +642,7 @@ export function MarketingHubSuiteTop({
                     amountBrl: 4320,
                   })
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal cursor-pointer inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Send className="w-3.5 h-3.5" /> Disparar Novo E-mail Marketing
               </button>
@@ -650,7 +650,7 @@ export function MarketingHubSuiteTop({
           </div>
 
           {dispatchStatusMsg && (
-            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-normal flex items-center gap-2">
+            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-semibold flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
               <span>{dispatchStatusMsg}</span>
             </div>
@@ -684,20 +684,20 @@ export function MarketingHubSuiteTop({
               },
             ].map((em) => (
               <div key={em.title} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                   {em.provider}
                 </span>
-                <div className="text-sm font-normal text-slate-900">{em.title}</div>
+                <div className="text-sm font-semibold text-slate-900">{em.title}</div>
                 <div className="text-[11px] text-slate-500">{em.audience}</div>
                 <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px]">
                   <span>
-                    Abertura: <span className="text-emerald-700">{em.openRate}</span>
+                    Abertura: <strong className="text-emerald-700">{em.openRate}</strong>
                   </span>
                   <span>
-                    CTR: <span className="text-[#0091ae]">{em.ctr}</span>
+                    CTR: <strong className="text-[#0091ae]">{em.ctr}</strong>
                   </span>
                 </div>
-                <div className="text-[11px] font-normal text-[#1e3a6e]">{em.replied}</div>
+                <div className="text-[11px] font-semibold text-[#1e3a6e]">{em.replied}</div>
               </div>
             ))}
           </div>
@@ -729,7 +729,7 @@ export function MarketingHubSuiteTop({
                 />
                 <button
                   type="submit"
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                 >
                   + Segmento
                 </button>
@@ -740,12 +740,12 @@ export function MarketingHubSuiteTop({
                   className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between gap-2"
                 >
                   <div>
-                    <div className="font-normal text-slate-900">{seg.name}</div>
+                    <div className="font-semibold text-slate-900">{seg.name}</div>
                     <div className="text-[10px] font-mono text-slate-500 mt-0.5">
                       {seg.filterExpression}
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white font-normal shrink-0">
+                  <span className="px-2.5 py-1 rounded bg-[#1e3a6e] text-white font-semibold shrink-0">
                     {seg.count} reg.
                   </span>
                 </div>
@@ -759,7 +759,7 @@ export function MarketingHubSuiteTop({
                   <Building2 className="w-4 h-4 text-[#e05835]" />
                   Visão de Engajamento por Empresa (Account-Based Engagement)
                 </h3>
-                <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] font-normal text-[10px]">
+                <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] font-semibold text-[10px]">
                   Diferencial Seta Telecom
                 </span>
               </div>
@@ -790,14 +790,14 @@ export function MarketingHubSuiteTop({
                     className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between gap-2"
                   >
                     <div>
-                      <div className="font-normal text-slate-900">{acc.companyName}</div>
+                      <div className="font-semibold text-slate-900">{acc.companyName}</div>
                       <div className="text-[11px] text-slate-600">
-                        Profissionais engajados: <span>{acc.engagedContactsCount}</span> | Deals abertos:{' '}
-                        <span>{acc.openDealsCount}</span> ({formatBRL(acc.openPipelineValueBrl)})
+                        Profissionais engajados: <strong>{acc.engagedContactsCount}</strong> | Deals abertos:{' '}
+                        <strong>{acc.openDealsCount}</strong> ({formatBRL(acc.openPipelineValueBrl)})
                       </div>
                     </div>
                     <span
-                      className={`px-2 py-1 rounded text-[10px] font-normal shrink-0 ${
+                      className={`px-2 py-1 rounded text-[10px] font-semibold shrink-0 ${
                         acc.accountHeatLevel === 'HOT_MULTI_THREADED'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-blue-100 text-blue-800'
@@ -816,11 +816,11 @@ export function MarketingHubSuiteTop({
           {/* PREFERENCE CENTER & SUPPRESSION LIST (LGPD / INDEPENDENTE DAS CADÊNCIAS) */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-normal text-slate-900 flex items-center gap-1.5">
+              <div className="font-semibold text-slate-900 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-700" />
                 Central de Preferências, Consentimento LGPD &amp; Lista de Supressão ({suppressionList.length} bloqueados)
               </div>
-              <span className="text-[11px] font-normal text-slate-600">
+              <span className="text-[11px] font-semibold text-slate-600">
                 Regra ativa: Sair de uma cadência comercial não descadastra o contato de comunicações globais.
               </span>
             </div>
@@ -833,11 +833,11 @@ export function MarketingHubSuiteTop({
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 text-rose-700 shrink-0" />
                     <div>
-                      <span className="text-rose-900 font-mono">{sup.email}</span>
+                      <strong className="text-rose-900 font-mono">{sup.email}</strong>
                       <div className="text-[10px] text-rose-700">{sup.source}</div>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-rose-200 text-rose-900 font-normal text-[10px]">
+                  <span className="px-2 py-0.5 rounded bg-rose-200 text-rose-900 font-semibold text-[10px]">
                     {sup.reason}
                   </span>
                 </div>
@@ -879,7 +879,7 @@ export function MarketingHubSuiteTop({
             />
             <button
               type="submit"
-              className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-normal cursor-pointer"
+              className="px-4 py-2 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer"
             >
               + Publicar Landing Page
             </button>
@@ -889,16 +889,16 @@ export function MarketingHubSuiteTop({
             {landingPages.map((lp) => (
               <div key={lp.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                     {lp.status} • {lp.conversionRate}% CONV.
                   </span>
                   <code className="text-[10px] font-mono text-[#0091ae]">
                     /lp/{lp.slug}?utm_campaign={lp.utmCampaign}
                   </code>
                 </div>
-                <div className="font-normal text-slate-900">{lp.name}</div>
+                <div className="font-semibold text-slate-900">{lp.name}</div>
                 <div className="text-[11px] text-slate-600">{lp.subtitle}</div>
-                <div className="text-[11px] font-normal text-slate-700 pt-1">
+                <div className="text-[11px] font-semibold text-slate-700 pt-1">
                   {lp.submissionsCount} conversões / {lp.viewsCount} visitas • Formulário: <code>{lp.formId}</code>
                 </div>
               </div>
@@ -927,10 +927,10 @@ export function SalesHubProToolsStrip({
     <div className="space-y-3">
       <div className="bg-white rounded-lg border border-slate-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal uppercase">
+          <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-semibold uppercase">
             Sales Hub Pro
           </span>
-          <span className="font-normal text-slate-700">
+          <span className="font-semibold text-slate-700">
             Ferramentas Avançadas de Vendas HubSpot:
           </span>
         </div>
@@ -938,7 +938,7 @@ export function SalesHubProToolsStrip({
           <button
             type="button"
             onClick={() => setActiveTool(activeTool === 'QUOTAS' ? 'NONE' : 'QUOTAS')}
-            className={`px-3 py-1.5 rounded font-normal cursor-pointer inline-flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded font-semibold cursor-pointer inline-flex items-center gap-1.5 ${
               activeTool === 'QUOTAS'
                 ? 'bg-[#1e3a6e] text-white'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -951,7 +951,7 @@ export function SalesHubProToolsStrip({
             onClick={() =>
               setActiveTool(activeTool === 'PLAYBOOKS_MEETINGS' ? 'NONE' : 'PLAYBOOKS_MEETINGS')
             }
-            className={`px-3 py-1.5 rounded font-normal cursor-pointer inline-flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded font-semibold cursor-pointer inline-flex items-center gap-1.5 ${
               activeTool === 'PLAYBOOKS_MEETINGS'
                 ? 'bg-[#1e3a6e] text-white'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -974,10 +974,10 @@ export function SalesHubProToolsStrip({
               <div key={q.exec} className="p-3.5 rounded-lg border border-slate-200 bg-slate-50 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-normal text-slate-900">{q.exec}</div>
+                    <div className="font-semibold text-slate-900">{q.exec}</div>
                     <div className="text-[10px] text-slate-500">{q.role}</div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-normal">
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
                     {pct}% da Meta
                   </span>
                 </div>
@@ -985,10 +985,10 @@ export function SalesHubProToolsStrip({
                   <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pct}%` }} />
                 </div>
                 <div className="flex justify-between text-[11px]">
-                  <span>Realizado: <span>{formatBRL(q.achieved)}</span></span>
+                  <span>Realizado: <strong>{formatBRL(q.achieved)}</strong></span>
                   <span>Meta: {formatBRL(q.quota)}</span>
                 </div>
-                <div className="text-[10px] font-normal text-[#1e3a6e]">
+                <div className="text-[10px] font-semibold text-[#1e3a6e]">
                   Novo MRR Locação Adicionado: +{formatBRL(q.mrrAdded)}/mês
                 </div>
               </div>
@@ -1000,19 +1000,19 @@ export function SalesHubProToolsStrip({
       {activeTool === 'PLAYBOOKS_MEETINGS' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
           <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-            <div className="font-normal text-[#1e3a6e] flex items-center gap-1.5">
+            <div className="font-semibold text-[#1e3a6e] flex items-center gap-1.5">
               <BookOpen className="w-4 h-4" />
               Playbook Consultivo Seta Telecom — Locação de Bens Móveis (0% ISS)
             </div>
             <p className="text-slate-600 leading-relaxed">
-              1. <span>Diagnóstico GPCT:</span> Identificar gasto atual com telefonia legada, links e manutenção avulsa.<br />
-              2. <span>Argumento Tributário (SV 31 STF):</span> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação Pura + dedutibilidade OPEX.<br />
-              3. <span>Fechamento:</span> Gerar Orçamento (#4695) com Link PDF A4 e enviar para assinatura digital.
+              1. <strong>Diagnóstico GPCT:</strong> Identificar gasto atual com telefonia legada, links e manutenção avulsa.<br />
+              2. <strong>Argumento Tributário (SV 31 STF):</strong> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação Pura + dedutibilidade OPEX.<br />
+              3. <strong>Fechamento:</strong> Gerar Orçamento (#4695) com Link PDF A4 e enviar para assinatura digital.
             </p>
           </div>
 
           <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
-            <div className="font-normal text-[#1e3a6e] flex items-center gap-1.5">
+            <div className="font-semibold text-[#1e3a6e] flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
               Links de Agendamento Comercial (HubSpot Meetings)
             </div>
@@ -1022,7 +1022,7 @@ export function SalesHubProToolsStrip({
             ].map((m) => (
               <div key={m.url} className="p-2 rounded bg-white border border-slate-200 flex items-center justify-between gap-2">
                 <div className="truncate">
-                  <div className="font-normal text-slate-800">{m.name}</div>
+                  <div className="font-semibold text-slate-800">{m.name}</div>
                   <div className="font-mono text-[10px] text-[#0091ae]">{m.url}</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -1032,7 +1032,7 @@ export function SalesHubProToolsStrip({
                       navigator.clipboard?.writeText(m.url);
                       onShowToast?.('Link de reunião copiado!');
                     }}
-                    className="px-2 py-1 rounded border text-[10px] font-normal hover:bg-slate-50 cursor-pointer"
+                    className="px-2 py-1 rounded border text-[10px] font-semibold hover:bg-slate-50 cursor-pointer"
                   >
                     Copiar
                   </button>
@@ -1046,7 +1046,7 @@ export function SalesHubProToolsStrip({
                         customBody: `Olá,\n\nPara agilizar nosso alinhamento técnico e comercial, escolha o melhor horário diretamente na minha agenda:\n\n${m.url}\n\nAtenciosamente,\nSeta Telecom LTDA`,
                       })
                     }
-                    className="px-2 py-1 rounded bg-[#1e3a6e] text-white text-[10px] font-normal cursor-pointer"
+                    className="px-2 py-1 rounded bg-[#1e3a6e] text-white text-[10px] font-semibold cursor-pointer"
                   >
                     Enviar Convite
                   </button>

@@ -264,7 +264,7 @@ export default function GestaoClickDashboard({
           <button
             type="button"
             onClick={onNewProposal}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Nova Proposta / Orçamento
           </button>
@@ -272,7 +272,7 @@ export default function GestaoClickDashboard({
             type="button"
             onClick={onSync}
             disabled={syncing}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-xs font-normal text-slate-700 cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar GestãoClick'}
@@ -289,7 +289,7 @@ export default function GestaoClickDashboard({
           className={`${clickableCard} p-3.5`}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs text-slate-600 font-normal">
+            <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
               
               Saldo disponível hoje
             </div>
@@ -305,14 +305,14 @@ export default function GestaoClickDashboard({
               {hideBalances ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <div className="text-xl font-normal text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+          <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
             {money(total)}
           </div>
           <div className="text-[11px] text-slate-500">
             {accounts.length} contas bancárias ·{' '}
             <span className="text-rose-600">{negCount} com saldo negativo</span>
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-normal text-[#1e3a6e] flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
             <span>Ver Contas &amp; Extrato</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -324,16 +324,16 @@ export default function GestaoClickDashboard({
           className={`${clickableCard} p-3.5 flex flex-col justify-between`}
         >
           <div>
-            <div className="flex items-center gap-2 text-xs text-slate-600 font-normal">
+            <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
               
               A receber hoje
             </div>
-            <div className="text-xl font-normal text-slate-900 mt-2 group-hover:text-emerald-700">
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-emerald-700">
               {money(s.receivableToday)}
             </div>
             <div className="text-[11px] text-slate-500">{s.receivableTodaySubtitle}</div>
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-normal text-emerald-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-emerald-700 flex items-center justify-between">
             <span>Abrir Contas a Receber</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -345,16 +345,16 @@ export default function GestaoClickDashboard({
           className={`${clickableCard} p-3.5 flex flex-col justify-between`}
         >
           <div>
-            <div className="flex items-center gap-2 text-xs text-slate-600 font-normal">
+            <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
               
               A pagar hoje
             </div>
-            <div className="text-xl font-normal text-slate-900 mt-2 group-hover:text-rose-700">
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-rose-700">
               {money(s.payableToday)}
             </div>
             <div className="text-[11px] text-slate-500">{s.payableTodaySubtitle}</div>
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-normal text-rose-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-rose-700 flex items-center justify-between">
             <span>Abrir Contas a Pagar</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -367,11 +367,11 @@ export default function GestaoClickDashboard({
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="flex items-center gap-2 text-xs text-slate-600 font-normal">
+              <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
                 
                 Recebido em outubro
               </div>
-              <div className="text-xl font-normal text-slate-900 mt-2 group-hover:text-emerald-700">
+              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-emerald-700">
                 {money(s.receivedMonth)}
               </div>
               <div className="text-[11px] text-slate-500">
@@ -380,7 +380,7 @@ export default function GestaoClickDashboard({
             </div>
             <Gauge percent={s.receivedMonthPercent} color="#16a34a" />
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-normal text-emerald-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-emerald-700 flex items-center justify-between">
             <span>Ver Recebimentos ({totals?.recebimentos ?? 153})</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -393,11 +393,11 @@ export default function GestaoClickDashboard({
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="flex items-center gap-2 text-xs text-slate-600 font-normal">
+              <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
                 
                 Pago em outubro
               </div>
-              <div className="text-xl font-normal text-slate-900 mt-2 group-hover:text-rose-700">
+              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-rose-700">
                 {money(s.paidMonth)}
               </div>
               <div className="text-[11px] text-slate-500">
@@ -406,7 +406,7 @@ export default function GestaoClickDashboard({
             </div>
             <Gauge percent={s.paidMonthPercent} color="#dc2626" />
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-normal text-rose-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-rose-700 flex items-center justify-between">
             <span>Ver Pagamentos ({totals?.pagamentos ?? 43})</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -428,22 +428,22 @@ export default function GestaoClickDashboard({
                 Recebimentos e pagamentos de cada mês, com o saldo do período (Clique para abrir Fluxo de Caixa / DRE)
               </p>
             </div>
-            <span className="text-[11px] font-normal text-[#1e3a6e] inline-flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-[#1e3a6e] inline-flex items-center gap-1">
               Tela completa <ArrowRight className="w-3.5 h-3.5" />
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
             <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Saldo do período</span>
-              <span className="text-slate-900">{money(s.cashFlowPeriodBalance)}</span>
+              <strong className="text-slate-900">{money(s.cashFlowPeriodBalance)}</strong>
             </div>
             <div className="p-2 rounded bg-emerald-50/50 border border-emerald-100">
               <span className="text-slate-500 block">Melhor mês</span>
-              <span className="text-emerald-800">{s.cashFlowBestMonth}</span>
+              <strong className="text-emerald-800">{s.cashFlowBestMonth}</strong>
             </div>
             <div className="p-2 rounded bg-rose-50/50 border border-rose-100">
               <span className="text-slate-500 block">Pior mês</span>
-              <span className="text-rose-600">{s.cashFlowWorstMonth}</span>
+              <strong className="text-rose-600">{s.cashFlowWorstMonth}</strong>
             </div>
           </div>
           <CashFlowChart data={s.cashFlowMonthly} onClickChart={() => onOpenSection('FINANCEIRO', 'FIN_FLUXO')} />
@@ -459,7 +459,7 @@ export default function GestaoClickDashboard({
                 <span className="w-3 h-0.5 bg-slate-400 inline-block" /> Saldo
               </span>
             </div>
-            <span className="font-normal text-[#1e3a6e]">Abrir Fluxo de Caixa →</span>
+            <span className="font-semibold text-[#1e3a6e]">Abrir Fluxo de Caixa →</span>
           </div>
         </div>
 
@@ -476,22 +476,22 @@ export default function GestaoClickDashboard({
                 Total vendido por mês nos últimos seis meses (Clique para abrir os {totals?.vendas ?? 295} pedidos de venda)
               </p>
             </div>
-            <span className="text-[11px] font-normal text-[#1e3a6e] inline-flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-[#1e3a6e] inline-flex items-center gap-1">
               Ver todas as vendas <ArrowRight className="w-3.5 h-3.5" />
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
             <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Vendas no período</span>
-              <span className="text-slate-900">{money(s.salesPeriodTotal)}</span>
+              <strong className="text-slate-900">{money(s.salesPeriodTotal)}</strong>
             </div>
             <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Média mensal</span>
-              <span className="text-slate-900">{money(s.salesMonthlyAverage)}</span>
+              <strong className="text-slate-900">{money(s.salesMonthlyAverage)}</strong>
             </div>
             <div className="p-2 rounded bg-blue-50/50 border border-blue-100">
               <span className="text-slate-500 block">out até hoje</span>
-              <span className="text-[#1e3a6e]">{money(s.salesCurrentMonthToDate)}</span>
+              <strong className="text-[#1e3a6e]">{money(s.salesCurrentMonthToDate)}</strong>
             </div>
           </div>
           <SalesChart data={s.salesMonthly} onClickChart={() => onOpenSection('VENDAS', 'VENDAS_PRODUTOS')} />
@@ -504,7 +504,7 @@ export default function GestaoClickDashboard({
                 <span className="w-3 border-t border-dashed border-slate-400 inline-block" /> Média
               </span>
             </div>
-            <span className="font-normal text-[#1e3a6e]">Abrir Pedidos de Venda →</span>
+            <span className="font-semibold text-[#1e3a6e]">Abrir Pedidos de Venda →</span>
           </div>
         </div>
       </div>
@@ -525,7 +525,7 @@ export default function GestaoClickDashboard({
             <button
               type="button"
               onClick={() => onOpenSection('FINANCEIRO', 'FIN_BOLETOS')}
-              className="text-xs font-normal text-[#1e3a6e] hover:underline cursor-pointer"
+              className="text-xs font-semibold text-[#1e3a6e] hover:underline cursor-pointer"
             >
               Tela completa →
             </button>
@@ -542,12 +542,12 @@ export default function GestaoClickDashboard({
                     <Landmark className="w-3.5 h-3.5 text-[#1e3a6e]" />
                   </span>
                   <div>
-                    <div className="font-normal text-[#1e3a6e] hover:underline">{a.name}</div>
+                    <div className="font-semibold text-[#1e3a6e] hover:underline">{a.name}</div>
                     <div className="text-[10px] text-slate-500">{a.lastMovedAt}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`font-normal ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                  <span className={`font-semibold ${a.balance < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
                     {money(a.balance)}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
@@ -556,14 +556,14 @@ export default function GestaoClickDashboard({
             ))}
           </div>
           <div className="flex items-center justify-between pt-3 text-xs">
-            <span className="font-normal text-slate-800">Total disponível</span>
-            <span className="font-normal text-slate-900">{money(total)}</span>
+            <span className="font-semibold text-slate-800">Total disponível</span>
+            <span className="font-semibold text-slate-900">{money(total)}</span>
           </div>
           <div className="flex justify-end mt-3">
             <button
               type="button"
               onClick={() => onOpenSection('FINANCEIRO', 'FIN_FLUXO')}
-              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Ver contas bancárias
             </button>
@@ -584,7 +584,7 @@ export default function GestaoClickDashboard({
             <button
               type="button"
               onClick={() => onOpenSection('ORDENS_SERVICOS', 'OS_GERENCIAR')}
-              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Abrir agenda ({totals?.ordensServicos ?? 1378} O.S.)
             </button>
@@ -595,13 +595,13 @@ export default function GestaoClickDashboard({
               className="text-center py-10 cursor-pointer hover:bg-slate-50 rounded transition"
             >
               <Calendar className="w-6 h-6 text-slate-400 mx-auto" />
-              <div className="text-xs font-normal text-slate-700 mt-2">Nenhum compromisso agendado</div>
+              <div className="text-xs font-semibold text-slate-700 mt-2">Nenhum compromisso agendado</div>
               <div className="text-[11px] text-slate-500">
                 Os agendamentos em que você é o responsável aparecem aqui, de hoje em diante
               </div>
               <button
                 type="button"
-                className="mt-3 px-3 py-1.5 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="mt-3 px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Novo agendamento
               </button>
@@ -615,13 +615,13 @@ export default function GestaoClickDashboard({
                   className="py-2 px-2 rounded hover:bg-blue-50/60 transition cursor-pointer flex items-center justify-between text-xs"
                 >
                   <div>
-                    <div className="font-normal text-[#1e3a6e] hover:underline">
+                    <div className="font-semibold text-[#1e3a6e] hover:underline">
                       OS #{os.code} — {os.companyName}
                     </div>
                     <div className="text-[10px] text-slate-500">Entrada: {os.entryDate}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-normal">
+                    <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
                       {os.status}
                     </span>
                     <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
@@ -655,16 +655,16 @@ export default function GestaoClickDashboard({
                 className="text-left p-2 rounded-md border border-transparent hover:border-[#1e3a6e]/40 hover:bg-blue-50/40 flex items-start gap-2.5 transition cursor-pointer"
               >
                 <span
-                  className={`w-8 h-8 rounded ${app.color} text-white text-[10px] font-normal flex items-center justify-center shrink-0`}
+                  className={`w-8 h-8 rounded ${app.color} text-white text-[10px] font-semibold flex items-center justify-center shrink-0`}
                 >
                   {app.tag || app.name.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-normal text-[#1e3a6e] flex items-center justify-between gap-1">
+                  <div className="text-xs font-semibold text-[#1e3a6e] flex items-center justify-between gap-1">
                     <span className="truncate">{app.name}</span>
                     {app.badge && (
                       <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-normal shrink-0 ${
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 ${
                           app.badge === 'CONECTADO'
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-slate-100 text-slate-600'
@@ -685,7 +685,7 @@ export default function GestaoClickDashboard({
             <button
               type="button"
               onClick={() => onOpenSection('CONFIGURACOES', 'CFG_GERAIS')}
-              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-normal text-slate-700 hover:bg-slate-50 cursor-pointer"
+              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Ver todos os aplicativos
             </button>
@@ -725,7 +725,7 @@ export default function GestaoClickDashboard({
               >
                 <span className="text-[10px] text-slate-500 block">{item.label}</span>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-sm font-normal text-[#1e3a6e]">{item.val}</span>
+                  <strong className="text-sm font-semibold text-[#1e3a6e]">{item.val}</strong>
                   <ArrowRight className="w-3 h-3 text-[#1e3a6e]" />
                 </div>
               </button>
@@ -745,7 +745,7 @@ export default function GestaoClickDashboard({
                 onClick={() => onOpenSection(item.sec)}
                 className="w-full flex items-start justify-between gap-2 text-xs border-b border-slate-100 pb-2 hover:text-[#1e3a6e] text-left cursor-pointer"
               >
-                <span className="text-slate-700 font-normal hover:underline">{item.t}</span>
+                <span className="text-slate-700 font-semibold hover:underline">{item.t}</span>
                 <span className="text-[10px] text-slate-400 shrink-0">{item.d}</span>
               </button>
             ))}

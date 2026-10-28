@@ -473,6 +473,88 @@ export interface RepositoryOptions {
   initialState?: CrmDatabaseState;
 }
 
+
+export function computeCustomDueDateFromRule(params: {
+  baseDate?: string;
+  offsetDays: number;
+  targetWeekday?: 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | null;
+  shiftWeekendToMonday?: boolean;
+}): {
+  baseDateIso: string;
+  afterOffsetDateIso: string;
+  dueDateIso: string;
+  dueDateBr: string;
+  weekdayLabelPt: string;
+  ruleLabel: string;
+} {
+  let baseIso = new Date().toISOString().slice(0, 10);
+  if (params.baseDate) {
+    const raw = String(params.baseDate).trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+      const [dd, mm, yyyy] = raw.split('/');
+      baseIso = `${yyyy}-${mm}-${dd}`;
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      baseIso = raw.slice(0, 10);
+    }
+  }
+  const parsedBase = new Date(`${baseIso}T12:00:00Z`);
+  const safeBase = Number.isNaN(parsedBase.getTime()) ? new Date() : parsedBase;
+  const offsetDays = Math.max(0, Math.round(Number(params.offsetDays) || 0));
+  const afterOffset = new Date(safeBase.getTime() + offsetDays * 86400000);
+  const afterOffsetDateIso = afterOffset.toISOString().slice(0, 10);
+
+  const weekdayMap: Record<string, { dow: number; pt: string; ruleText: string }> = {
+    MONDAY: { dow: 1, pt: 'Segunda-feira', ruleText: 'próxima segunda-feira' },
+    TUESDAY: { dow: 2, pt: 'Terça-feira', ruleText: 'próxima terça-feira' },
+    WEDNESDAY: { dow: 3, pt: 'Quarta-feira', ruleText: 'próxima quarta-feira' },
+    THURSDAY: { dow: 4, pt: 'Quinta-feira', ruleText: 'próxima quinta-feira' },
+    FRIDAY: { dow: 5, pt: 'Sexta-feira', ruleText: 'próxima sexta-feira' },
+  };
+
+  const targetKey = params.targetWeekday && params.targetWeekday !== 'NONE' ? params.targetWeekday : null;
+  let finalDate = new Date(afterOffset.getTime());
+  if (targetKey && weekdayMap[targetKey]) {
+    const targetDow = weekdayMap[targetKey].dow;
+    const currentDow = finalDate.getUTCDay();
+    let delta = (targetDow - currentDow + 7) % 7;
+    if (delta === 0 && offsetDays === 0) {
+      delta = 7;
+    }
+    finalDate = new Date(finalDate.getTime() + delta * 86400000);
+  } else if (params.shiftWeekendToMonday) {
+    const dow = finalDate.getUTCDay();
+    if (dow === 6) finalDate = new Date(finalDate.getTime() + 2 * 86400000);
+    else if (dow === 0) finalDate = new Date(finalDate.getTime() + 1 * 86400000);
+  }
+
+  const dueDateIso = finalDate.toISOString().slice(0, 10);
+  const [y, m, d] = dueDateIso.split('-');
+  const dueDateBr = `${d}/${m}/${y}`;
+  const ptWeekdays = [
+    'Domingo',
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado',
+  ];
+  const weekdayLabelPt = ptWeekdays[finalDate.getUTCDay()] || 'Quarta-feira';
+  const ruleLabel =
+    targetKey && weekdayMap[targetKey]
+      ? `${offsetDays} dias + ${weekdayMap[targetKey].ruleText}`
+      : `${offsetDays} dias corridos`;
+
+  return {
+    baseDateIso: safeBase.toISOString().slice(0, 10),
+    afterOffsetDateIso,
+    dueDateIso,
+    dueDateBr,
+    weekdayLabelPt,
+    ruleLabel,
+  };
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -3856,6 +3938,12 @@ export class CrmRepository {
       updatedAt: new Date().toISOString(),
     };
     erp.rentalContracts[idx] = updated;
+    if (patch.generateNextInvoiceOnSave === true) {
+      this.generateMonthlyRentalInvoice(updated.id, updated.lastBilledCompetence || undefined, {
+        dueDate: updated.nextBillingDate || undefined,
+      });
+      updated.generateNextInvoiceOnSave = false;
+    }
     this.save();
     return updated;
   }
@@ -4870,6 +4958,7 @@ export class CrmRepository {
     const contractMonths = Number(input.contractMonths || 24);
 
     const contract: ErpRentalContract = {
+      ...input,
       id: input.id || `ctr-${Date.now()}`,
       contractNumber,
       title: input.title.trim(),
@@ -4889,6 +4978,39 @@ export class CrmRepository {
       contractMonths,
       readjustmentIndex: input.readjustmentIndex || 'IPCA',
       status: input.status || 'ATIVO',
+      sellerName: input.sellerName || 'Marcelo Mira',
+      costCenter: input.costCenter || 'LOCAÇÃO DE EQUIPAMENTO',
+      chartOfAccounts: input.chartOfAccounts || 'Locação de equipamento',
+      proposalNumber: input.proposalNumber || '',
+      freightValueBrl: Number(input.freightValueBrl || 0),
+      returnFreightValueBrl: Number(input.returnFreightValueBrl || 0),
+      freightModality: input.freightModality || 'CIF_EMITENTE',
+      includeFreightInInvoice: Boolean(input.includeFreightInInvoice),
+      externalContractNumber: input.externalContractNumber || contractNumber,
+      contractTermLabel: input.contractTermLabel || `${contractMonths} meses`,
+      productsSubtotalBrl:
+        input.productsSubtotalBrl !== undefined
+          ? Number(input.productsSubtotalBrl)
+          : Number(input.monthlyValue || 0),
+      additionValueBrl: Number(input.additionValueBrl || 0),
+      discountValueBrl: Number(input.discountValueBrl || 0),
+      discountPercent: Number(input.discountPercent || 0),
+      deliveryCity: input.deliveryCity || 'São Paulo',
+      recurrenceEndMode: input.recurrenceEndMode || 'SEM_TERMINO',
+      billingRecurrence: input.billingRecurrence || 'MENSAL',
+      paymentMethod: input.paymentMethod || 'Boleto Inter',
+      emailAutomationMode: input.emailAutomationMode || 'Enviar lembrete de pagamento e boleto',
+      billingRecipientEmails: Array.isArray(input.billingRecipientEmails)
+        ? input.billingRecipientEmails
+        : [],
+      autoGenerateInvoiceDaysBeforeDue:
+        input.autoGenerateInvoiceDaysBeforeDue !== undefined
+          ? Number(input.autoGenerateInvoiceDaysBeforeDue)
+          : 21,
+      autoSendEmailOnBilling:
+        input.autoSendEmailOnBilling !== undefined ? Boolean(input.autoSendEmailOnBilling) : true,
+      dunningRuleEnabled:
+        input.dunningRuleEnabled !== undefined ? Boolean(input.dunningRuleEnabled) : true,
       equipments:
         input.equipments && input.equipments.length > 0
           ? input.equipments
@@ -4900,6 +5022,7 @@ export class CrmRepository {
                 serialNumber: `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
                 ncm: '8517.62.14',
                 quantity: 1,
+                stockAvailable: 4,
                 unitMonthlyRent: Number(input.monthlyValue || 0),
                 assetValueBrl: Number(input.monthlyValue || 0) * 6,
                 remessaCfop: input.remessaCfop || '5.908',
@@ -4917,54 +5040,161 @@ export class CrmRepository {
     };
 
     erp.rentalContracts.unshift(contract);
+    if (input.generateNextInvoiceOnSave === true) {
+      this.generateMonthlyRentalInvoice(contract.id, contract.lastBilledCompetence || undefined, {
+        dueDate: contract.nextBillingDate || undefined,
+      });
+      contract.generateNextInvoiceOnSave = false;
+    }
     this.save();
     return contract;
   }
 
   generateMonthlyRentalInvoice(
     contractId: string,
-    competenceMonth?: string
+    competenceMonth?: string,
+    options?: {
+      dueDate?: string;
+      issueDate?: string;
+      customAmountBrl?: number;
+      additionValueBrl?: number;
+      discountValueBrl?: number;
+      discountPercent?: number;
+      freightValueBrl?: number;
+      includeFreightInInvoice?: boolean;
+      customerPurchaseOrderNumber?: string;
+      measurementNumber?: string;
+      measurementPeriod?: string;
+      measurementNotes?: string;
+      customDueRuleEnabled?: boolean;
+      customDueOffsetDays?: number;
+      customDueTargetWeekday?: 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY';
+      customDueRuleLabel?: string;
+      billingRecipientEmails?: string[];
+      contractNotes?: string;
+      contractSnapshot?: Partial<ErpRentalContract>;
+    }
   ): ErpFiscalInvoice | null {
     const erp = this.ensureErp();
-    const contract = erp.rentalContracts.find(
+    let contract = erp.rentalContracts.find(
       (c) => c.id === contractId || c.contractNumber === contractId
     );
+    if (!contract && options?.contractSnapshot && options.contractSnapshot.companyName) {
+      contract = this.createRentalContract({
+        ...options.contractSnapshot,
+        id: contractId,
+        title: String(options.contractSnapshot.title || 'Contrato de Locação'),
+        companyName: String(options.contractSnapshot.companyName),
+        monthlyValue: Number(options.contractSnapshot.monthlyValue || 0),
+      });
+    }
     if (!contract) return null;
 
     const now = new Date();
     const nowIso = now.toISOString();
+    const issueDateIso = options?.issueDate || nowIso.slice(0, 10);
     const comp =
       competenceMonth ||
       `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
 
+    const productsSum =
+      contract.productsSubtotalBrl ??
+      contract.equipments.reduce((s, eq) => s + Number(eq.quantity || 1) * Number(eq.unitMonthlyRent || 0), 0);
+    const additionVal =
+      options?.additionValueBrl !== undefined
+        ? Number(options.additionValueBrl)
+        : Number(contract.additionValueBrl || 0);
+    const discountVal =
+      options?.discountValueBrl !== undefined
+        ? Number(options.discountValueBrl)
+        : Number(contract.discountValueBrl || 0);
+    const discountPct =
+      options?.discountPercent !== undefined
+        ? Number(options.discountPercent)
+        : Number(contract.discountPercent || 0);
+    const freightVal =
+      options?.freightValueBrl !== undefined
+        ? Number(options.freightValueBrl)
+        : Number(contract.freightValueBrl || 0);
+    const includeFreight =
+      options?.includeFreightInInvoice !== undefined
+        ? Boolean(options.includeFreightInInvoice)
+        : Boolean(contract.includeFreightInInvoice);
+
+    const computedBase =
+      options?.customAmountBrl !== undefined
+        ? Number(options.customAmountBrl)
+        : Math.max(
+            0,
+            Math.round(
+              ((productsSum > 0 ? productsSum : contract.monthlyValue) +
+                additionVal +
+                (includeFreight ? freightVal : 0)) *
+                100
+            ) / 100
+          );
+
     const taxBreakdown = calculateBrazilianTaxBreakdown({
-      grossAmount: contract.monthlyValue,
-      discountAmount: 0,
+      grossAmount: computedBase,
+      discountAmount: discountVal,
       documentType: 'FATURA_LOCACAO',
       taxRegime: erp.gestaoClickConfig.taxRegime,
     });
 
     const seqNum = String(erp.invoices.length + 1).padStart(4, '0');
     const docNum = `FAT-LOC-2026-${seqNum}`;
-    const dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+
+    const useRule =
+      options?.customDueRuleEnabled !== undefined
+        ? options.customDueRuleEnabled
+        : options?.customDueOffsetDays !== undefined || Boolean(contract.customDueRuleEnabled);
+    const ruleOffset =
+      options?.customDueOffsetDays !== undefined
+        ? Number(options.customDueOffsetDays)
+        : Number(contract.customDueOffsetDays ?? 45);
+    const ruleWeekday =
+      options?.customDueTargetWeekday || contract.customDueTargetWeekday || 'WEDNESDAY';
+
+    let dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+    let computedRuleLabel = options?.customDueRuleLabel || contract.customDueRuleLabel || null;
+    if (options?.dueDate) {
+      dueDate = options.dueDate;
+    } else if (useRule) {
+      const ruleCalc = computeCustomDueDateFromRule({
+        baseDate: issueDateIso,
+        offsetDays: ruleOffset,
+        targetWeekday: ruleWeekday,
+      });
+      dueDate = ruleCalc.dueDateIso;
+      computedRuleLabel = options?.customDueRuleLabel || contract.customDueRuleLabel || ruleCalc.ruleLabel;
+    } else if (contract.nextBillingDate) {
+      dueDate = contract.nextBillingDate;
+    }
+
+    const nextInstallmentIndex = Number(contract.billedInstallmentsCount || 0) + 1;
+    const totalInstallments = Number(contract.totalInstallmentsCount || contract.contractMonths || 24);
+    const installmentLabel =
+      contract.recurrenceEndMode === 'SEM_TERMINO'
+        ? `Ciclo #${nextInstallmentIndex} (Sem término)`
+        : `Parcela ${nextInstallmentIndex}/${totalInstallments}`;
 
     const invoice: ErpFiscalInvoice = {
-      id: `inv-loc-${Date.now()}`,
+      id: `inv-loc-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       documentNumber: docNum,
       documentType: 'FATURA_LOCACAO',
       competenceMonth: comp,
       companyId: contract.companyId,
       companyName: contract.companyName,
       companyCnpj: contract.companyCnpj,
-      companyAddress: 'Endereço Comercial Cadastrado — São Paulo/SP',
+      companyAddress: contract.deliveryAddress || 'Endereço Comercial Cadastrado — São Paulo/SP',
       rentalContractId: contract.id,
       proposalId: contract.proposalId,
       dealId: contract.dealId,
-      grossAmount: contract.monthlyValue,
-      discountAmount: 0,
+      grossAmount: computedBase,
+      discountAmount: discountVal,
       netAmount: taxBreakdown.netReceivableAmount,
       status: 'EMITIDA',
-      issueDate: nowIso.slice(0, 10),
+      issueDate: issueDateIso,
       dueDate,
       paidAt: null,
       paymentMethod: 'BOLETO_PIX',
@@ -4973,8 +5203,8 @@ export class CrmRepository {
       cstIcms: '41 - Não Tributada',
       cstPisCofins: '01 - Operação Tributável Alíquota Básica',
       verificationCodeOrKey: `AUTH-SETA-LOC-${Date.now().toString(36).toUpperCase()}`,
-      pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${contract.monthlyValue.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO62190515${docNum.replace(/[^A-Z0-9]/g, '')}630499AF`,
-      boletoDigitableLine: `34191.79001 01043.510047 91020.150008 7 9890${String(Math.round(contract.monthlyValue * 100)).padStart(10, '0')}`,
+      pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO62190515${docNum.replace(/[^A-Z0-9]/g, '')}630499AF`,
+      boletoDigitableLine: `34191.79001 01043.510047 91020.150008 7 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
       itemsDescription: contract.equipments.map((eq) => ({
         description: `Locação Mensal: ${eq.description} (Contrato ${contract.contractNumber})`,
         serialNumber: eq.serialNumber,
@@ -4983,33 +5213,87 @@ export class CrmRepository {
         totalValue: eq.quantity * eq.unitMonthlyRent,
       })),
       taxBreakdown,
+      contractNumber: contract.contractNumber,
+      externalContractNumber: contract.externalContractNumber || contract.contractNumber,
+      proposalNumber: contract.proposalNumber || null,
+      remessaNfeNumber: contract.remessaNfeNumber || null,
+      contractTermLabel: contract.contractTermLabel || `${contract.contractMonths} meses`,
+      sellerName: contract.sellerName || 'Marcelo Mira',
+      costCenter: contract.costCenter || 'LOCAÇÃO DE EQUIPAMENTO',
+      chartOfAccounts: contract.chartOfAccounts || 'Locação de equipamento',
+      productsSubtotalBrl: productsSum,
+      freightValueBrl: freightVal,
+      returnFreightValueBrl: contract.returnFreightValueBrl || 0,
+      freightModality: contract.freightModality || 'CIF_EMITENTE',
+      freightTrackingCode: contract.freightTrackingCode || null,
+      includeFreightInInvoice: includeFreight,
+      additionValueBrl: additionVal,
+      discountPercent: discountPct,
+      deliveryDate: contract.deliveryDate || null,
+      pickupDate: contract.pickupDate || null,
+      deliveryCarrier: contract.deliveryCarrier || null,
+      deliveryCity: contract.deliveryCity || 'São Paulo',
+      deliveryAddress: contract.deliveryAddress || 'São Paulo/SP',
+      deliveryNotes: contract.deliveryNotes || null,
+      customerPurchaseOrderNumber:
+        options?.customerPurchaseOrderNumber ?? contract.customerPurchaseOrderNumber ?? null,
+      measurementNumber:
+        options?.measurementNumber ?? contract.measurementNumber ?? `BM-${comp}-${contract.contractNumber}`,
+      measurementPeriod:
+        options?.measurementPeriod ?? contract.measurementPeriod ?? `Competência ${comp}`,
+      measurementNotes: options?.measurementNotes ?? contract.measurementNotes ?? null,
+      billingRecurrence: contract.billingRecurrence || 'MENSAL',
+      installmentLabel,
+      paymentMethodLabel: contract.paymentMethod || 'Boleto Inter',
+      billingRecipientEmails:
+        options?.billingRecipientEmails ?? contract.billingRecipientEmails ?? [],
+      contractNotes: options?.contractNotes ?? contract.contractNotes ?? null,
+      customDueRuleLabel: computedRuleLabel,
+      customDueOffsetDays: useRule ? ruleOffset : undefined,
+      customDueTargetWeekday: useRule ? ruleWeekday : null,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
 
     erp.invoices.unshift(invoice);
     contract.lastBilledCompetence = comp;
-    const baseDueStr = contract.nextDueDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(contract.dueDay || 10).padStart(2, '0')}`;
+    contract.billedInstallmentsCount = nextInstallmentIndex;
+    const baseDueStr =
+      dueDate ||
+      contract.nextBillingDate ||
+      contract.nextDueDate ||
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(contract.dueDay || 10).padStart(2, '0')}`;
     const parsedDue = new Date(`${baseDueStr.slice(0, 10)}T12:00:00Z`);
     if (!Number.isNaN(parsedDue.getTime())) {
-      parsedDue.setUTCMonth(parsedDue.getUTCMonth() + 1);
+      const stepMonths =
+        contract.billingRecurrence === 'BIMESTRAL'
+          ? 2
+          : contract.billingRecurrence === 'TRIMESTRAL'
+            ? 3
+            : contract.billingRecurrence === 'SEMESTRAL'
+              ? 6
+              : contract.billingRecurrence === 'ANUAL'
+                ? 12
+                : 1;
+      parsedDue.setUTCMonth(parsedDue.getUTCMonth() + stepMonths);
       contract.nextDueDate = parsedDue.toISOString().slice(0, 10);
+      contract.nextBillingDate = parsedDue.toISOString().slice(0, 10);
     }
     contract.updatedAt = nowIso;
 
     erp.financialEntries.unshift({
-      id: `fin-${Date.now()}`,
+      id: `fin-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       type: 'RECEBER',
       category: 'LOCACAO_EQUIPAMENTOS',
       description: `Fatura de Locação ${docNum} — ${contract.companyName} (Comp. ${comp})`,
       companyName: contract.companyName,
-      costCenter: 'CC-101 • Receita Recorrente de Locação (MRR)',
+      costCenter: contract.costCenter || 'CC-101 • Receita Recorrente de Locação (MRR)',
       amount: invoice.netAmount,
       dueDate,
       paidAt: null,
       status: 'ABERTO',
       invoiceId: invoice.id,
-      paymentMethod: 'Boleto Híbrido PIX',
+      paymentMethod: contract.paymentMethod || 'Boleto Híbrido PIX',
     });
 
     this.save();

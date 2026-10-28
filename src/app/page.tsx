@@ -1324,7 +1324,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <TrendingUp className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>Forecast CRM:</span>
-                  <span className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</span>
+                  <strong className="text-[#00bda5]">{formatBRL(dealsForecast.weightedOpenValue)}</strong>
                 </button>
 
                 <button
@@ -1338,7 +1338,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde CRM:</span>
-                  <span>{healthSummary?.globalHealthScore ?? 0}%</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
                 </button>
               </>
             )}
@@ -1356,7 +1356,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <Receipt className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>MRR Locação:</span>
-                  <span className="text-[#00bda5]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</span>
+                  <strong className="text-[#00bda5]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</strong>
                 </button>
 
                 <button
@@ -1370,7 +1370,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde ERP:</span>
-                  <span>{healthSummary?.globalHealthScore ?? 96}%</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 96}%</strong>
                 </button>
               </>
             )}
@@ -1388,7 +1388,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <Ticket className="w-3.5 h-3.5 text-[#00bda5]" />
                   <span>SLA no Prazo:</span>
-                  <span className="text-[#00bda5]">{ticketKpis.slaComplianceRate}%</span>
+                  <strong className="text-[#00bda5]">{ticketKpis.slaComplianceRate}%</strong>
                 </button>
 
                 <button
@@ -1402,7 +1402,7 @@ export default function HubSpotProCrmApp() {
                 >
                   <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
                   <span>Saúde Chamados:</span>
-                  <span>{healthSummary?.globalHealthScore ?? 98}%</span>
+                  <strong>{healthSummary?.globalHealthScore ?? 98}%</strong>
                 </button>
               </>
             )}

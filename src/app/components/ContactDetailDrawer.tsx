@@ -192,7 +192,7 @@ export default function ContactDetailDrawer({
       <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
         <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-[#ff7a59] text-white font-normal flex items-center justify-center text-sm shrink-0">
+            <div className="w-11 h-11 rounded-full bg-[#ff7a59] text-white font-semibold flex items-center justify-center text-sm shrink-0">
               {contactDetail?.firstName?.charAt(0) || 'C'}
               {contactDetail?.lastName?.charAt(0) || ''}
             </div>
@@ -206,7 +206,7 @@ export default function ContactDetailDrawer({
                 {contactDetail && getLifecycleBadge(contactDetail.lifecycleStage)}
                 {contactDetail?.buyingRole && getBuyingRoleBadge(contactDetail.buyingRole)}
                 {contactDetail?.isUnworked && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-normal bg-amber-400 text-slate-950">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-400 text-slate-950">
                     Lead Intocado
                   </span>
                 )}
@@ -225,7 +225,7 @@ export default function ContactDetailDrawer({
                 <button
                   type="button"
                   onClick={() => setIsEditing((v) => !v)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-normal transition ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     isEditing
                       ? 'bg-amber-500 text-white'
                       : 'bg-white text-slate-900 hover:bg-slate-100'
@@ -238,7 +238,7 @@ export default function ContactDetailDrawer({
                   type="button"
                   disabled={enrichingId === contactDetail.id}
                   onClick={() => onSingleEnrich(contactDetail.id)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   {enrichingId === contactDetail.id ? 'Enriquecendo...' : 'Enriquecer'}
@@ -284,14 +284,14 @@ export default function ContactDetailDrawer({
                         Editar Dados do Contato &amp; Papel ABM
                       </h4>
                     </div>
-                    <span className="text-[11px] font-normal text-slate-500">
+                    <span className="text-[11px] font-semibold text-slate-500">
                       Recálculo automático de Score &amp; Completude
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Nome *
                       </label>
                       <input
@@ -303,7 +303,7 @@ export default function ContactDetailDrawer({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Sobrenome
                       </label>
                       <input
@@ -317,7 +317,7 @@ export default function ContactDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         E-mail Corporativo *
                       </label>
                       <input
@@ -329,7 +329,7 @@ export default function ContactDetailDrawer({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Telefone / WhatsApp
                       </label>
                       <input
@@ -344,7 +344,7 @@ export default function ContactDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Cargo Executivo
                       </label>
                       <input
@@ -356,7 +356,7 @@ export default function ContactDetailDrawer({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Empresa Vinculada
                       </label>
                       <select
@@ -376,13 +376,13 @@ export default function ContactDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Papel de Compra ABM (Buying Role)
                       </label>
                       <select
                         value={buyingRole}
                         onChange={(e) => setBuyingRole(e.target.value as BuyingRoleType)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-normal text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                       >
                         {BUYING_ROLE_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -392,7 +392,7 @@ export default function ContactDetailDrawer({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Proprietário da Carteira (Owner Seta)
                       </label>
                       <input
@@ -412,7 +412,7 @@ export default function ContactDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Estágio do Funil (Lifecycle)
                       </label>
                       <select
@@ -430,7 +430,7 @@ export default function ContactDetailDrawer({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Status do Lead
                       </label>
                       <select
@@ -452,7 +452,7 @@ export default function ContactDetailDrawer({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Cidade
                       </label>
                       <input
@@ -464,7 +464,7 @@ export default function ContactDetailDrawer({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         UF
                       </label>
                       <input
@@ -475,7 +475,7 @@ export default function ContactDetailDrawer({
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                       />
                     </div>
-                    <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-normal text-amber-950 cursor-pointer">
+                    <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-semibold text-amber-950 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={isUnworked}
@@ -491,26 +491,26 @@ export default function ContactDetailDrawer({
                       <button
                         type="button"
                         onClick={() => setConfirmDelete(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-normal transition"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-semibold transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Excluir Contato
                       </button>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-normal text-rose-700">Confirmar exclusão?</span>
+                        <span className="text-xs font-semibold text-rose-700">Confirmar exclusão?</span>
                         <button
                           type="button"
                           disabled={deleting}
                           onClick={handleConfirmDelete}
-                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-normal"
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
                         >
                           {deleting ? 'Excluindo...' : 'Sim, Excluir'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmDelete(false)}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-normal text-slate-700 bg-white"
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 bg-white"
                         >
                           Não
                         </button>
@@ -521,14 +521,14 @@ export default function ContactDetailDrawer({
                       <button
                         type="button"
                         onClick={() => setIsEditing(false)}
-                        className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-normal text-slate-700 hover:bg-slate-50"
+                        className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         Cancelar
                       </button>
                       <button
                         type="submit"
                         disabled={savingEdit}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                       >
                         <Save className="w-3.5 h-3.5" />
                         {savingEdit ? 'Salvando...' : 'Salvar Alterações'}
@@ -541,10 +541,10 @@ export default function ContactDetailDrawer({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-normal uppercase text-slate-500">
+                    <span className="text-xs font-semibold uppercase text-slate-500">
                       Lead Score Preditivo
                     </span>
-                    <span className="text-lg font-normal text-emerald-600">
+                    <span className="text-lg font-semibold text-emerald-600">
                       {contactDetail.leadScore}/100
                     </span>
                   </div>
@@ -561,10 +561,10 @@ export default function ContactDetailDrawer({
 
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-normal uppercase text-slate-500">
+                    <span className="text-xs font-semibold uppercase text-slate-500">
                       Índice de Completude
                     </span>
-                    <span className="text-lg font-normal text-indigo-600">
+                    <span className="text-lg font-semibold text-indigo-600">
                       {contactDetail.completenessScore}%
                     </span>
                   </div>
@@ -593,10 +593,10 @@ export default function ContactDetailDrawer({
                   </div>
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-normal uppercase tracking-wider text-[#e05835]">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#e05835]">
                         Próxima Melhor Ação Recomendada (Next Best Action)
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-normal bg-orange-100 text-[#e05835]">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-[#e05835]">
                         Prioridade {contactDetail.nextBestAction.priority} • Prazo:{' '}
                         {contactDetail.nextBestAction.suggestedDueInDays}d
                       </span>
@@ -618,7 +618,7 @@ export default function ContactDetailDrawer({
                     <button
                       type="button"
                       onClick={() => setIsEditing(true)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 text-xs font-normal transition"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 text-xs font-semibold transition"
                     >
                       <Pencil className="w-3 h-3" />
                       Editar Campos
@@ -628,11 +628,11 @@ export default function ContactDetailDrawer({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                   <div>
                     <span className="text-slate-400 block">E-mail</span>
-                    <span className="font-normal text-slate-800 break-all">
+                    <span className="font-semibold text-slate-800 break-all">
                       {contactDetail.email}
                     </span>
                     <span
-                      className={`inline-block mt-0.5 text-[10px] font-normal ${
+                      className={`inline-block mt-0.5 text-[10px] font-semibold ${
                         contactDetail.isValidEmail ? 'text-emerald-600' : 'text-rose-600'
                       }`}
                     >
@@ -646,7 +646,7 @@ export default function ContactDetailDrawer({
 
                   <div>
                     <span className="text-slate-400 block">Telefone (Padrão E.164)</span>
-                    <span className="font-normal text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {contactDetail.phone || 'Não informado'}
                     </span>
                     {contactDetail.normalizedPhone && (
@@ -658,7 +658,7 @@ export default function ContactDetailDrawer({
 
                   <div>
                     <span className="text-slate-400 block">Cargo / Senioridade</span>
-                    <span className="font-normal text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {contactDetail.jobTitle || '—'}
                     </span>
                     <span className="block text-[10px] text-slate-500">
@@ -671,9 +671,9 @@ export default function ContactDetailDrawer({
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
                       {contactDetail.buyingRole
                         ? getBuyingRoleBadge(contactDetail.buyingRole)
-                        : <span className="font-normal text-slate-700">{getBuyingRoleLabel(contactDetail.buyingRole)}</span>}
+                        : <span className="font-semibold text-slate-700">{getBuyingRoleLabel(contactDetail.buyingRole)}</span>}
                       {contactDetail.isUnworked && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-normal">
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-semibold">
                           Intocado
                         </span>
                       )}
@@ -682,7 +682,7 @@ export default function ContactDetailDrawer({
 
                   <div>
                     <span className="text-slate-400 block">Proprietário da Carteira</span>
-                    <span className="font-normal text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {contactDetail.ownerName ||
                         (contactDetail.customProperties?.ownerName as string) ||
                         'Marcelo Lopes Mira'}
@@ -691,13 +691,13 @@ export default function ContactDetailDrawer({
 
                   <div>
                     <span className="text-slate-400 block">Empresa Vinculada</span>
-                    <span className="font-normal text-slate-800 block">
+                    <span className="font-semibold text-slate-800 block">
                       {contactDetail.company?.name || 'Não vinculada'}
                     </span>
                     {contactDetail.company && (
                       <div className="flex flex-wrap items-center gap-1 mt-0.5">
                         {contactDetail.company.isTargetAccount && (
-                          <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-normal">
+                          <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-semibold">
                             Conta Alvo ABM
                           </span>
                         )}
@@ -708,14 +708,14 @@ export default function ContactDetailDrawer({
 
                   <div>
                     <span className="text-slate-400 block">Fonte de Enriquecimento</span>
-                    <span className="font-normal text-indigo-700">
+                    <span className="font-semibold text-indigo-700">
                       {contactDetail.enrichmentSource || 'Manual / Não enriquecido'}
                     </span>
                   </div>
 
                   <div>
                     <span className="text-slate-400 block">Última Interação</span>
-                    <span className="font-normal text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {formatRelativeDays(contactDetail.lastActivityAt)}
                     </span>
                   </div>
@@ -723,7 +723,7 @@ export default function ContactDetailDrawer({
 
                 {Object.keys(contactDetail.customProperties || {}).length > 0 && (
                   <div className="pt-3 border-t border-slate-100">
-                    <span className="text-[11px] font-normal text-slate-500 block mb-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
                       Propriedades Customizadas &amp; Inferidas:
                     </span>
                     <div className="flex flex-wrap gap-1.5">
@@ -732,7 +732,7 @@ export default function ContactDetailDrawer({
                           key={k}
                           className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium"
                         >
-                          <span>{k}:</span> {String(v)}
+                          <strong>{k}:</strong> {String(v)}
                         </span>
                       ))}
                     </div>
@@ -754,12 +754,12 @@ export default function ContactDetailDrawer({
                         className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
                       >
                         <div>
-                          <div className="font-normal text-slate-900">{d.title}</div>
+                          <div className="font-semibold text-slate-900">{d.title}</div>
                           <div className="text-slate-500">
                             Status: {d.status} • Probabilidade: {d.probability}%
                           </div>
                         </div>
-                        <div className="text-sm font-normal text-slate-900">
+                        <div className="text-sm font-semibold text-slate-900">
                           {formatBRL(d.value)}
                         </div>
                       </div>
@@ -799,7 +799,7 @@ export default function ContactDetailDrawer({
                 className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-normal uppercase text-slate-700">
+                  <span className="text-xs font-semibold uppercase text-slate-700">
                     Registrar Interação na Timeline
                   </span>
                   <select
@@ -807,7 +807,7 @@ export default function ContactDetailDrawer({
                     onChange={(e) =>
                       setActType(e.target.value as 'NOTE' | 'CALL' | 'EMAIL' | 'MEETING' | 'TASK')
                     }
-                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-normal text-slate-700"
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700"
                   >
                     <option value="NOTE">Nota</option>
                     <option value="CALL">Ligação</option>
@@ -835,7 +835,7 @@ export default function ContactDetailDrawer({
                   <button
                     type="submit"
                     disabled={savingActivity}
-                    className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal transition"
+                    className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition"
                   >
                     {savingActivity ? 'Salvando...' : 'Adicionar à Timeline'}
                   </button>
@@ -852,12 +852,12 @@ export default function ContactDetailDrawer({
                     className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-1"
                   >
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-normal">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">
                         {evt.type}
                       </span>
                       <span className="text-slate-400">{formatDateTimeBR(evt.createdAt)}</span>
                     </div>
-                    <div className="text-xs font-normal text-slate-900">{evt.title}</div>
+                    <div className="text-xs font-semibold text-slate-900">{evt.title}</div>
                     {evt.body && <p className="text-xs text-slate-600">{evt.body}</p>}
                     <div className="text-[11px] text-slate-400">Registrado por: {evt.actor}</div>
                   </div>

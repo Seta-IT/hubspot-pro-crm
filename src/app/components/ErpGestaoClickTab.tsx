@@ -2444,7 +2444,7 @@ export default function ErpGestaoClickTab({
                           }}
                           className="py-2.5 px-3 whitespace-nowrap"
                         >
-                          <div className="font-mono font-normal text-[#1e3a6e] underline">
+                          <div className="font-mono font-semibold text-[#1e3a6e] underline">
                             {prop.code}
                           </div>
                         </td>
@@ -2458,7 +2458,7 @@ export default function ErpGestaoClickTab({
                                 prop.companyCnpj
                               )
                             }
-                            className="font-normal text-[#1e3a6e] hover:underline text-left cursor-pointer block"
+                            className="font-semibold text-[#1e3a6e] hover:underline text-left cursor-pointer block"
                             title="Abrir cadastro do cliente (Navegação Cruzada)"
                           >
                             {prop.companyName}
@@ -2468,7 +2468,7 @@ export default function ErpGestaoClickTab({
                               CNPJ: {prop.companyCnpj} • A/C: {prop.careOf || prop.contactName}
                             </span>
                             {prop.serviceType && (
-                              <span className="text-indigo-700 font-normal">
+                              <span className="text-indigo-700 font-semibold">
                                 • {prop.serviceType}
                               </span>
                             )}
@@ -2481,7 +2481,7 @@ export default function ErpGestaoClickTab({
                                     prop.companyName
                                   )
                                 }
-                                className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono text-[9px] font-normal hover:bg-emerald-100 cursor-pointer"
+                                className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono text-[9px] font-semibold hover:bg-emerald-100 cursor-pointer"
                                 title="Ir direto para o Contrato vinculado"
                               >
                                 Contrato &rarr;
@@ -2500,25 +2500,25 @@ export default function ErpGestaoClickTab({
                           </div>
                         </td>
                         <td className="py-2.5 px-3 text-[11px]">
-                          <div className="font-normal text-slate-800">{prop.sellerName}</div>
+                          <div className="font-semibold text-slate-800">{prop.sellerName}</div>
                         </td>
                         <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => openProposalStatusModal(prop, true)}
                             title="Clique para alterar a situação ou consultar o histórico da proposta"
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-normal cursor-pointer hover:opacity-85 transition ${stBadge.cls}`}
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer hover:opacity-85 transition ${stBadge.cls}`}
                           >
                             {stBadge.label}
                           </button>
                         </td>
                         <td className="py-2.5 px-3 text-right whitespace-nowrap">
                           {isProdProp ? (
-                            <span className="font-normal text-slate-900">
+                            <span className="font-semibold text-slate-900">
                               {formatBRL(prop.totalContractValue || prop.monthlyRecurringTotal)}
                             </span>
                           ) : (
-                            <span className="font-normal text-emerald-700">
+                            <span className="font-semibold text-emerald-700">
                               {formatBRL(prop.monthlyRecurringTotal || prop.totalContractValue)}/mês
                             </span>
                           )}

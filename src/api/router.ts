@@ -3261,8 +3261,9 @@ export class CrmApiRouter {
       );
       if (genInvoiceMatch && method === 'POST') {
         const inv = this.repo.generateMonthlyRentalInvoice(
-          genInvoiceMatch[1],
-          body.competenceMonth ? String(body.competenceMonth) : undefined
+          decodeURIComponent(genInvoiceMatch[1]),
+          body.competenceMonth ? String(body.competenceMonth) : undefined,
+          body as Record<string, unknown>
         );
         if (!inv) {
           return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };

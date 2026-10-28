@@ -190,7 +190,7 @@ export default function DataHealthTab({
       {/* CABEÇALHO INDIVIDUAL DO DATA HEALTH POR SISTEMA (CRM | ERP | CHAMADOS) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="text-[10px] font-normal uppercase tracking-wider text-[#0d2b4e] block">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#0d2b4e] block">
             {resolvedScope === 'ERP'
               ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO SETA ERP'
               : resolvedScope === 'CHAMADOS'
@@ -205,7 +205,7 @@ export default function DataHealthTab({
                 : 'Data Health Individual do CRM (Contatos Comerciais, Empresas B2B, Deals & Desduplicação)'}
           </h3>
         </div>
-        <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-normal shrink-0">
+        <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold shrink-0">
           Escopo Isolado: {resolvedScope}
         </span>
       </div>
@@ -217,14 +217,14 @@ export default function DataHealthTab({
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
               <div className="flex items-center gap-5">
                 <div className="w-24 h-24 rounded-2xl bg-slate-900/90 border-2 border-emerald-400 flex flex-col items-center justify-center shrink-0">
-                  <span className="text-3xl font-normal text-emerald-300">95</span>
-                  <span className="text-[10px] font-normal uppercase text-slate-300">de 100 pts</span>
-                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-normal bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                  <span className="text-3xl font-semibold text-emerald-300">95</span>
+                  <span className="text-[10px] font-semibold uppercase text-slate-300">de 100 pts</span>
+                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
                     SLA &amp; NOC OK
                   </span>
                 </div>
                 <div className="space-y-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-normal uppercase">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-semibold uppercase">
                     AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (SERVICE DESK &amp; NOC)
                   </span>
                   <h2 className="text-lg sm:text-xl font-semibold">
@@ -240,27 +240,27 @@ export default function DataHealthTab({
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/15 text-xs">
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Chamados c/ Cliente Vinculado</span>
-                <span className="text-base font-normal text-white">
+                <strong className="text-base font-semibold text-white">
                   {tickets.filter((t) => Boolean(t.companyId)).length} / {tickets.length || 1} Protocolos
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Chamados c/ Fila &amp; Técnico</span>
-                <span className="text-base font-normal text-emerald-300">
+                <strong className="text-base font-semibold text-emerald-300">
                   {tickets.filter((t) => Boolean(t.assignee)).length} / {tickets.length || 1} Atribuídos
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Chamados c/ SLA Definido</span>
-                <span className="text-base font-normal text-white">
+                <strong className="text-base font-semibold text-white">
                   100% Monitorados 24x7
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Rastreabilidade S/N em RMA</span>
-                <span className="text-base font-normal text-amber-300">
+                <strong className="text-base font-semibold text-amber-300">
                   {tickets.filter((t) => Boolean(t.equipmentSerial)).length} c/ Serial Number
-                </span>
+                </strong>
               </div>
             </div>
           </div>
@@ -282,7 +282,7 @@ export default function DataHealthTab({
                   aria-label="Filtrar Auditoria de Chamados por Prioridade"
                   value={chamadosHealthPriorityFilter}
                   onChange={(e) => setChamadosHealthPriorityFilter(e.target.value)}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-normal text-slate-700"
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700"
                 >
                   <option value="ALL">Prioridade: Todas</option>
                   <option value="CRITICAL">Crítica</option>
@@ -297,7 +297,7 @@ export default function DataHealthTab({
                       setChamadosHealthSearch('');
                       setChamadosHealthPriorityFilter('ALL');
                     }}
-                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-normal cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-semibold cursor-pointer"
                   >
                     Limpar filtros
                   </button>
@@ -321,15 +321,15 @@ export default function DataHealthTab({
                 .map((tk) => (
                 <div key={tk.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                   <div>
-                    <div className="font-normal text-slate-900">
+                    <div className="font-semibold text-slate-900">
                       <span className="font-mono text-indigo-700 mr-2">{tk.key}</span>
                       {tk.subject}
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      Fila: <span>{tk.assignee}</span> • Prioridade: {tk.priority} • S/N: {tk.equipmentSerial || 'N/A'}
+                      Fila: <strong>{tk.assignee}</strong> • Prioridade: {tk.priority} • S/N: {tk.equipmentSerial || 'N/A'}
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                     PROTOCOLO ÍNTEGRO
                   </span>
                 </div>
@@ -344,14 +344,14 @@ export default function DataHealthTab({
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
               <div className="flex items-center gap-5">
                 <div className="w-24 h-24 rounded-2xl bg-slate-900/90 border-2 border-emerald-400 flex flex-col items-center justify-center shrink-0">
-                  <span className="text-3xl font-normal text-emerald-300">96</span>
-                  <span className="text-[10px] font-normal uppercase text-slate-300">de 100 pts</span>
-                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-normal bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                  <span className="text-3xl font-semibold text-emerald-300">96</span>
+                  <span className="text-[10px] font-semibold uppercase text-slate-300">de 100 pts</span>
+                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
                     Compliance Fiscal
                   </span>
                 </div>
                 <div className="space-y-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-normal uppercase">
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-semibold uppercase">
                     AUDITORIA DE DADOS DO ERP (SEPARADA DA BASE CRM)
                   </span>
                   <h2 className="text-lg sm:text-xl font-semibold">
@@ -366,7 +366,7 @@ export default function DataHealthTab({
                 <button
                   type="button"
                   onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
-                  className="px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
                 >
                   Abrir Cadastros do ERP →
                 </button>
@@ -376,27 +376,27 @@ export default function DataHealthTab({
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/15 text-xs">
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Clientes ERP c/ CNPJ Mod-11</span>
-                <span className="text-base font-normal text-white">
+                <strong className="text-base font-semibold text-white">
                   {companies.filter((c) => Boolean(c.cnpj)).length} / {companies.length} (Trava Matriz/Filial Ativa)
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Catálogo SKU + NCM / LC 116</span>
-                <span className="text-base font-normal text-emerald-300">
+                <strong className="text-base font-semibold text-emerald-300">
                   {(erpData?.catalog || []).filter((i) => Boolean(i.ncmOrLc116)).length} / {(erpData?.catalog || []).length} Itens 100% Fiscais
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Contratos c/ S/N &amp; Reajuste</span>
-                <span className="text-base font-normal text-white">
+                <strong className="text-base font-semibold text-white">
                   {(erpData?.rentalContracts || []).length} Contratos Auditados
-                </span>
+                </strong>
               </div>
               <div className="p-3 rounded-xl bg-white/10 border border-white/10">
                 <span className="text-slate-300 block">Fornecedores &amp; Transportadoras</span>
-                <span className="text-base font-normal text-amber-300">
+                <strong className="text-base font-semibold text-amber-300">
                   {(erpData?.suppliers || []).length} Homologados
-                </span>
+                </strong>
               </div>
             </div>
           </div>
@@ -413,7 +413,7 @@ export default function DataHealthTab({
                   key={fb.id}
                   type="button"
                   onClick={() => setErpHealthFilter(fb.id as typeof erpHealthFilter)}
-                  className={`px-3 py-1.5 rounded-lg font-normal transition cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
                     erpHealthFilter === fb.id
                       ? 'bg-[#1e3a6e] text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -438,7 +438,7 @@ export default function DataHealthTab({
                     setErpHealthSearch('');
                     setErpHealthFilter('ALL');
                   }}
-                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-normal cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-semibold cursor-pointer"
                 >
                   Limpar filtros
                 </button>
@@ -451,7 +451,7 @@ export default function DataHealthTab({
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
+                  <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                     BASE DE CLIENTES DO ERP
                   </span>
                   <h3 className="text-sm font-semibold text-slate-900">
@@ -461,7 +461,7 @@ export default function DataHealthTab({
                 <button
                   type="button"
                   onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
-                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-normal cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                 >
                   Gerenciar no ERP
                 </button>
@@ -483,13 +483,13 @@ export default function DataHealthTab({
                   .map((c) => (
                   <div key={c.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                     <div>
-                      <div className="font-normal text-slate-900">{c.name}</div>
+                      <div className="font-semibold text-slate-900">{c.name}</div>
                       <div className="text-[11px] text-slate-500 font-mono">
                         CNPJ: {c.cnpj || 'Pendente'} • {c.city || 'São Paulo'}/{c.state || 'SP'}
                       </div>
                     </div>
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-normal ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         c.cnpj ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                       }`}
                     >
@@ -503,7 +503,7 @@ export default function DataHealthTab({
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-normal uppercase text-[#1e3a6e] block">
+                  <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                     CATÁLOGO DE PRODUTOS E SERVIÇOS DO ERP
                   </span>
                   <h3 className="text-sm font-semibold text-slate-900">
@@ -513,7 +513,7 @@ export default function DataHealthTab({
                 <button
                   type="button"
                   onClick={() => onNavigateToErpSection?.('ITENS', 'ITENS_PRODUTOS')}
-                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-normal cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                 >
                   Editar Itens no ERP
                 </button>
@@ -533,15 +533,15 @@ export default function DataHealthTab({
                   .map((it) => (
                   <div key={it.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                     <div>
-                      <div className="font-normal text-slate-900">
+                      <div className="font-semibold text-slate-900">
                         <span className="font-mono text-[#1e3a6e] mr-1.5">{it.gestaoClickCode}</span>
                         {it.name}
                       </div>
                       <div className="text-[11px] text-slate-500">
-                        {it.ncmOrLc116} • CFOP Padrão: <span>{it.cfopDefault || '5.908'}</span>
+                        {it.ncmOrLc116} • CFOP Padrão: <strong>{it.cfopDefault || '5.908'}</strong>
                       </div>
                     </div>
-                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-normal">
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                       OK FISCAL
                     </span>
                   </div>
@@ -558,19 +558,19 @@ export default function DataHealthTab({
           <div className="flex flex-col sm:flex-row sm:items-center gap-6">
             {/* Circular / Gauge Score */}
             <div className="w-28 h-28 rounded-2xl bg-slate-900/90 border-2 border-[#ff7a59] flex flex-col items-center justify-center shrink-0 shadow-inner">
-              <span className="text-3xl font-normal text-white">{summary.globalHealthScore}</span>
-              <span className="text-[11px] font-normal uppercase tracking-wider text-slate-400">
+              <span className="text-3xl font-semibold text-white">{summary.globalHealthScore}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 de 100 pts
               </span>
               <span
-                className={`mt-1 px-2 py-0.5 rounded-full text-[10px] font-normal border ${statusBadgeColor}`}
+                className={`mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadgeColor}`}
               >
                 {statusTextPt}
               </span>
             </div>
 
             <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#ff7a59]/20 border border-[#ff7a59]/40 text-[#ff987f] text-xs font-normal">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#ff7a59]/20 border border-[#ff7a59]/40 text-[#ff987f] text-xs font-semibold">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#ff7a59]" />
                 Central de Saúde e Higienização da Base (Data Health)
               </div>
@@ -588,7 +588,7 @@ export default function DataHealthTab({
               type="button"
               disabled={cleaning}
               onClick={handleRunAutoClean}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs sm:text-sm font-normal shadow-md transition disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs sm:text-sm font-semibold shadow-md transition disabled:opacity-60"
             >
               <Sparkles className={`w-4 h-4 ${cleaning ? 'animate-spin' : ''}`} />
               {cleaning
@@ -615,7 +615,7 @@ export default function DataHealthTab({
           >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
               <span>Completude Ponderada (30%) →</span>
-              <span className="text-white">{summary.breakdown.completenessHealth}%</span>
+              <strong className="text-white">{summary.breakdown.completenessHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
@@ -632,7 +632,7 @@ export default function DataHealthTab({
           >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
               <span>Validade E-mail/E.164 (25%) →</span>
-              <span className="text-white">{summary.breakdown.validityHealth}%</span>
+              <strong className="text-white">{summary.breakdown.validityHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
@@ -649,7 +649,7 @@ export default function DataHealthTab({
           >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
               <span>Livre de Duplicidades (25%) →</span>
-              <span className="text-white">{summary.breakdown.deduplicationHealth}%</span>
+              <strong className="text-white">{summary.breakdown.deduplicationHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
@@ -666,7 +666,7 @@ export default function DataHealthTab({
           >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
               <span>Frescor &amp; Atividade (20%) →</span>
-              <span className="text-white">{summary.breakdown.freshnessHealth}%</span>
+              <strong className="text-white">{summary.breakdown.freshnessHealth}%</strong>
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
@@ -689,12 +689,12 @@ export default function DataHealthTab({
               </h3>
             </div>
             <p className="text-xs text-emerald-100">
-              Score Global evoluído de <span>{autoCleanReport.previousHealthScore}</span> para{' '}
-              <span className="text-emerald-300 text-sm">{autoCleanReport.newHealthScore}/100</span> •{' '}
-              <span>{autoCleanReport.contactsMerged}</span> par(es) de contatos unificados •{' '}
-              <span>{autoCleanReport.companiesMerged}</span> par(es) de empresas unificadas •{' '}
-              <span>{autoCleanReport.recordsNormalized}</span> registros padronizados (E.164/Domínio) •{' '}
-              <span>{autoCleanReport.recordsEnriched}</span> registros enriquecidos!
+              Score Global evoluído de <strong>{autoCleanReport.previousHealthScore}</strong> para{' '}
+              <strong className="text-emerald-300 text-sm">{autoCleanReport.newHealthScore}/100</strong> •{' '}
+              <strong>{autoCleanReport.contactsMerged}</strong> par(es) de contatos unificados •{' '}
+              <strong>{autoCleanReport.companiesMerged}</strong> par(es) de empresas unificadas •{' '}
+              <strong>{autoCleanReport.recordsNormalized}</strong> registros padronizados (E.164/Domínio) •{' '}
+              <strong>{autoCleanReport.recordsEnriched}</strong> registros enriquecidos!
             </p>
           </div>
           <button
@@ -731,10 +731,10 @@ export default function DataHealthTab({
       <div className="bg-white rounded-2xl border-2 border-[#ff7a59]/50 p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-normal bg-[#ff7a59]/15 text-[#e05835] border border-[#ff7a59]/30">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#ff7a59]/15 text-[#e05835] border border-[#ff7a59]/30">
               AUDITORIA PORTAL HUBSPOT 4369067 • SETA TELECOM
             </span>
-            <span className="text-xs font-normal text-slate-500">
+            <span className="text-xs font-semibold text-slate-500">
               44 proprietários mapeados (3 ativos hoje vs. 41 ex-vendedores inativos)
             </span>
           </div>
@@ -745,7 +745,7 @@ export default function DataHealthTab({
             Transfira automaticamente contatos, empresas e negócios presos em ex-vendedores inativos (como <em>Gabriel Lopes</em>, <em>Roberto Carquejo</em>, <em>Felipe Seta</em>, <em>Karis Marketing</em>) para os proprietários ativos da Seta Telecom.
           </p>
           {reassignMsg && (
-            <div className="text-xs font-normal text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg inline-block mt-1">
+            <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg inline-block mt-1">
               {reassignMsg}
             </div>
           )}
@@ -755,7 +755,7 @@ export default function DataHealthTab({
           <select
             value={reassignTarget}
             onChange={(e) => setReassignTarget(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-800 bg-slate-50"
+            className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 bg-slate-50"
           >
             <option value="Marcelo Lopes Mira">Transferir p/ Marcelo Lopes Mira</option>
             <option value="Evelyn Ternero Seta Telecom">
@@ -767,7 +767,7 @@ export default function DataHealthTab({
             type="button"
             disabled={reassigning}
             onClick={handleReassignOrphans}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-normal shadow-sm transition cursor-pointer disabled:opacity-50"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-50"
           >
             {reassigning ? 'Transferindo Carteira...' : 'Reatribuir Carteira Órfã Agora'}
           </button>
@@ -779,7 +779,7 @@ export default function DataHealthTab({
         <button
           type="button"
           onClick={() => setActiveIssueTab('DUPLICATES')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition ${
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition ${
             activeIssueTab === 'DUPLICATES'
               ? 'bg-[#1e293b] text-white shadow-xs'
               : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -792,7 +792,7 @@ export default function DataHealthTab({
         <button
           type="button"
           onClick={() => setActiveIssueTab('INCOMPLETE')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition ${
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition ${
             activeIssueTab === 'INCOMPLETE'
               ? 'bg-[#1e293b] text-white shadow-xs'
               : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -805,7 +805,7 @@ export default function DataHealthTab({
         <button
           type="button"
           onClick={() => setActiveIssueTab('INVALID')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition ${
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition ${
             activeIssueTab === 'INVALID'
               ? 'bg-[#1e293b] text-white shadow-xs'
               : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -818,7 +818,7 @@ export default function DataHealthTab({
         <button
           type="button"
           onClick={() => setActiveIssueTab('STALE')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-normal transition ${
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition ${
             activeIssueTab === 'STALE'
               ? 'bg-[#1e293b] text-white shadow-xs'
               : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -863,10 +863,10 @@ export default function DataHealthTab({
                       >
                         <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2.5">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-normal bg-amber-100 text-amber-900 border border-amber-300">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
                               Confiança: {pair.confidenceScore}%
                             </span>
-                            <span className="text-xs font-normal text-slate-700">
+                            <span className="text-xs font-semibold text-slate-700">
                               Motivos: {pair.matchReasons.join(' • ')}
                             </span>
                           </div>
@@ -877,7 +877,7 @@ export default function DataHealthTab({
                             onClick={() =>
                               handleMerge('CONTACT', pair.primary.id, pair.duplicate.id)
                             }
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                           >
                             <GitMerge className="w-4 h-4" />
                             {isMerging
@@ -890,28 +890,28 @@ export default function DataHealthTab({
                           {/* Primary Record */}
                           <div className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/20 space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-normal text-[10px] uppercase">
+                              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px] uppercase">
                                 Registro Principal (Mantido)
                               </span>
                               <span className="text-slate-500">
-                                Completude: <span>{pair.primary.completenessScore}%</span>
+                                Completude: <strong>{pair.primary.completenessScore}%</strong>
                               </span>
                             </div>
-                            <div className="text-sm font-normal text-slate-900">
+                            <div className="text-sm font-semibold text-slate-900">
                               {pair.primary.firstName} {pair.primary.lastName}
                             </div>
                             <div className="space-y-1 text-slate-600">
                               <div>
-                                <span>E-mail:</span> {pair.primary.email}
+                                <strong>E-mail:</strong> {pair.primary.email}
                               </div>
                               <div>
-                                <span>Telefone:</span> {pair.primary.phone || '—'}
+                                <strong>Telefone:</strong> {pair.primary.phone || '—'}
                               </div>
                               <div>
-                                <span>Cargo:</span> {pair.primary.jobTitle || '—'}
+                                <strong>Cargo:</strong> {pair.primary.jobTitle || '—'}
                               </div>
                               <div>
-                                <span>Estágio:</span> {pair.primary.lifecycleStage} (Score{' '}
+                                <strong>Estágio:</strong> {pair.primary.lifecycleStage} (Score{' '}
                                 {pair.primary.leadScore})
                               </div>
                             </div>
@@ -920,28 +920,28 @@ export default function DataHealthTab({
                           {/* Duplicate Record */}
                           <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/20 space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-normal text-[10px] uppercase">
+                              <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold text-[10px] uppercase">
                                 Registro Duplicado (Absorvido)
                               </span>
                               <span className="text-slate-500">
-                                Completude: <span>{pair.duplicate.completenessScore}%</span>
+                                Completude: <strong>{pair.duplicate.completenessScore}%</strong>
                               </span>
                             </div>
-                            <div className="text-sm font-normal text-slate-900">
+                            <div className="text-sm font-semibold text-slate-900">
                               {pair.duplicate.firstName} {pair.duplicate.lastName}
                             </div>
                             <div className="space-y-1 text-slate-600">
                               <div>
-                                <span>E-mail:</span> {pair.duplicate.email}
+                                <strong>E-mail:</strong> {pair.duplicate.email}
                               </div>
                               <div>
-                                <span>Telefone:</span> {pair.duplicate.phone || '—'}
+                                <strong>Telefone:</strong> {pair.duplicate.phone || '—'}
                               </div>
                               <div>
-                                <span>Cargo:</span> {pair.duplicate.jobTitle || '—'}
+                                <strong>Cargo:</strong> {pair.duplicate.jobTitle || '—'}
                               </div>
                               <div>
-                                <span>Estágio:</span> {pair.duplicate.lifecycleStage} (Score{' '}
+                                <strong>Estágio:</strong> {pair.duplicate.lifecycleStage} (Score{' '}
                                 {pair.duplicate.leadScore})
                               </div>
                             </div>
@@ -949,24 +949,24 @@ export default function DataHealthTab({
 
                           {/* Suggested Unified Result */}
                           <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/30 space-y-2">
-                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-normal text-[10px] uppercase inline-block">
+                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold text-[10px] uppercase inline-block">
                               Resultado Pós-Merge (Sem Perda)
                             </span>
-                            <div className="text-sm font-normal text-indigo-950">
+                            <div className="text-sm font-semibold text-indigo-950">
                               {String(pair.suggestedMerge.mergedFields.firstName || '')}{' '}
                               {String(pair.suggestedMerge.mergedFields.lastName || '')}
                             </div>
                             <div className="space-y-1 text-slate-700">
                               <div>
-                                <span>E-mail Final:</span>{' '}
+                                <strong>E-mail Final:</strong>{' '}
                                 {String(pair.suggestedMerge.mergedFields.email || '')}
                               </div>
                               <div>
-                                <span>Cargo Final:</span>{' '}
+                                <strong>Cargo Final:</strong>{' '}
                                 {String(pair.suggestedMerge.mergedFields.jobTitle || '—')}
                               </div>
                               <div>
-                                <span>Histórico Movido:</span>{' '}
+                                <strong>Histórico Movido:</strong>{' '}
                                 {pair.suggestedMerge.timelineEventsToMove} evento(s) de timeline e{' '}
                                 {pair.suggestedMerge.dealsToMove} negócio(s) preservados!
                               </div>
@@ -993,7 +993,7 @@ export default function DataHealthTab({
                       </p>
                     </div>
                   </div>
-                  <span className="px-3 py-1 rounded-full text-[11px] font-normal bg-indigo-50 text-indigo-800 border border-indigo-200">
+                  <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
                     CNPJs Distintos — Unificação Bloqueada (Matriz/Filial)
                   </span>
                 </div>
@@ -1006,7 +1006,7 @@ export default function DataHealthTab({
                         className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs"
                       >
                         <div>
-                          <div className="font-normal text-slate-900">
+                          <div className="font-semibold text-slate-900">
                             {pb.companyA.name} (<span className="font-mono text-indigo-700">{pb.companyA.cnpj}</span>)
                             {' '}×{' '}
                             {pb.companyB.name} (<span className="font-mono text-indigo-700">{pb.companyB.cnpj}</span>)
@@ -1018,7 +1018,7 @@ export default function DataHealthTab({
                         <button
                           type="button"
                           disabled
-                          className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 text-xs font-normal cursor-not-allowed"
+                          className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 text-xs font-semibold cursor-not-allowed"
                         >
                           CNPJs Distintos — Unificação Bloqueada
                         </button>
@@ -1047,10 +1047,10 @@ export default function DataHealthTab({
                       >
                         <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2.5">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-normal bg-amber-100 text-amber-900 border border-amber-300">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
                               Confiança: {pair.confidenceScore}%
                             </span>
-                            <span className="text-xs font-normal text-slate-700">
+                            <span className="text-xs font-semibold text-slate-700">
                               Motivos: {pair.matchReasons.join(' • ')}
                             </span>
                           </div>
@@ -1061,7 +1061,7 @@ export default function DataHealthTab({
                             onClick={() =>
                               handleMerge('COMPANY', pair.primary.id, pair.duplicate.id)
                             }
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                           >
                             <GitMerge className="w-4 h-4" />
                             {isMerging
@@ -1072,54 +1072,54 @@ export default function DataHealthTab({
 
                         <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
                           <div className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/20 space-y-1.5">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-normal text-[10px] uppercase">
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px] uppercase">
                               Empresa Principal ({pair.primary.completenessScore}%)
                             </span>
-                            <div className="text-sm font-normal text-slate-900">
+                            <div className="text-sm font-semibold text-slate-900">
                               {pair.primary.name}
                             </div>
                             <div>
-                              <span>Domínio:</span> {pair.primary.domain || '—'}
+                              <strong>Domínio:</strong> {pair.primary.domain || '—'}
                             </div>
                             <div>
-                              <span>CNPJ:</span> {pair.primary.cnpj || '—'}
+                              <strong>CNPJ:</strong> {pair.primary.cnpj || '—'}
                             </div>
                             <div>
-                              <span>Setor:</span> {pair.primary.industry || '—'}
+                              <strong>Setor:</strong> {pair.primary.industry || '—'}
                             </div>
                           </div>
 
                           <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/20 space-y-1.5">
-                            <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-normal text-[10px] uppercase">
+                            <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold text-[10px] uppercase">
                               Empresa Duplicada ({pair.duplicate.completenessScore}%)
                             </span>
-                            <div className="text-sm font-normal text-slate-900">
+                            <div className="text-sm font-semibold text-slate-900">
                               {pair.duplicate.name}
                             </div>
                             <div>
-                              <span>Domínio:</span> {pair.duplicate.domain || '—'}
+                              <strong>Domínio:</strong> {pair.duplicate.domain || '—'}
                             </div>
                             <div>
-                              <span>CNPJ:</span> {pair.duplicate.cnpj || '—'}
+                              <strong>CNPJ:</strong> {pair.duplicate.cnpj || '—'}
                             </div>
                             <div>
-                              <span>Setor:</span> {pair.duplicate.industry || '—'}
+                              <strong>Setor:</strong> {pair.duplicate.industry || '—'}
                             </div>
                           </div>
 
                           <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/30 space-y-1.5">
-                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-normal text-[10px] uppercase">
+                            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold text-[10px] uppercase">
                               Conta Unificada
                             </span>
-                            <div className="text-sm font-normal text-indigo-950">
+                            <div className="text-sm font-semibold text-indigo-950">
                               {String(pair.suggestedMerge.mergedFields.name || '')}
                             </div>
                             <div>
-                              <span>CNPJ Validado:</span>{' '}
+                              <strong>CNPJ Validado:</strong>{' '}
                               {String(pair.suggestedMerge.mergedFields.cnpj || '—')}
                             </div>
                             <div>
-                              <span>Vínculos Preservados:</span>{' '}
+                              <strong>Vínculos Preservados:</strong>{' '}
                               {pair.suggestedMerge.contactsToMove ?? 0} contato(s) e{' '}
                               {pair.suggestedMerge.dealsToMove} negócio(s)
                             </div>
@@ -1152,7 +1152,7 @@ export default function DataHealthTab({
                     className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/20 flex items-center justify-between gap-3"
                   >
                     <div>
-                      <div className="text-xs font-normal text-slate-900">
+                      <div className="text-xs font-semibold text-slate-900">
                         {c.firstName} {c.lastName} ({c.completenessScore}%)
                       </div>
                       <div className="text-xs text-slate-500">{c.email}</div>
@@ -1178,7 +1178,7 @@ export default function DataHealthTab({
                           setEnrichingEntityId(null);
                         }
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-normal shrink-0 transition"
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shrink-0 transition"
                     >
                       {enrichingEntityId === c.id ? 'Enriquecendo...' : 'Enriquecer Agora'}
                     </button>
@@ -1202,7 +1202,7 @@ export default function DataHealthTab({
                     className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/20 flex items-center justify-between gap-3"
                   >
                     <div>
-                      <div className="text-xs font-normal text-slate-900">
+                      <div className="text-xs font-semibold text-slate-900">
                         {comp.name} ({comp.completenessScore}%)
                       </div>
                       <div className="text-xs text-slate-500">{comp.domain || 'Sem domínio'}</div>
@@ -1228,7 +1228,7 @@ export default function DataHealthTab({
                           setEnrichingEntityId(null);
                         }
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-normal shrink-0 transition"
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shrink-0 transition"
                     >
                       {enrichingEntityId === comp.id ? 'Enriquecendo...' : 'Enriquecer Conta'}
                     </button>
@@ -1257,16 +1257,16 @@ export default function DataHealthTab({
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-normal text-slate-900">
+                      <span className="text-sm font-semibold text-slate-900">
                         {c.firstName} {c.lastName}
                       </span>
                       {!c.isValidEmail && (
-                        <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-normal">
+                        <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-semibold">
                           E-mail Descartável / Inválido: {c.email}
                         </span>
                       )}
                       {c.phone && !c.isValidPhone && (
-                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-[10px] font-normal">
+                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-[10px] font-semibold">
                           Telefone Inválido: {c.phone}
                         </span>
                       )}
@@ -1278,7 +1278,7 @@ export default function DataHealthTab({
                   <button
                     type="button"
                     onClick={() => onNavigateToContact(c.id)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-normal text-slate-700 shrink-0"
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shrink-0"
                   >
                     Inspecionar Contato
                   </button>
@@ -1302,20 +1302,20 @@ export default function DataHealthTab({
                 className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3 text-xs"
               >
                 <div>
-                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-normal mr-2">
+                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-semibold mr-2">
                     {rec.entityType}
                   </span>
-                  <span className="text-slate-900">{rec.name}</span>
+                  <strong className="text-slate-900">{rec.name}</strong>
                   <div className="text-slate-500 mt-0.5">
                     {rec.emailOrDomain || '—'} • Inativo há{' '}
-                    <span className="text-rose-600">{rec.daysInactive} dias</span>
+                    <strong className="text-rose-600">{rec.daysInactive} dias</strong>
                   </div>
                 </div>
                 {rec.entityType === 'CONTACT' && (
                   <button
                     type="button"
                     onClick={() => onNavigateToContact(rec.entityId)}
-                    className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-normal text-[11px]"
+                    className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-semibold text-[11px]"
                   >
                     Reengajar
                   </button>
@@ -1334,15 +1334,15 @@ export default function DataHealthTab({
                 className="p-3.5 rounded-xl border border-rose-200 bg-rose-50/20 flex items-center justify-between gap-3 text-xs"
               >
                 <div>
-                  <div className="font-normal text-slate-900">{deal.title}</div>
+                  <div className="font-semibold text-slate-900">{deal.title}</div>
                   <div className="text-slate-600 mt-0.5">
-                    Etapa: <span>{deal.stageName}</span> • {deal.daysSinceLastActivity}d sem atividade (SLA:{' '}
+                    Etapa: <strong>{deal.stageName}</strong> • {deal.daysSinceLastActivity}d sem atividade (SLA:{' '}
                     {deal.dealRottingDays}d)
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="font-normal text-rose-700">{formatBRL(deal.value)}</div>
-                  <div className="text-[10px] text-rose-600 font-normal">
+                  <div className="font-semibold text-rose-700">{formatBRL(deal.value)}</div>
+                  <div className="text-[10px] text-rose-600 font-semibold">
                     +{deal.daysOverdue}d atrasado
                   </div>
                 </div>

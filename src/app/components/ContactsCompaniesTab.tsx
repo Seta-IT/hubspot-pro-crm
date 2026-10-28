@@ -634,7 +634,7 @@ export default function ContactsCompaniesTab({
               <button
                 type="button"
                 onClick={() => { setSubView("CONTACTS"); onSubViewChange?.("CONTACTS"); }}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-normal transition cursor-pointer ${
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-semibold transition cursor-pointer ${
                   subView === "CONTACTS"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
                     : "text-[#516f90] hover:text-[#33475b]"
@@ -646,7 +646,7 @@ export default function ContactsCompaniesTab({
               <button
                 type="button"
                 onClick={() => { setSubView("COMPANIES"); onSubViewChange?.("COMPANIES"); }}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-normal transition cursor-pointer ${
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-semibold transition cursor-pointer ${
                   subView === "COMPANIES"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
                     : "text-[#516f90] hover:text-[#33475b]"
@@ -658,7 +658,7 @@ export default function ContactsCompaniesTab({
               <button
                 type="button"
                 onClick={() => { setSubView("TASKS"); onSubViewChange?.("TASKS"); }}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-normal transition cursor-pointer ${
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[3px] text-xs font-semibold transition cursor-pointer ${
                   subView === "TASKS"
                     ? "bg-white text-[#33475b] shadow-2xs border border-[#cbd6e2]"
                     : "text-[#516f90] hover:text-[#33475b]"
@@ -670,13 +670,13 @@ export default function ContactsCompaniesTab({
             </div>
             <span className="text-xs text-[#516f90]">
               Exibindo{" "}
-              <span className="text-[#33475b]">
+              <strong className="text-[#33475b]">
                 {subView === "CONTACTS" ? filteredContacts.length : filteredCompanies.length}
-              </span>{" "}
+              </strong>{" "}
               de{" "}
-              <span className="text-[#33475b]">
+              <strong className="text-[#33475b]">
                 {subView === "CONTACTS" ? contacts.length : companies.length}
-              </span>{" "}
+              </strong>{" "}
               registros sincronizados (HubSpot #4369067 + GestãoClick #118887)
             </span>
           </div>
@@ -686,7 +686,7 @@ export default function ContactsCompaniesTab({
               type="button"
               disabled={batchEnriching}
               onClick={handleBatchEnrich}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#cbd6e2]/70 text-[#33475b] border border-[#cbd6e2] text-xs font-normal transition disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#cbd6e2]/70 text-[#33475b] border border-[#cbd6e2] text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#0091ae]" />
               {batchEnriching ? "Enriquecendo..." : "Enriquecer Base IA"}
@@ -698,7 +698,7 @@ export default function ContactsCompaniesTab({
                 setGestaoClickModalCompany(null);
                 setShowNewCompanyModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[#33475b] text-xs font-normal transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white hover:bg-[#f5f8fa] text-[#33475b] text-xs font-semibold transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-[#0091ae]" />
               Criar Empresa
@@ -707,7 +707,7 @@ export default function ContactsCompaniesTab({
             <button
               type="button"
               onClick={() => setShowNewContactModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-normal shadow-2xs transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               Criar Contato
@@ -731,9 +731,9 @@ export default function ContactsCompaniesTab({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveSegment(tab.id as typeof activeSegment)}
-                  className={`relative px-3.5 py-2.5 text-xs font-normal transition cursor-pointer ${
+                  className={`relative px-3.5 py-2.5 text-xs font-semibold transition cursor-pointer ${
                     active
-                      ? "text-[#0091ae] font-normal bg-[#f5f8fa]/60"
+                      ? "text-[#0091ae] font-semibold bg-[#f5f8fa]/60"
                       : "text-[#516f90] hover:text-[#33475b] hover:bg-[#f5f8fa]/40"
                   }`}
                 >
@@ -749,7 +749,7 @@ export default function ContactsCompaniesTab({
 
         {/* Feedback Banner */}
         {enrichmentFeedback && (
-          <div className="mx-5 mt-3 p-3 rounded-[4px] bg-[#e5f8f6] border border-[#00bda5] flex items-center justify-between gap-2 text-xs text-[#007a6c] font-normal">
+          <div className="mx-5 mt-3 p-3 rounded-[4px] bg-[#e5f8f6] border border-[#00bda5] flex items-center justify-between gap-2 text-xs text-[#007a6c] font-semibold">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-[#00bda5] shrink-0" />
               <span>{enrichmentFeedback}</span>
@@ -780,12 +780,12 @@ export default function ContactsCompaniesTab({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-slate-800 text-white font-normal flex items-center justify-center text-xs shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-slate-800 text-white font-semibold flex items-center justify-center text-xs shrink-0">
                         {contact.firstName.charAt(0)}
                         {contact.lastName ? contact.lastName.charAt(0) : ''}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-normal text-slate-900 text-sm truncate">
+                        <div className="font-semibold text-slate-900 text-sm truncate">
                           {contact.firstName} {contact.lastName}
                         </div>
                         <div className="text-xs text-slate-500 truncate">{contact.email}</div>
@@ -798,11 +798,11 @@ export default function ContactsCompaniesTab({
                       {getLifecycleBadge(contact.lifecycleStage)}
                       {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
                       {contact.isUnworked && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-normal bg-amber-100 text-amber-900 border border-amber-300">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-300">
                           Intocado
                         </span>
                       )}
-                      <span className={`text-xs font-normal ${scoreStyle.text}`}>
+                      <span className={`text-xs font-semibold ${scoreStyle.text}`}>
                         Score {contact.leadScore}
                       </span>
                     </div>
@@ -814,7 +814,7 @@ export default function ContactsCompaniesTab({
                     <button
                       type="button"
                       onClick={() => handleSelectContact(contact.id, true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-normal text-xs shadow-xs transition"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold text-xs shadow-xs transition"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       Editar Contato
@@ -824,7 +824,7 @@ export default function ContactsCompaniesTab({
                         type="button"
                         disabled={isEnriching}
                         onClick={() => handleSingleEnrich(contact.id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-normal text-xs transition"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-xs transition"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         {isEnriching ? '...' : 'Enriquecer'}
@@ -832,7 +832,7 @@ export default function ContactsCompaniesTab({
                       <button
                         type="button"
                         onClick={() => handleSelectContact(contact.id, false)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-normal text-xs transition"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition"
                       >
                         Ficha 360°
                       </button>
@@ -846,7 +846,7 @@ export default function ContactsCompaniesTab({
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-normal uppercase tracking-wider text-[#516f90]">
+                <tr className="border-b border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-semibold uppercase tracking-wider text-[#516f90]">
                   <th className="py-3.5 px-4">Contato & Cargo</th>
                   <th className="py-3.5 px-4">Empresa</th>
                   <th className="py-3.5 px-4">Etapa & Status</th>
@@ -869,20 +869,20 @@ export default function ContactsCompaniesTab({
                     >
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-slate-800 text-white font-normal flex items-center justify-center text-xs shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-800 text-white font-semibold flex items-center justify-center text-xs shrink-0">
                             {contact.firstName.charAt(0)}
                             {contact.lastName ? contact.lastName.charAt(0) : ''}
                           </div>
                           <div>
-                            <div className="font-normal text-[#0091ae] group-hover:underline transition flex items-center gap-1.5">
+                            <div className="font-semibold text-[#0091ae] group-hover:underline transition flex items-center gap-1.5">
                               {contact.firstName} {contact.lastName}
                               {newlySavedContactIds.includes(contact.id) && (
-                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-normal">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-semibold">
                                   Salvo Agora
                                 </span>
                               )}
                               {!contact.isValidEmail && (
-                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-normal">
+                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-semibold">
                                   E-mail Inválido
                                 </span>
                               )}
@@ -903,7 +903,7 @@ export default function ContactsCompaniesTab({
                       <td className="py-3.5 px-4">
                         {contact.company ? (
                           <div>
-                            <div className="font-normal text-slate-800">{contact.company.name}</div>
+                            <div className="font-semibold text-slate-800">{contact.company.name}</div>
                             <div className="text-[11px] text-slate-400">
                               {contact.company.industry || contact.company.domain}
                             </div>
@@ -919,7 +919,7 @@ export default function ContactsCompaniesTab({
                             {getLifecycleBadge(contact.lifecycleStage)}
                             {contact.buyingRole && getBuyingRoleBadge(contact.buyingRole)}
                             {contact.isUnworked && (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-normal">
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-semibold">
                                 Intocado
                               </span>
                             )}
@@ -934,10 +934,10 @@ export default function ContactsCompaniesTab({
                       <td className="py-3.5 px-4">
                         <div className="w-32 space-y-1">
                           <div className="flex items-center justify-between">
-                            <span className={`font-normal text-sm ${scoreStyle.text}`}>
+                            <span className={`font-semibold text-sm ${scoreStyle.text}`}>
                               {contact.leadScore}
                             </span>
-                            <span className="text-[10px] font-normal text-slate-500">
+                            <span className="text-[10px] font-semibold text-slate-500">
                               {scoreStyle.label}
                             </span>
                           </div>
@@ -953,7 +953,7 @@ export default function ContactsCompaniesTab({
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
                           <span
-                            className={`px-2 py-0.5 rounded-md font-normal text-[11px] ${
+                            className={`px-2 py-0.5 rounded-md font-semibold text-[11px] ${
                               contact.completenessScore >= 85
                                 ? 'bg-emerald-50 text-emerald-700'
                                 : contact.completenessScore >= 65
@@ -974,7 +974,7 @@ export default function ContactsCompaniesTab({
                       <td className="py-3.5 px-4 max-w-xs">
                         {contact.nextBestAction ? (
                           <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80">
-                            <div className="font-normal text-slate-800 flex items-center gap-1">
+                            <div className="font-semibold text-slate-800 flex items-center gap-1">
                               <Zap className="w-3 h-3 text-[#ff7a59] shrink-0" />
                               <span className="truncate">{contact.nextBestAction.title}</span>
                             </div>
@@ -1014,7 +1014,7 @@ export default function ContactsCompaniesTab({
                             type="button"
                             disabled={isEnriching}
                             onClick={() => handleSingleEnrich(contact.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-normal text-[11px] transition disabled:opacity-50 cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition disabled:opacity-50 cursor-pointer"
                           >
                             <Sparkles className="w-3 h-3" />
                             {isEnriching ? '...' : 'Enriquecer'}
@@ -1045,7 +1045,7 @@ export default function ContactsCompaniesTab({
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-[#ff7a59] font-normal flex items-center justify-center text-sm shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-[#ff7a59] font-semibold flex items-center justify-center text-sm shrink-0">
                       {company.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
@@ -1057,7 +1057,7 @@ export default function ContactsCompaniesTab({
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-normal ${
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                         company.completenessScore >= 85
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : 'bg-amber-50 text-amber-800 border border-amber-200'
@@ -1067,7 +1067,7 @@ export default function ContactsCompaniesTab({
                     </span>
                     <div className="flex flex-wrap items-center justify-end gap-1">
                       {company.isTargetAccount && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-normal bg-orange-50 text-[#e05835] border border-orange-200">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#e05835] border border-orange-200">
                           Conta Alvo ABM
                         </span>
                       )}
@@ -1079,21 +1079,21 @@ export default function ContactsCompaniesTab({
                 <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 block">CNPJ</span>
-                    <span className="font-normal text-slate-800">{company.cnpj || 'Não informado'}</span>
+                    <span className="font-semibold text-slate-800">{company.cnpj || 'Não informado'}</span>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 block">Setor</span>
-                    <span className="font-normal text-slate-800 truncate block">
+                    <span className="font-semibold text-slate-800 truncate block">
                       {company.industry || 'Não classificado'}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 block">Porte</span>
-                    <span className="font-normal text-slate-800">{company.size || '—'}</span>
+                    <span className="font-semibold text-slate-800">{company.size || '—'}</span>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-400 block">Faturamento Anual</span>
-                    <span className="font-normal text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       {company.annualRevenue ? formatBRL(company.annualRevenue) : '—'}
                     </span>
                   </div>
@@ -1103,11 +1103,11 @@ export default function ContactsCompaniesTab({
               <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-3 text-slate-600">
                   <span>
-                    <span>{company.contactsCount ?? 0}</span> contatos
+                    <strong>{company.contactsCount ?? 0}</strong> contatos
                   </span>
                   <span>•</span>
                   <span>
-                    <span>{company.dealsCount ?? 0}</span> deals ({formatBRL(company.totalDealValue ?? 0)})
+                    <strong>{company.dealsCount ?? 0}</strong> deals ({formatBRL(company.totalDealValue ?? 0)})
                   </span>
                 </div>
 
@@ -1151,7 +1151,7 @@ export default function ContactsCompaniesTab({
                       setEnrichingId(null);
                     }
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-normal text-xs transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   {enrichingId === company.id ? '...' : 'Enriquecer'}
@@ -1211,7 +1211,7 @@ export default function ContactsCompaniesTab({
           <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-xl bg-[#ff7a59] text-white font-normal flex items-center justify-center text-sm shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-[#ff7a59] text-white font-semibold flex items-center justify-center text-sm shrink-0">
                   {companyDetail?.name?.slice(0, 2).toUpperCase() || 'EM'}
                 </div>
                 <div className="min-w-0">
@@ -1242,7 +1242,7 @@ export default function ContactsCompaniesTab({
                         setEnrichingId(null);
                       }
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal transition disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     {enrichingId === companyDetail.id ? 'Enriquecendo...' : 'Enriquecer CNPJ/Domínio'}
@@ -1287,13 +1287,13 @@ export default function ContactsCompaniesTab({
                           Editar Cadastro da Empresa B2B
                         </h4>
                       </div>
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-normal bg-emerald-100 text-emerald-800">
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
                         Completude: {companyDetail.completenessScore}%
                       </span>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Razão Social / Nome da Empresa *
                       </label>
                       <input
@@ -1307,7 +1307,7 @@ export default function ContactsCompaniesTab({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Domínio Corporativo
                         </label>
                         <input
@@ -1319,7 +1319,7 @@ export default function ContactsCompaniesTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           CNPJ (Validação Mod-11)
                         </label>
                         <input
@@ -1334,7 +1334,7 @@ export default function ContactsCompaniesTab({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Setor / Indústria (Industry)
                         </label>
                         <input
@@ -1346,7 +1346,7 @@ export default function ContactsCompaniesTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Porte (Size Range)
                         </label>
                         <select
@@ -1365,7 +1365,7 @@ export default function ContactsCompaniesTab({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Receita Anual (R$)
                         </label>
                         <input
@@ -1377,7 +1377,7 @@ export default function ContactsCompaniesTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Tier da Conta
                         </label>
                         <select
@@ -1391,7 +1391,7 @@ export default function ContactsCompaniesTab({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Proprietário (Owner Seta)
                         </label>
                         <input
@@ -1411,13 +1411,13 @@ export default function ContactsCompaniesTab({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Classificação ICP (Ideal Customer Profile)
                         </label>
                         <select
                           value={editCompIcpTier}
                           onChange={(e) => setEditCompIcpTier(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-normal text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
                         >
                           <option value="">Sem Tier ICP definido</option>
                           {ICP_TIER_OPTIONS.map((opt) => (
@@ -1427,7 +1427,7 @@ export default function ContactsCompaniesTab({
                           ))}
                         </select>
                       </div>
-                      <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-white text-xs font-normal text-[#e05835] cursor-pointer">
+                      <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-white text-xs font-semibold text-[#e05835] cursor-pointer">
                         <input
                           type="checkbox"
                           checked={editCompTargetAccount}
@@ -1440,7 +1440,7 @@ export default function ContactsCompaniesTab({
 
                     <div className="grid grid-cols-2 gap-3.5">
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           Cidade
                         </label>
                         <input
@@ -1451,7 +1451,7 @@ export default function ContactsCompaniesTab({
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-normal uppercase text-slate-600 mb-1">
+                        <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                           UF
                         </label>
                         <input
@@ -1468,26 +1468,26 @@ export default function ContactsCompaniesTab({
                         <button
                           type="button"
                           onClick={() => setConfirmCompanyDelete(true)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-normal transition"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-semibold transition"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           Excluir Empresa
                         </button>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-normal text-rose-700">Confirmar exclusão?</span>
+                          <span className="text-xs font-semibold text-rose-700">Confirmar exclusão?</span>
                           <button
                             type="button"
                             disabled={deletingCompany}
                             onClick={handleConfirmCompanyDelete}
-                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-normal"
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
                           >
                             {deletingCompany ? 'Excluindo...' : 'Sim, Excluir'}
                           </button>
                           <button
                             type="button"
                             onClick={() => setConfirmCompanyDelete(false)}
-                            className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-normal text-slate-700 bg-white"
+                            className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 bg-white"
                           >
                             Não
                           </button>
@@ -1501,14 +1501,14 @@ export default function ContactsCompaniesTab({
                             setSelectedCompanyId(null);
                             setCompanyDetail(null);
                           }}
-                          className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-normal text-slate-700 hover:bg-slate-50"
+                          className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
                         >
                           Fechar
                         </button>
                         <button
                           type="submit"
                           disabled={savingCompanyEdit}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                         >
                           <Save className="w-3.5 h-3.5" />
                           {savingCompanyEdit ? 'Salvando...' : 'Salvar Alterações'}
@@ -1552,7 +1552,7 @@ export default function ContactsCompaniesTab({
                             className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
                           >
                             <div>
-                              <div className="font-normal text-slate-900">
+                              <div className="font-semibold text-slate-900">
                                 {c.firstName} {c.lastName}
                               </div>
                               <div className="text-slate-500">
@@ -1566,7 +1566,7 @@ export default function ContactsCompaniesTab({
                                 setCompanyDetail(null);
                                 handleSelectContact(c.id, true);
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-[#ff7a59] text-slate-800 font-normal text-[11px]"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-[#ff7a59] text-slate-800 font-semibold text-[11px]"
                             >
                               <Pencil className="w-3 h-3 text-[#ff7a59]" />
                               Editar Contato
@@ -1591,12 +1591,12 @@ export default function ContactsCompaniesTab({
                             className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
                           >
                             <div>
-                              <div className="font-normal text-slate-900">{d.title}</div>
+                              <div className="font-semibold text-slate-900">{d.title}</div>
                               <div className="text-slate-500">
                                 Status: {d.status} • Probabilidade: {d.probability}%
                               </div>
                             </div>
-                            <div className="text-sm font-normal text-slate-900">
+                            <div className="text-sm font-semibold text-slate-900">
                               {formatBRL(d.value)}
                             </div>
                           </div>
@@ -1631,7 +1631,7 @@ export default function ContactsCompaniesTab({
             <form onSubmit={handleCreateContactSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Nome *
                   </label>
                   <input
@@ -1644,7 +1644,7 @@ export default function ContactsCompaniesTab({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Sobrenome
                   </label>
                   <input
@@ -1658,7 +1658,7 @@ export default function ContactsCompaniesTab({
               </div>
 
               <div>
-                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                   E-mail Corporativo (ou Pessoal)
                 </label>
                 <input
@@ -1675,7 +1675,7 @@ export default function ContactsCompaniesTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Telefone / WhatsApp
                   </label>
                   <input
@@ -1687,7 +1687,7 @@ export default function ContactsCompaniesTab({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Cargo Executivo
                   </label>
                   <input
@@ -1702,7 +1702,7 @@ export default function ContactsCompaniesTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Estágio do Funil (Lifecycle)
                   </label>
                   <select
@@ -1719,7 +1719,7 @@ export default function ContactsCompaniesTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Empresa Existente (Opcional)
                   </label>
                   <select
@@ -1739,13 +1739,13 @@ export default function ContactsCompaniesTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Papel de Compra ABM (Buying Role)
                   </label>
                   <select
                     value={cBuyingRole}
                     onChange={(e) => setCBuyingRole(e.target.value as BuyingRoleType)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-normal text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
                   >
                     {BUYING_ROLE_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1756,13 +1756,13 @@ export default function ContactsCompaniesTab({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Proprietário da Carteira (Owner)
                   </label>
                   <select
                     value={cOwnerName}
                     onChange={(e) => setCOwnerName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-normal text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
                   >
                     {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                       <option key={ow} value={ow}>
@@ -1773,7 +1773,7 @@ export default function ContactsCompaniesTab({
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-normal text-amber-950 cursor-pointer">
+              <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-semibold text-amber-950 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={cIsUnworked}
@@ -1785,7 +1785,7 @@ export default function ContactsCompaniesTab({
 
               {!cCompanyId && (
                 <div>
-                  <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Ou Digite o Nome da Empresa (Cria/Vincula Automaticamente)
                   </label>
                   <input
@@ -1802,14 +1802,14 @@ export default function ContactsCompaniesTab({
                 <button
                   type="button"
                   onClick={() => setShowNewContactModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-700"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingContact}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition"
+                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition"
                 >
                   {savingContact ? 'Criando...' : 'Criar Contato'}
                 </button>

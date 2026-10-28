@@ -199,18 +199,18 @@ export default function AutomationsSequencesTab({
       {/* TOP KPI STRIP FOR AUTOMATIONS & SEQUENCES */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-normal text-slate-500">Workflows Ativos (24x7)</span>
-          <div className="text-2xl font-normal text-slate-900 mt-1">
+          <span className="text-xs font-semibold text-slate-500">Workflows Ativos (24x7)</span>
+          <div className="text-2xl font-semibold text-slate-900 mt-1">
             {activeWfCount} / {workflows.length}
           </div>
-          <span className="text-[11px] text-emerald-600 font-normal">
+          <span className="text-[11px] text-emerald-600 font-semibold">
             Gatilhos de Contato, Form, Deal, Score e Data Health
           </span>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-normal text-slate-500">Execuções Auditadas</span>
-          <div className="text-2xl font-normal text-[#ff7a59] mt-1">
+          <span className="text-xs font-semibold text-slate-500">Execuções Auditadas</span>
+          <div className="text-2xl font-semibold text-[#ff7a59] mt-1">
             {executions.length}
           </div>
           <span className="text-[11px] text-slate-500">
@@ -219,8 +219,8 @@ export default function AutomationsSequencesTab({
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-normal text-slate-500">Cadências Multi-etapas</span>
-          <div className="text-2xl font-normal text-indigo-700 mt-1">
+          <span className="text-xs font-semibold text-slate-500">Cadências Multi-etapas</span>
+          <div className="text-2xl font-semibold text-indigo-700 mt-1">
             {sequences.length} cadências
           </div>
           <span className="text-[11px] text-slate-500">
@@ -229,11 +229,11 @@ export default function AutomationsSequencesTab({
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <span className="text-xs font-normal text-slate-500">Pausados na Resposta (Auto-Pause)</span>
-          <div className="text-2xl font-normal text-emerald-600 mt-1">
+          <span className="text-xs font-semibold text-slate-500">Pausados na Resposta (Auto-Pause)</span>
+          <div className="text-2xl font-semibold text-emerald-600 mt-1">
             {pausedOnReplyCount} leads
           </div>
-          <span className="text-[11px] text-emerald-700 font-normal">
+          <span className="text-[11px] text-emerald-700 font-semibold">
             Status PAUSED_ON_REPLY + Score +15 pts
           </span>
         </div>
@@ -246,7 +246,7 @@ export default function AutomationsSequencesTab({
             <button
               type="button"
               onClick={() => setActiveTab('WORKFLOWS')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-normal transition ${
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'WORKFLOWS'
                   ? 'bg-[#1e293b] text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -259,7 +259,7 @@ export default function AutomationsSequencesTab({
             <button
               type="button"
               onClick={() => setActiveTab('SEQUENCES')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-normal transition ${
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
                 activeTab === 'SEQUENCES'
                   ? 'bg-[#1e293b] text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -278,7 +278,7 @@ export default function AutomationsSequencesTab({
               <select
                 value={testTargetContactId}
                 onChange={(e) => setTestTargetContactId(e.target.value)}
-                className="bg-transparent font-normal text-slate-900 focus:outline-none"
+                className="bg-transparent font-semibold text-slate-900 focus:outline-none"
               >
                 {contacts.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -293,7 +293,7 @@ export default function AutomationsSequencesTab({
               <select
                 value={testTargetDealId}
                 onChange={(e) => setTestTargetDealId(e.target.value)}
-                className="bg-transparent font-normal text-slate-900 focus:outline-none max-w-[180px] truncate"
+                className="bg-transparent font-semibold text-slate-900 focus:outline-none max-w-[180px] truncate"
               >
                 {deals.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -306,7 +306,7 @@ export default function AutomationsSequencesTab({
             <button
               type="button"
               onClick={() => setShowCreateWfModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-sm transition"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition"
             >
               <Plus className="w-4 h-4" />
               Novo Workflow
@@ -324,7 +324,7 @@ export default function AutomationsSequencesTab({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-[#ff7a59]" />
-                  <span className="text-xs font-normal uppercase tracking-wider text-[#ff987f]">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#ff987f]">
                     Execução de Workflow Concluída em Tempo Real ({lastExecutionResult.status})
                   </span>
                 </div>
@@ -336,7 +336,7 @@ export default function AutomationsSequencesTab({
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="text-sm font-normal">
+              <div className="text-sm font-semibold">
                 {lastExecutionResult.workflowName} • Entidade: {lastExecutionResult.entityType}:
                 {lastExecutionResult.entityId}
               </div>
@@ -344,7 +344,7 @@ export default function AutomationsSequencesTab({
                 {lastExecutionResult.logs.map((log, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-normal ${
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                         log.status === 'SUCCESS'
                           ? 'bg-emerald-500/20 text-emerald-300'
                           : 'bg-amber-500/20 text-amber-300'
@@ -374,7 +374,7 @@ export default function AutomationsSequencesTab({
                     <div className="space-y-1">
                       <div className="flex items-center gap-2.5">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-normal ${
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                             wf.isActive
                               ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                               : 'bg-slate-200 text-slate-600'
@@ -396,13 +396,13 @@ export default function AutomationsSequencesTab({
 
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-xs text-slate-500 mr-2">
-                        Execuções: <span className="text-slate-900">{wf.enrolledCount}</span>
+                        Execuções: <strong className="text-slate-900">{wf.enrolledCount}</strong>
                       </span>
 
                       <button
                         type="button"
                         onClick={() => onToggleWorkflow(wf.id, !wf.isActive)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-normal text-slate-700 transition"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition"
                       >
                         <Power className="w-3.5 h-3.5" />
                         {wf.isActive ? 'Pausar' : 'Ativar'}
@@ -412,7 +412,7 @@ export default function AutomationsSequencesTab({
                         type="button"
                         disabled={isRunning}
                         onClick={() => handleRunTest(wf)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-xs transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs transition disabled:opacity-50"
                       >
                         <Play className="w-3.5 h-3.5" />
                         {isRunning ? 'Executando...' : 'Disparar Teste Agora'}
@@ -425,11 +425,11 @@ export default function AutomationsSequencesTab({
                     <div className="flex items-center gap-3 min-w-max">
                       {/* Trigger Block */}
                       <div className="w-64 p-4 rounded-xl bg-[#1e293b] text-white border border-slate-700 shadow-xs">
-                        <div className="flex items-center gap-1.5 text-[10px] font-normal uppercase tracking-wider text-[#ff987f]">
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#ff987f]">
                           <Zap className="w-3.5 h-3.5 text-[#ff7a59]" />
                           1. Gatilho (Trigger)
                         </div>
-                        <div className="text-xs font-normal mt-1.5">
+                        <div className="text-xs font-semibold mt-1.5">
                           {TRIGGER_LABELS[wf.triggerType] || wf.triggerType}
                         </div>
                         <div className="text-[11px] text-slate-300 mt-1">
@@ -450,7 +450,7 @@ export default function AutomationsSequencesTab({
                                 : 'bg-indigo-50/40 border-indigo-200'
                             }`}
                           >
-                            <div className="flex items-center justify-between text-[10px] font-normal uppercase tracking-wider">
+                            <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider">
                               <span
                                 className={
                                   step.type === 'CONDITION'
@@ -464,15 +464,15 @@ export default function AutomationsSequencesTab({
 
                             {step.type === 'CONDITION' && step.condition ? (
                               <div className="mt-1.5 text-xs text-slate-800">
-                                Campo <span>{step.condition.field}</span>{' '}
-                                <code className="px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-normal">
+                                Campo <strong>{step.condition.field}</strong>{' '}
+                                <code className="px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-semibold">
                                   {step.condition.operator}
                                 </code>{' '}
-                                <span>{String(step.condition.value ?? '')}</span>
+                                <strong>{String(step.condition.value ?? '')}</strong>
                               </div>
                             ) : (
                               <div className="mt-1.5 space-y-1">
-                                <div className="text-xs font-normal text-slate-900">
+                                <div className="text-xs font-semibold text-slate-900">
                                   {step.actionType}
                                 </div>
                                 <div className="text-[11px] text-slate-600 truncate">
@@ -509,7 +509,7 @@ export default function AutomationsSequencesTab({
                       e.target.value as 'ALL' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
                     )
                   }
-                  className="bg-transparent font-normal text-slate-700 focus:outline-none"
+                  className="bg-transparent font-semibold text-slate-700 focus:outline-none"
                 >
                   <option value="ALL">Todos os Status ({executions.length})</option>
                   <option value="COMPLETED">COMPLETED</option>
@@ -527,7 +527,7 @@ export default function AutomationsSequencesTab({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`px-2 py-0.5 rounded font-normal text-[10px] ${
+                        className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
                           exec.status === 'COMPLETED'
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-amber-100 text-amber-800'
@@ -535,9 +535,9 @@ export default function AutomationsSequencesTab({
                       >
                         {exec.status}
                       </span>
-                      <span className="text-slate-900">
+                      <strong className="text-slate-900">
                         {exec.workflowName || exec.workflowId}
-                      </span>
+                      </strong>
                       <span className="text-slate-500">
                         ({exec.entityType}: {exec.entityId})
                       </span>
@@ -551,7 +551,7 @@ export default function AutomationsSequencesTab({
                         key={i}
                         className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-700"
                       >
-                        <span>{l.actionType || l.stepType}:</span> {l.message}
+                        <strong>{l.actionType || l.stepType}:</strong> {l.message}
                       </span>
                     ))}
                   </div>
@@ -596,7 +596,7 @@ export default function AutomationsSequencesTab({
 
             <form onSubmit={handleCreateWorkflowSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                   Nome do Fluxo *
                 </label>
                 <input
@@ -610,13 +610,13 @@ export default function AutomationsSequencesTab({
               </div>
 
               <div>
-                <label className="block text-xs font-normal uppercase text-slate-600 mb-1">
+                <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                   1. Gatilho (Trigger)
                 </label>
                 <select
                   value={wfTrigger}
                   onChange={(e) => setWfTrigger(e.target.value as WorkflowTriggerType)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-900 bg-white"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white"
                 >
                   <option value="CONTACT_CREATED">Quando um Contato é Criado (CONTACT_CREATED)</option>
                   <option value="FORM_SUBMITTED">Quando um Formulário Web é Submetido (FORM_SUBMITTED)</option>
@@ -627,7 +627,7 @@ export default function AutomationsSequencesTab({
               </div>
 
               <div className="p-3.5 rounded-xl bg-amber-50/60 border border-amber-200 space-y-2">
-                <span className="text-xs font-normal text-amber-900 block">
+                <span className="text-xs font-semibold text-amber-900 block">
                   2. Condição de Filtragem (IF)
                 </span>
                 <div className="grid grid-cols-3 gap-2">
@@ -661,7 +661,7 @@ export default function AutomationsSequencesTab({
               </div>
 
               <div className="p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2">
-                <span className="text-xs font-normal text-indigo-900 block">
+                <span className="text-xs font-semibold text-indigo-900 block">
                   3. Ação Automática (THEN)
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -693,14 +693,14 @@ export default function AutomationsSequencesTab({
                 <button
                   type="button"
                   onClick={() => setShowCreateWfModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-normal text-slate-700"
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={creatingWf}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal"
+                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold"
                 >
                   {creatingWf ? 'Salvando...' : 'Ativar Workflow'}
                 </button>

@@ -433,9 +433,9 @@ export default function StiHubLoginPage() {
         {/* Clean Brand Header */}
         <div className="px-6 py-6 bg-[#213343] text-white flex flex-col items-center text-center">
           <div className="px-3 h-10 rounded-md bg-white flex items-center justify-center gap-1.5 shadow-sm mb-3">
-            <span className="font-normal text-[#0d2b4e] text-base tracking-tight">SETA</span>
+            <span className="font-semibold text-[#0d2b4e] text-base tracking-tight">SETA</span>
             <span className="w-[2px] h-4 bg-[#f26522] inline-block" />
-            <span className="font-normal text-[#f26522] text-base tracking-tight">IT</span>
+            <span className="font-semibold text-[#f26522] text-base tracking-tight">IT</span>
           </div>
           <h1 className="text-lg font-semibold tracking-tight">
             {step === 'INVITE_PASSWORD'
@@ -457,14 +457,14 @@ export default function StiHubLoginPage() {
 
         <div className="p-6 space-y-5">
           {errorMsg && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-normal flex items-center gap-2">
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {infoMsg && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-normal flex items-center gap-2">
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{infoMsg}</span>
             </div>
@@ -473,7 +473,7 @@ export default function StiHubLoginPage() {
           {step === 'INVITE_PASSWORD' && inviteUser ? (
             <form onSubmit={handleAcceptInviteSubmit} className="space-y-4">
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
-                <div className="font-normal text-slate-900 flex items-center gap-1.5">
+                <div className="font-semibold text-slate-900 flex items-center gap-1.5">
                   <UserCheck className="w-4 h-4 text-emerald-600" />
                   <span>Bem-vindo(a), {inviteUser.name}</span>
                 </div>
@@ -483,7 +483,7 @@ export default function StiHubLoginPage() {
                     {inviteUser.enabledModules.map((m) => (
                       <span
                         key={m}
-                        className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal"
+                        className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-semibold"
                       >
                         {m}
                       </span>
@@ -493,7 +493,7 @@ export default function StiHubLoginPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-normal text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Criar Senha de Acesso *
                 </label>
                 <div className="relative">
@@ -505,13 +505,13 @@ export default function StiHubLoginPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Mínimo de 6 caracteres"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-normal text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-normal text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Confirmar Senha *
                 </label>
                 <div className="relative">
@@ -523,7 +523,7 @@ export default function StiHubLoginPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repita a senha criada"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-normal text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
               </div>
@@ -531,7 +531,7 @@ export default function StiHubLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-normal shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>
@@ -542,7 +542,7 @@ export default function StiHubLoginPage() {
           ) : step === 'CREDENTIALS' ? (
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-normal text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   E-mail
                 </label>
                 <div className="relative">
@@ -554,13 +554,13 @@ export default function StiHubLoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="nome@setatelecom.com.br"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-normal text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-normal text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Senha
                 </label>
                 <div className="relative">
@@ -572,7 +572,7 @@ export default function StiHubLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Digite sua senha"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-normal text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
               </div>
@@ -580,7 +580,7 @@ export default function StiHubLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-normal shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
               >
                 <Lock className="w-4 h-4" />
                 <span>{loading ? 'Entrando...' : 'Login'}</span>
@@ -608,7 +608,7 @@ export default function StiHubLoginPage() {
                 >
                   <Smartphone className="w-4 h-4 shrink-0 text-[#ff7a59]" />
                   <div>
-                    <div className="text-xs font-normal">Aplicativo Autenticador</div>
+                    <div className="text-xs font-semibold">Aplicativo Autenticador</div>
                     <div className="text-[10px] opacity-80">Google Authenticator</div>
                   </div>
                 </button>
@@ -629,7 +629,7 @@ export default function StiHubLoginPage() {
                 >
                   <Mail className="w-4 h-4 shrink-0 text-emerald-400" />
                   <div>
-                    <div className="text-xs font-normal">Código por E-mail</div>
+                    <div className="text-xs font-semibold">Código por E-mail</div>
                     <div className="text-[10px] opacity-80">Receber no e-mail</div>
                   </div>
                 </button>
@@ -640,12 +640,12 @@ export default function StiHubLoginPage() {
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
                   {isTotpAlreadyConfigured ? (
                     <div className="text-slate-600 text-center py-0.5">
-                      Abra o <span>Google Authenticator</span> no seu celular e digite o código atual de 6 dígitos (válido por 30s).
+                      Abra o <strong>Google Authenticator</strong> no seu celular e digite o código atual de 6 dígitos (válido por 30s).
                     </div>
                   ) : (
                     challengeData?.totpPairing && (
                       <div className="p-3 rounded-lg bg-white border border-slate-200 flex flex-col items-center text-center space-y-2.5">
-                        <div className="font-normal text-[#0d2b4e] flex items-center gap-1.5">
+                        <div className="font-semibold text-[#0d2b4e] flex items-center gap-1.5">
                           <QrCode className="w-4 h-4" />
                           Primeiro acesso: Escaneie o QR Code no Google Authenticator
                         </div>
@@ -655,11 +655,11 @@ export default function StiHubLoginPage() {
                           className="w-36 h-36 rounded-lg border border-slate-200 p-1 bg-white"
                         />
                         <div className="w-full space-y-1.5">
-                          <div className="text-[11px] font-normal text-slate-600">
+                          <div className="text-[11px] font-semibold text-slate-600">
                             Ou copie a chave para cadastrar no aplicativo:
                           </div>
                           <div className="flex items-center justify-center gap-1.5">
-                            <code className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-normal text-[#0d2b4e] select-all">
+                            <code className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-semibold text-[#0d2b4e] select-all">
                               {challengeData.totpPairing.totpSecret.replace(/(.{4})/g, '$1 ').trim()}
                             </code>
                             <button
@@ -671,7 +671,7 @@ export default function StiHubLoginPage() {
                                 setInfoMsg('Chave copiada!');
                                 mfaInputRef.current?.focus();
                               }}
-                              className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-normal inline-flex items-center gap-1 cursor-pointer"
+                              className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
                             >
                               <Copy className="w-3 h-3" /> Copiar
                             </button>
@@ -687,13 +687,13 @@ export default function StiHubLoginPage() {
               {activeMfaChannel === 'EMAIL_OTP' && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs">
                   <div className="text-slate-700">
-                    Destinatário: <span>{challengeData?.user?.email || email}</span>
+                    Destinatário: <strong>{challengeData?.user?.email || email}</strong>
                   </div>
                   <button
                     type="button"
                     disabled={sendingEmailOtp}
                     onClick={handleSendOrResendEmailOtp}
-                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-normal inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
                   >
                     <Send className="w-3 h-3" />
                     <span>{sendingEmailOtp ? 'Enviando...' : 'Reenviar por e-mail'}</span>
@@ -702,7 +702,7 @@ export default function StiHubLoginPage() {
               )}
 
               <div>
-                <label className="block text-xs font-normal text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Código de 6 dígitos
                 </label>
                 <input
@@ -722,14 +722,14 @@ export default function StiHubLoginPage() {
                     }
                   }}
                   placeholder="000000"
-                  className="w-full px-4 py-3 rounded-xl border-2 border-[#0d2b4e] text-center font-mono text-xl font-normal tracking-[0.4em] text-[#0d2b4e]"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-[#0d2b4e] text-center font-mono text-xl font-semibold tracking-[0.4em] text-[#0d2b4e]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-normal shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>{loading ? 'Verificando...' : 'Confirmar'}</span>
@@ -744,7 +744,7 @@ export default function StiHubLoginPage() {
                     setErrorMsg(null);
                     setInfoMsg(null);
                   }}
-                  className="text-xs font-normal text-slate-500 hover:text-slate-800 cursor-pointer"
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
                 >
                   Voltar para o login
                 </button>

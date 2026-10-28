@@ -1084,7 +1084,7 @@ function PublicProposalPrintContent() {
                                         handleOpenVersionInPage(ver, latestVer);
                                       }
                                     }}
-                                    className="px-2.5 py-1 text-xs font-normal rounded-md inline-flex items-center gap-1 whitespace-nowrap border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] cursor-pointer"
+                                    className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 whitespace-nowrap border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] cursor-pointer"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" />
                                     <span>Abrir</span>
@@ -1094,7 +1094,7 @@ function PublicProposalPrintContent() {
                                     href={verPdfUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="px-2.5 py-1 text-xs font-normal rounded-md inline-flex items-center gap-1 whitespace-nowrap bg-[#ff7a59] hover:bg-[#e86646] text-white cursor-pointer"
+                                    className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 whitespace-nowrap bg-[#ff7a59] hover:bg-[#e86646] text-white cursor-pointer"
                                   >
                                     <Printer className="w-3.5 h-3.5" />
                                     <span>PDF</span>
@@ -1105,7 +1105,7 @@ function PublicProposalPrintContent() {
                                       type="button"
                                       disabled={restoringVersion === ver.version}
                                       onClick={() => handleRestoreVersionInPage(ver)}
-                                      className="px-2.5 py-1 text-xs font-normal rounded-md inline-flex items-center gap-1 whitespace-nowrap bg-[#1e3a6e] hover:bg-[#162b54] text-white cursor-pointer disabled:opacity-50"
+                                      className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 whitespace-nowrap bg-[#1e3a6e] hover:bg-[#162b54] text-white cursor-pointer disabled:opacity-50"
                                     >
                                       <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
                                       <span>
@@ -1115,7 +1115,7 @@ function PublicProposalPrintContent() {
                                       </span>
                                     </button>
                                   ) : (
-                                    <span className="px-2.5 py-1 text-xs font-normal rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <span className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
                                       Ativa
                                     </span>
                                   )}
@@ -1332,24 +1332,24 @@ function PublicProposalPrintContent() {
 
             <div className="flex flex-wrap items-center sm:justify-end print:justify-end gap-1.5">
               {hasContractVigencia && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
                   <Calendar className="w-3 h-3 text-emerald-700 shrink-0" />
                   Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
                 </span>
               )}
               {isServices && serviceTypeLabel && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-semibold">
                   Tipo de Serviço: {serviceTypeLabel}
                 </span>
               )}
               {deliveryLeadTime && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white text-slate-700 border border-slate-200 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white text-slate-700 border border-slate-200 text-[10px] font-semibold">
                   <Clock className="w-3 h-3 text-[#1e3a6e] shrink-0" />
                   Prazo de Entrega: {deliveryLeadTime}
                 </span>
               )}
               {hasSelectedSla && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-normal">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-semibold">
                   <ShieldCheck className="w-3 h-3 text-[#1e3a6e] shrink-0" />
                   {resolvedSla.shortLabel}
                 </span>
@@ -1428,7 +1428,7 @@ function PublicProposalPrintContent() {
 
           <div className="print-avoid-break print-keep-with-next flex items-center gap-3 py-0.5">
             <span className="flex-1 h-px bg-slate-200" />
-            <span className="text-[11px] font-normal tracking-widest text-[#1e3a6e]">
+            <span className="text-[11px] font-semibold tracking-widest text-[#1e3a6e]">
               {dividerTitle || "PROPOSTA COMERCIAL - Solução"}
             </span>
             <span className="flex-1 h-px bg-slate-200" />
@@ -1437,44 +1437,44 @@ function PublicProposalPrintContent() {
           {/* BLOCO 3: CLIENTE & DADOS COMERCIAIS */}
           <div className={`print-avoid-break grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-4 print:gap-2.5 rounded-lg p-4 print:p-2.5 ${softBoxClass}`}>
             <div className="space-y-1">
-              <div className="text-[10px] font-normal uppercase tracking-wider text-slate-500 flex items-center gap-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 DADOS DA EMPRESA:
               </div>
-              <div className="text-sm sm:text-base font-normal text-slate-900">{proposal.companyName}</div>
+              <div className="text-sm sm:text-base font-semibold text-slate-900">{proposal.companyName}</div>
               <div className="text-xs text-slate-600">
-                <span className="text-slate-800">CNPJ / CPF:</span> {proposal.companyCnpj || "Sob consulta"}
+                <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
               </div>
               <div className="text-xs text-slate-600">
-                <span className="text-slate-800">Aos cuidados de:</span> {proposal.careOf || proposal.contactName}
+                <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
                 {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
               </div>
               {proposal.deliveryAddress && (
                 <div className="text-xs text-slate-600">
-                  <span className="text-slate-800">Local de Entrega / Instalação:</span> {proposal.deliveryAddress}
+                  <strong className="text-slate-800">Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
                 </div>
               )}
             </div>
 
             <div className="space-y-1 sm:border-l print:border-l sm:border-slate-200 print:border-slate-200 sm:pl-4 print:pl-3">
-              <div className="text-[10px] font-normal uppercase tracking-wider text-slate-500 flex items-center gap-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 CONDIÇÕES GERAIS:
               </div>
-              <div className="text-sm font-normal text-slate-900">
+              <div className="text-sm font-semibold text-slate-900">
                 {sellerContact.name}
               </div>
               <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {sellerContact.email && (
                   <span className="inline-flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-slate-800">E-mail:</span> {sellerContact.email}
+                    <strong className="text-slate-800">E-mail:</strong> {sellerContact.email}
                   </span>
                 )}
                 {sellerContact.phone && (
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-slate-800">WhatsApp:</span> {sellerContact.phone}
+                    <strong className="text-slate-800">WhatsApp:</strong> {sellerContact.phone}
                   </span>
                 )}
               </div>
@@ -1488,22 +1488,22 @@ function PublicProposalPrintContent() {
                 {hasContractVigencia && (
                   <span className="inline-flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    Tempo de Contrato: <span className="text-slate-800">{proposal.contractMonths} meses</span>
+                    Tempo de Contrato: <strong className="text-slate-800">{proposal.contractMonths} meses</strong>
                   </span>
                 )}
                 {deliveryLeadTime && (
                   <span>
-                    Prazo de Entrega: <span className="text-slate-800">{deliveryLeadTime}</span>
+                    Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong>
                   </span>
                 )}
                 {hasSelectedSla && (
                   <span>
-                    SLA: <span className="text-slate-800">{resolvedSla.shortLabel}</span>
+                    SLA: <strong className="text-slate-800">{resolvedSla.shortLabel}</strong>
                   </span>
                 )}
               </div>
               <div className="text-xs text-slate-600">
-                <span className="text-slate-800">Condição de Pagamento:</span> {displayPaymentCondition}
+                <strong className="text-slate-800">Condição de Pagamento:</strong> {displayPaymentCondition}
               </div>
             </div>
           </div>
@@ -1512,34 +1512,34 @@ function PublicProposalPrintContent() {
           {isProductsOnly ? (
             <div className={`print-avoid-break grid grid-cols-2 sm:grid-cols-4 print:grid-cols-4 gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   Valor Total dos Produtos
                 </span>
-                <span className="font-normal text-emerald-700 text-sm">
+                <span className="font-semibold text-emerald-700 text-sm">
                   {formatBRL(productsSubtotal - totalDiscounts)}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   Prazo de Entrega
                 </span>
-                <span className="font-normal text-slate-900">
+                <span className="font-semibold text-slate-900">
                   {deliveryLeadTime || "Conforme disponibilidade"}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   Condição de Pagamento
                 </span>
-                <span className="font-normal text-slate-800">
+                <span className="font-semibold text-slate-800">
                   {displayPaymentCondition}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   FRETE R$:
                 </span>
-                <span className="font-normal text-slate-800">
+                <span className="font-semibold text-slate-800">
                   {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
                 </span>
               </div>
@@ -1547,46 +1547,46 @@ function PublicProposalPrintContent() {
           ) : (
             <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   Valor Mensal
                 </span>
-                <span className="font-normal text-emerald-700 text-sm">
+                <span className="font-semibold text-emerald-700 text-sm">
                   {formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   {hasContractVigencia ? "Tempo de Contrato" : "Tipo de Serviço"}
                 </span>
-                <span className="font-normal text-slate-900 text-sm">
+                <span className="font-semibold text-slate-900 text-sm">
                   {hasContractVigencia
                     ? `${contractDurationMonths} ${contractDurationMonths === 1 ? "Mês" : "Meses"}`
                     : serviceTypeLabel || "Serviço Técnico"}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   {hasSelectedSla ? "SLA Contratado" : "Condição de Pagamento"}
                 </span>
-                <span className="font-normal text-slate-800">
+                <span className="font-semibold text-slate-800">
                   {hasSelectedSla ? resolvedSla.shortLabel : displayPaymentCondition}
                 </span>
               </div>
               {hasSetupSelected && (
                 <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
-                  <span className="text-[10px] uppercase text-amber-800 font-normal block">
+                  <span className="text-[10px] uppercase text-amber-800 font-semibold block">
                     Setup / Ativação
                   </span>
-                  <span className="font-normal text-amber-900">
+                  <span className="font-semibold text-amber-900">
                     {formatBRL(isolatedSetupTotal)}
                   </span>
                 </div>
               )}
               <div>
-                <span className="text-[10px] uppercase text-slate-500 font-normal block">
+                <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   FRETE R$:
                 </span>
-                <span className="font-normal text-slate-800">
+                <span className="font-semibold text-slate-800">
                   {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
                 </span>
               </div>
@@ -1662,47 +1662,47 @@ function PublicProposalPrintContent() {
           {/* RESUMO DE SUBTOTAIS */}
           <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6 print:grid-cols-6" : "sm:grid-cols-5 print:grid-cols-5"} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
             <div>
-              <span className="text-[10px] uppercase font-normal text-slate-500 block">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Produtos
               </span>
-              <span className="text-sm font-normal text-slate-900">
+              <strong className="text-sm font-semibold text-slate-900">
                 {formatBRL(productsSubtotal)}
-              </span>
+              </strong>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-normal text-slate-500 block">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Serviços
               </span>
-              <span className="text-sm font-normal text-slate-900">
+              <strong className="text-sm font-semibold text-slate-900">
                 {formatBRL(servicesSubtotal)}
-              </span>
+              </strong>
             </div>
             <div>
-              <span className="text-[10px] uppercase font-normal text-slate-500 block">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Descontos Aplicados
               </span>
-              <span className="text-sm font-normal text-rose-600">
+              <strong className="text-sm font-semibold text-rose-600">
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
-              </span>
+              </strong>
             </div>
             {hasSetupSelected && (
               <div>
-                <span className="text-[10px] uppercase font-normal text-amber-800 block">
+                <span className="text-[10px] uppercase font-semibold text-amber-800 block">
                   Setup / Ativação
                 </span>
-                <span className="text-sm font-normal text-amber-900">
+                <strong className="text-sm font-semibold text-amber-900">
                   {formatBRL(isolatedSetupTotal)}
-                </span>
+                </strong>
                 <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
               </div>
             )}
             <div>
-              <span className="text-[10px] uppercase font-normal text-slate-500 block">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Frete
               </span>
-              <span className="text-sm font-normal text-slate-900">
+              <strong className="text-sm font-semibold text-slate-900">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
-              </span>
+              </strong>
               {proposal.shippingCarrier && (
                 <span className="block text-[10px] text-slate-500 truncate">
                   {proposal.shippingCarrier}
@@ -1710,10 +1710,10 @@ function PublicProposalPrintContent() {
               )}
             </div>
             <div className="text-right">
-              <span className="text-[10px] uppercase font-normal text-emerald-700 block">
+              <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
                 {isProductsOnly ? "Valor Total da Proposta" : "Valor Mensal"}
               </span>
-              <span className="text-sm font-normal text-emerald-700">
+              <span className="text-sm font-semibold text-emerald-700">
                 {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
               </span>
             </div>
@@ -1722,7 +1722,7 @@ function PublicProposalPrintContent() {
           {/* BLOCO 6: QUADRO FISCAL E TOTAIS LEVES */}
           <div className="print-avoid-break grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4 print:gap-3">
             <div className="sm:col-span-2 print:col-span-2 p-4 print:p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2 print:space-y-1.5 text-xs">
-              <div className="flex items-center gap-2 font-normal text-emerald-900 text-xs">
+              <div className="flex items-center gap-2 font-semibold text-emerald-900 text-xs">
                 <Scale className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>Fiscal</span>
               </div>
@@ -1738,13 +1738,13 @@ function PublicProposalPrintContent() {
             <div className={`p-4 print:p-2.5 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3 print:space-y-2`}>
               <div className="space-y-1.5">
                 <div>
-                  <span className="text-[10px] font-normal uppercase tracking-wider text-[#1e3a6e] block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
                     {isProductsOnly ? "Valor Total da Proposta Comercial" : "Valor Mensal"}
                   </span>
-                  <div className="text-2xl print:text-xl font-normal text-emerald-700 mt-0.5">
+                  <div className="text-2xl print:text-xl font-semibold text-emerald-700 mt-0.5">
                     {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
                     {!isProductsOnly && (
-                      <span className="text-xs font-normal text-slate-500">/mês</span>
+                      <span className="text-xs font-semibold text-slate-500">/mês</span>
                     )}
                   </div>
                 </div>
@@ -1752,12 +1752,12 @@ function PublicProposalPrintContent() {
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
                       <span>Taxa de Setup (Isolada):</span>
-                      <span className="text-slate-900">{formatBRL(isolatedSetupTotal)}</span>
+                      <strong className="text-slate-900">{formatBRL(isolatedSetupTotal)}</strong>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
                     <span>FRETE R$:</span>
-                    <span className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</span>
+                    <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
                   </div>
                 </div>
               </div>
@@ -1767,7 +1767,7 @@ function PublicProposalPrintContent() {
           {/* BLOCO 7: CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
           {Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
             <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
-              <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-normal`}>
+              <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-semibold`}>
                 <span className="inline-flex items-center gap-1.5">
                   <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
                   CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
@@ -1777,26 +1777,26 @@ function PublicProposalPrintContent() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                   <tr className="print-avoid-break">
-                    <th className="py-2 px-3 w-20 font-normal">Parcela</th>
-                    <th className="py-2 px-3 w-36 font-normal">Data de Vencimento</th>
-                    <th className="py-2 px-3 w-48 font-normal">Forma de Pagamento</th>
-                    <th className="py-2 px-3 text-right w-36 font-normal">Valor da Parcela</th>
-                    <th className="py-2 px-3 font-normal">Observação</th>
+                    <th className="py-2 px-3 w-20 font-semibold">Parcela</th>
+                    <th className="py-2 px-3 w-36 font-semibold">Data de Vencimento</th>
+                    <th className="py-2 px-3 w-48 font-semibold">Forma de Pagamento</th>
+                    <th className="py-2 px-3 text-right w-36 font-semibold">Valor da Parcela</th>
+                    <th className="py-2 px-3 font-semibold">Observação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/80">
                   {proposal.installments.map((inst, idx) => (
                     <tr key={idx} className="print-avoid-break even:bg-slate-50/40">
-                      <td className="py-2 px-3 font-mono font-normal text-[#1e3a6e]">
+                      <td className="py-2 px-3 font-mono font-semibold text-[#1e3a6e]">
                         {inst.number}ª
                       </td>
-                      <td className="py-2 px-3 font-normal text-slate-800">
+                      <td className="py-2 px-3 font-semibold text-slate-800">
                         {inst.dueDate.includes("-")
                           ? new Date(`${inst.dueDate.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR")
                           : inst.dueDate}
                       </td>
                       <td className="py-2 px-3 text-slate-700">{inst.paymentMethod}</td>
-                      <td className="py-2 px-3 text-right font-normal text-slate-900">
+                      <td className="py-2 px-3 text-right font-semibold text-slate-900">
                         {formatBRL(inst.amount)}
                       </td>
                       <td className="py-2 px-3 text-slate-600">{inst.notes || "—"}</td>
@@ -1813,15 +1813,15 @@ function PublicProposalPrintContent() {
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
                 <div>
-                  <span className="font-normal text-slate-800 uppercase text-[11px] block">
+                  <span className="font-semibold text-slate-800 uppercase text-[11px] block">
                     {isProductsOnly ? "Logística, Transporte & Entrega" : "Logística, Remessa & Instalação"}
                   </span>
                   <span className="text-slate-600">
-                    Modalidade: <span className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</span>{deliveryLeadTime ? <> • Prazo de Entrega: <span className="text-slate-800">{deliveryLeadTime}</span></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
+                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
                   </span>
                 </div>
               </div>
-              <div className="font-normal text-slate-800">
+              <div className="font-semibold text-slate-800">
                 FRETE R$: {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </div>
             </div>
@@ -1829,7 +1829,7 @@ function PublicProposalPrintContent() {
 
           {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
-              <div className="font-normal text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
+              <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
                 {isProductsOnly
                   ? "Condições Gerais de Fornecimento & Garantia"
@@ -1848,7 +1848,7 @@ function PublicProposalPrintContent() {
             {isRental && (
               /* BLOCO 10: FLUXO DE CONTRATAÇÃO DE LOCAÇÃO — CLIENTE SETA TELECOM */
               <div className={`print-avoid-break p-4 print:p-3.5 rounded-lg ${flowBoxClass} space-y-2.5 print:space-y-1.5`}>
-                <div className="text-xs font-normal uppercase tracking-wide text-[#1e3a6e]">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[#1e3a6e]">
                   {SETA_TELECOM_HIRING_FLOW_TITLE}
                 </div>
                 <div className="space-y-1.5 print:space-y-1">
@@ -1858,7 +1858,7 @@ function PublicProposalPrintContent() {
                       className="print-avoid-break flex items-baseline gap-2.5 bg-white border border-slate-200 rounded-md px-3 py-1.5 print:py-1 text-[11px] text-slate-700 leading-snug"
                     >
                       <span
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-normal shrink-0 ${stepBadgeClass}`}
+                        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold shrink-0 ${stepBadgeClass}`}
                       >
                         {st.step}
                       </span>
@@ -1878,7 +1878,7 @@ function PublicProposalPrintContent() {
             <div className="print-avoid-break space-y-3">
               {/* TERMO DE ACEITE E ASSINATURAS */}
               <div className="p-4 print:p-3.5 rounded-lg bg-white border border-slate-200">
-                <div className="text-xs font-normal uppercase text-slate-800 mb-2 print:mb-1.5">
+                <div className="text-xs font-semibold uppercase text-slate-800 mb-2 print:mb-1.5">
                   Termo de Aceite e Aprovação — {headerDocLabel} ({proposal.code})
                 </div>
                 <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
@@ -1891,7 +1891,7 @@ function PublicProposalPrintContent() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-8 pt-4 print:pt-3">
                   <div className="border-t border-slate-300 pt-2 text-center">
-                    <div className="text-xs font-normal text-slate-900">SETA TELECOM LTDA</div>
+                    <div className="text-xs font-semibold text-slate-900">SETA TELECOM LTDA</div>
                     <div className="text-[11px] text-slate-500">
                       {sellerContact.name} • {sellerContact.email}
                       {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
@@ -1899,7 +1899,7 @@ function PublicProposalPrintContent() {
                   </div>
 
                   <div className="border-t border-slate-300 pt-2 text-center">
-                    <div className="text-xs font-normal text-slate-900">{proposal.companyName}</div>
+                    <div className="text-xs font-semibold text-slate-900">{proposal.companyName}</div>
                     <div className="text-[11px] text-slate-500">
                       CNPJ {proposal.companyCnpj} •{" "}
                       {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}

@@ -384,7 +384,7 @@ export function HubSpotCardEmailComposer({
           <button
             type="button"
             onClick={() => setShowCcBcc((v) => !v)}
-            className="px-2.5 py-1 rounded border border-[#cbd6e2] bg-white hover:bg-slate-50 text-[11px] font-normal text-[#33475b] cursor-pointer"
+            className="px-2.5 py-1 rounded border border-[#cbd6e2] bg-white hover:bg-slate-50 text-[11px] font-semibold text-[#33475b] cursor-pointer"
           >
             {showCcBcc ? 'Ocultar CC/CCO' : '+ CC / CCO'}
           </button>
@@ -392,7 +392,7 @@ export function HubSpotCardEmailComposer({
       </div>
 
       {feedback && (
-        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 font-normal flex items-center gap-2">
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{feedback}</span>
         </div>
@@ -401,7 +401,7 @@ export function HubSpotCardEmailComposer({
       {/* Quick Linked & Other Contacts Selector */}
       {quickSelectableContacts.length > 0 && (
         <div className="space-y-1">
-          <span className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
+          <span className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
             <UserPlus className="w-3 h-3 text-[#0091ae]" />
             Destinatários Rápidos (Vinculados ao Card &amp; Outros Contatos da Base):
           </span>
@@ -416,9 +416,9 @@ export function HubSpotCardEmailComposer({
                   key={c.id}
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] ${
                     inTo
-                      ? 'bg-[#e5f8f6] border-[#00bda5] text-[#007a6c] font-normal'
+                      ? 'bg-[#e5f8f6] border-[#00bda5] text-[#007a6c] font-semibold'
                       : inCc
-                        ? 'bg-sky-50 border-sky-300 text-sky-900 font-normal'
+                        ? 'bg-sky-50 border-sky-300 text-sky-900 font-semibold'
                         : 'bg-white border-[#cbd6e2] text-[#33475b]'
                   }`}
                 >
@@ -435,7 +435,7 @@ export function HubSpotCardEmailComposer({
                     type="button"
                     onClick={() => toggleRecipientEmail(c.email, 'CC')}
                     title="Adicionar/remover em Cópia (CC)"
-                    className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[9px] font-normal text-slate-700 cursor-pointer"
+                    className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-[9px] font-semibold text-slate-700 cursor-pointer"
                   >
                     CC
                   </button>
@@ -450,14 +450,14 @@ export function HubSpotCardEmailComposer({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white p-3 rounded-xl border border-[#cbd6e2]">
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
+            <label className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
               <FileText className="w-3 h-3 text-[#ff7a59]" />
               Templates de E-mail HubSpot ({templates.length})
             </label>
             <button
               type="button"
               onClick={() => setShowNewTemplateForm((v) => !v)}
-              className="text-[10px] font-normal text-[#0091ae] hover:underline cursor-pointer"
+              className="text-[10px] font-semibold text-[#0091ae] hover:underline cursor-pointer"
             >
               {showNewTemplateForm ? 'Cancelar' : '+ Salvar atual como Template'}
             </button>
@@ -465,7 +465,7 @@ export function HubSpotCardEmailComposer({
           <select
             value={selectedTemplateId}
             onChange={(e) => handleApplyTemplate(e.target.value)}
-            className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-[#f5f8fa] text-xs font-normal text-[#33475b]"
+            className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-[#f5f8fa] text-xs font-semibold text-[#33475b]"
           >
             <option value="">Selecionar template pré-pronto...</option>
             {templates.map((tpl) => (
@@ -478,14 +478,14 @@ export function HubSpotCardEmailComposer({
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-[10px] font-normal uppercase text-[#516f90] flex items-center gap-1">
+            <label className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
               <Hash className="w-3 h-3 text-indigo-600" />
               Snippets Rápidos ({snippets.length})
             </label>
             <button
               type="button"
               onClick={() => setShowNewSnippetForm((v) => !v)}
-              className="text-[10px] font-normal text-[#0091ae] hover:underline cursor-pointer"
+              className="text-[10px] font-semibold text-[#0091ae] hover:underline cursor-pointer"
             >
               {showNewSnippetForm ? 'Cancelar' : '+ Novo Snippet'}
             </button>
@@ -497,7 +497,7 @@ export function HubSpotCardEmailComposer({
                 type="button"
                 onClick={() => handleInsertSnippet(sn)}
                 title={sn.content}
-                className="px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-normal transition cursor-pointer"
+                className="px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-semibold transition cursor-pointer"
               >
                 {sn.shortcut} • {sn.name.slice(0, 22)}
               </button>
@@ -509,7 +509,7 @@ export function HubSpotCardEmailComposer({
       {/* Inline Save as Template Form */}
       {showNewTemplateForm && (
         <div className="p-3 rounded-xl bg-orange-50/70 border border-orange-200 space-y-2 text-xs">
-          <div className="font-normal text-slate-800">
+          <div className="font-semibold text-slate-800">
             Salvar Assunto e Corpo atuais como Novo Template HubSpot
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -523,7 +523,7 @@ export function HubSpotCardEmailComposer({
             <select
               value={newTplCategory}
               onChange={(e) => setNewTplCategory(e.target.value as CrmEmailTemplateCategory)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-normal"
+              className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
             >
               <option value="PROSPECCAO">PROSPECÇÃO</option>
               <option value="FOLLOW_UP">FOLLOW_UP</option>
@@ -537,7 +537,7 @@ export function HubSpotCardEmailComposer({
               type="button"
               disabled={savingTpl}
               onClick={handleSaveCurrentAsTemplate}
-              className="px-3 py-1.5 rounded-lg bg-[#ff7a59] text-white font-normal text-xs cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-[#ff7a59] text-white font-semibold text-xs cursor-pointer"
             >
               {savingTpl ? 'Salvando...' : 'Salvar Template'}
             </button>
@@ -548,7 +548,7 @@ export function HubSpotCardEmailComposer({
       {/* Inline Create Snippet Form */}
       {showNewSnippetForm && (
         <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 space-y-2 text-xs">
-          <div className="font-normal text-indigo-950">Criar Novo Snippet Reutilizável</div>
+          <div className="font-semibold text-indigo-950">Criar Novo Snippet Reutilizável</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input
               type="text"
@@ -577,7 +577,7 @@ export function HubSpotCardEmailComposer({
               type="button"
               disabled={savingSnip}
               onClick={handleCreateNewSnippet}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-normal text-xs cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold text-xs cursor-pointer"
             >
               {savingSnip ? 'Salvando...' : 'Criar & Inserir Snippet'}
             </button>
@@ -588,7 +588,7 @@ export function HubSpotCardEmailComposer({
       <form onSubmit={handleSendEmailSubmit} className="space-y-3 text-xs">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <div className="sm:col-span-2">
-            <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+            <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
               Para (Destinatários — separe múltiplos por vírgula) *
             </label>
             <input
@@ -597,17 +597,17 @@ export function HubSpotCardEmailComposer({
               value={toEmails}
               onChange={(e) => setToEmails(e.target.value)}
               placeholder="executivo@empresa.com.br, compras@empresa.com.br"
-              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal text-[#33475b]"
+              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
             />
           </div>
           <div>
-            <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+            <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
               Remetente (Proprietário)
             </label>
             <select
               value={senderName}
               onChange={(e) => setSenderName(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal text-[#33475b]"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
             >
               {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                 <option key={ow} value={ow}>
@@ -621,7 +621,7 @@ export function HubSpotCardEmailComposer({
         {showCcBcc && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 CC (Em Cópia)
               </label>
               <input
@@ -633,7 +633,7 @@ export function HubSpotCardEmailComposer({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 CCO / Bcc (Cópia Oculta)
               </label>
               <input
@@ -648,7 +648,7 @@ export function HubSpotCardEmailComposer({
         )}
 
         <div>
-          <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+          <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
             Assunto do E-mail *
           </label>
           <input
@@ -657,13 +657,13 @@ export function HubSpotCardEmailComposer({
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Ex: [Seta Telecom] Proposta Comercial & SLA Dedicado"
-            className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal text-[#33475b]"
+            className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
           />
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-normal uppercase text-[#516f90]">
+            <label className="text-[10px] font-semibold uppercase text-[#516f90]">
               Mensagem (Suporta Snippets digitando #atalho + espaço) *
             </label>
             <span className="text-[10px] text-[#516f90]">
@@ -683,7 +683,7 @@ export function HubSpotCardEmailComposer({
         {/* HUBSPOT FOOTER: CREATE FOLLOW-UP TASK AUTOMATICALLY */}
         <div className="p-3 rounded-xl bg-white border border-[#cbd6e2] space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="inline-flex items-center gap-2 font-normal text-[#33475b] cursor-pointer">
+            <label className="inline-flex items-center gap-2 font-semibold text-[#33475b] cursor-pointer">
               <input
                 type="checkbox"
                 checked={createFollowUpTask}
@@ -701,7 +701,7 @@ export function HubSpotCardEmailComposer({
                   onChange={(e) =>
                     setFollowUpPreset(e.target.value as '1' | '2' | '3' | '7' | 'CUSTOM')
                   }
-                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-normal text-[#0091ae]"
+                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-semibold text-[#0091ae]"
                 >
                   <option value="1">Amanhã (1 dia)</option>
                   <option value="2">Em 2 dias úteis</option>
@@ -714,14 +714,14 @@ export function HubSpotCardEmailComposer({
                     type="date"
                     value={customFollowUpDate}
                     onChange={(e) => setCustomFollowUpDate(e.target.value)}
-                    className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-normal"
+                    className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-semibold"
                   />
                 )}
                 <input
                   type="time"
                   value={followUpTime}
                   onChange={(e) => setFollowUpTime(e.target.value)}
-                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-normal"
+                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-semibold"
                 />
               </div>
             )}
@@ -734,7 +734,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpType}
                   onChange={(e) => setFollowUpType(e.target.value as CrmTaskType)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-normal"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
                 >
                   <option value="EMAIL">E-mail de Follow-up</option>
                   <option value="CALL">Ligação Telefônica</option>
@@ -746,7 +746,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpQueue}
                   onChange={(e) => setFollowUpQueue(e.target.value)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-normal"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
                 >
                   {HUBSPOT_TASK_QUEUES.map((q) => (
                     <option key={q} value={q}>
@@ -760,7 +760,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpPriority}
                   onChange={(e) => setFollowUpPriority(e.target.value as CrmTaskPriority)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-normal"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
                 >
                   <option value="HIGH">Alta</option>
                   <option value="MEDIUM">Média</option>
@@ -774,7 +774,7 @@ export function HubSpotCardEmailComposer({
             <button
               type="submit"
               disabled={sending}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-xs transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
               {sending
@@ -951,7 +951,7 @@ export function HubSpotRecordTasksSection({
         <button
           type="button"
           onClick={() => setShowCreateForm((v) => !v)}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-normal shadow-2xs transition cursor-pointer"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           {showCreateForm ? 'Fechar' : 'Criar Tarefa'}
@@ -964,7 +964,7 @@ export function HubSpotRecordTasksSection({
           className="p-3.5 rounded-xl bg-[#f5f8fa] border border-[#cbd6e2] space-y-3 text-xs"
         >
           <div>
-            <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+            <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
               Título da Tarefa de Follow-up *
             </label>
             <input
@@ -973,19 +973,19 @@ export function HubSpotRecordTasksSection({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Ex: Ligar para validar proposta de locação PABX IP"
-              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal text-[#33475b]"
+              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
             />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Tipo
               </label>
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as CrmTaskType)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
                 <option value="CALL">Ligação</option>
                 <option value="EMAIL">E-mail</option>
@@ -993,13 +993,13 @@ export function HubSpotRecordTasksSection({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Prioridade
               </label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as CrmTaskPriority)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
                 <option value="HIGH">Alta</option>
                 <option value="MEDIUM">Média</option>
@@ -1008,38 +1008,38 @@ export function HubSpotRecordTasksSection({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Data Vencimento
               </label>
               <input
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Horário
               </label>
               <input
                 type="time"
                 value={dueTime}
                 onChange={(e) => setDueTime(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Fila de Tarefas (Queue)
               </label>
               <select
                 value={queueName}
                 onChange={(e) => setQueueName(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
                 {HUBSPOT_TASK_QUEUES.map((q) => (
                   <option key={q} value={q}>
@@ -1049,13 +1049,13 @@ export function HubSpotRecordTasksSection({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Lembrete HubSpot
               </label>
               <select
                 value={reminderMinutesBefore}
                 onChange={(e) => setReminderMinutesBefore(Number(e.target.value))}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
                 <option value={0}>No horário do vencimento</option>
                 <option value={15}>15 minutos antes</option>
@@ -1065,13 +1065,13 @@ export function HubSpotRecordTasksSection({
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+              <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
                 Atribuído a
               </label>
               <select
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-normal"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
               >
                 {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                   <option key={ow} value={ow}>
@@ -1083,7 +1083,7 @@ export function HubSpotRecordTasksSection({
           </div>
 
           <div>
-            <label className="block text-[10px] font-normal uppercase text-[#516f90] mb-1">
+            <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
               Notas / Roteiro do Follow-up
             </label>
             <textarea
@@ -1099,14 +1099,14 @@ export function HubSpotRecordTasksSection({
             <button
               type="button"
               onClick={() => setShowCreateForm(false)}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-normal text-slate-700"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-1.5 rounded-lg bg-[#0091ae] hover:bg-[#007a94] text-white text-xs font-normal cursor-pointer"
+              className="px-4 py-1.5 rounded-lg bg-[#0091ae] hover:bg-[#007a94] text-white text-xs font-semibold cursor-pointer"
             >
               {saving ? 'Agendando...' : 'Salvar Tarefa'}
             </button>
@@ -1149,7 +1149,7 @@ export function HubSpotRecordTasksSection({
                   />
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-normal">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold">
                         {task.type === 'CALL'
                           ? 'Ligação'
                           : task.type === 'EMAIL'
@@ -1157,7 +1157,7 @@ export function HubSpotRecordTasksSection({
                             : 'A fazer'}
                       </span>
                       <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-normal ${
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                           task.priority === 'HIGH'
                             ? 'bg-rose-100 text-rose-800'
                             : task.priority === 'MEDIUM'
@@ -1171,16 +1171,16 @@ export function HubSpotRecordTasksSection({
                             ? 'Média'
                             : 'Baixa'}
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-[#eaf0f6] text-[#0091ae] text-[10px] font-normal">
+                      <span className="px-2 py-0.5 rounded bg-[#eaf0f6] text-[#0091ae] text-[10px] font-semibold">
                         Fila: {task.queueName}
                       </span>
                       {isOverdue && (
-                        <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-normal">
+                        <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-semibold">
                           Atrasada ({task.dueDate})
                         </span>
                       )}
                       {isToday && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-normal">
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-semibold">
                           Vence Hoje às {task.dueTime}
                         </span>
                       )}
@@ -1191,7 +1191,7 @@ export function HubSpotRecordTasksSection({
                       )}
                     </div>
                     <div
-                      className={`font-normal text-slate-900 ${
+                      className={`font-semibold text-slate-900 ${
                         isDone ? 'line-through text-slate-500' : ''
                       }`}
                     >
@@ -1199,7 +1199,7 @@ export function HubSpotRecordTasksSection({
                     </div>
                     {task.notes && <p className="text-[11px] text-slate-600">{task.notes}</p>}
                     <div className="text-[10px] text-slate-400">
-                      Responsável: <span>{task.assignedTo}</span>
+                      Responsável: <strong>{task.assignedTo}</strong>
                       {task.completedAt ? ` • Concluída em ${formatDateTimeBR(task.completedAt)}` : ''}
                     </div>
                   </div>
@@ -1211,7 +1211,7 @@ export function HubSpotRecordTasksSection({
                       <button
                         type="button"
                         onClick={() => handlePostponeTask(task, 1)}
-                        className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-normal text-slate-700 cursor-pointer"
+                        className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-semibold text-slate-700 cursor-pointer"
                         title="Adiar para amanhã (+1 dia)"
                       >
                         +1d
@@ -1219,7 +1219,7 @@ export function HubSpotRecordTasksSection({
                       <button
                         type="button"
                         onClick={() => handlePostponeTask(task, 7)}
-                        className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-normal text-slate-700 cursor-pointer"
+                        className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-[10px] font-semibold text-slate-700 cursor-pointer"
                         title="Adiar em 1 semana (+7 dias)"
                       >
                         +1 sem

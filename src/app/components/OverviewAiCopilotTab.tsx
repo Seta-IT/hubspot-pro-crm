@@ -149,10 +149,10 @@ export default function OverviewAiCopilotTab({
           return (
             <div key={st.stageId} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-normal text-slate-700 truncate">{st.stageName}</span>
-                <span className="font-normal text-slate-900">
+                <span className="font-semibold text-slate-700 truncate">{st.stageName}</span>
+                <span className="font-semibold text-slate-900">
                   {formatBRL(st.totalValue)}{' '}
-                  <span className="text-slate-400 font-normal">({st.dealCount} deals)</span>
+                  <span className="text-slate-400 font-semibold">({st.dealCount} deals)</span>
                 </span>
               </div>
               <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
@@ -217,9 +217,9 @@ export default function OverviewAiCopilotTab({
         {pipes.map((p) => (
           <div key={p.name} className="space-y-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-normal text-slate-800 truncate">{p.name}</span>
-              <span className="font-normal text-slate-900">
-                {formatBRL(p.value)} <span className="text-slate-400 font-normal">({p.deals} deals)</span>
+              <span className="font-semibold text-slate-800 truncate">{p.name}</span>
+              <span className="font-semibold text-slate-900">
+                {formatBRL(p.value)} <span className="text-slate-400 font-semibold">({p.deals} deals)</span>
               </span>
             </div>
             <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
@@ -247,8 +247,8 @@ export default function OverviewAiCopilotTab({
         {origins.map((o) => (
           <div key={o.source} className="space-y-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-normal text-slate-700 truncate">{o.source}</span>
-              <span className="font-normal text-slate-900">
+              <span className="font-semibold text-slate-700 truncate">{o.source}</span>
+              <span className="font-semibold text-slate-900">
                 {o.leads} leads <span className="text-emerald-700">({o.conv} SQL)</span>
               </span>
             </div>
@@ -315,19 +315,19 @@ export default function OverviewAiCopilotTab({
             <span className="flex items-center gap-1.5 text-slate-600">
               <span className="w-2.5 h-2.5 rounded-full bg-[#0d2b4e]" /> Contas Enterprise ABM
             </span>
-            <span className="text-slate-900">50%</span>
+            <strong className="text-slate-900">50%</strong>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-slate-600">
               <span className="w-2.5 h-2.5 rounded-full bg-[#0091ae]" /> Oportunidades (SQL)
             </span>
-            <span className="text-slate-900">31%</span>
+            <strong className="text-slate-900">31%</strong>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-slate-600">
               <span className="w-2.5 h-2.5 rounded-full bg-[#ff7a59]" /> Leads Qualificados (MQL)
             </span>
-            <span className="text-slate-900">19%</span>
+            <strong className="text-slate-900">19%</strong>
           </div>
         </div>
       </div>
@@ -362,13 +362,13 @@ export default function OverviewAiCopilotTab({
 
         <div className="space-y-2 text-xs">
           <div className="text-slate-600">
-            Completude Contatos/Deals: <span className="text-slate-900">94%</span>
+            Completude Contatos/Deals: <strong className="text-slate-900">94%</strong>
           </div>
           <div className="text-slate-600">
-            Validação E-mail &amp; E.164: <span className="text-emerald-700">96%</span>
+            Validação E-mail &amp; E.164: <strong className="text-emerald-700">96%</strong>
           </div>
           <div className="text-slate-600">
-            Trava Anti-Merge CNPJ (CRM): <span className="text-slate-900">Ativa</span>
+            Trava Anti-Merge CNPJ (CRM): <strong className="text-slate-900">Ativa</strong>
           </div>
         </div>
       </div>
@@ -402,12 +402,12 @@ export default function OverviewAiCopilotTab({
         {acts.map((a, i) => (
           <div key={i} className="py-2.5 flex items-center justify-between gap-2">
             <div>
-              <div className="font-normal text-slate-800">{a.title}</div>
+              <div className="font-semibold text-slate-800">{a.title}</div>
               <div className="text-[11px] text-slate-500">
                 {a.account} • Executivo: {a.owner}
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded bg-sky-50 text-[#0091ae] border border-sky-200 font-normal text-[10px] shrink-0">
+            <span className="px-2 py-0.5 rounded bg-sky-50 text-[#0091ae] border border-sky-200 font-semibold text-[10px] shrink-0">
               {a.tag}
             </span>
           </div>
@@ -428,8 +428,8 @@ export default function OverviewAiCopilotTab({
         {reps.map((r) => (
           <div key={r.name} className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="font-normal text-slate-800">{r.name}</span>
-              <span className="font-normal text-emerald-700">
+              <span className="font-semibold text-slate-800">{r.name}</span>
+              <span className="font-semibold text-emerald-700">
                 {formatBRL(r.current)} / {formatBRL(r.quota)} ({r.pct}%)
               </span>
             </div>
@@ -455,7 +455,7 @@ export default function OverviewAiCopilotTab({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-slate-800">{greeting()}, {(userName || "Colaborador").trim().split(/\s+/)[0]}</h1>
-            <span className="px-2.5 py-0.5 rounded-full bg-orange-50 text-[#e05835] border border-orange-200 text-[11px] font-normal">
+            <span className="px-2.5 py-0.5 rounded-full bg-orange-50 text-[#e05835] border border-orange-200 text-[11px] font-semibold">
               Dashboard Exclusivo CRM (Sales Hub &amp; Marketing Hub)
             </span>
           </div>
@@ -468,7 +468,7 @@ export default function OverviewAiCopilotTab({
           <button
             type="button"
             onClick={() => setShowCustomizer((v) => !v)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-normal text-slate-700 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
           >
             <Settings className="w-3.5 h-3.5 text-[#0091ae]" />
             Personalizar Gráficos CRM ({Object.values(enabledCharts).filter(Boolean).length}/8)
@@ -480,7 +480,7 @@ export default function OverviewAiCopilotTab({
       {showCustomizer && (
         <div className="bg-white rounded-xl border border-slate-300 p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-normal text-slate-800">
+            <span className="text-xs font-semibold text-slate-800">
               Escolha os gráficos exclusivos do CRM exibidos no seu Dashboard Comercial:
             </span>
             <button
@@ -498,7 +498,7 @@ export default function OverviewAiCopilotTab({
                 <label
                   key={c.id}
                   onClick={() => toggleChart(c.id)}
-                  className={`p-2.5 rounded-lg border text-xs font-normal flex items-center gap-2 cursor-pointer transition ${
+                  className={`p-2.5 rounded-lg border text-xs font-semibold flex items-center gap-2 cursor-pointer transition ${
                     on
                       ? 'border-[#0091ae] bg-sky-50/50 text-[#0d2b4e]'
                       : 'border-slate-200 bg-slate-50 text-slate-400'
@@ -524,10 +524,10 @@ export default function OverviewAiCopilotTab({
             <span>Pipeline Total em Aberto (CRM)</span>
             
           </div>
-          <div className="text-lg font-normal text-slate-900 mt-1.5 group-hover:text-[#0091ae]">
+          <div className="text-lg font-semibold text-slate-900 mt-1.5 group-hover:text-[#0091ae]">
             {formatBRL(openPipeline)}
           </div>
-          <div className="text-[11px] text-[#0091ae] font-normal mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-[#0091ae] font-semibold mt-1 flex items-center justify-between">
             <span>{dealsCount} negócios ativos nos 4 funis</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -542,10 +542,10 @@ export default function OverviewAiCopilotTab({
             <span>Forecast Ponderado (Sales Hub)</span>
             
           </div>
-          <div className="text-lg font-normal text-slate-900 mt-1.5 group-hover:text-[#e05835]">
+          <div className="text-lg font-semibold text-slate-900 mt-1.5 group-hover:text-[#e05835]">
             {formatBRL(weightedForecast)}
           </div>
-          <div className="text-[11px] text-[#e05835] font-normal mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-[#e05835] font-semibold mt-1 flex items-center justify-between">
             <span>Ponderado por etapa do funil</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -560,10 +560,10 @@ export default function OverviewAiCopilotTab({
             <span>Contatos &amp; Empresas (CRM)</span>
             
           </div>
-          <div className="text-lg font-normal text-slate-900 mt-1.5 group-hover:text-[#0d2b4e]">
+          <div className="text-lg font-semibold text-slate-900 mt-1.5 group-hover:text-[#0d2b4e]">
             {contactsCount} Contatos • {companiesCount} Emp.
           </div>
-          <div className="text-[11px] text-[#0d2b4e] font-normal mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-[#0d2b4e] font-semibold mt-1 flex items-center justify-between">
             <span>Leads, MQLs, SQLs &amp; Contas ABM</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -578,10 +578,10 @@ export default function OverviewAiCopilotTab({
             <span>Negócios Ganhos &amp; Conversão</span>
             
           </div>
-          <div className="text-lg font-normal text-emerald-700 mt-1.5">
+          <div className="text-lg font-semibold text-emerald-700 mt-1.5">
             {formatBRL(wonRevenue)}
           </div>
-          <div className="text-[11px] text-emerald-700 font-normal mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center justify-between">
             <span>Win Rate: 38% • Ticket Médio B2B</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -596,10 +596,10 @@ export default function OverviewAiCopilotTab({
             <span>Marketing Hub &amp; Automações</span>
             
           </div>
-          <div className="text-lg font-normal text-slate-900 mt-1.5 group-hover:text-indigo-700">
+          <div className="text-lg font-semibold text-slate-900 mt-1.5 group-hover:text-indigo-700">
             {formsCount} Forms • {automationsCount} Fluxos
           </div>
-          <div className="text-[11px] text-indigo-700 font-normal mt-1 flex items-center justify-between">
+          <div className="text-[11px] text-indigo-700 font-semibold mt-1 flex items-center justify-between">
             <span>Captação &amp; Cadências ABM Ativas</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -616,10 +616,10 @@ export default function OverviewAiCopilotTab({
                   Funil de <span className="text-[#0091ae]">negócios por etapa</span> (CRM)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Pipeline em aberto: <span className="text-slate-800">{formatBRL(openPipeline)}</span> • Ponderado: {formatBRL(weightedForecast)}
+                  Pipeline em aberto: <strong className="text-slate-800">{formatBRL(openPipeline)}</strong> • Ponderado: {formatBRL(weightedForecast)}
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
                 Abrir Kanban <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -638,7 +638,7 @@ export default function OverviewAiCopilotTab({
                   Comparativo mensal de Deals Criados (azul) vs. Deals Fechados Ganhos (verde)
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
                 Abrir Forecast <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -657,7 +657,7 @@ export default function OverviewAiCopilotTab({
                   Distribuição de volume comercial entre os 4 pipelines ativos do Sales Hub
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
                 Ver Pipelines <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -679,7 +679,7 @@ export default function OverviewAiCopilotTab({
                   Performance de aquisição B2B por canal (Outbound ABM, Landing Pages e E-mail)
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#ff7a59] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#ff7a59] inline-flex items-center gap-1 shrink-0">
                 Abrir Marketing Hub <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -698,7 +698,7 @@ export default function OverviewAiCopilotTab({
                   Qualificação da carteira comercial no Portal HubSpot #4369067
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
                 Abrir Contatos <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -720,7 +720,7 @@ export default function OverviewAiCopilotTab({
                   Diagnóstico exclusivo de Contatos, Empresas e Negócios do CRM
                 </p>
               </div>
-              <span className="text-xs font-normal text-teal-700 inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-teal-700 inline-flex items-center gap-1 shrink-0">
                 Auditoria CRM <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -739,7 +739,7 @@ export default function OverviewAiCopilotTab({
                   Últimas reuniões executivas, ligações SQL e follow-ups registrados nos Deals
                 </p>
               </div>
-              <span className="text-xs font-normal text-[#0091ae] inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">
                 Ver Timeline <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>
@@ -758,7 +758,7 @@ export default function OverviewAiCopilotTab({
                   Performance individual dos executivos de conta no trimestre atual
                 </p>
               </div>
-              <span className="text-xs font-normal text-emerald-700 inline-flex items-center gap-1 shrink-0">
+              <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1 shrink-0">
                 Abrir Sales Hub <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
               </span>
             </div>

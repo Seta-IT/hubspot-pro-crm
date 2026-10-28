@@ -862,7 +862,7 @@ export function ProposalEditModal({
                             className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
                           >
                             <Plus className="w-4 h-4" />
-                            <span>+ Adicionar novo</span>
+                            <strong>+ Adicionar novo</strong>
                           </button>
                           <button
                             type="button"
@@ -1118,7 +1118,7 @@ export function ProposalEditModal({
               {(draft.budgetType === "SERVICOS" || draft.budgetType === "CONJUNTO") && (
                 <div className="p-3.5 rounded-md border border-indigo-200 bg-indigo-50/50 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="block text-[11px] font-normal text-indigo-950">
+                    <label className="block text-[11px] font-semibold text-indigo-950">
                       Tipo de Serviço (Exibido no Cabeçalho e Escopo da Proposta de Serviços) *
                     </label>
                     <span className="text-[10px] text-indigo-700">
@@ -1149,7 +1149,7 @@ export function ProposalEditModal({
                                   : "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação",
                             });
                           }}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-normal border cursor-pointer transition ${
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer transition ${
                             isSelected
                               ? "bg-[#1e3a6e] text-white border-[#1e3a6e]"
                               : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
@@ -1166,7 +1166,7 @@ export function ProposalEditModal({
                     value={resolveProposalServiceType(draft)}
                     onChange={(e) => updateDraft({ serviceType: e.target.value })}
                     placeholder="Ex.: Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação"
-                    className="w-full px-3 py-2 rounded border border-indigo-300 bg-white font-normal text-slate-900 text-xs"
+                    className="w-full px-3 py-2 rounded border border-indigo-300 bg-white font-semibold text-slate-900 text-xs"
                   />
                   <datalist id="proposal-service-type-options">
                     {PROPOSAL_SERVICE_TYPE_OPTIONS.map((opt) => (
@@ -1179,7 +1179,7 @@ export function ProposalEditModal({
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
                 {draft.budgetType !== "PRODUTOS" && (
                   <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
                     </label>
                     <select
@@ -1192,7 +1192,7 @@ export function ProposalEditModal({
                           slaResponseHours: opt.slaResponseHours,
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-[#1e3a6e]"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-[#1e3a6e]"
                     >
                       {PROPOSAL_SLA_OPTIONS.map((opt) => (
                         <option key={opt.id} value={opt.id}>
@@ -1204,7 +1204,7 @@ export function ProposalEditModal({
                 )}
 
                 <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-6" : "sm:col-span-3"}>
-                  <label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
+                  <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     Prazo de Entrega
                   </label>
                   <input
@@ -1218,7 +1218,7 @@ export function ProposalEditModal({
                         deliveryForecast: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-slate-900"
                   />
                   <datalist id="proposal-delivery-leadtime-options">
                     {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
@@ -1229,13 +1229,13 @@ export function ProposalEditModal({
 
                 {draft.budgetType !== "PRODUTOS" && (
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-normal text-[#1e3a6e] mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       Vigência / Contrato
                     </label>
                     <select
                       value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
                       onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-normal text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-slate-900"
                     >
                       <option value="1">Avulso / 1 mês</option>
                       <option value="6">6 meses</option>
@@ -1250,7 +1250,7 @@ export function ProposalEditModal({
 
                 <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-6" : "sm:col-span-3"}>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="inline-flex items-center gap-1.5 text-[11px] font-normal text-[#1e3a6e] cursor-pointer">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
                       <input
                         type="checkbox"
                         checked={Number(draft.setupFee || 0) > 0}
@@ -1272,7 +1272,7 @@ export function ProposalEditModal({
                         updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
                       }
                       placeholder="Valor do Setup (Isolado)"
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-normal text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
                     />
                   ) : (
                     <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">

@@ -169,7 +169,7 @@ export function SetaErpTenPillarsMatrix({
     <div className="bg-white rounded-md border border-slate-200 p-4 shadow-xs space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-normal uppercase">
+          <span className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-semibold uppercase">
             MATRIZ OFICIAL SETA ERP
           </span>
           <h2 className="text-xs sm:text-sm font-semibold text-slate-800">
@@ -179,7 +179,7 @@ export function SetaErpTenPillarsMatrix({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="text-xs font-normal text-[#1e3a6e] hover:underline cursor-pointer"
+          className="text-xs font-semibold text-[#1e3a6e] hover:underline cursor-pointer"
         >
           {expanded ? 'Recolher Matriz ▲' : 'Expandir 10 Pilares ▼'}
         </button>
@@ -205,18 +205,18 @@ export function SetaErpTenPillarsMatrix({
               >
                 <div>
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-normal text-slate-400">PILAR {p.num}</span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-normal bg-emerald-100 text-emerald-800">
+                    <span className="text-[10px] font-semibold text-slate-400">PILAR {p.num}</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-100 text-emerald-800">
                       ● Ativo
                     </span>
                   </div>
-                  <div className="text-xs font-normal text-[#1e3a6e] flex items-center gap-1.5 mt-0.5">
+                  <div className="text-xs font-semibold text-[#1e3a6e] flex items-center gap-1.5 mt-0.5">
                     <Icon className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">{p.title}</span>
                   </div>
                   <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{p.subtitle}</p>
                 </div>
-                <div className="pt-1 border-t border-slate-200/70 flex items-center justify-between text-[10px] font-normal text-slate-700">
+                <div className="pt-1 border-t border-slate-200/70 flex items-center justify-between text-[10px] font-semibold text-slate-700">
                   <span className="truncate">{p.metrics}</span>
                   <ArrowRight className="w-3 h-3 text-[#1e3a6e] shrink-0" />
                 </div>
@@ -410,14 +410,14 @@ export function SetaErpPdvPosView({
         <div className="lg:col-span-7 bg-white rounded-md border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div>
-              <span className="text-[10px] font-normal uppercase text-rose-600 block">
+              <span className="text-[10px] font-semibold uppercase text-rose-600 block">
                 Pilar 9 • Frente de Caixa &amp; Venda Balcão (PDV Seta Telecom)
               </span>
               <h2 className="text-base font-semibold text-slate-900">
                 PDV Rápido — Loja Matriz #118887
               </h2>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-normal">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
               ● Caixa Aberto (Operador: {sellerName})
             </span>
           </div>
@@ -425,11 +425,11 @@ export function SetaErpPdvPosView({
           {/* Client & Seller Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div>
-              <label className="block font-normal text-slate-700 mb-1">Cliente (ou Consumidor Balcão)</label>
+              <label className="block font-semibold text-slate-700 mb-1">Cliente (ou Consumidor Balcão)</label>
               <select
                 value={selectedClientName}
                 onChange={(e) => setSelectedClientName(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
               >
                 <option value="Consumidor Final / Venda Balcão">Consumidor Final / Venda Balcão</option>
                 <option value="MUNDIVOX COMUNICACOES LTDA">MUNDIVOX COMUNICACOES LTDA</option>
@@ -441,11 +441,11 @@ export function SetaErpPdvPosView({
               </select>
             </div>
             <div>
-              <label className="block font-normal text-slate-700 mb-1">Vendedor / Operador de Caixa</label>
+              <label className="block font-semibold text-slate-700 mb-1">Vendedor / Operador de Caixa</label>
               <select
                 value={sellerName}
                 onChange={(e) => setSellerName(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
               >
                 <option value="Marcelo Mira">Marcelo Mira</option>
                 <option value="Evelyn Olivia de Rosa Ternero">Evelyn Olivia de Rosa Ternero</option>
@@ -472,7 +472,7 @@ export function SetaErpPdvPosView({
                   key={item.id}
                   type="button"
                   onClick={() => addProductToCart(item)}
-                  className="px-2.5 py-1 rounded border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-[#1e3a6e] text-[11px] font-normal text-slate-700 cursor-pointer transition"
+                  className="px-2.5 py-1 rounded border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-[#1e3a6e] text-[11px] font-semibold text-slate-700 cursor-pointer transition"
                 >
                   + {item.gestaoClickCode} ({formatBRL(item.saleOrSetupPrice || item.monthlyRentalPrice)})
                 </button>
@@ -499,7 +499,7 @@ export function SetaErpPdvPosView({
                   return (
                     <tr key={it.id}>
                       <td className="py-2.5 px-3">
-                        <div className="font-mono font-normal text-[#1e3a6e]">{it.sku}</div>
+                        <div className="font-mono font-semibold text-[#1e3a6e]">{it.sku}</div>
                         <div className="text-[11px] text-slate-600 truncate max-w-[210px]">{it.name}</div>
                       </td>
                       <td className="py-2.5 px-2">
@@ -515,7 +515,7 @@ export function SetaErpPdvPosView({
                           >
                             <Minus className="w-3 h-3" />
                           </button>
-                          <span className="w-6 text-center font-normal">{it.quantity}</span>
+                          <span className="w-6 text-center font-semibold">{it.quantity}</span>
                           <button
                             type="button"
                             onClick={() => {
@@ -529,7 +529,7 @@ export function SetaErpPdvPosView({
                           </button>
                         </div>
                       </td>
-                      <td className="py-2.5 px-2 text-right font-normal">{formatBRL(it.unitPrice)}</td>
+                      <td className="py-2.5 px-2 text-right font-semibold">{formatBRL(it.unitPrice)}</td>
                       <td className="py-2.5 px-2 text-right">
                         <input
                           type="number"
@@ -543,7 +543,7 @@ export function SetaErpPdvPosView({
                           className="w-20 px-2 py-1 rounded border text-right"
                         />
                       </td>
-                      <td className="py-2.5 px-3 text-right font-normal text-slate-900">
+                      <td className="py-2.5 px-3 text-right font-semibold text-slate-900">
                         {formatBRL(sub)}
                       </td>
                       <td className="py-2.5 px-2 text-right">
@@ -568,10 +568,10 @@ export function SetaErpPdvPosView({
           <div className="space-y-4">
             <div className="p-4 rounded-lg bg-[#1e3a6e] text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-normal uppercase text-emerald-300 block">
+                <span className="text-[10px] font-semibold uppercase text-emerald-300 block">
                   Total Líquido a Pagar (PDV)
                 </span>
-                <div className="text-2xl font-normal mt-0.5">{formatBRL(totalNet)}</div>
+                <div className="text-2xl font-semibold mt-0.5">{formatBRL(totalNet)}</div>
                 <span className="text-[11px] text-slate-200">
                   Bruto: {formatBRL(subtotalGross)} • Descontos: {formatBRL(itemDiscounts + globalDiscount)}
                 </span>
@@ -580,7 +580,7 @@ export function SetaErpPdvPosView({
             </div>
 
             <div>
-              <label className="block text-xs font-normal uppercase text-slate-700 mb-2">
+              <label className="block text-xs font-semibold uppercase text-slate-700 mb-2">
                 Selecione a Forma de Pagamento
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -598,7 +598,7 @@ export function SetaErpPdvPosView({
                       key={pm.id}
                       type="button"
                       onClick={() => setPaymentMethod(pm.id as typeof paymentMethod)}
-                      className={`p-2.5 rounded border text-left font-normal flex items-center gap-2 cursor-pointer transition ${
+                      className={`p-2.5 rounded border text-left font-semibold flex items-center gap-2 cursor-pointer transition ${
                         active
                           ? 'border-[#1e3a6e] bg-blue-50 text-[#1e3a6e]'
                           : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
@@ -615,18 +615,18 @@ export function SetaErpPdvPosView({
             {paymentMethod === 'DINHEIRO' && (
               <div className="p-3 rounded bg-amber-50 border border-amber-200 grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="block font-normal text-amber-900 mb-1">Valor Recebido (R$)</label>
+                  <label className="block font-semibold text-amber-900 mb-1">Valor Recebido (R$)</label>
                   <input
                     type="number"
                     value={cashReceived}
                     onChange={(e) => setCashReceived(e.target.value)}
                     placeholder={String(totalNet)}
-                    className="w-full px-2.5 py-1.5 rounded border bg-white font-normal"
+                    className="w-full px-2.5 py-1.5 rounded border bg-white font-semibold"
                   />
                 </div>
                 <div>
-                  <span className="block font-normal text-amber-900 mb-1">Troco a Devolver</span>
-                  <div className="text-base font-normal text-emerald-700 pt-1">
+                  <span className="block font-semibold text-amber-900 mb-1">Troco a Devolver</span>
+                  <div className="text-base font-semibold text-emerald-700 pt-1">
                     {formatBRL(changeBrl)}
                   </div>
                 </div>
@@ -639,7 +639,7 @@ export function SetaErpPdvPosView({
               type="button"
               disabled={submittingSale || cart.length === 0}
               onClick={handleFinalizePdvSale}
-              className="w-full py-3 px-4 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-normal shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="w-full py-3 px-4 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               {submittingSale
@@ -661,7 +661,7 @@ export function SetaErpPdvPosView({
               Conciliação automática das vendas realizadas no balcão/PDV.
             </p>
           </div>
-          <span className="text-xs font-normal text-emerald-700">
+          <span className="text-xs font-semibold text-emerald-700">
             Total no Turno: {formatBRL(shiftHistory.reduce((s, h) => s + h.amount, 0))}
           </span>
         </div>
@@ -676,9 +676,9 @@ export function SetaErpPdvPosView({
           ].map(([key, label]) => (
             <div key={key} className="p-2.5 rounded border border-slate-200 bg-slate-50">
               <span className="text-[10px] text-slate-500 block">{label}</span>
-              <span className="text-sm font-normal text-slate-900">
+              <strong className="text-sm font-semibold text-slate-900">
                 {formatBRL(sumByMethod(key))}
-              </span>
+              </strong>
             </div>
           ))}
         </div>
@@ -689,7 +689,7 @@ export function SetaErpPdvPosView({
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-md w-full overflow-hidden">
             <div className="px-5 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
-              <span className="text-xs font-normal">
+              <span className="text-xs font-semibold">
                 Cupom PDV / NFC-e #{emittedReceipt.code}
               </span>
               <button
@@ -702,15 +702,15 @@ export function SetaErpPdvPosView({
             </div>
             <div className="p-5 space-y-3 text-xs font-mono text-slate-800">
               <div className="text-center border-b border-dashed border-slate-300 pb-3">
-                <div className="font-normal text-sm">SETA TELECOM LTDA (SETA | IT)</div>
+                <div className="font-semibold text-sm">SETA TELECOM LTDA (SETA | IT)</div>
                 <div>CNPJ 14.806.925/0001-32 • Loja Matriz #118887</div>
                 <div>Documento Auxiliar NFC-e: {emittedReceipt.nfceNumber}</div>
                 <div>Data: {emittedReceipt.date}</div>
               </div>
               <div>
-                <div>Cliente: <span>{emittedReceipt.clientName}</span></div>
+                <div>Cliente: <strong>{emittedReceipt.clientName}</strong></div>
                 <div>Vendedor: {emittedReceipt.sellerName}</div>
-                <div>Forma Pagto: <span>{emittedReceipt.paymentMethod}</span></div>
+                <div>Forma Pagto: <strong>{emittedReceipt.paymentMethod}</strong></div>
               </div>
               <div className="border-y border-dashed border-slate-300 py-2 space-y-1">
                 {emittedReceipt.items.map((it) => (
@@ -718,11 +718,11 @@ export function SetaErpPdvPosView({
                     <span>
                       {it.quantity}x {it.sku}
                     </span>
-                    <span>{formatBRL(it.quantity * it.unitPrice - it.discountBrl)}</span>
+                    <strong>{formatBRL(it.quantity * it.unitPrice - it.discountBrl)}</strong>
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between text-sm font-normal">
+              <div className="flex justify-between text-sm font-semibold">
                 <span>TOTAL PAGO:</span>
                 <span>{formatBRL(emittedReceipt.totalAmount)}</span>
               </div>
@@ -737,14 +737,14 @@ export function SetaErpPdvPosView({
                       amountBrl: emittedReceipt.totalAmount,
                     });
                   }}
-                  className="px-3 py-2 rounded bg-sky-600 text-white text-xs font-normal cursor-pointer inline-flex items-center gap-1"
+                  className="px-3 py-2 rounded bg-sky-600 text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
                 >
                   <Mail className="w-3.5 h-3.5" /> Enviar por E-mail
                 </button>
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-2 rounded bg-[#ff7a59] text-white text-xs font-normal cursor-pointer inline-flex items-center gap-1"
+                  className="px-3 py-2 rounded bg-[#ff7a59] text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
                 >
                   <Printer className="w-3.5 h-3.5" /> Imprimir Cupom
                 </button>
@@ -917,7 +917,7 @@ export function SetaErpStockAndPurchasesSubbar({
                 key={t.id}
                 type="button"
                 onClick={() => onSelectSubId(t.id)}
-                className={`px-3 py-1.5 rounded text-xs font-normal cursor-pointer transition ${
+                className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition ${
                   on
                     ? 'bg-[#1e3a6e] text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -936,21 +936,21 @@ export function SetaErpStockAndPurchasesSubbar({
               setImportedResult(null);
               setShowXmlModal(true);
             }}
-            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-normal cursor-pointer inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
           >
             <FileText className="w-3.5 h-3.5" /> Importar XML NF-e (SEFAZ)
           </button>
           <button
             type="button"
             onClick={onCreateStockTransfer}
-            className="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-normal text-slate-800 cursor-pointer inline-flex items-center gap-1"
+            className="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer inline-flex items-center gap-1"
           >
             <ArrowLeftRight className="w-3.5 h-3.5 text-[#1e3a6e]" /> + Transferência / Ajuste
           </button>
           <button
             type="button"
             onClick={onCreatePurchaseOrder}
-            className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-normal cursor-pointer inline-flex items-center gap-1"
+            className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
           >
             <Truck className="w-3.5 h-3.5 text-emerald-300" /> + Nova Cotação / Ordem de Compra
           </button>
@@ -962,7 +962,7 @@ export function SetaErpStockAndPurchasesSubbar({
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-normal uppercase text-emerald-300 block">
+                <span className="text-[10px] font-semibold uppercase text-emerald-300 block">
                   Pilar 4 • Escrituração Automática SEFAZ Modelo 55 (Seta Telecom #118887)
                 </span>
                 <h3 className="text-sm font-semibold">
@@ -981,13 +981,13 @@ export function SetaErpStockAndPurchasesSubbar({
             <div className="p-6 space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-normal text-slate-700 mb-1">
+                  <label className="block font-semibold text-slate-700 mb-1">
                     Enquadramento CFOP de Entrada
                   </label>
                   <select
                     value={cfopEntrada}
                     onChange={(e) => setCfopEntrada(e.target.value)}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                   >
                     <option value="1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)">
                       1.551 — Ativo Imobilizado (Parque de Locação)
@@ -1004,18 +1004,18 @@ export function SetaErpStockAndPurchasesSubbar({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-normal text-slate-700 mb-1">Centro de Custo</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Centro de Custo</label>
                   <input
                     type="text"
                     value={costCenter}
                     onChange={(e) => setCostCenter(e.target.value)}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-normal"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                   />
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="inline-flex items-center gap-2 font-normal text-slate-700 cursor-pointer">
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={autoReceiveStock}
@@ -1025,7 +1025,7 @@ export function SetaErpStockAndPurchasesSubbar({
                   Dar entrada física imediata no Estoque Matriz #118887 e registrar Números de Série (S/N)
                 </label>
 
-                <label className="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-normal text-slate-800 cursor-pointer">
+                <label className="px-3 py-1.5 rounded bg-slate-100 hover:bg-slate-200 border border-slate-300 font-semibold text-slate-800 cursor-pointer">
                   Selecionar Arquivo .XML
                   <input
                     type="file"
@@ -1042,7 +1042,7 @@ export function SetaErpStockAndPurchasesSubbar({
               </div>
 
               <div>
-                <label className="block font-normal text-slate-700 mb-1">
+                <label className="block font-semibold text-slate-700 mb-1">
                   Conteúdo XML da NF-e (Padrão SEFAZ 4.00 — tags &lt;infNFe&gt;, &lt;emit&gt;, &lt;det&gt;, &lt;ICMSTot&gt;)
                 </label>
                 <textarea
@@ -1055,14 +1055,14 @@ export function SetaErpStockAndPurchasesSubbar({
 
               {importedResult && (
                 <div className="p-3.5 rounded bg-emerald-50 border border-emerald-200 space-y-1 text-emerald-950">
-                  <div className="font-normal flex items-center gap-1.5">
+                  <div className="font-semibold flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     NF-e {importedResult.nfeNumber} Escriturada — Ordem de Compra #{importedResult.poCode}
                   </div>
                   <div className="text-[11px]">
-                    Emitente: <span>{importedResult.supplierName}</span> • Total:{' '}
-                    <span>{formatBRL(importedResult.totalAmount)}</span> •{' '}
-                    <span>{importedResult.serialCount} S/N</span> incorporados ao almoxarifado.
+                    Emitente: <strong>{importedResult.supplierName}</strong> • Total:{' '}
+                    <strong>{formatBRL(importedResult.totalAmount)}</strong> •{' '}
+                    <strong>{importedResult.serialCount} S/N</strong> incorporados ao almoxarifado.
                   </div>
                   {importedResult.nfeAccessKey && (
                     <div className="font-mono text-[10px] text-emerald-800">
@@ -1076,7 +1076,7 @@ export function SetaErpStockAndPurchasesSubbar({
                 <button
                   type="button"
                   onClick={() => setShowXmlModal(false)}
-                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-normal cursor-pointer"
+                  className="px-4 py-2 rounded border border-slate-300 text-slate-700 font-semibold cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -1084,7 +1084,7 @@ export function SetaErpStockAndPurchasesSubbar({
                   type="button"
                   disabled={importingXml}
                   onClick={handleImportNfeXml}
-                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-normal cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer disabled:opacity-50"
                 >
                   {importingXml ? 'Importando XML SEFAZ...' : 'Processar XML & Gerar Ordem de Compra'}
                 </button>
