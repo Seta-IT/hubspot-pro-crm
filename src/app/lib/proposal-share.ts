@@ -80,6 +80,135 @@ export const PROPOSAL_SLA_OPTIONS: ProposalSlaOptionSpec[] = [
   },
 ];
 
+
+export interface ProposalTemplateOptionSpec {
+  id:
+    | 'FOLHA_ORCAMENTO'
+    | 'EXECUTIVO_CORPORATIVO'
+    | 'DESIGN_CONSULTORIA'
+    | 'INSTITUCIONAL_SETA_TELECOM';
+  label: string;
+  shortLabel: string;
+  description: string;
+}
+
+export const PROPOSAL_TEMPLATE_STYLE_OPTIONS: ProposalTemplateOptionSpec[] = [
+  {
+    id: 'FOLHA_ORCAMENTO',
+    label: '1. Folha de Orçamento Direta (Comercial & Objetiva)',
+    shortLabel: 'Folha de Orçamento Direta',
+    description:
+      'Design estilo folha de orçamento comercial: cabeçalho compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite na mesma folha.',
+  },
+  {
+    id: 'EXECUTIVO_CORPORATIVO',
+    label: '2. Proposta Corporativa Executiva (B2B Formal)',
+    shortLabel: 'Corporativo Executivo B2B',
+    description:
+      'Layout executivo formal com Quadro de Resumo Financeiro em destaque no topo, blocos de Proponente e Destinatário, condições contratuais e assinatura digital.',
+  },
+  {
+    id: 'DESIGN_CONSULTORIA',
+    label: '3. Proposta de Consultoria & Arquitetura Técnica',
+    shortLabel: 'Design de Consultoria Técnica',
+    description:
+      'Estrutura consultiva numerada por seções (01. Diagnóstico & Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Investimento & Ativos, 04. Formalização).',
+  },
+  {
+    id: 'INSTITUCIONAL_SETA_TELECOM',
+    label: '4. Institucional Seta Telecom + Portfólio de Tecnologias + Folha de Orçamento',
+    shortLabel: 'Institucional Seta + Tecnologias + Orçamento',
+    description:
+      'Apresenta no início uma introdução sobre a Seta Telecom e os serviços e tecnologias em que atua (PABX IP/VoIP, SD-WAN/Redes, Wi-Fi 6/Switches PoE, Locação HaaS & Suporte) antes de trazer a Folha de Orçamento completa.',
+  },
+];
+
+export const SETA_TELECOM_PORTFOLIO_PILLARS = [
+  {
+    code: 'VOIP_PABX_UC',
+    title: 'Telefonia IP, PABX Cloud & Comunicação Unificada',
+    subtitle: 'Voz Corporativa de Alta Disponibilidade',
+    items: [
+      'Centrais PABX IP Seta Cloud (Cluster / High-Availability) e Appliances dedicados',
+      'Gateways de Voz E1 / SIP / FXO / FXS e sobrevivência de chamadas',
+      'Terminais IP Gigabit PoE (Yealink, Grandstream, Cisco) e headsets corporativos',
+      'URA inteligente, gravação de chamadas, filas de atendimento e tarifação',
+    ],
+  },
+  {
+    code: 'SDWAN_SECURITY',
+    title: 'Conectividade Corporativa, SD-WAN & Segurança de Borda',
+    subtitle: 'Continuidade de Negócios e Tráfego Crítico',
+    items: [
+      'Roteadores Corporativos (Cisco ISR, FortiGate, Mikrotik Enterprise)',
+      'Arquitetura SD-WAN com balanceamento e failover automático Dual-WAN / 5G',
+      'Firewalls Next-Generation (NGFW / UTM), VPN Site-to-Site e Client-to-Site',
+      'Priorização inteligente de tráfego (QoS) para voz, vídeo e ERP em nuvem',
+    ],
+  },
+  {
+    code: 'INFRA_SWITCH_WIFI',
+    title: 'Infraestrutura de Redes, Switches PoE+ & Wi-Fi 6 Corporativo',
+    subtitle: 'Switching L2/L3 e Cobertura de Alta Densidade',
+    items: [
+      'Switches Gerenciáveis L2/L3 Gigabit e 10G com alimentação PoE/PoE+',
+      'Projetos de Wi-Fi 6 Corporativo para escritórios, indústrias e centros logísticos',
+      'Segmentação lógica de redes (VLANs), cabeamento estruturado e certificação',
+      'Sistemas de energia ininterrupta (Nobreaks Online Dupla Conversão para racks)',
+    ],
+  },
+  {
+    code: 'HAAS_NOC_SERVICES',
+    title: 'Locação de Ativos (HaaS) & Engenharia / Suporte Especializado',
+    subtitle: 'Outsourcing de Hardware e Gestão Fim a Fim',
+    items: [
+      'Locação pura de equipamentos TI/Telecom (100% OPEX • Súmula Vinculante 31 STF)',
+      'Implantação técnica assistida, homologação de troncos SIP e migração sem parada',
+      'Monitoramento proativo, manutenção preventiva e corretiva especializada',
+      'Substituição expressa de equipamentos e gestão completa do ciclo de vida',
+    ],
+  },
+] as const;
+
+export const PROPOSAL_DELIVERY_SUGGESTIONS: string[] = [
+  '5 dias úteis após o aceite',
+  '7 dias úteis após o aceite',
+  '10 dias úteis após o aceite',
+  '15 dias úteis após o aceite',
+  '20 dias úteis após o aceite',
+  '30 dias corridos após o aceite',
+  'Entrega imediata (estoque disponível)',
+  'A definir conforme cronograma do projeto',
+];
+
+export function resolveProposalDeliveryLeadTime(
+  prop: Partial<ErpCommercialProposal>
+): string {
+  const raw = String(prop.deliveryLeadTime ?? prop.deliveryForecast ?? '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('até 48') ||
+    lower.includes('ate 48') ||
+    lower.includes('48 horas') ||
+    lower.includes('48h')
+  ) {
+    return '';
+  }
+  return raw;
+}
+
+export function resolveProposalLayoutKind(
+  templateStyle?: string
+): 'FOLHA_ORCAMENTO' | 'EXECUTIVO_CORPORATIVO' | 'DESIGN_CONSULTORIA' | 'INSTITUCIONAL_SETA_TELECOM' {
+  if (templateStyle === 'FOLHA_ORCAMENTO') return 'FOLHA_ORCAMENTO';
+  if (templateStyle === 'EXECUTIVO_CORPORATIVO') return 'EXECUTIVO_CORPORATIVO';
+  if (templateStyle === 'DESIGN_CONSULTORIA' || templateStyle === 'LOCACAO_DETALHADA_SLA') {
+    return 'DESIGN_CONSULTORIA';
+  }
+  return 'INSTITUCIONAL_SETA_TELECOM';
+}
+
 export interface ProposalSellerContactInfo {
   name: string;
   email: string;
@@ -316,6 +445,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
   const resolvedSla = resolveProposalSlaOption(next);
   const sellerInfo = resolveProposalSellerContact(next);
   const cleanedPaymentCondition = cleanProposalPaymentCondition(next.paymentCondition);
+  const resolvedDeliveryLeadTime = resolveProposalDeliveryLeadTime(next);
 
   return {
     ...next,
@@ -323,7 +453,9 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     sellerEmail: next.sellerEmail ? sellerInfo.email : sellerInfo.email,
     sellerPhone: next.sellerPhone ? sellerInfo.phone : sellerInfo.phone,
     paymentCondition: cleanedPaymentCondition || next.paymentCondition || '',
-    templateStyle: next.templateStyle || 'SETA_PREMIUM_TELECOM',
+    deliveryLeadTime: resolvedDeliveryLeadTime,
+    deliveryForecast: resolvedDeliveryLeadTime,
+    templateStyle: next.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
     slaTier: resolvedSla.id,
     slaAvailabilityPercent: resolvedSla.slaAvailabilityPercent,
     slaResponseHours: resolvedSla.slaResponseHours,
@@ -357,6 +489,7 @@ export interface CompactProposalPayload {
   sc?: string; // salesChannel
   co?: string; // costCenter
   pd?: string; // proposalDate
+  dl?: string; // deliveryLeadTime
   df?: string; // deliveryForecast
   cf?: string; // careOf
   ce?: string; // contactEmail
@@ -421,7 +554,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       c: computed.code,
       t: computed.title,
       bt: computed.budgetType,
-      ts: computed.templateStyle || 'SETA_PREMIUM_TELECOM',
+      ts: computed.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
       sl: computed.slaTier,
       sa: computed.slaAvailabilityPercent,
       sr: computed.slaResponseHours,
@@ -430,7 +563,8 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
       sc: computed.salesChannel,
       co: computed.costCenter,
       pd: computed.proposalDate,
-      df: computed.deliveryForecast,
+      dl: computed.deliveryLeadTime || computed.deliveryForecast || undefined,
+      df: computed.deliveryLeadTime || computed.deliveryForecast || undefined,
       cf: computed.careOf,
       ce: computed.contactEmail,
       in: computed.introductionText ? computed.introductionText.slice(0, 450) : undefined,
@@ -562,7 +696,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       title: p.t,
       budgetType: (p.bt as ErpCommercialProposal['budgetType']) || undefined,
       templateStyle:
-        (p.ts as ErpCommercialProposal['templateStyle']) || 'SETA_PREMIUM_TELECOM',
+        (p.ts as ErpCommercialProposal['templateStyle']) || 'INSTITUCIONAL_SETA_TELECOM',
       slaTier: p.sl || undefined,
       slaAvailabilityPercent: p.sa || undefined,
       slaResponseHours: p.sr !== undefined ? Number(p.sr) : undefined,
@@ -571,7 +705,8 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
       salesChannel: p.sc || undefined,
       costCenter: p.co || undefined,
       proposalDate: p.pd || (p.ca ? p.ca.slice(0, 10) : new Date().toISOString().slice(0, 10)),
-      deliveryForecast: p.df || 'Imediato (até 48h úteis após aceite)',
+      deliveryLeadTime: resolveProposalDeliveryLeadTime({ deliveryLeadTime: p.dl, deliveryForecast: p.df }),
+      deliveryForecast: resolveProposalDeliveryLeadTime({ deliveryLeadTime: p.dl, deliveryForecast: p.df }),
       careOf: p.cf || p.ct || 'Decisor Comercial',
       contactEmail: p.ce || undefined,
       introductionText: p.in || undefined,
@@ -633,3 +768,7 @@ export function buildPublicProposalUrl(
   const qs = params.toString();
   return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs ? `?${qs}` : ''}`;
 }
+
+export const normalizeProposalTemplateStyle = resolveProposalLayoutKind;
+export const PROPOSAL_DELIVERY_LEAD_TIME_OPTIONS = PROPOSAL_DELIVERY_SUGGESTIONS;
+export const SETA_TELECOM_INSTITUTIONAL_PILLARS = SETA_TELECOM_PORTFOLIO_PILLARS;

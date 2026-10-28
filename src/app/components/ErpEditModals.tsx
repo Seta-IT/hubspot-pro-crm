@@ -47,7 +47,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { computeProposalTotals, inferProposalItemType, PROPOSAL_SLA_OPTIONS, resolveProposalSellerContact, resolveProposalSlaOption } from '../lib/proposal-share';
+import { computeProposalTotals, inferProposalItemType, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalSlaOption } from '../lib/proposal-share';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -707,9 +707,9 @@ export function ProposalEditModal({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-bold text-slate-600">Template PDF:</label>
+                <label className="text-[11px] font-bold text-slate-600">Layout / Template da Proposta:</label>
                 <select
-                  value={draft.templateStyle || 'SETA_PREMIUM_TELECOM'}
+                  value={resolveProposalLayoutKind(draft.templateStyle)}
                   onChange={(e) =>
                     updateDraft({
                       templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
@@ -717,9 +717,11 @@ export function ProposalEditModal({
                   }
                   className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 font-extrabold text-emerald-950"
                 >
-                  <option value="SETA_PREMIUM_TELECOM">Template Seta Premium Telecom (Padrão)</option>
-                  <option value="EXECUTIVO_CORPORATIVO">Template Executivo Corporativo B2B</option>
-                  <option value="LOCACAO_DETALHADA_SLA">Template Locação Detalhada + SLA &amp; Rateio Pro-Rata</option>
+                  {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.label}
+                    </option>
+                  ))}
                 </select>
 
                 <label className="text-[11px] font-bold text-slate-600">Tipo de Orçamento:</label>
@@ -1065,9 +1067,9 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA DE SLA CONTRATADO, TEMPO DE CONTRATO E TAXA DE SETUP ISOLADA */}
+              {/* LINHA DE SLA CONTRATADO, PRAZO DE ENTREGA DINÂMICO, TEMPO DE CONTRATO E TAXA DE SETUP ISOLADA */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                <div className="sm:col-span-6">
+                <div className="sm:col-span-4">
                   <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
                     SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
                   </label>
@@ -1093,7 +1095,31 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-3">
                   <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
-                    Vigência / Tempo de Contrato
+                    Prazo de Entrega / Implantação
+                  </label>
+                  <input
+                    type="text"
+                    list="proposal-delivery-leadtime-options"
+                    placeholder="Ex.: 10 dias úteis após o aceite"
+                    value={resolveProposalDeliveryLeadTime(draft)}
+                    onChange={(e) =>
+                      updateDraft({
+                        deliveryLeadTime: e.target.value,
+                        deliveryForecast: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                  />
+                  <datalist id="proposal-delivery-leadtime-options">
+                    {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
+                      <option key={item} value={item} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
+                    Vigência / Contrato
                   </label>
                   <select
                     value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
@@ -1629,7 +1655,25 @@ export function ProposalEditModal({
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
-              <div className="sm:col-span-4">
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Prazo de Entrega / Ativação
+                </label>
+                <input
+                  type="text"
+                  list="proposal-delivery-leadtime-options"
+                  placeholder="Informe o prazo de entrega..."
+                  value={resolveProposalDeliveryLeadTime(draft)}
+                  onChange={(e) =>
+                    updateDraft({
+                      deliveryLeadTime: e.target.value,
+                      deliveryForecast: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                />
+              </div>
+              <div className="sm:col-span-3">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
                   Transportadora / Modalidade de Envio
                 </label>
@@ -1671,25 +1715,7 @@ export function ProposalEditModal({
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Índice de Reajuste Anual
-                </label>
-                <select
-                  value={draft.readjustmentIndex || 'IPCA'}
-                  onChange={(e) =>
-                    updateDraft({
-                      readjustmentIndex: e.target.value as ErpCommercialProposal['readjustmentIndex'],
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
-                >
-                  <option value="IPCA">IPCA (IBGE)</option>
-                  <option value="IGP-M">IGP-M (FGV)</option>
-                  <option value="IST_ANATEL">IST Anatel</option>
-                  <option value="FIXO">Fixo / Sem Reajuste</option>
-                </select>
-              </div>
+
             </div>
           </div>
 

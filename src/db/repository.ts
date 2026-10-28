@@ -132,11 +132,12 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     readjustmentIndex: p.readjustmentIndex || 'IPCA',
     paymentCondition: p.paymentCondition || '',
     validUntil: p.validUntil || '',
-    deliveryForecast: p.deliveryForecast || '',
+    deliveryLeadTime: p.deliveryLeadTime ?? p.deliveryForecast ?? '',
+    deliveryForecast: p.deliveryForecast ?? p.deliveryLeadTime ?? '',
     shippingCarrier: p.shippingCarrier || '',
     shippingCost: Number(p.shippingCost || 0),
     setupFee: Number(p.setupFee || 0),
-    templateStyle: p.templateStyle || 'SETA_PREMIUM_TELECOM',
+    templateStyle: p.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
     slaTier: p.slaTier,
     slaResponseHours: p.slaResponseHours,
     slaAvailabilityPercent: p.slaAvailabilityPercent,
@@ -217,7 +218,7 @@ export function computeProposalChangedFields(
 
   if (
     (prev.validUntil || '').trim() !== (next.validUntil || '').trim() ||
-    (prev.deliveryForecast || '').trim() !== (next.deliveryForecast || '').trim() ||
+    (prev.deliveryLeadTime || prev.deliveryForecast || '').trim() !== (next.deliveryLeadTime || next.deliveryForecast || '').trim() ||
     (prev.shippingCarrier || '').trim() !== (next.shippingCarrier || '').trim() ||
     (prev.deliveryAddress || '').trim() !== (next.deliveryAddress || '').trim()
   ) {
@@ -253,6 +254,19 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
     p.slaTier = "SEM_SLA_ESPECIFICO";
     p.slaAvailabilityPercent = "";
     p.slaResponseHours = 0;
+  }
+  const rawLeadTime = String(p.deliveryLeadTime ?? p.deliveryForecast ?? "").trim();
+  if (
+    rawLeadTime.toLowerCase().includes("até 48") ||
+    rawLeadTime.toLowerCase().includes("ate 48") ||
+    rawLeadTime.toLowerCase().includes("48 horas") ||
+    rawLeadTime.toLowerCase().includes("48h")
+  ) {
+    p.deliveryLeadTime = "";
+    p.deliveryForecast = "";
+  } else {
+    p.deliveryLeadTime = rawLeadTime;
+    p.deliveryForecast = rawLeadTime;
   }
   if (p.paymentCondition && (p.paymentCondition.includes("Canal:") || p.paymentCondition.includes("Centro de Custo:"))) {
     p.paymentCondition = p.paymentCondition
@@ -2561,7 +2575,8 @@ export class CrmRepository {
       salesChannel: input.salesChannel || '',
       costCenter: input.costCenter || '',
       proposalDate: input.proposalDate || now.slice(0, 10),
-      deliveryForecast: input.deliveryForecast || 'Imediato (até 48h úteis após aceite)',
+      deliveryLeadTime: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
+      deliveryForecast: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
       careOf:
         input.careOf ||
         input.contactName ||
@@ -2571,7 +2586,7 @@ export class CrmRepository {
         'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
       internalNotes: input.internalNotes || '',
       setupFee: explicitSetupFee,
-      templateStyle: input.templateStyle || 'SETA_PREMIUM_TELECOM',
+      templateStyle: input.templateStyle || 'INSTITUCIONAL_SETA_TELECOM',
       slaTier: input.slaTier && input.slaTier !== 'NOC_24X7_ALTA_DISP_4H' ? input.slaTier : 'SEM_SLA_ESPECIFICO',
       slaAvailabilityPercent: input.slaAvailabilityPercent || '',
       slaResponseHours: input.slaResponseHours ?? 0,
@@ -2753,6 +2768,18 @@ export class CrmRepository {
             ? String(patch.contactName).trim()
             : current.careOf,
       sellerName: patch.sellerName !== undefined ? String(patch.sellerName).trim() : current.sellerName,
+      deliveryLeadTime:
+        patch.deliveryLeadTime !== undefined
+          ? String(patch.deliveryLeadTime).trim()
+          : patch.deliveryForecast !== undefined
+            ? String(patch.deliveryForecast).trim()
+            : current.deliveryLeadTime ?? current.deliveryForecast ?? '',
+      deliveryForecast:
+        patch.deliveryLeadTime !== undefined
+          ? String(patch.deliveryLeadTime).trim()
+          : patch.deliveryForecast !== undefined
+            ? String(patch.deliveryForecast).trim()
+            : current.deliveryForecast ?? current.deliveryLeadTime ?? '',
       contractMonths,
       discountAmount,
       discountPercentGlobal,

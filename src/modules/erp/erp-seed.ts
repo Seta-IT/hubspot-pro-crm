@@ -197,6 +197,8 @@ export function createSeedErpState(): ErpDatabaseState {
     {
       id: 'prop-gc-4695',
       code: '4695',
+      deliveryLeadTime: '7 dias úteis após o aceite',
+      deliveryForecast: '7 dias úteis após o aceite',
       title: 'Orçamento #4695 — MUNDIVOX COMUNICACOES LTDA (SL-44-SEC-K9)',
       companyId: 'comp-mundivox',
       companyName: 'MUNDIVOX COMUNICACOES LTDA',
@@ -245,6 +247,8 @@ export function createSeedErpState(): ErpDatabaseState {
     {
       id: 'prop-seta-001',
       code: 'PROP-2026-001',
+      deliveryLeadTime: '10 dias úteis após o aceite',
+      deliveryForecast: '10 dias úteis após o aceite',
       title: 'Nubank — Locação de Infraestrutura PABX IP Alta Disponibilidade & Firewall SD-WAN',
       companyId: 'comp-nubank',
       companyName: 'Nu Pagamentos S.A. (Nubank)',
@@ -321,6 +325,8 @@ export function createSeedErpState(): ErpDatabaseState {
     {
       id: 'prop-seta-002',
       code: 'PROP-2026-002',
+      deliveryLeadTime: '15 dias úteis conforme cronograma de engenharia',
+      deliveryForecast: '15 dias úteis conforme cronograma de engenharia',
       title: 'TOTVS S.A. — Locação Parque Telefonia IP Matriz + Implantação Engenharia NOC',
       companyId: 'comp-totvs',
       companyName: 'TOTVS S.A.',
@@ -399,6 +405,8 @@ export function createSeedErpState(): ErpDatabaseState {
     {
       id: 'prop-seta-003',
       code: 'PROP-2026-003',
+      deliveryLeadTime: '5 dias úteis após o aceite',
+      deliveryForecast: '5 dias úteis após o aceite',
       title: 'Creditas — Renovação & Expansão Locação SD-WAN + Gateways Voz Redundantes',
       companyId: 'comp-creditas',
       companyName: 'Creditas Soluções Financeiras Ltda.',
@@ -458,6 +466,8 @@ export function createSeedErpState(): ErpDatabaseState {
     {
       id: 'prop-seta-004',
       code: 'PROP-2026-004',
+      deliveryLeadTime: '10 dias úteis após o aceite',
+      deliveryForecast: '10 dias úteis após o aceite',
       title: 'Wittel Comunicações — Homologação de Troncos SIP, QoS & Suporte NOC 24x7',
       companyId: 'comp-wittel',
       companyName: 'WITTEL COMUNICACOES LTDA',

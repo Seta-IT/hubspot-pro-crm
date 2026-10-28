@@ -3314,3 +3314,25 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(secondLoginData.totpPairing, undefined, "Após o 1º pareamento, o QR Code nunca mais deve ser retornado no login");
   });
 });
+
+describe("Proposta: Prazo de Entrega editável e 4 layouts de template", () => {
+  it("usa deliveryLeadTime sem 48h fixo e renderiza os 4 layouts distintos", async () => {
+    const share = await import("../src/app/lib/proposal-share");
+    const pageSrc = fs.readFileSync(path.join(process.cwd(), "src/app/proposta/[id]/page.tsx"), "utf8");
+    assert.ok(!pageSrc.includes("Imediato (até 48h)"));
+    assert.ok(pageSrc.includes("resolveProposalDeliveryLeadTime(proposal)"));
+    assert.ok(pageSrc.includes("handleDeliveryLeadTimeChange"));
+    assert.ok(pageSrc.includes("Tempo de Contrato: {contractDurationMonths}"));
+    assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryLeadTime: "10 dias úteis após o aceite" } as never), "10 dias úteis após o aceite");
+    assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryForecast: "Imediato (até 48h)" } as never), "");
+    const ids = share.PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((o) => o.id);
+    for (const id of ["FOLHA_ORCAMENTO", "EXECUTIVO_CORPORATIVO", "DESIGN_CONSULTORIA", "INSTITUCIONAL_SETA_TELECOM"]) {
+      assert.ok(ids.includes(id as never), id);
+      assert.equal(share.resolveProposalLayoutKind(id), id);
+      assert.ok(pageSrc.includes(`activeLayout === "${id}"`), `layout ${id} renderizado`);
+    }
+    assert.ok(pageSrc.includes("SETA_TELECOM_PORTFOLIO_PILLARS.map"));
+    assert.ok(pageSrc.includes("FOLHA DE ORÇAMENTO &amp; PROPOSTA COMERCIAL"));
+    assert.ok(pageSrc.includes("02. Metodologia de Implantação em 4 Etapas"));
+  });
+});

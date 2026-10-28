@@ -315,7 +315,7 @@ export default function ErpGestaoClickTab({
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
-  const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("SETA_PREMIUM_TELECOM");
+  const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("INSTITUCIONAL_SETA_TELECOM");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [selectedCadastroId, setSelectedCadastroId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -1243,6 +1243,7 @@ export default function ErpGestaoClickTab({
       salesChannel: '',
       costCenter: '',
       proposalDate: new Date().toISOString().slice(0, 10),
+      deliveryLeadTime: '',
       deliveryForecast: '',
       careOf: '',
       introductionText: '',
@@ -1620,12 +1621,13 @@ export default function ErpGestaoClickTab({
                 <label className="block font-extrabold text-slate-800">
                   Escolher Template Visual Padrão para Propostas (PDF A4):
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(
                     [
-                      { id: "SETA_PREMIUM_TELECOM", label: "Seta Premium Telecom" },
-                      { id: "EXECUTIVO_CORPORATIVO", label: "Executivo Corporativo B2B" },
-                      { id: "LOCACAO_DETALHADA_SLA", label: "Locação + SLA & Pro-Rata" },
+                      { id: "FOLHA_ORCAMENTO", label: "1. Folha de Orçamento Direta" },
+                      { id: "EXECUTIVO_CORPORATIVO", label: "2. Corporativo Executivo B2B" },
+                      { id: "DESIGN_CONSULTORIA", label: "3. Design de Consultoria Técnica" },
+                      { id: "INSTITUCIONAL_SETA_TELECOM", label: "4. Institucional Seta + Tecnologias + Orçamento" },
                     ] as const
                   ).map((tpl) => {
                     const isActive = defaultProposalTemplateStyle === tpl.id;
@@ -1642,9 +1644,9 @@ export default function ErpGestaoClickTab({
                               // ignore
                             }
                           }
-                          onShowToast(`Template padrão alterado para: ${tpl.label}`);
+                          onShowToast(`Layout padrão alterado para: ${tpl.label}`);
                         }}
-                        className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition ${
+                        className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition text-left ${
                           isActive
                             ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
                             : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
@@ -1657,39 +1659,75 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
               <div className="space-y-2.5 text-xs">
-                <div className="p-3 rounded border border-emerald-200 bg-emerald-50/50 space-y-1.5">
-                  <div className="font-extrabold text-emerald-950">
-                    Template 1: Locação de Ativos Telecom + SLA NOC &amp; Rateio Pro-Rata
+                <div className="p-3 rounded border border-slate-300 bg-slate-50 space-y-1.5">
+                  <div className="font-extrabold text-slate-900">
+                    Layout 1: Folha de Orçamento Direta (Comercial &amp; Objetiva)
                   </div>
-                  <p className="text-[11px] text-emerald-900">
-                    Configura automaticamente o layout <strong>Locação + SLA &amp; Pro-Rata</strong>, vigência de 24 meses e SLA NOC 24x7 (99,95%).
+                  <p className="text-[11px] text-slate-700">
+                    Cabeçalho técnico compacto em grade, tabela direta de itens e quantidades, totalização imediata e aceite comercial na mesma folha.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => {
-                        setDefaultProposalTemplateStyle("LOCACAO_DETALHADA_SLA");
-                        openFullNewProposalModal("LOCACAO", {
-                          title: "Proposta de Locação de Infraestrutura PABX IP & SD-WAN",
-                          templateStyle: "LOCACAO_DETALHADA_SLA",
-                          slaTier: "PADRAO_COMERCIAL_8H",
-                          slaAvailabilityPercent: "99,00%",
-                          slaResponseHours: 8,
-                          contractMonths: 24,
+                        setDefaultProposalTemplateStyle("FOLHA_ORCAMENTO");
+                        openFullNewProposalModal("PRODUTOS", {
+                          title: "Orçamento Comercial de Equipamentos & Licenciamento Telecom",
+                          templateStyle: "FOLHA_ORCAMENTO",
+                          slaTier: "SEM_SLA_ESPECIFICO",
+                          deliveryLeadTime: "7 dias úteis após o aceite",
+                          deliveryForecast: "7 dias úteis após o aceite",
+                          contractMonths: 12,
                           introductionText:
-                            "Apresentamos nossa proposta comercial de locação de equipamentos e conectividade com suporte NOC 24x7.",
-                          commercialNotes:
-                            "Faturamento mensal conforme condições comerciais acordadas. Taxa de setup e frete discriminados isoladamente.",
-                          technicalClauses:
-                            "SLA 99,95% NOC 24x7 com atendimento em até 4h e substituição expressa de equipamentos.",
+                            "Apresentamos a folha de orçamento comercial com os itens, quantidades e condições de fornecimento.",
+                        });
+                      }}
+                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-extrabold cursor-pointer"
+                    >
+                      + Usar Layout 1 (Folha de Orçamento)
+                    </button>
+                    <a
+                      href="/proposta/prop-gc-4695"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded border border-slate-400 bg-white text-slate-900 text-[11px] font-bold"
+                    >
+                      👁️ Ver Exemplo A4
+                    </a>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded border border-emerald-200 bg-emerald-50/50 space-y-1.5">
+                  <div className="font-extrabold text-emerald-950">
+                    Layout 2: Proposta Corporativa Executiva (B2B Formal)
+                  </div>
+                  <p className="text-[11px] text-emerald-900">
+                    Design corporativo formal com Quadro de Resumo Financeiro em destaque antes dos itens, blocos de Proponente/Destinatário e assinatura digital.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDefaultProposalTemplateStyle("EXECUTIVO_CORPORATIVO");
+                        openFullNewProposalModal("CONJUNTO", {
+                          title: "Proposta Executiva Corporativa: Fornecimento & Implantação",
+                          templateStyle: "EXECUTIVO_CORPORATIVO",
+                          slaTier: "CORPORATIVO_8X5_NBD",
+                          slaAvailabilityPercent: "99,50%",
+                          slaResponseHours: 4,
+                          deliveryLeadTime: "10 dias úteis após o aceite",
+                          deliveryForecast: "10 dias úteis após o aceite",
+                          contractMonths: 36,
+                          introductionText:
+                            "Proposta executiva estruturada para fornecimento integrado de equipamentos, ativação técnica e suporte continuado.",
                         });
                       }}
                       className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
                     >
-                      + Usar e Editar Template 1 (Locação + SLA)
+                      + Usar Layout 2 (Corporativo Executivo)
                     </button>
                     <a
-                      href="/proposta/prop-seta-001"
+                      href="/proposta/prop-seta-002"
                       target="_blank"
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
@@ -1701,37 +1739,35 @@ export default function ErpGestaoClickTab({
 
                 <div className="p-3 rounded border border-indigo-200 bg-indigo-50/50 space-y-1.5">
                   <div className="font-extrabold text-indigo-950">
-                    Template 2: Serviços Técnicos TI / Telecom &amp; Suporte NOC 24x7 (Seta Premium)
+                    Layout 3: Proposta de Consultoria &amp; Arquitetura Técnica
                   </div>
                   <p className="text-[11px] text-indigo-900">
-                    Configura o layout <strong>Seta Premium Telecom</strong>, vigência de 12 meses e SLA Missão Crítica 24x7 (Atend. 2h).
+                    Estrutura consultiva numerada por capítulos (01. Diagnóstico &amp; Escopo, 02. Metodologia de Implantação em 4 Etapas, 03. Composição do Investimento, 04. Formalização).
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => {
-                        setDefaultProposalTemplateStyle("SETA_PREMIUM_TELECOM");
+                        setDefaultProposalTemplateStyle("DESIGN_CONSULTORIA");
                         openFullNewProposalModal("SERVICOS", {
-                          title: "Proposta de Serviços Técnicos de Engenharia & Suporte NOC 24x7",
-                          templateStyle: "SETA_PREMIUM_TELECOM",
-                          slaTier: "NOC_24X7_CRITICO_2H",
-                          slaAvailabilityPercent: "99,98%",
-                          slaResponseHours: 2,
-                          contractMonths: 12,
+                          title: "Projeto Consultivo de Arquitetura Telecom, SD-WAN & Voz IP",
+                          templateStyle: "DESIGN_CONSULTORIA",
+                          slaTier: "PADRAO_COMERCIAL_8H",
+                          slaAvailabilityPercent: "99,00%",
+                          slaResponseHours: 8,
+                          deliveryLeadTime: "15 dias úteis conforme cronograma do projeto",
+                          deliveryForecast: "15 dias úteis conforme cronograma do projeto",
+                          contractMonths: 24,
                           introductionText:
-                            "Apresentamos nossa proposta técnica para prestação de serviços especializados de engenharia Telecom, implantação e suporte NOC 24x7.",
-                          commercialNotes:
-                            "Condições comerciais válidas pelo período indicado no cabeçalho, com taxa de setup isolada do frete.",
-                          technicalClauses:
-                            "SLA Missão Crítica 99,98% com atendimento inicial em até 2h pelo NOC Seta Telecom.",
+                            "Documento técnico-consultivo contemplando diagnóstico de conectividade, arquitetura proposta, cronograma de implantação e investimento.",
                         });
                       }}
                       className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
                     >
-                      + Usar e Editar Template 2 (Serviços NOC)
+                      + Usar Layout 3 (Design Consultoria)
                     </button>
                     <a
-                      href="/proposta/prop-gc-4695"
+                      href="/proposta/prop-seta-001"
                       target="_blank"
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
@@ -1743,37 +1779,33 @@ export default function ErpGestaoClickTab({
 
                 <div className="p-3 rounded border border-amber-200 bg-amber-50/50 space-y-1.5">
                   <div className="font-extrabold text-amber-950">
-                    Template 3: Executivo Corporativo B2B (Hardware + Setup Isolado + Serviços)
+                    Layout 4: Institucional Seta Telecom + Portfólio de Serviços &amp; Tecnologias + Folha de Orçamento
                   </div>
                   <p className="text-[11px] text-amber-900">
-                    Configura o layout <strong>Executivo Corporativo B2B</strong> com Sumário Executivo para Diretoria, vigência de 36 meses e SLA Corporativo.
+                    Abre a proposta apresentando a <strong>Seta Telecom</strong> e os serviços e tecnologias com que trabalha (PABX IP/VoIP, SD-WAN/Firewall, Switches PoE/Wi-Fi 6, Locação HaaS &amp; Suporte) e, em seguida, traz a Folha de Orçamento completa.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => {
-                        setDefaultProposalTemplateStyle("EXECUTIVO_CORPORATIVO");
-                        openFullNewProposalModal("CONJUNTO", {
-                          title: "Proposta Executiva: Fornecimento de Equipamentos + Implantação Técnica",
-                          templateStyle: "EXECUTIVO_CORPORATIVO",
-                          slaTier: "CORPORATIVO_8X5_NBD",
-                          slaAvailabilityPercent: "99,50%",
-                          slaResponseHours: 4,
-                          contractMonths: 36,
+                        setDefaultProposalTemplateStyle("INSTITUCIONAL_SETA_TELECOM");
+                        openFullNewProposalModal("LOCACAO", {
+                          title: "Apresentação Seta Telecom & Proposta de Infraestrutura IP / Conectividade",
+                          templateStyle: "INSTITUCIONAL_SETA_TELECOM",
+                          slaTier: "SEM_SLA_ESPECIFICO",
+                          deliveryLeadTime: "10 dias úteis após o aceite",
+                          deliveryForecast: "10 dias úteis após o aceite",
+                          contractMonths: 24,
                           introductionText:
-                            "Proposta executiva estruturada para fornecimento integrado de equipamentos, ativação técnica (setup isolado) e suporte continuado.",
-                          commercialNotes:
-                            "Valor Mensal, taxa única de setup (quando selecionada) e frete apresentados de forma 100% isolada.",
-                          technicalClauses:
-                            "SLA Corporativo com atendimento em até 4h e reposição expressa de ativos.",
+                            "A Seta Telecom apresenta seu portfólio de soluções corporativas em telecomunicações e TI, seguido da folha de orçamento dimensionada para a sua operação.",
                         });
                       }}
                       className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold cursor-pointer"
                     >
-                      + Usar e Editar Template 3 (Executivo B2B)
+                      + Usar Layout 4 (Institucional Seta + Orçamento)
                     </button>
                     <a
-                      href="/proposta/prop-seta-002"
+                      href="/proposta/prop-gc-4695"
                       target="_blank"
                       rel="noreferrer"
                       className="px-3 py-1.5 rounded border border-amber-600 bg-white text-amber-900 text-[11px] font-bold"

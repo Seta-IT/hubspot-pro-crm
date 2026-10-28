@@ -552,11 +552,18 @@ export interface ErpProposalVersionSnapshot {
   readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
   paymentCondition: string;
   validUntil: string;
+  deliveryLeadTime?: string;
   deliveryForecast?: string;
   shippingCarrier?: string;
   shippingCost?: number;
   setupFee?: number;
-  templateStyle?: "SETA_PREMIUM_TELECOM" | "EXECUTIVO_CORPORATIVO" | "LOCACAO_DETALHADA_SLA";
+  templateStyle?:
+    | "FOLHA_ORCAMENTO"
+    | "EXECUTIVO_CORPORATIVO"
+    | "DESIGN_CONSULTORIA"
+    | "INSTITUCIONAL_SETA_TELECOM"
+    | "SETA_PREMIUM_TELECOM"
+    | "LOCACAO_DETALHADA_SLA";
   slaTier?: string;
   slaResponseHours?: number;
   slaAvailabilityPercent?: string;
@@ -594,6 +601,7 @@ export interface ErpCommercialProposal {
   salesChannel?: string;
   costCenter?: string;
   proposalDate?: string;
+  deliveryLeadTime?: string;
   deliveryForecast?: string;
   careOf?: string;
   introductionText?: string;
@@ -617,7 +625,13 @@ export interface ErpCommercialProposal {
   sellerPhone?: string;
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
-  templateStyle?: 'SETA_PREMIUM_TELECOM' | 'EXECUTIVO_CORPORATIVO' | 'LOCACAO_DETALHADA_SLA';
+  templateStyle?:
+    | 'FOLHA_ORCAMENTO'
+    | 'EXECUTIVO_CORPORATIVO'
+    | 'DESIGN_CONSULTORIA'
+    | 'INSTITUCIONAL_SETA_TELECOM'
+    | 'SETA_PREMIUM_TELECOM'
+    | 'LOCACAO_DETALHADA_SLA';
   setupFee?: number;
   slaTier?: string;
   slaResponseHours?: number;
