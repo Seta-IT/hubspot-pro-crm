@@ -558,6 +558,9 @@ export interface ErpProposalVersionSnapshot {
   shippingCost?: number;
   setupFee?: number;
   templateStyle?:
+    | "CLEAN_CORPORATE_LIGHT"
+    | "MINIMAL_SWISS_PAPER"
+    | "EXECUTIVE_SOFT_INDIGO"
     | "FOLHA_ORCAMENTO"
     | "EXECUTIVO_CORPORATIVO"
     | "DESIGN_CONSULTORIA"
@@ -626,6 +629,9 @@ export interface ErpCommercialProposal {
   status: ErpProposalStatus;
   modality?: 'RENTAL' | 'SERVICE' | 'HYBRID';
   templateStyle?:
+    | 'CLEAN_CORPORATE_LIGHT'
+    | 'MINIMAL_SWISS_PAPER'
+    | 'EXECUTIVE_SOFT_INDIGO'
     | 'FOLHA_ORCAMENTO'
     | 'EXECUTIVO_CORPORATIVO'
     | 'DESIGN_CONSULTORIA'
