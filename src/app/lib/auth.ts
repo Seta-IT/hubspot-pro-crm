@@ -953,3 +953,35 @@ export function findStiHubUserByEmail(email: string): StiHubUserAccount | null {
     (clean.includes('marcelo') ? INITIAL_STIHUB_USERS[0] : null)
   );
 }
+
+export const STIHUB_IAM_USERS_STORAGE_KEY = "stihub_iam_users_override_v1";
+
+export function loadClientIamUsersOverride(): Array<Record<string, unknown>> {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STIHUB_IAM_USERS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveClientIamUserOverride(user: Record<string, unknown> | null | undefined): void {
+  if (typeof window === "undefined" || !user || typeof user !== "object") return;
+  try {
+    const current = loadClientIamUsersOverride();
+    const id = String(user.id || "");
+    const email = String(user.email || "").toLowerCase();
+    const filtered = current.filter(
+      (u) =>
+        (id ? String(u.id || "") !== id : true) &&
+        (email ? String(u.email || "").toLowerCase() !== email : true)
+    );
+    filtered.unshift(user);
+    window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(filtered.slice(0, 50)));
+  } catch {
+    // ignore storage quota errors
+  }
+}

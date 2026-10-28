@@ -10,6 +10,7 @@ import {
   buildOtpAuthUri,
   buildTotpQrCodeSvgDataUrl,
   generateTotpCodeSync,
+  verifyMfaChallengeToken,
 } from '../app/lib/auth';
 import type { ErpFinancialEntry } from "../db/types";
 // ============================================================================
@@ -563,6 +564,80 @@ export class CrmApiRouter {
     };
   }
 
+  private async dispatchUserInviteEmail(params: {
+    toEmail: string;
+    userName: string;
+    roleName: string;
+    enabledModules: string[];
+    inviteUrl: string;
+    expiresAt: string;
+  }): Promise<{
+    delivered: boolean;
+    deliveryMode: "RESEND_HTTP_API" | "SMTP_NODEMAILER" | "INVITE_LINK_READY";
+    protocol: string;
+  }> {
+    const protocol = `STI-INV-${Date.now().toString(36).toUpperCase()}`;
+    const secCfg = this.repo.getRbacState().securityConfig;
+    const resendKey = (process.env.RESEND_API_KEY || secCfg?.resendApiKey || "").trim();
+    const smtpHost = (process.env.SMTP_HOST || secCfg?.smtpHost || "").trim();
+    const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
+    const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
+    const smtpPass = (process.env.SMTP_PASS || secCfg?.smtpPass || "").trim();
+    const configuredFrom =
+      (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || secCfg?.fromEmail || "").trim() ||
+      "STI-hub Seta Telecom <seguranca@setatelecom.com.br>";
+
+    const subject = `[STI-hub • Seta Telecom] Convite de Acesso — Cadastre sua Senha`;
+    const textBody = `Olá, ${params.userName},\n\nVocê foi convidado(a) para acessar a plataforma STI-hub (Seta Telecom LTDA).\n\n• Perfil: ${params.roleName}\n• Módulos habilitados: ${params.enabledModules.join(", ")}\n\nClique no link seguro abaixo para cadastrar sua senha e configurar seu primeiro acesso (válido por 72 horas):\n\n${params.inviteUrl}\n\nProtocolo: ${protocol}\nEquipe STI-hub • Seta Telecom LTDA`;
+
+    if (resendKey) {
+      for (const sender of [configuredFrom, "STI-hub Seta Telecom <onboarding@resend.dev>"]) {
+        try {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${resendKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: sender,
+              to: [params.toEmail],
+              subject,
+              text: textBody,
+            }),
+          });
+          if (res.ok) {
+            return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
+          }
+        } catch {
+          // try fallback
+        }
+      }
+    }
+
+    if (smtpHost && smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: { user: smtpUser, pass: smtpPass },
+        });
+        await transporter.sendMail({
+          from: configuredFrom.includes("<") ? configuredFrom : `"STI-hub Seta Telecom" <${smtpUser}>`,
+          to: params.toEmail,
+          subject,
+          text: textBody,
+        });
+        return { delivered: true, deliveryMode: "SMTP_NODEMAILER", protocol };
+      } catch {
+        // fallback below
+      }
+    }
+
+    return { delivered: false, deliveryMode: "INVITE_LINK_READY", protocol };
+  }
+
   private async handleRoute(
     method: string,
     cleanPath: string,
@@ -570,6 +645,10 @@ export class CrmApiRouter {
     body: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
+      if (body && Array.isArray((body as Record<string, unknown>).iamUsersOverride)) {
+        this.repo.applyIamUsersOverride((body as Record<string, unknown>).iamUsersOverride);
+      }
+
       // ======================================================================
       // ZERO-TRUST IAM & MODULE ENFORCEMENT WHEN SESSION TOKEN IS PROVIDED
       // ======================================================================
@@ -4031,6 +4110,34 @@ export class CrmApiRouter {
           };
         }
 
+        // Direct login when 2FA is disabled (mfaEnabled === false) for this user
+        if (challenge.mfaRequired === false && challenge.sessionToken) {
+          const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
+          const cookieHeader = `stihub_session=${challenge.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          return {
+            status: 200,
+            headers: {
+              'Set-Cookie': cookieHeader,
+            },
+            body: {
+              data: {
+                mfaRequired: false,
+                authenticated: true,
+                mfaVerified: true,
+                sessionToken: challenge.sessionToken,
+                user: challenge.user,
+                role: challenge.role,
+                effectiveActionGuards: challenge.effectiveActionGuards,
+                enabledModules: challenge.enabledModules,
+                moduleAccess: challenge.moduleAccess,
+                crmPermissions: challenge.crmPermissions,
+                erpPermissions: challenge.erpPermissions,
+                message: `Login realizado com sucesso para ${challenge.user?.name}.`,
+              },
+            },
+          };
+        }
+
         let emailDelivery: {
           delivered: boolean;
           deliveryMode: "RESEND_HTTP_API" | "SMTP_NODEMAILER" | "UNCONFIGURED_NO_PROVIDER";
@@ -4166,8 +4273,21 @@ export class CrmApiRouter {
         const callerSession = callerSessionToken
           ? this.repo.resolveSessionFromToken(callerSessionToken)
           : null;
+        const challengeToken =
+          typeof body.challengeId === 'string'
+            ? body.challengeId
+            : typeof query.challengeId === 'string'
+              ? query.challengeId
+              : undefined;
+        const verifiedStep1Challenge = verifyMfaChallengeToken(challengeToken);
+        const hasValidStep1Challenge = Boolean(
+          verifiedStep1Challenge &&
+            (verifiedStep1Challenge.email.toLowerCase() === target.toLowerCase() ||
+              verifiedStep1Challenge.uid.toLowerCase() === target.toLowerCase())
+        );
         const isCallerAuthenticated = Boolean(
-          callerSession?.authenticated && callerSession?.mfaVerified
+          (callerSession?.authenticated && callerSession?.mfaVerified) ||
+            (hasValidStep1Challenge && !targetUser?.totpConfigured)
         );
 
         if (isAlreadyEnrolled && !isCallerAuthenticated && query._fromHttpBridge === '1') {
@@ -4240,6 +4360,169 @@ export class CrmApiRouter {
               crmPermissions: verified.crmPermissions,
               erpPermissions: verified.erpPermissions,
             },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/invite' && method === 'GET') {
+        const token = String(query.token || query.invite || '').trim();
+        const inspected = this.repo.inspectUserInvite(token);
+        if (!inspected.ok) {
+          return {
+            status: 400,
+            body: { error: inspected.error || 'Convite inválido ou expirado.' },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            data: inspected,
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/accept-invite' && method === 'POST') {
+        const token = String(body.token || body.inviteToken || '').trim();
+        const password = String(body.password || '').trim();
+        const code = body.code ? String(body.code).trim() : undefined;
+        const accepted = this.repo.acceptUserInvite({
+          token,
+          password,
+          code,
+        });
+        if (!accepted.ok) {
+          return {
+            status: 400,
+            body: { error: accepted.error || 'Não foi possível concluir o cadastro da senha.' },
+          };
+        }
+
+        if (accepted.mfaRequired === false && accepted.sessionToken) {
+          const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
+          const cookieHeader = `stihub_session=${accepted.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          return {
+            status: 200,
+            headers: {
+              'Set-Cookie': cookieHeader,
+            },
+            body: {
+              data: {
+                authenticated: true,
+                mfaVerified: true,
+                mfaRequired: false,
+                passwordSaved: true,
+                sessionToken: accepted.sessionToken,
+                user: accepted.user,
+                role: accepted.role,
+                effectiveActionGuards: accepted.effectiveActionGuards,
+                enabledModules: accepted.enabledModules,
+                moduleAccess: accepted.moduleAccess,
+                crmPermissions: accepted.crmPermissions,
+                erpPermissions: accepted.erpPermissions,
+              },
+            },
+          };
+        }
+
+        return {
+          status: 200,
+          body: {
+            data: {
+              passwordSaved: true,
+              mfaRequired: true,
+              challengeId: accepted.challengeId,
+              totpConfigured: false,
+              totpPairing: accepted.totpPairing,
+              user: accepted.user,
+              role: accepted.role,
+              message: 'Senha cadastrada com sucesso! Agora cadastre o código do seu Aplicativo Autenticador para concluir seu primeiro acesso.',
+            },
+          },
+        };
+      }
+
+      const userInviteMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)\/invite$/);
+      if ((userInviteMatch || cleanPath === '/api/auth/send-invite') && method === 'POST') {
+        const target = userInviteMatch
+          ? decodeURIComponent(userInviteMatch[1])
+          : String(body.userId || body.email || '').trim();
+        const baseOrigin = String(body.origin || query._origin || 'https://sti-hub.vercel.app');
+        const resetTotp = body.resetTotp !== false;
+        const inviteRes = this.repo.createUserInvite(target, baseOrigin, resetTotp);
+        if (!inviteRes.ok || !inviteRes.user || !inviteRes.inviteUrl) {
+          return {
+            status: 404,
+            body: { error: inviteRes.error || 'Usuário não encontrado para envio de convite.' },
+          };
+        }
+        const roleDef = this.repo.getEffectiveUserAndRole(inviteRes.user.id).role;
+        const delivery = await this.dispatchUserInviteEmail({
+          toEmail: inviteRes.user.email,
+          userName: inviteRes.user.name,
+          roleName: roleDef.name,
+          enabledModules: inviteRes.user.enabledModules || ['CRM', 'ERP', 'CHAMADOS'],
+          inviteUrl: inviteRes.inviteUrl,
+          expiresAt: inviteRes.expiresAt!,
+        });
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...inviteRes,
+              emailDelivered: delivery.delivered,
+              deliveryMode: delivery.deliveryMode,
+              protocol: delivery.protocol,
+            },
+          },
+        };
+      }
+
+      const resetMfaMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)\/reset-mfa$/);
+      if (resetMfaMatch && method === 'POST') {
+        const userId = decodeURIComponent(resetMfaMatch[1]);
+        const mode = String(body.mode || 'RESET_QR').toUpperCase();
+        if (mode === 'DISABLE_2FA') {
+          const updated = this.repo.upsertRbacUser({
+            id: userId,
+            mfaEnabled: false,
+          });
+          return {
+            status: 200,
+            body: {
+              data: updated,
+              message: `Autenticador 2FA desabilitado para ${updated.name}. O usuário poderá entrar apenas com e-mail e senha.`,
+            },
+          };
+        }
+        if (mode === 'ENABLE_2FA') {
+          const updated = this.repo.upsertRbacUser({
+            id: userId,
+            mfaEnabled: true,
+          });
+          return {
+            status: 200,
+            body: {
+              data: updated,
+              message: `Autenticador 2FA reativado para ${updated.name}.`,
+            },
+          };
+        }
+        // Default: RESET_QR -> generate fresh secret and set totpConfigured = false so next login opens QR code
+        const setup = this.repo.setupUserTotp(userId, true);
+        const updated = this.repo.upsertRbacUser({
+          id: userId,
+          mfaEnabled: true,
+          totpConfigured: false,
+        });
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...updated,
+              otpauthUri: setup.otpauthUri,
+              qrCodeSvgDataUrl: setup.qrCodeSvgDataUrl,
+            },
+            message: `Autenticador resetado para ${updated.name}. No próximo login será exibido o QR Code para novo cadastro.`,
           },
         };
       }
@@ -4327,6 +4610,19 @@ export class CrmApiRouter {
           };
         }
         const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
+        const baseOrigin = String(body.origin || query._origin || 'https://sti-hub.vercel.app');
+        const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
+        const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
+        const inviteDelivery = inviteInfo.inviteUrl
+          ? await this.dispatchUserInviteEmail({
+              toEmail: saved.email,
+              userName: saved.name,
+              roleName: roleDef.name,
+              enabledModules: saved.enabledModules || ['CRM', 'ERP', 'CHAMADOS'],
+              inviteUrl: inviteInfo.inviteUrl,
+              expiresAt: inviteInfo.expiresAt!,
+            })
+          : null;
         const otpauthUri = buildOtpAuthUri({
           secretBase32: saved.totpSecret || '',
           email: saved.email,
@@ -4338,10 +4634,16 @@ export class CrmApiRouter {
           status: 201,
           body: {
             data: {
-              ...saved,
+              ...(inviteInfo.user || saved),
               otpauthUri,
               qrCodeSvgDataUrl,
               currentTotpCode,
+              inviteToken: inviteInfo.inviteToken,
+              inviteUrl: inviteInfo.inviteUrl,
+              conviteUrl: inviteInfo.conviteUrl,
+              inviteExpiresAt: inviteInfo.expiresAt,
+              inviteEmailDelivered: inviteDelivery?.delivered || false,
+              inviteDeliveryMode: inviteDelivery?.deliveryMode || 'INVITE_LINK_READY',
             },
           },
         };

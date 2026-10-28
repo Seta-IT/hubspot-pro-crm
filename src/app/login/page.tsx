@@ -11,12 +11,31 @@ import {
   QrCode,
   Send,
   Copy,
+  UserCheck,
 } from 'lucide-react';
+import {
+  loadClientIamUsersOverride,
+  saveClientIamUserOverride,
+} from '../lib/auth';
 
 export default function StiHubLoginPage() {
-  const [step, setStep] = useState<'CREDENTIALS' | 'MFA_2FA'>('CREDENTIALS');
+  const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
   const [email, setEmail] = useState('marcelo.mira@setatelecom.com.br');
   const [password, setPassword] = useState('Seta@2026#StiHub');
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteUser, setInviteUser] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    jobTitle?: string;
+    department?: string;
+    roleId: string;
+    enabledModules?: string[];
+    mfaEnabled?: boolean;
+  } | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
   const [mfaCode, setMfaCode] = useState('');
   const [activeMfaChannel, setActiveMfaChannel] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>(
     'TOTP_AUTHENTICATOR'
@@ -59,6 +78,79 @@ export default function StiHubLoginPage() {
     role: { id: string; name: string };
   } | null>(null);
 
+  const completeAuthenticatedRedirect = (data: Record<string, unknown>, fallbackEmail: string) => {
+    if (typeof window === 'undefined') return;
+    const token = String(data?.sessionToken || '');
+    const userObj = (data?.user || {}) as Record<string, unknown>;
+    const verifiedEmail = String(userObj?.email || fallbackEmail || '')
+      .trim()
+      .toLowerCase();
+
+    localStorage.setItem(
+      'stihub_active_session_v1',
+      JSON.stringify({
+        authenticated: true,
+        mfaVerified: true,
+        verifiedVia: data?.verifiedVia || 'DIRECT_LOGIN',
+        sessionToken: token,
+        user: data?.user,
+        role: data?.role,
+        effectiveActionGuards: data?.effectiveActionGuards,
+        enabledModules: data?.enabledModules,
+        moduleAccess: data?.moduleAccess,
+        crmPermissions: data?.crmPermissions,
+        erpPermissions: data?.erpPermissions,
+        loggedAt: new Date().toISOString(),
+      })
+    );
+    document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
+    if (verifiedEmail && userObj?.totpConfigured !== false) {
+      document.cookie = `stihub_totp_enrolled=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const rawNext = params.get('next') || '/';
+    const nextUrl =
+      rawNext.startsWith('/') &&
+      !rawNext.startsWith('/login') &&
+      !rawNext.startsWith('/convite')
+        ? rawNext
+        : '/';
+    window.location.assign(nextUrl);
+  };
+
+  // Detect ?invite=... or ?token=... on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const rawInvite = params.get('invite') || params.get('token');
+    if (!rawInvite) return;
+
+    setInviteToken(rawInvite);
+    setLoading(true);
+    fetch(`/api/auth/invite?token=${encodeURIComponent(rawInvite)}`, {
+      credentials: 'same-origin',
+    })
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok || !j?.data?.user) {
+          setErrorMsg(j?.error || 'Link de convite inválido ou expirado.');
+          return;
+        }
+        const u = j.data.user;
+        setInviteUser(u);
+        setEmail(u.email || '');
+        setPassword('');
+        setStep('INVITE_PASSWORD');
+      })
+      .catch(() => {
+        setErrorMsg('Não foi possível validar o link de convite.');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
   useEffect(() => {
     if (step === 'MFA_2FA') {
       setTimeout(() => {
@@ -66,6 +158,67 @@ export default function StiHubLoginPage() {
       }, 50);
     }
   }, [step, activeMfaChannel]);
+
+  const handleAcceptInviteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    if (!inviteToken) return;
+    if (newPassword.trim().length < 6) {
+      setErrorMsg('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      setErrorMsg('A confirmação de senha não confere.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/accept-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          token: inviteToken,
+          password: newPassword.trim(),
+          iamUsersOverride: loadClientIamUsersOverride(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setErrorMsg(json.error || 'Não foi possível salvar a senha do convite.');
+        return;
+      }
+      const d = json.data;
+      if (d?.user) {
+        saveClientIamUserOverride({
+          ...d.user,
+          password: newPassword.trim(),
+        });
+      }
+      setPassword(newPassword.trim());
+
+      // If 2FA is disabled for this user, enter the system immediately
+      if (d?.mfaRequired === false && d?.sessionToken) {
+        completeAuthenticatedRedirect(d, inviteUser?.email || email);
+        return;
+      }
+
+      // First login after setting password: open Authenticator QR Code pairing automatically!
+      setChallengeData(d);
+      setActiveMfaChannel('TOTP_AUTHENTICATOR');
+      setMfaCode('');
+      setInfoMsg(
+        'Senha cadastrada com sucesso! Escaneie o QR Code abaixo no seu aplicativo autenticador e digite os 6 dígitos para concluir seu primeiro acesso.'
+      );
+      setStep('MFA_2FA');
+    } catch {
+      setErrorMsg('Erro de comunicação ao ativar sua conta.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +230,11 @@ export default function StiHubLoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          iamUsersOverride: loadClientIamUsersOverride(),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -85,23 +242,74 @@ export default function StiHubLoginPage() {
         return;
       }
       const d = json.data;
+
+      // If 2FA is disabled for this user (mfaRequired === false), log straight in!
+      if (d?.mfaRequired === false && d?.sessionToken) {
+        completeAuthenticatedRedirect(d, email.trim());
+        return;
+      }
+
       setChallengeData(d);
-      const preferredMethod =
-        d?.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
-      setActiveMfaChannel(preferredMethod);
       setMfaCode('');
-      if (preferredMethod === 'EMAIL_OTP') {
-        if (d?.emailOtpStatus?.delivered) {
-          setInfoMsg(`Enviamos um código de 6 dígitos para ${d.emailOtpStatus.dispatchedTo}.`);
-        } else if (d?.emailOtpStatus?.providerError) {
-          setErrorMsg(d.emailOtpStatus.providerError);
-        }
+
+      // If it is the user's first login (totpConfigured === false) or email OTP failed because no SMTP is configured,
+      // open the Authenticator tab automatically so the user is never blocked by an email error!
+      const emailDelivered = Boolean(d?.emailOtpStatus?.delivered);
+      const preferredMethod =
+        d?.mfaMethod === 'EMAIL_OTP' && emailDelivered
+          ? 'EMAIL_OTP'
+          : 'TOTP_AUTHENTICATOR';
+      setActiveMfaChannel(preferredMethod);
+
+      if (preferredMethod === 'EMAIL_OTP' && emailDelivered) {
+        setInfoMsg(`Enviamos um código de 6 dígitos para ${d.emailOtpStatus.dispatchedTo}.`);
+      } else if (d?.totpConfigured === false && d?.totpPairing) {
+        setInfoMsg(
+          'Primeiro acesso: escaneie o QR Code abaixo no Google Authenticator e digite o código de 6 dígitos.'
+        );
       }
       setStep('MFA_2FA');
     } catch {
       setErrorMsg('Erro de comunicação com o servidor.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLoadFirstTimeTotpQrIfNeeded = async () => {
+    if (challengeData?.totpPairing || challengeData?.totpConfigured === true) return;
+    try {
+      const targetEmail = challengeData?.user?.email || email.trim();
+      const res = await fetch('/api/auth/setup-totp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email: targetEmail,
+          userId: challengeData?.user?.id,
+          challengeId: challengeData?.challengeId,
+          iamUsersOverride: loadClientIamUsersOverride(),
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json?.data) {
+        setChallengeData((prev) =>
+          prev
+            ? {
+                ...prev,
+                totpConfigured: false,
+                totpPairing: {
+                  totpSecret: json.data.totpSecret,
+                  otpauthUri: json.data.otpauthUri,
+                  qrCodeSvgDataUrl: json.data.qrCodeSvgDataUrl,
+                  secondsRemaining: json.data.secondsRemaining,
+                },
+              }
+            : prev
+        );
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -118,6 +326,7 @@ export default function StiHubLoginPage() {
         body: JSON.stringify({
           email: targetEmail,
           userId: challengeData?.user?.id,
+          iamUsersOverride: loadClientIamUsersOverride(),
         }),
       });
       const json = await res.json();
@@ -125,8 +334,7 @@ export default function StiHubLoginPage() {
       setMfaCode('');
       if (!res.ok) {
         setErrorMsg(
-          json.error ||
-            'Não foi possível enviar o código por e-mail. Verifique a configuração SMTP/Resend ou utilize o Aplicativo Autenticador.'
+          'O envio de e-mail (SMTP / Resend) ainda não está configurado neste ambiente. Clique em "Aplicativo Autenticador" ao lado para autenticar ou cadastrar seu celular.'
         );
         return;
       }
@@ -181,6 +389,7 @@ export default function StiHubLoginPage() {
               ? challengeData?.totpPairing?.totpSecret
               : undefined,
           challengeId: challengeData?.challengeId,
+          iamUsersOverride: loadClientIamUsersOverride(),
         }),
       });
       const json = await res.json();
@@ -191,37 +400,13 @@ export default function StiHubLoginPage() {
         return;
       }
 
-      if (typeof window !== 'undefined') {
-        const token = json.data?.sessionToken || '';
-        const verifiedEmail = (json.data?.user?.email || email || '').trim().toLowerCase();
-        localStorage.setItem(
-          'stihub_active_session_v1',
-          JSON.stringify({
-            authenticated: true,
-            mfaVerified: true,
-            verifiedVia: json.data?.verifiedVia,
-            sessionToken: token,
-            user: json.data?.user,
-            role: json.data?.role,
-            effectiveActionGuards: json.data?.effectiveActionGuards,
-            enabledModules: json.data?.enabledModules,
-            moduleAccess: json.data?.moduleAccess,
-            crmPermissions: json.data?.crmPermissions,
-            erpPermissions: json.data?.erpPermissions,
-            loggedAt: new Date().toISOString(),
-          })
-        );
-        document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
-        document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
-        if (verifiedEmail) {
-          document.cookie = `stihub_totp_enrolled=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
-        }
-        const params = new URLSearchParams(window.location.search);
-        const rawNext = params.get('next') || '/';
-        const nextUrl =
-          rawNext.startsWith('/') && !rawNext.startsWith('/login') ? rawNext : '/';
-        window.location.assign(nextUrl);
+      if (json.data?.user) {
+        saveClientIamUserOverride({
+          ...json.data.user,
+          totpConfigured: true,
+        });
       }
+      completeAuthenticatedRedirect(json.data || {}, email.trim());
     } catch {
       setErrorMsg('Falha ao verificar o código.');
     } finally {
@@ -243,12 +428,20 @@ export default function StiHubLoginPage() {
             <span className="font-black text-[#f26522] text-base tracking-tight">IT</span>
           </div>
           <h1 className="text-lg font-extrabold tracking-tight">
-            {step === 'CREDENTIALS' ? 'Acesso ao STI-hub' : 'Autenticação em Duas Etapas'}
+            {step === 'INVITE_PASSWORD'
+              ? 'Ativar Conta e Cadastrar Senha'
+              : step === 'CREDENTIALS'
+                ? 'Acesso ao STI-hub'
+                : 'Autenticação em Duas Etapas'}
           </h1>
           <p className="text-xs text-slate-300 mt-1">
-            {step === 'CREDENTIALS'
-              ? 'Entre com seu e-mail e senha para acessar o sistema'
-              : 'Escolha o método de verificação e digite o código de 6 dígitos'}
+            {step === 'INVITE_PASSWORD'
+              ? 'Defina sua senha corporativa para acessar o STI-hub'
+              : step === 'CREDENTIALS'
+                ? 'Entre com seu e-mail e senha para acessar o sistema'
+                : !isTotpAlreadyConfigured
+                  ? 'Primeiro acesso: cadastre seu Aplicativo Autenticador'
+                  : 'Escolha o método de verificação e digite o código de 6 dígitos'}
           </p>
         </div>
 
@@ -267,7 +460,76 @@ export default function StiHubLoginPage() {
             </div>
           )}
 
-          {step === 'CREDENTIALS' ? (
+          {step === 'INVITE_PASSWORD' && inviteUser ? (
+            <form onSubmit={handleAcceptInviteSubmit} className="space-y-4">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
+                <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Bem-vindo(a), {inviteUser.name}</span>
+                </div>
+                <div className="text-slate-600 font-mono text-[11px]">{inviteUser.email}</div>
+                {Array.isArray(inviteUser.enabledModules) && inviteUser.enabledModules.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {inviteUser.enabledModules.map((m) => (
+                      <span
+                        key={m}
+                        className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white text-[10px] font-bold"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Criar Senha de Acesso *
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Mínimo de 6 caracteres"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Confirmar Senha *
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a senha criada"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  {loading ? 'Ativando Conta...' : 'Cadastrar Senha e Continuar'}
+                </span>
+              </button>
+            </form>
+          ) : step === 'CREDENTIALS' ? (
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -323,6 +585,7 @@ export default function StiHubLoginPage() {
                     setMfaCode('');
                     setErrorMsg(null);
                     setInfoMsg(null);
+                    handleLoadFirstTimeTotpQrIfNeeded();
                     mfaInputRef.current?.focus();
                   }}
                   className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center gap-2.5 ${
@@ -360,7 +623,7 @@ export default function StiHubLoginPage() {
                 </button>
               </div>
 
-              {/* Option 1: Authenticator App — Only show QR Code on first-time setup (when totpConfigured === false) */}
+              {/* Option 1: Authenticator App — Automatically shows QR Code on 1st login (when totpConfigured === false) */}
               {activeMfaChannel === 'TOTP_AUTHENTICATOR' && (
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
                   {isTotpAlreadyConfigured ? (
@@ -381,7 +644,7 @@ export default function StiHubLoginPage() {
                         />
                         <div className="w-full space-y-1.5">
                           <div className="text-[11px] font-semibold text-slate-600">
-                            Ou copie a chave de configuração:
+                            Ou copie a chave para cadastrar no aplicativo:
                           </div>
                           <div className="flex items-center justify-center gap-1.5">
                             <code className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 font-mono text-[11px] font-bold text-[#0d2b4e] select-all">
@@ -408,7 +671,7 @@ export default function StiHubLoginPage() {
                 </div>
               )}
 
-              {/* Option 2: Email OTP info & resend (NEVER displays the OTP code on screen) */}
+              {/* Option 2: Email OTP info & resend */}
               {activeMfaChannel === 'EMAIL_OTP' && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs">
                   <div className="text-slate-700">

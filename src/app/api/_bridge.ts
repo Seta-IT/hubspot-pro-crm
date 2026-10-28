@@ -28,6 +28,9 @@ export async function forwardToCrmRouter(
   if (!query._fromHttpBridge) {
     query._fromHttpBridge = '1';
   }
+  if (!query._origin) {
+    query._origin = url.origin;
+  }
 
   let body: unknown = undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {

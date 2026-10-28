@@ -19,6 +19,7 @@ import {
   formatBase32SecretBlocks,
   generateTotpCodeSync,
   generateTotpSecretBase32,
+  saveClientIamUserOverride,
 } from '../lib/auth';
 import {
   ShieldCheck,
@@ -162,7 +163,17 @@ export default function StiHubAdminRbacPanel({
   const [crmRolesMatrixState, setCrmRolesMatrixState] = useState(() => structuredClone(CRM_ROLES_CATALOG));
   const [erpRolesMatrixState, setErpRolesMatrixState] = useState(() => structuredClone(ERP_ROLES_CATALOG));
   const [newUserScope, setNewUserScope] = useState<StiHubVisibilityScope>('PROPRIOS');
+  const [newUserMfaEnabled, setNewUserMfaEnabled] = useState<boolean>(true);
+  const [newUserPassword, setNewUserPassword] = useState<string>('');
   const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
+  const [inviteModalData, setInviteModalData] = useState<{
+    userName: string;
+    email: string;
+    inviteUrl: string;
+    conviteUrl: string;
+    expiresAt: string;
+    emailDelivered: boolean;
+  } | null>(null);
   const [newUserModules, setNewUserModules] = useState<StiHubMacroModule[]>(['CRM', 'ERP']);
   const [newUserCrmPerms, setNewUserCrmPerms] = useState<StiHubCrmPermissions>(() =>
     buildDefaultCrmPermissionsForRole('VENDEDOR_SALES', 'PROPRIOS')
@@ -403,7 +414,7 @@ export default function StiHubAdminRbacPanel({
 
   const handleUpdateUserInline = async (
     user: StiHubUserRecord,
-    patch: Partial<StiHubUserRecord>
+    patch: Partial<StiHubUserRecord> & { password?: string }
   ) => {
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
       method: 'PUT',
@@ -411,7 +422,98 @@ export default function StiHubAdminRbacPanel({
       body: JSON.stringify(patch),
     });
     if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        saveClientIamUserOverride({
+          ...json.data,
+          ...(patch.password ? { password: patch.password } : {}),
+        });
+      }
       onShowToast(`Usuário ${user.name} atualizado na matriz RBAC!`);
+      await onRefresh();
+    }
+  };
+
+  const handleToggleUserMfaEnabled = async (user: StiHubUserRecord) => {
+    const nextEnabled = !user.mfaEnabled;
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-mfa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: nextEnabled ? 'ENABLE_2FA' : 'DISABLE_2FA',
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        saveClientIamUserOverride(json.data);
+      }
+      onShowToast(
+        nextEnabled
+          ? `Autenticador 2FA ativado para ${user.name}!`
+          : `Autenticador 2FA desabilitado para ${user.name} (acesso liberado apenas com E-mail e Senha)!`
+      );
+      await onRefresh();
+    }
+  };
+
+  const handleResetUserTotpQr = async (user: StiHubUserRecord) => {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-mfa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'RESET_QR' }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        saveClientIamUserOverride({
+          ...json.data,
+          totpConfigured: false,
+          totpConfiguredAt: null,
+        });
+      }
+      if (typeof document !== 'undefined') {
+        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
+      }
+      onShowToast(
+        `QR Code do autenticador resetado para ${user.name}! No próximo login será exibido o QR Code para novo pareamento.`
+      );
+      await onRefresh();
+    }
+  };
+
+  const handleGenerateUserInvite = async (user: StiHubUserRecord) => {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app';
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ origin, resetTotp: true }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const d = json?.data;
+      if (d?.user) {
+        saveClientIamUserOverride({
+          ...d.user,
+          totpConfigured: false,
+          totpConfiguredAt: null,
+        });
+      }
+      if (d?.inviteUrl) {
+        try {
+          navigator.clipboard?.writeText(d.inviteUrl);
+        } catch {}
+        setInviteModalData({
+          userName: user.name,
+          email: user.email,
+          inviteUrl: d.inviteUrl,
+          conviteUrl: d.conviteUrl || d.inviteUrl,
+          expiresAt: d.expiresAt || new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+          emailDelivered: Boolean(d.emailDelivered),
+        });
+        onShowToast(`Link de convite gerado e copiado para ${user.email}!`);
+      }
       await onRefresh();
     }
   };
@@ -534,16 +636,46 @@ export default function StiHubAdminRbacPanel({
         },
         erpPermissions: newUserErpPerms,
         active: true,
-        mfaEnabled: true,
+        mfaEnabled: newUserMfaEnabled,
         mfaMethod: newUserMfaMethod,
+        totpConfigured: false,
+        password: newUserPassword.trim().length >= 6 ? newUserPassword.trim() : undefined,
+        origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app',
       }),
     });
     if (res.ok) {
+      const json = await res.json();
+      const created = json?.data;
+      if (created) {
+        saveClientIamUserOverride({
+          ...created,
+          totpConfigured: false,
+          totpConfiguredAt: null,
+          ...(newUserPassword.trim().length >= 6 ? { password: newUserPassword.trim() } : {}),
+        });
+        if (created.inviteUrl) {
+          try {
+            navigator.clipboard?.writeText(created.inviteUrl);
+          } catch {}
+          setInviteModalData({
+            userName: created.name || newUserName.trim(),
+            email: created.email || newUserEmail.trim(),
+            inviteUrl: created.inviteUrl,
+            conviteUrl: created.conviteUrl || created.inviteUrl,
+            expiresAt: created.inviteExpiresAt || new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+            emailDelivered: Boolean(created.inviteEmailDelivered),
+          });
+        }
+      }
+      if (typeof document !== 'undefined') {
+        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
+      }
       setShowNewUserModal(false);
       setNewUserName('');
       setNewUserEmail('');
+      setNewUserPassword('');
       onShowToast(
-        `Colaborador ${newUserName} cadastrado com módulos [${effectiveMods.join(', ')}] e 2FA (${newUserMfaMethod})!`
+        `Colaborador ${newUserName} cadastrado! Link de convite gerado para cadastrar senha e autenticador.`
       );
       await onRefresh();
     }
@@ -819,12 +951,35 @@ export default function StiHubAdminRbacPanel({
                           </span>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-                          {u.mfaEnabled
-                            ? `2FA (${u.mfaMethod === 'TOTP_AUTHENTICATOR' ? 'Google Auth' : 'E-mail'})`
-                            : 'Desativado'}
-                        </span>
+                      <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            type="button"
+                            title={
+                              u.mfaEnabled
+                                ? "Clique para DESABILITAR o autenticador 2FA deste usuário (permitir login direto com senha)"
+                                : "Clique para ATIVAR o autenticador 2FA deste usuário"
+                            }
+                            onClick={() => handleToggleUserMfaEnabled(u)}
+                            className={`px-2 py-1 rounded text-[10px] font-extrabold border cursor-pointer transition ${
+                              u.mfaEnabled
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-300"
+                                : "bg-amber-50 text-amber-900 border-amber-300 hover:bg-emerald-50 hover:text-emerald-800"
+                            }`}
+                          >
+                            {u.mfaEnabled ? "2FA Ativo (Desativar)" : "2FA Desativado (Ativar)"}
+                          </button>
+                          {u.mfaEnabled && (
+                            <button
+                              type="button"
+                              title="Resetar QR Code para que no próximo login o usuário possa cadastrar um novo aparelho no Google Authenticator"
+                              onClick={() => handleResetUserTotpQr(u)}
+                              className="px-2 py-1 rounded bg-white hover:bg-slate-100 text-[#0d2b4e] border border-slate-300 text-[10px] font-bold cursor-pointer"
+                            >
+                              Resetar QR
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-3">
                         <span
@@ -838,7 +993,15 @@ export default function StiHubAdminRbacPanel({
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="inline-flex items-center justify-end gap-1.5">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            title="Gerar link de convite por e-mail para o usuário cadastrar a senha e o autenticador no 1º acesso"
+                            onClick={() => handleGenerateUserInvite(u)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                          >
+                            <Send className="w-3 h-3" /> Convite / Senha
+                          </button>
                           <button
                             type="button"
                             onClick={() => setEditingUser(u)}
@@ -3002,6 +3165,37 @@ export default function StiHubAdminRbacPanel({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Senha Inicial (Opcional — se vazio, o usuário cadastra pelo Link de Convite)
+                  </label>
+                  <input
+                    type="password"
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    placeholder="Deixe em branco para definir via convite"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+                  />
+                </div>
+                <div className="flex flex-col justify-center">
+                  <label className="flex items-center gap-2 font-extrabold text-[#0d2b4e] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newUserMfaEnabled}
+                      onChange={(e) => setNewUserMfaEnabled(e.target.checked)}
+                      className="w-4 h-4 accent-[#0d2b4e]"
+                    />
+                    <span>Exigir Autenticador 2FA no Login</span>
+                  </label>
+                  <span className="text-[11px] text-slate-500 mt-0.5">
+                    {newUserMfaEnabled
+                      ? "No 1º login, abrirá o QR Code para o usuário cadastrar o Google Authenticator."
+                      : "2FA Desabilitado: o usuário entrará diretamente apenas com E-mail e Senha."}
+                  </span>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <button
                   type="button"
@@ -3014,10 +3208,80 @@ export default function StiHubAdminRbacPanel({
                   type="submit"
                   className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-extrabold cursor-pointer"
                 >
-                  Salvar Usuário IAM
+                  Salvar Usuário &amp; Gerar Convite
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Link de Convite Gerado para o Usuário Cadastrar Senha e 1º Acesso */}
+      {inviteModalData && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-700 block">
+                  CONVITE DE ACESSO GERADO • CADASTRO DE SENHA E 1º LOGIN
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Convite para {inviteModalData.userName} ({inviteModalData.email})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInviteModalData(null)}
+                className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-600 cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+              <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  {inviteModalData.emailDelivered
+                    ? `E-mail de convite enviado para ${inviteModalData.email}!`
+                    : "Link de convite pronto e copiado para sua área de transferência!"}
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-900 leading-relaxed">
+                Ao abrir este link, <strong>{inviteModalData.userName}</strong> irá cadastrar sua própria senha e, em seguida, no primeiro login abrirá automaticamente o QR Code para cadastrar o código do autenticador:
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Link Oficial de Ativação da Conta (Válido por 72 horas):
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={inviteModalData.inviteUrl}
+                className="w-full px-3 py-2 rounded-lg bg-slate-100 border border-slate-300 font-mono text-[11px] text-[#0d2b4e] select-all"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(inviteModalData.inviteUrl);
+                  onShowToast("Link de convite copiado para a área de transferência!");
+                }}
+                className="px-4 py-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+              >
+                Copiar Link de Convite
+              </button>
+              <a
+                href={inviteModalData.inviteUrl}
+                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold inline-flex items-center gap-1.5"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Abrir Tela do Convite Agora
+              </a>
+            </div>
           </div>
         </div>
       )}

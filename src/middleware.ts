@@ -35,10 +35,14 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
     if (!rest) return false;
     const segments = rest.split('/').filter(Boolean);
     const upper = String(method || 'GET').toUpperCase();
-    if (segments.length === 1 && upper === 'GET') {
+    if (segments.length === 1 && (upper === 'GET' || upper === 'PATCH')) {
       return true;
     }
-    if (segments.length === 2 && segments[1] === 'approve' && upper === 'POST') {
+    if (
+      segments.length === 2 &&
+      (segments[1] === 'approve' || segments[1] === 'restore-version') &&
+      upper === 'POST'
+    ) {
       return true;
     }
   }

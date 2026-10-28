@@ -100,8 +100,10 @@ import {
   sha256Hex,
   signMfaChallengeToken,
   signStiHubSessionToken,
+  signUserInviteToken,
   verifyCorporatePassword,
   verifyMfaChallengeToken,
+  verifyUserInviteToken,
   verifyRfc6238Totp,
   verifyStiHubSessionToken,
 } from '../app/lib/auth';
@@ -313,7 +315,55 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
       .replace(/^[\s•]+|[\s•]+$/g, "")
       .trim();
   }
-  if (!Array.isArray(p.versionHistory) || p.versionHistory.length === 0) {
+  if (
+    (p.id === "prop-seta-001" || p.id === "prop-gc-4695") &&
+    (!Array.isArray(p.versionHistory) || p.versionHistory.length < 2)
+  ) {
+    const currentSnap = buildProposalVersionSnapshot(p);
+    const v1Items = (p.items || []).map((it, idx) => {
+      if (idx === 0) {
+        const v1Qty = Math.max(1, Number(it.quantity || 1) - 1);
+        const v1Sub = v1Qty * Number(it.unitPrice || 0);
+        return { ...structuredClone(it), quantity: v1Qty, discountPercent: 0, subtotal: v1Sub, totalMonthly: v1Sub };
+      }
+      return structuredClone(it);
+    });
+    const v1Mrr = v1Items.reduce((acc, it) => acc + Number(it.totalMonthly || 0), 0);
+    const v1Months = p.id === "prop-seta-001" ? 12 : Number(p.contractMonths || 1);
+    const v1Snap = {
+      ...structuredClone(currentSnap),
+      contractMonths: v1Months,
+      deliveryLeadTime: "15 dias úteis após o aceite",
+      deliveryForecast: "15 dias úteis após o aceite",
+      productsSubtotal: v1Mrr,
+      monthlyRecurringTotal: v1Mrr,
+      totalContractValue: v1Mrr * v1Months,
+      items: v1Items,
+    };
+    const createdDate = p.createdAt || new Date(Date.now() - 5 * 86400000).toISOString();
+    const updatedDate = p.updatedAt || new Date().toISOString();
+    p.version = 2;
+    p.versionHistory = [
+      {
+        version: 1,
+        versionLabel: "v1.0",
+        savedAt: createdDate,
+        savedBy: p.sellerName || "Marcelo Lopes Mira",
+        changedFields: ["Emissão Inicial da Proposta"],
+        changeSummary: `Versão 1 (Original) — Escopo inicial (${v1Months} meses • R$ ${v1Mrr.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês)`,
+        snapshot: v1Snap,
+      },
+      {
+        version: 2,
+        versionLabel: "v2.0",
+        savedAt: updatedDate,
+        savedBy: p.sellerName || "Marcelo Lopes Mira",
+        changedFields: ["Tempo de Contrato", "Produtos / Serviços", "Prazo de Entrega"],
+        changeSummary: `Versão 2 (Atual) — Revisão comercial aprovada (${p.contractMonths} meses • R$ ${Number(p.monthlyRecurringTotal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês)`,
+        snapshot: currentSnap,
+      },
+    ];
+  } else if (!Array.isArray(p.versionHistory) || p.versionHistory.length === 0) {
     const initialVer = Number(p.version || 1);
     const snap = buildProposalVersionSnapshot(p);
     p.version = initialVer;
@@ -654,7 +704,7 @@ export class CrmRepository {
         return {
           ...seedErp,
           ...parsed.erp,
-          proposals: cleanedProposals,
+          proposals: cleanedProposals.map((cp) => ensureProposalInitializedWithVersion(cp)),
           bankAccounts:
             Array.isArray(parsed.erp.bankAccounts) && parsed.erp.bankAccounts.length > 0
               ? parsed.erp.bankAccounts
@@ -710,12 +760,22 @@ export class CrmRepository {
   }
 
   syncFromDisk(): void {
-    const candidatePath =
-      this.persistPath && fs.existsSync(this.persistPath)
-        ? this.persistPath
-        : fs.existsSync("/tmp/crm-store.json") && this.persistPath
-          ? "/tmp/crm-store.json"
-          : null;
+    let candidatePath: string | null = null;
+    const tmpExists = Boolean(this.persistPath && fs.existsSync("/tmp/crm-store.json"));
+    const primaryExists = Boolean(this.persistPath && fs.existsSync(this.persistPath));
+    if (tmpExists && primaryExists && this.persistPath !== "/tmp/crm-store.json") {
+      try {
+        const tmpStat = fs.statSync("/tmp/crm-store.json");
+        const priStat = fs.statSync(this.persistPath!);
+        candidatePath = tmpStat.mtimeMs >= priStat.mtimeMs ? "/tmp/crm-store.json" : this.persistPath;
+      } catch {
+        candidatePath = "/tmp/crm-store.json";
+      }
+    } else if (tmpExists) {
+      candidatePath = "/tmp/crm-store.json";
+    } else if (primaryExists) {
+      candidatePath = this.persistPath;
+    }
     if (!candidatePath) return;
     try {
       const stat = fs.statSync(candidatePath);
@@ -6021,14 +6081,22 @@ export class CrmRepository {
       if (input.password && String(input.password).trim().length >= 6) {
         existing.passwordHash = hashCorporatePassword(String(input.password));
       }
-      if (typeof input.totpConfigured === "boolean") {
-        existing.totpConfigured = input.totpConfigured;
-      }
       if (input.totpSecret && isValidPureBase32Secret(input.totpSecret)) {
-        existing.totpSecret = input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
-        existing.totpConfiguredAt = nowIso;
+        const cleanSec = input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
+        if (cleanSec !== existing.totpSecret && input.totpConfigured === undefined) {
+          existing.totpConfigured = false;
+          existing.totpConfiguredAt = null;
+        }
+        existing.totpSecret = cleanSec;
       } else if (!existing.totpSecret || !isValidPureBase32Secret(existing.totpSecret)) {
         existing.totpSecret = generateTotpSecretBase32(existing.email);
+      }
+      if (typeof input.totpConfigured === "boolean") {
+        existing.totpConfigured = input.totpConfigured;
+        existing.totpConfiguredAt = input.totpConfigured ? (existing.totpConfiguredAt || nowIso) : null;
+      }
+      if ((input as Record<string, unknown>).inviteStatus) {
+        existing.inviteStatus = (input as Record<string, unknown>).inviteStatus as "PENDING_INVITE" | "ACTIVE";
       }
 
       if (input.enabledModules || input.moduleAccess) {
@@ -6174,7 +6242,11 @@ export class CrmRepository {
       passwordHash:
         input.password && String(input.password).trim().length >= 6
           ? hashCorporatePassword(String(input.password))
-          : undefined,
+          : input.passwordHash || undefined,
+      inviteStatus:
+        input.inviteStatus ||
+        (input.password && String(input.password).trim().length >= 6 ? "ACTIVE" : "PENDING_INVITE"),
+      invitedAt: nowIso,
       actionGuardsOverride: input.actionGuardsOverride || {
         canViewFinancialBalances: erpPermissions.canViewBankBalances,
         canIssueFiscalDocuments: erpPermissions.canIssueFiscalDocuments,
@@ -6366,6 +6438,313 @@ export class CrmRepository {
     };
   }
 
+  applyIamUsersOverride(overrides?: unknown): void {
+    if (!Array.isArray(overrides) || overrides.length === 0) return;
+    for (const raw of overrides) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Partial<StiHubUserRecord> & { password?: string };
+      if (!item.email && !item.id) continue;
+      this.upsertRbacUser(item);
+    }
+  }
+
+  createUserInvite(
+    userOrEmail: string,
+    baseOrigin = "https://sti-hub.vercel.app",
+    resetTotp = true
+  ): {
+    ok: boolean;
+    error?: string;
+    inviteToken?: string;
+    inviteUrl?: string;
+    conviteUrl?: string;
+    expiresAt?: string;
+    user?: StiHubUserRecord;
+  } {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    const found = rbac.users.find(
+      (u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q
+    );
+    if (!found) {
+      return { ok: false, error: "Usuário não encontrado na matriz IAM." };
+    }
+    if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret)) {
+      found.totpSecret = generateTotpSecretBase32(found.email);
+    }
+    if (resetTotp) {
+      found.totpConfigured = false;
+      found.totpConfiguredAt = null;
+    }
+    const nowMs = Date.now();
+    const expMs = nowMs + 72 * 3600 * 1000; // 72 hours
+    found.inviteStatus = "PENDING_INVITE";
+    found.invitedAt = new Date(nowMs).toISOString();
+    this.save();
+
+    const normMod = normalizeUserModuleAccess({
+      enabledModules: found.enabledModules,
+      moduleAccess: found.moduleAccess,
+      roleId: found.roleId,
+      email: found.email,
+    });
+
+    const inviteToken = signUserInviteToken({
+      iid: `INV-${found.id}-${nowMs.toString(36).toUpperCase()}`,
+      uid: found.id,
+      email: found.email,
+      name: found.name,
+      phone: found.phone,
+      department: found.department,
+      jobTitle: found.jobTitle,
+      roleId: found.roleId,
+      crmRole: found.crmRole,
+      erpRole: found.erpRole,
+      scope: found.scope,
+      enabledModules: normMod.enabledModules,
+      mfaEnabled: found.mfaEnabled !== false,
+      mfaMethod: found.mfaMethod || "TOTP_AUTHENTICATOR",
+      totpSecret: found.totpSecret,
+      iat: nowMs,
+      exp: expMs,
+    });
+
+    const cleanOrigin = String(baseOrigin || "https://sti-hub.vercel.app").replace(/\/+$/, "");
+    const inviteUrl = `${cleanOrigin}/login?invite=${encodeURIComponent(inviteToken)}`;
+    const conviteUrl = `${cleanOrigin}/convite?token=${encodeURIComponent(inviteToken)}`;
+
+    this.appendSecurityAuditLog({
+      actorEmail: found.email,
+      actorName: found.name,
+      actorRole: found.roleId,
+      action: "IAM_USER_INVITE_GENERATED",
+      module: "IAM_RBAC",
+      resource: `/api/admin/users/${found.id}/invite`,
+      status: "SUCCESS",
+      details: `Convite de acesso e cadastro de senha gerado para ${found.email} (válido por 72h).`,
+    });
+
+    return {
+      ok: true,
+      inviteToken,
+      inviteUrl,
+      conviteUrl,
+      expiresAt: new Date(expMs).toISOString(),
+      user: { ...found },
+    };
+  }
+
+  inspectUserInvite(token: string): {
+    ok: boolean;
+    error?: string;
+    user?: StiHubUserRecord;
+    totpPairing?: {
+      totpSecret: string;
+      totpSecretFormatted: string;
+      otpauthUri: string;
+      qrCodeSvgDataUrl: string;
+      secondsRemaining: number;
+    };
+    expiresAt?: string;
+  } {
+    const verified = verifyUserInviteToken(token);
+    if (!verified.valid || !verified.claims) {
+      return {
+        ok: false,
+        error:
+          verified.reason === "INVITE_EXPIRED"
+            ? "Este link de convite expirou. Solicite um novo convite ao administrador."
+            : "Link de convite inválido ou corrompido.",
+      };
+    }
+    const c = verified.claims;
+    if (this.consumedChallengeIds.has(c.iid)) {
+      return {
+        ok: false,
+        error: "Este convite já foi utilizado para cadastrar a senha. Faça login normalmente.",
+      };
+    }
+
+    // Ensure user exists in repository (serverless stateless hydration)
+    const rbac = this.ensureRbacState();
+    let user = rbac.users.find(
+      (u) => u.id === c.uid || u.email.toLowerCase() === c.email.toLowerCase()
+    );
+    if (!user) {
+      user = this.upsertRbacUser({
+        id: c.uid,
+        email: c.email,
+        name: c.name,
+        phone: c.phone,
+        department: c.department,
+        jobTitle: c.jobTitle,
+        roleId: c.roleId as StiHubRoleId,
+        crmRole: c.crmRole,
+        erpRole: c.erpRole,
+        scope: c.scope as any,
+        enabledModules: c.enabledModules,
+        mfaEnabled: c.mfaEnabled,
+        mfaMethod: c.mfaMethod,
+        totpSecret: c.totpSecret,
+        totpConfigured: false,
+        active: true,
+      });
+    }
+
+    const secret = user.totpSecret || c.totpSecret || generateTotpSecretBase32(c.email);
+    const otpauthUri = buildOtpAuthUri({
+      secretBase32: secret,
+      email: user.email,
+      accountName: user.name,
+      issuer: "STI-hub Seta Telecom",
+    });
+    const qrCodeSvgDataUrl = buildTotpQrCodeSvgDataUrl(otpauthUri, secret);
+    const totpNow = computeRfc6238Totp(secret);
+
+    return {
+      ok: true,
+      user: {
+        ...user,
+        totpConfigured: false,
+      },
+      totpPairing: {
+        totpSecret: secret,
+        totpSecretFormatted: formatBase32SecretBlocks(secret),
+        otpauthUri,
+        qrCodeSvgDataUrl,
+        secondsRemaining: totpNow.secondsRemaining,
+      },
+      expiresAt: new Date(c.exp).toISOString(),
+    };
+  }
+
+  acceptUserInvite(input: {
+    token: string;
+    password: string;
+    code?: string;
+    ipAddress?: string;
+  }): {
+    ok: boolean;
+    error?: string;
+    passwordSaved?: boolean;
+    mfaRequired?: boolean;
+    challengeId?: string;
+    totpConfigured?: boolean;
+    totpPairing?: {
+      totpSecret: string;
+      otpauthUri: string;
+      qrCodeSvgDataUrl: string;
+      secondsRemaining: number;
+    };
+    sessionToken?: string;
+    user?: StiHubUserRecord;
+    role?: StiHubRoleDefinition;
+    effectiveActionGuards?: StiHubActionGuards;
+    enabledModules?: StiHubMacroModule[];
+    moduleAccess?: StiHubUserModuleAccess;
+    crmPermissions?: StiHubCrmPermissions;
+    erpPermissions?: StiHubErpPermissions;
+  } {
+    const verified = verifyUserInviteToken(input.token);
+    if (!verified.valid || !verified.claims) {
+      return {
+        ok: false,
+        error:
+          verified.reason === "INVITE_EXPIRED"
+            ? "Este link de convite expirou. Solicite um novo convite ao administrador."
+            : "Link de convite inválido.",
+      };
+    }
+    const c = verified.claims;
+    if (this.consumedChallengeIds.has(c.iid)) {
+      return {
+        ok: false,
+        error: "Este convite já foi utilizado. Faça login com seu e-mail e senha.",
+      };
+    }
+    const cleanPass = String(input.password || "").trim();
+    if (cleanPass.length < 6) {
+      return {
+        ok: false,
+        error: "A senha deve ter pelo menos 6 caracteres.",
+      };
+    }
+
+    const rbac = this.ensureRbacState();
+    let existing = rbac.users.find(
+      (u) => u.id === c.uid || u.email.toLowerCase() === c.email.toLowerCase()
+    );
+    const updatedUser = this.upsertRbacUser({
+      id: existing?.id || c.uid,
+      email: c.email,
+      name: existing?.name || c.name,
+      phone: existing?.phone || c.phone,
+      department: existing?.department || c.department,
+      jobTitle: existing?.jobTitle || c.jobTitle,
+      roleId: (existing?.roleId || c.roleId) as StiHubRoleId,
+      crmRole: existing?.crmRole || c.crmRole,
+      erpRole: existing?.erpRole || c.erpRole,
+      scope: (existing?.scope || c.scope) as any,
+      enabledModules: existing?.enabledModules || c.enabledModules,
+      mfaEnabled: existing !== undefined ? existing.mfaEnabled : c.mfaEnabled,
+      mfaMethod: existing?.mfaMethod || c.mfaMethod,
+      totpSecret: existing?.totpSecret || c.totpSecret,
+      totpConfigured: false,
+      password: cleanPass,
+      inviteStatus: "ACTIVE",
+      active: true,
+    });
+
+    // If the user also provided the 6-digit Authenticator code in the same step, verify and create session now
+    const rawCode = String(input.code || "").replace(/\D+/g, "");
+    if (rawCode.length === 6) {
+      const mfaRes = this.verifyMfaAndCreateSession({
+        email: updatedUser.email,
+        userId: updatedUser.id,
+        code: rawCode,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+        totpSecret: updatedUser.totpSecret,
+        ipAddress: input.ipAddress,
+      });
+      if (!mfaRes.ok) {
+        return {
+          ok: false,
+          error: mfaRes.error || "Código de 6 dígitos do autenticador inválido.",
+        };
+      }
+      this.consumedChallengeIds.add(c.iid);
+      return {
+        ok: true,
+        passwordSaved: true,
+        mfaRequired: false,
+        totpConfigured: true,
+        sessionToken: mfaRes.sessionToken,
+        user: mfaRes.user,
+        role: mfaRes.role,
+        effectiveActionGuards: mfaRes.effectiveActionGuards,
+        enabledModules: mfaRes.enabledModules,
+        moduleAccess: mfaRes.moduleAccess,
+        crmPermissions: mfaRes.crmPermissions,
+        erpPermissions: mfaRes.erpPermissions,
+      };
+    }
+
+    // Mark invite token consumed once password is saved
+    this.consumedChallengeIds.add(c.iid);
+
+    // Initiate first login challenge: if mfaEnabled === false, logs in directly; otherwise returns QR code for 1st login pairing!
+    const loginChallenge = this.initiateLoginChallenge(
+      updatedUser.email,
+      cleanPass,
+      input.ipAddress || "189.112.44.18",
+      false
+    );
+    return {
+      ...loginChallenge,
+      passwordSaved: true,
+    };
+  }
+
   setupUserTotp(
     userOrEmail: string,
     regenerateSecret = false,
@@ -6399,7 +6778,10 @@ export class CrmRepository {
       found.totpSecret = regenerateSecret
         ? generateTotpSecretBase32()
         : generateTotpSecretBase32(found.email);
-      found.totpConfiguredAt = new Date().toISOString();
+      if (regenerateSecret) {
+        found.totpConfigured = false;
+        found.totpConfiguredAt = null;
+      }
       this.save();
     }
     const otpauthUri = buildOtpAuthUri({
@@ -6545,8 +6927,14 @@ export class CrmRepository {
     ok: boolean;
     error?: string;
     challengeId?: string;
+    sessionToken?: string;
     user?: StiHubUserRecord;
     role?: StiHubRoleDefinition;
+    effectiveActionGuards?: StiHubActionGuards;
+    enabledModules?: StiHubMacroModule[];
+    moduleAccess?: StiHubUserModuleAccess;
+    crmPermissions?: StiHubCrmPermissions;
+    erpPermissions?: StiHubErpPermissions;
     mfaRequired?: boolean;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
     totpConfigured?: boolean;
@@ -6616,7 +7004,62 @@ export class CrmRepository {
       return { ok: false, error: "Senha corporativa inválida." };
     }
 
-    const { user: hydratedUser, role } = this.getEffectiveUserAndRole(found.id);
+    const {
+      user: hydratedUser,
+      role,
+      effectiveActionGuards,
+      enabledModules,
+      moduleAccess,
+      crmPermissions,
+      erpPermissions,
+    } = this.getEffectiveUserAndRole(found.id);
+
+    // If Admin disabled 2FA (mfaEnabled === false) for this user, issue session directly on Step 1!
+    if (found.mfaEnabled === false) {
+      this.loginAttemptTracker.delete(emailClean);
+      found.lastLoginAt = new Date().toISOString();
+      this.save();
+      const ttlHours = Math.max(1, Number(rbac.securityConfig.sessionTtlHours || 24));
+      const sessionToken = signStiHubSessionToken({
+        uid: found.id,
+        email: found.email,
+        name: found.name,
+        roleId: role.id,
+        scope: found.scope,
+        enabledModules,
+        moduleAccess,
+        crmPermissions,
+        erpPermissions,
+        mfaVerified: true,
+        mfaMethod: found.mfaMethod,
+        iat: nowMs,
+        exp: nowMs + ttlHours * 3600 * 1000,
+      });
+      this.appendSecurityAuditLog({
+        actorEmail: found.email,
+        actorName: found.name,
+        actorRole: role.id,
+        action: "AUTH_LOGIN_DIRECT_MFA_DISABLED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/login",
+        status: "SUCCESS",
+        ipAddress,
+        details: `Login direto concluído para ${found.email} (2FA desabilitado pelo administrador).`,
+      });
+      return {
+        ok: true,
+        mfaRequired: false,
+        sessionToken,
+        user: { ...hydratedUser, totpSecret: undefined },
+        role,
+        effectiveActionGuards,
+        enabledModules,
+        moduleAccess,
+        crmPermissions,
+        erpPermissions,
+      };
+    }
+
     if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret)) {
       found.totpSecret = generateTotpSecretBase32(found.email);
       this.save();
@@ -6649,7 +7092,7 @@ export class CrmRepository {
     }
 
     const isTotpAlreadyConfigured = Boolean(
-      found.totpConfigured || found.totpConfiguredAt || enrolledCookieForced
+      found.totpConfigured === true || enrolledCookieForced
     );
     const sanitizedUser: StiHubUserRecord = {
       ...hydratedUser,
@@ -6751,9 +7194,7 @@ export class CrmRepository {
     }
 
     const realUserRecord = rbac.users.find((u) => u.id === user.id);
-    const isTotpAlreadyConfigured = Boolean(
-      realUserRecord?.totpConfigured || realUserRecord?.totpConfiguredAt
-    );
+    const isTotpAlreadyConfigured = Boolean(realUserRecord?.totpConfigured === true);
 
     const userSecret =
       user.totpSecret && isValidPureBase32Secret(user.totpSecret)

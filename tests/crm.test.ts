@@ -3753,3 +3753,164 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(replyBody.updatedDealStageId, "stage-negotiation");
   });
 });
+
+describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador QR Code) e Controle Admin de 2FA (Desabilitar / Resetar QR)", () => {
+  it("gera convite de usuário no IAM, cadastra senha via /api/auth/accept-invite, abre QR Code no 1º login, oculta nos próximos e permite ao Admin desabilitar ou resetar o 2FA", async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { computeRfc6238Totp } = await import("../src/app/lib/auth");
+
+    // 1. Admin cria novo usuário no IAM -> gera inviteToken e inviteUrl com totpConfigured = false
+    const createRes = await router.dispatch({
+      method: "POST",
+      path: "/api/admin/users",
+      body: {
+        name: "Fernanda Costa (Convidada)",
+        email: "fernanda.costa@setatelecom.com.br",
+        roleId: "VENDEDOR_SALES",
+        enabledModules: ["CRM", "ERP"],
+        mfaEnabled: true,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(createRes.status, 201);
+    const created = (createRes.body as {
+      data: {
+        id: string;
+        email: string;
+        totpConfigured: boolean;
+        inviteToken: string;
+        inviteUrl: string;
+      };
+    }).data;
+    assert.equal(created.totpConfigured, false);
+    assert.ok(created.inviteToken.startsWith("INV-"));
+    assert.ok(created.inviteUrl.includes("/login?invite="));
+
+    // 2. Usuário abre link do convite -> GET /api/auth/invite?token=...
+    const inspectRes = await router.dispatch({
+      method: "GET",
+      path: "/api/auth/invite",
+      query: { token: created.inviteToken },
+    });
+    assert.equal(inspectRes.status, 200);
+    const inspected = (inspectRes.body as {
+      data: { user: { email: string }; totpPairing: { totpSecret: string; qrCodeSvgDataUrl: string } };
+    }).data;
+    assert.equal(inspected.user.email, "fernanda.costa@setatelecom.com.br");
+    assert.ok(inspected.totpPairing.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
+
+    // 3. Usuário cadastra sua senha no convite -> POST /api/auth/accept-invite
+    const acceptRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/accept-invite",
+      body: {
+        token: created.inviteToken,
+        password: "Fernanda@2026#Password",
+      },
+    });
+    assert.equal(acceptRes.status, 200);
+    const acceptData = (acceptRes.body as {
+      data: {
+        passwordSaved: boolean;
+        mfaRequired: boolean;
+        totpConfigured: boolean;
+        totpPairing?: { totpSecret: string; qrCodeSvgDataUrl: string };
+      };
+    }).data;
+    assert.equal(acceptData.passwordSaved, true);
+    assert.equal(acceptData.mfaRequired, true);
+    assert.equal(acceptData.totpConfigured, false);
+    assert.ok(acceptData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"), "No 1º acesso após criar senha, o QR Code do autenticador deve abrir automaticamente");
+
+    // Reutilizar o mesmo token de convite deve ser rejeitado (400)
+    const reuseInviteRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/accept-invite",
+      body: {
+        token: created.inviteToken,
+        password: "OutraSenha@2026",
+      },
+    });
+    assert.equal(reuseInviteRes.status, 400);
+
+    // 4. Usuário confirma o código de 6 dígitos do autenticador no 1º login -> totpConfigured passa a true
+    const firstCode = computeRfc6238Totp(acceptData.totpPairing!.totpSecret).code;
+    const verifyFirstRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/verify-mfa",
+      body: {
+        email: "fernanda.costa@setatelecom.com.br",
+        code: firstCode,
+        mfaMethod: "TOTP_AUTHENTICATOR",
+      },
+    });
+    assert.equal(verifyFirstRes.status, 200);
+
+    // No 2º login com a nova senha, totpConfigured é true e o QR Code não aparece mais
+    const secondLoginRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "fernanda.costa@setatelecom.com.br",
+        password: "Fernanda@2026#Password",
+      },
+    });
+    assert.equal(secondLoginRes.status, 200);
+    const secondLoginData = (secondLoginRes.body as {
+      data: { mfaRequired: boolean; totpConfigured: boolean; totpPairing?: unknown };
+    }).data;
+    assert.equal(secondLoginData.mfaRequired, true);
+    assert.equal(secondLoginData.totpConfigured, true);
+    assert.equal(secondLoginData.totpPairing, undefined);
+
+    // 5. Admin desabilita o 2FA da usuária (caso ela perca o celular) -> POST /api/admin/users/:id/reset-mfa (DISABLE_2FA)
+    const disableMfaRes = await router.dispatch({
+      method: "POST",
+      path: `/api/admin/users/${created.id}/reset-mfa`,
+      body: { mode: "DISABLE_2FA" },
+    });
+    assert.equal(disableMfaRes.status, 200);
+
+    // Ao fazer login com 2FA desabilitado, entra direto na Etapa 1 (mfaRequired: false + sessionToken emitido)
+    const directLoginRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "fernanda.costa@setatelecom.com.br",
+        password: "Fernanda@2026#Password",
+      },
+    });
+    assert.equal(directLoginRes.status, 200);
+    const directLoginData = (directLoginRes.body as {
+      data: { mfaRequired: boolean; authenticated: boolean; mfaVerified: boolean; sessionToken: string };
+    }).data;
+    assert.equal(directLoginData.mfaRequired, false);
+    assert.equal(directLoginData.authenticated, true);
+    assert.equal(directLoginData.mfaVerified, true);
+    assert.ok(directLoginData.sessionToken.includes("."));
+
+    // 6. Admin reseta o QR Code (RESET_QR) -> reativa 2FA com totpConfigured = false para exibir QR no próximo login
+    const resetQrRes = await router.dispatch({
+      method: "POST",
+      path: `/api/admin/users/${created.id}/reset-mfa`,
+      body: { mode: "RESET_QR" },
+    });
+    assert.equal(resetQrRes.status, 200);
+
+    const loginAfterResetRes = await router.dispatch({
+      method: "POST",
+      path: "/api/auth/login",
+      body: {
+        email: "fernanda.costa@setatelecom.com.br",
+        password: "Fernanda@2026#Password",
+      },
+    });
+    const loginAfterResetData = (loginAfterResetRes.body as {
+      data: { mfaRequired: boolean; totpConfigured: boolean; totpPairing?: { qrCodeSvgDataUrl: string } };
+    }).data;
+    assert.equal(loginAfterResetData.mfaRequired, true);
+    assert.equal(loginAfterResetData.totpConfigured, false);
+    assert.ok(loginAfterResetData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
+  });
+});
