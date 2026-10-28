@@ -4056,3 +4056,46 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.ok(loginAfterResetData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
   });
 });
+
+describe('15. Contratos GestãoClick: 12 ações no final do contrato (3 pontos) e Minutas por Tipo', () => {
+  it('renderiza toolbar, colunas e as 12 ações do menu ⋮ para Locações, Serviços e Assinaturas', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    for (const tab of ['CTR_LOCACOES', 'CTR_SERVICOS', 'CTR_ASSINATURAS']) assert.ok(src.includes(`"${tab}"`));
+    for (const label of ['+ Adicionar', 'Devoluções</span>', 'Mais ações ▾', 'Próximo vencimento', 'Periodicidade', 'contract-row-actions-menu']) {
+      assert.ok(src.includes(label), `faltando: ${label}`);
+    }
+    const actions = ['Link de cobrança', 'Imprimir A4', 'Alterar situação', 'Enviar por e-mail', 'Enviar por WhatsApp', 'Gerar próxima fatura', 'Devolução de produtos', 'Renovar locação', 'Agendar compromisso', 'Ver no financeiro', 'Solicitar assinatura', 'Excluir'];
+    assert.equal(actions.length, 12);
+    for (const a of actions) assert.ok(src.includes(`label: "${a}`) || src.includes(`"${a}"`), `ação ausente: ${a}`);
+    assert.ok(src.includes('printOrDownloadContractA4(ctr, modality)'));
+    assert.ok(src.includes('Modelos &amp; Minutas de Contrato por Tipo'));
+  });
+
+  it('gera minutas A4 distintas para Locação (SV 31 STF, CFOP 5.908) e Serviços (LC 116/2003, NFS-e)', async () => {
+    const utils = await import('../src/app/lib/contract-billing-utils');
+    const { createSeedErpState } = await import('../src/modules/erp/erp-seed');
+    const contracts = createSeedErpState().rentalContracts;
+    const c453 = contracts.find((c) => c.contractNumber === '453');
+    const c452 = contracts.find((c) => c.contractNumber === '452');
+    assert.ok(c453 && c452);
+    assert.equal(c453.startDate, '2026-10-09');
+    assert.equal(c453.nextDueDate, '2026-12-09');
+    assert.equal(c453.status, 'ATIVO');
+    assert.equal(c453.monthlyValue, 750);
+    assert.equal(c452.nextDueDate, '2026-11-30');
+    assert.equal(c452.status, 'FATURAMENTO');
+    assert.ok(c452.companyName.includes('LOCAR GUINDASTES'));
+
+    const loc = utils.buildStandaloneContractA4Html(c453, 'LOCACAO');
+    const srv = utils.buildStandaloneContractA4Html(c453, 'SERVICO');
+    const ass = utils.buildStandaloneContractA4Html(c453, 'ASSINATURA');
+    assert.ok(loc.includes('Contrato de Locação de Bens Móveis'));
+    assert.ok(loc.includes('Súmula Vinculante 31') && loc.includes('5.908') && loc.includes('565 a 578'));
+    assert.ok(!loc.includes('Lei Complementar 116/2003'));
+    assert.ok(srv.includes('Contrato de Prestação de Serviços Técnicos') && srv.includes('Lei Complementar 116/2003') && srv.includes('NFS-e') && srv.includes('NOC'));
+    assert.ok(!srv.includes('Súmula Vinculante 31'));
+    assert.ok(ass.includes('Termo de Assinatura Recorrente') && ass.includes('renova-se automaticamente'));
+    assert.ok(utils.buildStandaloneContractA4Html(c453, 'LOCACAO', 'Cláusula extra XYZ').includes('Cláusula extra XYZ'));
+    assert.equal(Object.keys(utils.CONTRACT_DOCUMENT_TEMPLATES).length, 3);
+  });
+});
