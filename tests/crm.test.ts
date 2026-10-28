@@ -3323,7 +3323,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
 
     assert.ok(!pageSrc.includes("Imediato (até 48h)"));
     assert.ok(pageSrc.includes("resolveProposalDeliveryLeadTime(proposal)"));
-    assert.ok(pageSrc.includes("handleDeliveryLeadTimeChange"));
+    assert.equal(pageSrc.includes(`list="delivery-lead-time-suggestions"`), false, "Prazo de Entrega não deve ficar solto na topbar da proposta");
     assert.ok(pageSrc.includes("Tempo de Contrato: {contractDurationMonths}"));
     assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryLeadTime: "10 dias úteis após o aceite" } as never), "10 dias úteis após o aceite");
     assert.equal(share.resolveProposalDeliveryLeadTime({ deliveryForecast: "Imediato (até 48h)" } as never), "");

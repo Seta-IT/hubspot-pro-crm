@@ -457,6 +457,7 @@ export default function ErpGestaoClickTab({
   const [propModality, setPropModality] = useState<"RENTAL" | "SERVICE" | "HYBRID">("RENTAL");
   const [propSerialNumber, setPropSerialNumber] = useState("");
   const [propPaymentCondition, setPropPaymentCondition] = useState("");
+  const [propDeliveryForecast, setPropDeliveryForecast] = useState("10 dias úteis após o aceite");
   const [propSku, setPropSku] = useState("");
   const [propQty, setPropQty] = useState("1");
   const [propUnitPrice, setPropUnitPrice] = useState("");
@@ -904,6 +905,8 @@ export default function ErpGestaoClickTab({
         readjustmentIndex: propReadjustmentIndex,
         contractMonths: Number(propMonths) || 24,
         paymentCondition: propPaymentCondition,
+        deliveryLeadTime: propDeliveryForecast.trim(),
+        deliveryForecast: propDeliveryForecast.trim(),
         monthlyRecurringTotal: monthlyTotal,
         items: allItems,
       }),
@@ -7493,13 +7496,27 @@ export default function ErpGestaoClickTab({
               </div>
 
               <div>
-                <label className="block font-bold text-[#33475b] mb-1">Condição de Pagamento &amp; Validade</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block font-bold text-[#33475b] mb-1">Prazo de Entrega</label>
+                    <input
+                      type="text"
+                      value={propDeliveryForecast}
+                      onChange={(e) => setPropDeliveryForecast(e.target.value)}
+                      placeholder="Ex: 10 dias úteis após o aceite"
+                      className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-[#33475b] mb-1">Condição de Pagamento &amp; Validade</label>
                 <input
                   type="text"
                   value={propPaymentCondition}
-                  onChange={(e) => setPropPaymentCondition(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2]"
-                />
+                      onChange={(e) => setPropPaymentCondition(e.target.value)}
+                      className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2]"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t">

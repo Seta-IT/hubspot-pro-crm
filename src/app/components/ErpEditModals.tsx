@@ -746,7 +746,7 @@ export function ProposalEditModal({
               {/* LINHA 1 DO GESTÃOCLICK: Número | Cliente * (Autocomplete + Botão Verde "+ Adicionar novo") | Data * | Validade */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
                 {/* Coluna 1: Número */}
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Número</label>
                   <div className="flex">
                     <input
@@ -876,7 +876,7 @@ export function ProposalEditModal({
                 </div>
 
                 {/* Coluna 3: Data * */}
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Data <span className="text-rose-600">*</span>
                   </label>
@@ -902,7 +902,7 @@ export function ProposalEditModal({
                     onChange={(e) => {
                       const val = e.target.value;
                       setValidityDaysInput(val);
-                      const numDays = parseInt(val.replace(/\D+/g, ''), 10);
+                      const numDays = parseInt(val.replace(/\D+/g, ""), 10);
                       if (!Number.isNaN(numDays) && numDays > 0) {
                         const dt = new Date(Date.now() + numDays * 86400000)
                           .toISOString()
@@ -911,6 +911,26 @@ export function ProposalEditModal({
                       }
                     }}
                     className="w-full px-3 py-2 rounded border border-slate-300"
+                  />
+                </div>
+
+                {/* Coluna 5: Prazo de Entrega */}
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+                    Prazo de Entrega
+                  </label>
+                  <input
+                    type="text"
+                    list="proposal-delivery-leadtime-options"
+                    placeholder="Ex.: 10 dias úteis"
+                    value={resolveProposalDeliveryLeadTime(draft)}
+                    onChange={(e) =>
+                      updateDraft({
+                        deliveryLeadTime: e.target.value,
+                        deliveryForecast: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
                   />
                 </div>
               </div>
@@ -1095,7 +1115,7 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-3">
                   <label className="block text-[11px] font-extrabold text-[#1e3a6e] mb-1">
-                    Prazo de Entrega / Implantação
+                    Prazo de Entrega
                   </label>
                   <input
                     type="text"

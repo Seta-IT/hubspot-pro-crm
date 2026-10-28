@@ -634,27 +634,6 @@ function PublicProposalPrintContent() {
             ))}
           </select>
 
-          <input
-            list="delivery-lead-time-suggestions"
-            defaultValue={deliveryLeadTime}
-            key={`dlt-${deliveryLeadTime}`}
-            placeholder="Prazo de Entrega..."
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v !== deliveryLeadTime) handleDeliveryLeadTimeChange(v);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-            className="px-2.5 py-2 rounded-md bg-white text-slate-900 text-xs font-bold border border-slate-300 w-[200px]"
-            title="Definir Prazo de Entrega da Proposta"
-          />
-          <datalist id="delivery-lead-time-suggestions">
-            {PROPOSAL_DELIVERY_SUGGESTIONS.map((sug) => (
-              <option key={sug} value={sug} />
-            ))}
-          </datalist>
-
           <select
             value={activeLayout}
             onChange={(e) =>
@@ -957,13 +936,16 @@ function PublicProposalPrintContent() {
       )}
 
       {/* A4 DOCUMENT CONTAINER */}
-      <div className={`max-w-4xl mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:shadow-none print:border-0 print:rounded-none`}>
-        {/* CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT (REPAGINADO EM 2 FAIXAS EQUILIBRADAS, SEM BADGE DE OPÇÃO E SEM CORTE LATERAL) */}
-        <div className={`${headerBgClass} px-7 py-5 space-y-3.5`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3.5 border-b border-slate-200/80">
+      <div
+        id="proposal-printable-sheet"
+        className={`max-w-4xl mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:overflow-visible print:shadow-none print:border-0 print:rounded-none`}
+      >
+        {/* BLOCO 1: CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT */}
+        <div className={`${headerBgClass} print-avoid-break px-7 py-5 print:px-3.5 print:py-2 space-y-3.5 print:space-y-1.5 rounded-t-lg print:rounded-none`}>
+          <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-4 print:gap-3 pb-3.5 print:pb-1.5 border-b border-slate-200/80">
             <div className="flex items-center gap-3.5 min-w-0">
               {/* OFFICIAL SETA | IT LOGO CARD */}
-              <div className="bg-white rounded-md px-3.5 py-2.5 flex items-center gap-2 shrink-0 border border-slate-200 shadow-2xs">
+              <div className="bg-white rounded-md px-3.5 py-2.5 print:px-3 print:py-2 flex items-center gap-2 shrink-0 border border-slate-200 shadow-2xs">
                 <span className="text-xl font-black tracking-tight text-[#0d2b4e]">SETA</span>
                 <span className="w-[2px] h-5 bg-[#f26522] inline-block" />
                 <span className="text-xl font-black tracking-tight text-[#f26522]">IT</span>
@@ -982,7 +964,7 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 sm:text-right shrink-0`}>
+            <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 print:px-3.5 print:py-2 sm:text-right print:text-right shrink-0`}>
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
@@ -995,7 +977,7 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-[11px]">
+          <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5 text-[11px]">
             <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700">
               <span>
                 Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
@@ -1014,7 +996,7 @@ function PublicProposalPrintContent() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center md:justify-end gap-1.5">
+            <div className="flex flex-wrap items-center sm:justify-end print:justify-end gap-1.5">
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
                 <Calendar className="w-3 h-3 text-emerald-700 shrink-0" />
                 Tempo de Contrato: {contractDurationMonths} {contractDurationMonths === 1 ? "mês" : "meses"}
@@ -1036,32 +1018,32 @@ function PublicProposalPrintContent() {
         </div>
 
         {/* DOCUMENT BODY */}
-        <div className="p-7 space-y-4 text-slate-800">
-          {/* 1. APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
-          <div className={`rounded-lg p-4 space-y-3 ${instCardClass}`}>
+        <div className="p-7 print:px-3.5 print:py-2 space-y-4 print:space-y-2 text-slate-800 print:block">
+          {/* BLOCO 2: APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
+          <div className={`print-avoid-break rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
             <div>
               <div className={`text-[10px] font-extrabold uppercase tracking-wider ${instEyebrowColorClass}`}>
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.eyebrow}
               </div>
-              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5">
+              <h2 className="text-sm sm:text-base print:text-sm font-extrabold text-slate-900 mt-0.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.headline}
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px] text-slate-700">
-              <div className="bg-white rounded-md border border-slate-200 p-2.5 leading-relaxed">
+            <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
+              <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
                 <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTimeLabel}
                 </strong>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime}</span>
               </div>
-              <div className="bg-white rounded-md border border-slate-200 p-2.5 leading-relaxed">
+              <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
                 <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel}
                 </strong>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.location}</span>
               </div>
-              <div className="bg-white rounded-md border border-slate-200 p-2.5 leading-relaxed">
+              <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
                 <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.partnersLabel}
                 </strong>
@@ -1069,11 +1051,11 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className="bg-white rounded-md border border-slate-200 p-3">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 mb-2">
+            <div className="bg-white rounded-md border border-slate-200 p-3 print:p-2">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 mb-2 print:mb-1.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle}
               </div>
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-700">
+              <ul className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-x-4 gap-y-1 print:gap-y-0.5 text-[11px] print:text-[10.5px] text-slate-700">
                 {SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.map((topic) => (
                   <li key={topic} className="flex items-baseline gap-1.5 leading-snug">
                     <span className={`font-black ${bulletColorClass}`}>•</span>
@@ -1103,7 +1085,7 @@ function PublicProposalPrintContent() {
             </details>
           </div>
 
-          <div className="flex items-center gap-3 py-0.5">
+          <div className="print-avoid-break print-keep-with-next flex items-center gap-3 py-0.5">
             <span className="flex-1 h-px bg-slate-200" />
             <span className="text-[11px] font-extrabold tracking-widest text-[#1e3a6e]">
               PROPOSTA COMERCIAL - Solução
@@ -1111,8 +1093,8 @@ function PublicProposalPrintContent() {
             <span className="flex-1 h-px bg-slate-200" />
           </div>
 
-          {/* 2. CLIENTE & DADOS COMERCIAIS */}
-          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg p-4 ${softBoxClass}`}>
+          {/* BLOCO 3: CLIENTE & DADOS COMERCIAIS */}
+          <div className={`print-avoid-break grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-4 print:gap-2.5 rounded-lg p-4 print:p-2.5 ${softBoxClass}`}>
             <div className="space-y-1">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#1e3a6e]" />
@@ -1133,7 +1115,7 @@ function PublicProposalPrintContent() {
               )}
             </div>
 
-            <div className="space-y-1 md:border-l md:border-slate-200 md:pl-4">
+            <div className="space-y-1 sm:border-l print:border-l sm:border-slate-200 print:border-slate-200 sm:pl-4 print:pl-3">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                 <UserCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 CONDIÇÕES GERAIS:
@@ -1172,9 +1154,9 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* 3. FAIXA EXECUTIVA LEVE DE TEMPO DE CONTRATO, SLA E INVESTIMENTO */}
-          <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5" : "sm:grid-cols-4"} gap-2.5 p-3.5 rounded-lg ${stripBoxClass} text-xs`}>
-            <div className="sm:border-r sm:border-slate-200 sm:pr-2">
+          {/* BLOCO 4: FAIXA EXECUTIVA LEVE DE TEMPO DE CONTRATO, SLA E INVESTIMENTO */}
+          <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
+            <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
               <span className="text-[10px] uppercase text-slate-500 font-bold block">
                 Valor Mensal
               </span>
@@ -1182,7 +1164,7 @@ function PublicProposalPrintContent() {
                 {formatBRL(proposal.monthlyRecurringTotal)}/mês
               </strong>
             </div>
-            <div className="sm:border-r sm:border-slate-200 sm:pr-2">
+            <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
               <span className="text-[10px] uppercase text-slate-500 font-bold block">
                 Tempo de Contrato
               </span>
@@ -1190,7 +1172,7 @@ function PublicProposalPrintContent() {
                 {contractDurationMonths} {contractDurationMonths === 1 ? "Mês" : "Meses"}
               </strong>
             </div>
-            <div className="sm:border-r sm:border-slate-200 sm:pr-2">
+            <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
               <span className="text-[10px] uppercase text-slate-500 font-bold block">
                 {hasSelectedSla ? "SLA Contratado" : "Condição de Pagamento"}
               </span>
@@ -1199,7 +1181,7 @@ function PublicProposalPrintContent() {
               </strong>
             </div>
             {hasSetupSelected && (
-              <div className="sm:border-r sm:border-slate-200 sm:pr-2">
+              <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-amber-800 font-bold block">
                   Setup / Ativação
                 </span>
@@ -1218,8 +1200,8 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* 4. TÍTULO E INTRODUÇÃO PERSONALIZADA */}
-          <div className={`border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
+          {/* BLOCO 5: TÍTULO, TABELA LEVE DE ITENS E RESUMO DE SUBTOTAIS */}
+          <div className={`print-avoid-break print-keep-with-next border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
             <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
               {proposal.title}
             </h2>
@@ -1230,21 +1212,20 @@ function PublicProposalPrintContent() {
             )}
           </div>
 
-          {/* 5. TABELA LEVE DE ITENS (PRODUTOS E SERVIÇOS) */}
-          <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden bg-white`}>
-            <div className={`${tableHeaderBgClass} px-4 py-2.5 flex items-center justify-between text-[11px] font-extrabold tracking-wide`}>
+          <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
+            <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-extrabold tracking-wide`}>
               <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs border-collapse">
               <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
-                <tr>
-                  <th className="py-2 px-3 w-32 font-extrabold">Código / SKU</th>
-                  <th className="py-2 px-3 font-extrabold">Descrição do Item / Escopo</th>
-                  <th className="py-2 px-3 text-center w-24 font-extrabold">Quantidade</th>
-                  <th className="py-2 px-3 text-right w-28 font-extrabold">Vlr. Unitário</th>
-                  <th className="py-2 px-2 text-right w-28 font-extrabold">Desconto</th>
-                  <th className="py-2 px-3 text-right w-32 font-extrabold">Subtotal</th>
+                <tr className="print-avoid-break">
+                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código / SKU</th>
+                  <th className="py-2 print:py-1.5 px-2.5 font-extrabold">Descrição do Item / Escopo</th>
+                  <th className="py-2 print:py-1.5 px-2 text-center w-20 font-extrabold">Quantidade</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Vlr. Unitário</th>
+                  <th className="py-2 print:py-1.5 px-2 text-right w-20 font-extrabold">Desconto</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Subtotal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/80">
@@ -1252,18 +1233,18 @@ function PublicProposalPrintContent() {
                   const hasDisc =
                     (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
                   return (
-                    <tr key={item.id || idx} className="even:bg-slate-50/40 hover:bg-slate-50/80">
-                      <td className="py-2.5 px-3 font-mono font-bold text-[#1e3a6e] text-[11px]">{item.sku}</td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900">{item.description}</div>
+                    <tr key={item.id || idx} className="print-avoid-break even:bg-slate-50/40 hover:bg-slate-50/80">
+                      <td className="py-2.5 print:py-1.5 px-2.5 font-mono font-bold text-[#1e3a6e] text-[11px] whitespace-nowrap">{item.sku}</td>
+                      <td className="py-2.5 print:py-1.5 px-2.5">
+                        <div className="font-bold text-slate-900 leading-snug">{item.description}</div>
                       </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-900">
+                      <td className="py-2.5 print:py-1.5 px-2 text-center font-bold text-slate-900 whitespace-nowrap">
                         {item.quantity} {item.quantity === 1 ? "un" : "un"}
                       </td>
-                      <td className="py-2.5 px-3 text-right text-slate-700">
+                      <td className="py-2.5 print:py-1.5 px-2.5 text-right text-slate-700 whitespace-nowrap">
                         {formatBRL(item.unitPrice)}
                       </td>
-                      <td className="py-2.5 px-2 text-right text-rose-600 font-semibold">
+                      <td className="py-2.5 print:py-1.5 px-2 text-right text-rose-600 font-semibold whitespace-nowrap">
                         {hasDisc ? (
                           <>
                             {(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ""}
@@ -1275,7 +1256,7 @@ function PublicProposalPrintContent() {
                           "—"
                         )}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-extrabold text-slate-900">
+                      <td className="py-2.5 print:py-1.5 px-2.5 text-right font-extrabold text-slate-900 whitespace-nowrap">
                         {formatBRL(item.subtotal ?? item.totalMonthly)}
                       </td>
                     </tr>
@@ -1285,8 +1266,8 @@ function PublicProposalPrintContent() {
             </table>
           </div>
 
-          {/* 6. RESUMO DE SUBTOTAIS (SETUP SÓ APARECE SE SELECIONADO NA CRIAÇÃO DA PROPOSTA) */}
-          <div className={`grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6" : "sm:grid-cols-5"} gap-2.5 rounded-lg p-3.5 text-xs ${softBoxClass}`}>
+          {/* RESUMO DE SUBTOTAIS (SETUP SÓ APARECE SE SELECIONADO NA CRIAÇÃO DA PROPOSTA) */}
+          <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6 print:grid-cols-6" : "sm:grid-cols-5 print:grid-cols-5"} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
             <div>
               <span className="text-[10px] uppercase font-bold text-slate-500 block">
                 Subtotal Produtos
@@ -1345,9 +1326,9 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* 7. QUADRO FISCAL E TOTAIS LEVES */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 p-4 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2 text-xs">
+          {/* BLOCO 6: QUADRO FISCAL E TOTAIS LEVES */}
+          <div className="print-avoid-break grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4 print:gap-3">
+            <div className="sm:col-span-2 print:col-span-2 p-4 print:p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2 print:space-y-1.5 text-xs">
               <div className="flex items-center gap-2 font-extrabold text-emerald-900 text-xs">
                 <Scale className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>Fiscal</span>
@@ -1357,13 +1338,13 @@ function PublicProposalPrintContent() {
               </p>
             </div>
 
-            <div className={`p-4 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3`}>
+            <div className={`p-4 print:p-2.5 rounded-lg ${totalBoxBgClass} flex flex-col justify-between space-y-3 print:space-y-2`}>
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e] block">
                     Valor Mensal
                   </span>
-                  <div className="text-2xl font-black text-emerald-700 mt-0.5">
+                  <div className="text-2xl print:text-xl font-black text-emerald-700 mt-0.5">
                     {formatBRL(proposal.monthlyRecurringTotal)}
                     <span className="text-xs font-semibold text-slate-500">/mês</span>
                   </div>
@@ -1384,9 +1365,9 @@ function PublicProposalPrintContent() {
             </div>
           </div>
 
-          {/* 8. CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
+          {/* BLOCO 7: CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
           {Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
-            <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden bg-white`}>
+            <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
               <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-extrabold`}>
                 <span className="inline-flex items-center gap-1.5">
                   <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
@@ -1396,7 +1377,7 @@ function PublicProposalPrintContent() {
               </div>
               <table className="w-full text-left text-xs border-collapse">
                 <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
-                  <tr>
+                  <tr className="print-avoid-break">
                     <th className="py-2 px-3 w-20 font-extrabold">Parcela</th>
                     <th className="py-2 px-3 w-36 font-extrabold">Data de Vencimento</th>
                     <th className="py-2 px-3 w-48 font-extrabold">Forma de Pagamento</th>
@@ -1406,7 +1387,7 @@ function PublicProposalPrintContent() {
                 </thead>
                 <tbody className="divide-y divide-slate-200/80">
                   {proposal.installments.map((inst, idx) => (
-                    <tr key={idx} className="even:bg-slate-50/40">
+                    <tr key={idx} className="print-avoid-break even:bg-slate-50/40">
                       <td className="py-2 px-3 font-mono font-bold text-[#1e3a6e]">
                         {inst.number}ª
                       </td>
@@ -1427,9 +1408,9 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* 9. TRANSPORTE/ENTREGA E CLÁUSULAS TÉCNICAS / SLA */}
-          {(proposal.shippingCarrier || proposal.deliveryAddress || shippingCost > 0) && (
-            <div className={`p-3.5 rounded-lg ${softBoxClass} flex flex-wrap items-center justify-between gap-3 text-xs`}>
+          {/* BLOCO 8 E 9: TRANSPORTE/ENTREGA E CLÁUSULAS TÉCNICAS / SLA */}
+          {(proposal.shippingCarrier || proposal.deliveryAddress || deliveryLeadTime || shippingCost > 0) && (
+            <div className={`print-avoid-break p-3.5 print:p-3 rounded-lg ${softBoxClass} flex flex-wrap items-center justify-between gap-3 text-xs`}>
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
                 <div>
@@ -1437,8 +1418,7 @@ function PublicProposalPrintContent() {
                     Logística, Remessa &amp; Instalação
                   </span>
                   <span className="text-slate-600">
-                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>
-                    {proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
+                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
                   </span>
                 </div>
               </div>
@@ -1449,7 +1429,7 @@ function PublicProposalPrintContent() {
           )}
 
           {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
-            <div className={`p-4 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
+            <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-extrabold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
                 Condições Técnicas, Remessa CFOP 5.908 &amp; Acordo de Nível de Serviço (SLA)
@@ -1460,18 +1440,18 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* 10. SEÇÃO DE APROVAÇÃO DA PROPOSTA + 7 ETAPAS DO FLUXO DE CONTRATAÇÃO DE LOCAÇÃO */}
-          <div className="pt-5 mt-3 border-t border-slate-200 space-y-4">
-            {/* BLOCO OBRIGATÓRIO: FLUXO DE CONTRATAÇÃO DE LOCAÇÃO — CLIENTE SETA TELECOM */}
-            <div className={`p-4 rounded-lg ${flowBoxClass} space-y-2.5`}>
+          {/* BLOCO 10 E 11: SEÇÃO DE APROVAÇÃO DA PROPOSTA + 7 ETAPAS DO FLUXO DE CONTRATAÇÃO DE LOCAÇÃO */}
+          <div className="pt-4 print:pt-2 mt-2 border-t border-slate-200 space-y-4 print:space-y-3">
+            {/* BLOCO 10: FLUXO DE CONTRATAÇÃO DE LOCAÇÃO — CLIENTE SETA TELECOM (INTEIRO JUNTO, SEM CORTAR NO MEIO) */}
+            <div className={`print-avoid-break p-4 print:p-3.5 rounded-lg ${flowBoxClass} space-y-2.5 print:space-y-1.5`}>
               <div className="text-xs font-extrabold uppercase tracking-wide text-[#1e3a6e]">
                 {SETA_TELECOM_HIRING_FLOW_TITLE}
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 print:space-y-1">
                 {SETA_TELECOM_HIRING_FLOW_STEPS.map((st) => (
                   <div
                     key={st.step}
-                    className="flex items-baseline gap-2.5 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-[11px] text-slate-700 leading-snug"
+                    className="print-avoid-break flex items-baseline gap-2.5 bg-white border border-slate-200 rounded-md px-3 py-1.5 print:py-1 text-[11px] text-slate-700 leading-snug"
                   >
                     <span
                       className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-extrabold shrink-0 ${stepBadgeClass}`}
@@ -1489,107 +1469,110 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            {/* TERMO DE ACEITE E ASSINATURAS */}
-            <div className="p-4 rounded-lg bg-white border border-slate-200">
-              <div className="text-xs font-extrabold uppercase text-slate-800 mb-2">
-                Termo de Aceite e Aprovação da Proposta Comercial ({proposal.code})
-              </div>
-              <p className="text-[11px] text-slate-600 mb-6 leading-relaxed">
-                Declaramos estar de acordo com as especificações técnicas, prazos, fluxo de contratação e condições comerciais descritas nesta Proposta Comercial, autorizando a emissão do respectivo Contrato de Locação / Prestação de Serviços pela SETA TELECOM LTDA.
-              </p>
+            {/* BLOCO 11: TERMO DE ACEITE + ASSINATURAS + SELO ICP-BRASIL (INTEIRO JUNTO NA MESMA PÁGINA) */}
+            <div className="print-avoid-break space-y-3">
+              {/* TERMO DE ACEITE E ASSINATURAS */}
+              <div className="p-4 print:p-3.5 rounded-lg bg-white border border-slate-200">
+                <div className="text-xs font-extrabold uppercase text-slate-800 mb-2 print:mb-1.5">
+                  Termo de Aceite e Aprovação da Proposta Comercial ({proposal.code})
+                </div>
+                <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
+                  Declaramos estar de acordo com as especificações técnicas, prazos, fluxo de contratação e condições comerciais descritas nesta Proposta Comercial, autorizando a emissão do respectivo Contrato de Locação / Prestação de Serviços pela SETA TELECOM LTDA.
+                </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-4">
-                <div className="border-t border-slate-300 pt-2 text-center">
-                  <div className="text-xs font-extrabold text-slate-900">SETA TELECOM LTDA</div>
-                  <div className="text-[11px] text-slate-500">
-                    {sellerContact.name} • {sellerContact.email}
-                    {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
+                <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-8 pt-4 print:pt-3">
+                  <div className="border-t border-slate-300 pt-2 text-center">
+                    <div className="text-xs font-extrabold text-slate-900">SETA TELECOM LTDA</div>
+                    <div className="text-[11px] text-slate-500">
+                      {sellerContact.name} • {sellerContact.email}
+                      {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-300 pt-2 text-center">
+                    <div className="text-xs font-extrabold text-slate-900">{proposal.companyName}</div>
+                    <div className="text-[11px] text-slate-500">
+                      CNPJ {proposal.companyCnpj} •{" "}
+                      {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}
+                      ({proposal.digitalSignature?.signerRole || "Assinatura / Carimbo"})
+                    </div>
                   </div>
                 </div>
-
-                <div className="border-t border-slate-300 pt-2 text-center">
-                  <div className="text-xs font-extrabold text-slate-900">{proposal.companyName}</div>
-                  <div className="text-[11px] text-slate-500">
-                    CNPJ {proposal.companyCnpj} •{" "}
-                    {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}
-                    ({proposal.digitalSignature?.signerRole || "Assinatura / Carimbo"})
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL / GOV.BR NO RODAPÉ A4 */}
-            <div className="p-4 rounded-lg border border-slate-200 border-l-4 border-l-emerald-500 bg-slate-50/70 text-xs space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 font-extrabold text-slate-900 uppercase text-[11px]">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil / Gov.br (ITI)
-                </div>
-                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
-                  {proposal.digitalSignature
-                    ? `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
-                    : "HABILITADO PARA ASSINATURA ICP-BRASIL / GOV.BR"}
-                </span>
               </div>
 
-              {proposal.digitalSignature ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-800 pt-1 border-t border-slate-200">
-                  <div>
+              {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL / GOV.BR NO RODAPÉ A4 */}
+              <div className="p-4 print:p-3.5 rounded-lg border border-slate-200 border-l-4 border-l-emerald-500 bg-slate-50/70 text-xs space-y-2 print:space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-extrabold text-slate-900 uppercase text-[11px]">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil / Gov.br (ITI)
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+                    {proposal.digitalSignature
+                      ? `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
+                      : "HABILITADO PARA ASSINATURA ICP-BRASIL / GOV.BR"}
+                  </span>
+                </div>
+
+                {proposal.digitalSignature ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2 text-[11px] text-slate-800 pt-1 border-t border-slate-200">
                     <div>
-                      <strong>Signatário:</strong> {proposal.digitalSignature.signerName} (CPF:{" "}
-                      {proposal.digitalSignature.signerCpf})
+                      <div>
+                        <strong>Signatário:</strong> {proposal.digitalSignature.signerName} (CPF:{" "}
+                        {proposal.digitalSignature.signerCpf})
+                      </div>
+                      <div>
+                        <strong>Cargo:</strong> {proposal.digitalSignature.signerRole} •{" "}
+                        <strong>Modalidade:</strong> {proposal.digitalSignature.modality}
+                      </div>
+                      <div>
+                        <strong>Autoridade Certificadora:</strong>{" "}
+                        {proposal.digitalSignature.certificateIssuer}
+                      </div>
                     </div>
-                    <div>
-                      <strong>Cargo:</strong> {proposal.digitalSignature.signerRole} •{" "}
-                      <strong>Modalidade:</strong> {proposal.digitalSignature.modality}
+                    <div className="font-mono text-[10px] text-slate-700 space-y-0.5">
+                      <div>
+                        <strong>Carimbo de Tempo (ACT/ITI):</strong>{" "}
+                        {proposal.digitalSignature.timestampToken}
+                      </div>
+                      <div>
+                        <strong>Data/Hora UTC:</strong> {proposal.digitalSignature.signedAt}
+                      </div>
+                      <div className="break-all">
+                        <strong>Hash SHA-256:</strong> {proposal.digitalSignature.signatureHashSha256}
+                      </div>
                     </div>
-                    <div>
-                      <strong>Autoridade Certificadora:</strong>{" "}
-                      {proposal.digitalSignature.certificateIssuer}
+                    <div className="sm:col-span-2 flex justify-end pt-1 print:hidden">
+                      <button
+                        type="button"
+                        onClick={handleValidateExistingSignature}
+                        className="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Validar Integridade da Assinatura Digital (SHA-256)
+                      </button>
                     </div>
                   </div>
-                  <div className="font-mono text-[10px] text-slate-700 space-y-0.5">
-                    <div>
-                      <strong>Carimbo de Tempo (ACT/ITI):</strong>{" "}
-                      {proposal.digitalSignature.timestampToken}
-                    </div>
-                    <div>
-                      <strong>Data/Hora UTC:</strong> {proposal.digitalSignature.signedAt}
-                    </div>
-                    <div className="break-all">
-                      <strong>Hash SHA-256:</strong> {proposal.digitalSignature.signatureHashSha256}
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2 flex justify-end pt-1 print:hidden">
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+                    <span>
+                      Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3) e Lei nº 14.063/2020 (Gov.br).
+                    </span>
                     <button
                       type="button"
-                      onClick={handleValidateExistingSignature}
-                      className="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer inline-flex items-center gap-1"
+                      onClick={() => {
+                        if (!signerName.trim()) {
+                          setSignerName(proposal.careOf || proposal.contactName || "Representante Legal");
+                        }
+                        setShowIcpSignatureModal(true);
+                      }}
+                      className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer print:hidden"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Validar Integridade da Assinatura Digital (SHA-256)
+                      Assinar com ICP-Brasil / Gov.br
                     </button>
                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
-                  <span>
-                    Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3) e Lei nº 14.063/2020 (Gov.br).
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!signerName.trim()) {
-                        setSignerName(proposal.careOf || proposal.contactName || "Representante Legal");
-                      }
-                      setShowIcpSignatureModal(true);
-                    }}
-                    className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer print:hidden"
-                  >
-                    Assinar com ICP-Brasil / Gov.br
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

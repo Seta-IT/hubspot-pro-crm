@@ -89,19 +89,95 @@ export type IssueSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type IssueStatus = 'OPEN' | 'MERGED' | 'IGNORED' | 'RESOLVED';
 
+export type CanonicalSequenceEnrollmentState =
+  | 'IN_SEQUENCE'
+  | 'WAITING_NEXT_STEP'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'REPLIED'
+  | 'MEETING_SCHEDULED'
+  | 'REMOVED_MANUALLY'
+  | 'REMOVED_AUTOMATICALLY'
+  | 'UNSUBSCRIBED_FROM_COMMUNICATIONS'
+  | 'BLOCKED_BY_DELIVERABILITY';
+
 export type SequenceEnrollmentStatus =
   | 'ACTIVE'
+  | 'IN_SEQUENCE'
   | 'WAITING_NEXT_STEP'
+  | 'PAUSED'
+  | 'PAUSED_MANUAL'
   | 'PAUSED_ON_REPLY'
   | 'REPLIED'
   | 'MEETING_BOOKED'
+  | 'MEETING_SCHEDULED'
   | 'COMPLETED'
-  | 'PAUSED_MANUAL'
+  | 'MANUAL_STOP'
   | 'REMOVED_MANUAL'
+  | 'REMOVED_MANUALLY'
   | 'REMOVED_AUTOMATIC'
+  | 'REMOVED_AUTOMATICALLY'
+  | 'UNSUBSCRIBED'
   | 'UNSUBSCRIBED_GLOBAL'
+  | 'UNSUBSCRIBED_FROM_COMMUNICATIONS'
   | 'BLOCKED_DELIVERABILITY'
+  | 'BLOCKED_BY_DELIVERABILITY'
   | 'BOUNCED';
+
+export type SequenceStepType =
+  | 'AUTO_EMAIL'
+  | 'MANUAL_EMAIL'
+  | 'SALES_TASK'
+  | 'PHONE_CALL'
+  | 'REMINDER'
+  | 'CALENDAR_MEETING'
+  | 'BRANCH_CONDITION'
+  | 'TRANSFER_TO_NURTURE'
+  | 'EMAIL'
+  | 'FOLLOW_UP'
+  | 'TASK'
+  | 'BREAKUP';
+
+export type SequenceExitRuleTrigger =
+  | 'CONTACT_REPLIED'
+  | 'MEETING_BOOKED'
+  | 'STOP_REQUESTED'
+  | 'HIGH_INTENT_LINK_CLICKED'
+  | 'OPPORTUNITY_CREATED'
+  | 'DEAL_STAGE_CHANGED'
+  | 'DEAL_WON_OR_LOST'
+  | 'CONTACT_DISQUALIFIED'
+  | 'MOVED_TO_INCOMPATIBLE_SEQUENCE'
+  | 'HARD_BOUNCE'
+  | 'SPAM_COMPLAINT'
+  | 'CONSENT_WITHDRAWN'
+  | 'ENTERED_SUPPRESSION_LIST';
+
+export interface SendingWindowConfig {
+  businessHoursStart: string;
+  businessHoursEnd: string;
+  businessDaysOnly: boolean;
+  skipHolidays: boolean;
+  holidayDates: string[];
+  respectRecipientTimezone: boolean;
+  defaultTimezone: string;
+  dailyMailboxSendLimit: number;
+  currentTodaySent: number;
+  senderMailbox: string;
+  sendingProvider: 'OUTLOOK_M365' | 'MARKETING_ESP';
+}
+
+export type SequenceScheduleConfig = SendingWindowConfig;
+
+export interface SequenceExitRuleConfig {
+  trigger: SequenceExitRuleTrigger;
+  label: string;
+  description: string;
+  enabled: boolean;
+  scope: 'CONTACT_ONLY' | 'ENTIRE_COMPANY';
+  preservesGlobalSubscription: boolean;
+  targetCanonicalState: CanonicalSequenceEnrollmentState;
+}
 
 export type ContactSubscriptionStatus =
   | 'SUBSCRIBED'
@@ -311,10 +387,23 @@ export interface SequenceStep {
   stepOrder: number;
   dayOffset: number;
   delayDays: number;
+  delayHours?: number;
+  waitForEvent?: 'NONE' | 'EMAIL_OPENED' | 'LINK_CLICKED' | 'PROPOSAL_VIEWED';
   subject: string;
   bodyTemplate: string;
-  stepType: 'EMAIL' | 'FOLLOW_UP' | 'TASK' | 'BREAKUP';
-  condition: 'ALWAYS' | 'IF_NO_REPLY' | 'IF_OPENED';
+  stepType: SequenceStepType;
+  condition: 'ALWAYS' | 'IF_NO_REPLY' | 'IF_OPENED' | 'IF_HIGH_ENGAGEMENT';
+  taskTitle?: string;
+  callScript?: string;
+  meetingCalendarUrl?: string;
+  branchConfig?: {
+    conditionField: string;
+    ifTrueNextStepOrder: number;
+    ifFalseNextStepOrder: number;
+  };
+  nurtureCampaignId?: string;
+  highIntentLinks?: string[];
+  requiresManualApproval?: boolean;
   sentCount: number;
   openCount: number;
   clickCount: number;
@@ -323,11 +412,32 @@ export interface SequenceStep {
 
 export interface SequenceStepExecutionLog {
   stepOrder: number;
+  stepType?: SequenceStepType;
+  dayOffset?: number;
   subject: string;
-  action: 'SENT' | 'OPENED' | 'CLICKED' | 'REPLIED' | 'PAUSED_ON_REPLY' | 'COMPLETED';
+  action:
+    | 'SENT'
+    | 'OPENED'
+    | 'CLICKED'
+    | 'REPLIED'
+    | 'PAUSED_ON_REPLY'
+    | 'COMPLETED'
+    | 'TASK_CREATED'
+    | 'CALL_LOGGED'
+    | 'REMINDER_TRIGGERED'
+    | 'MEETING_INVITED'
+    | 'BRANCH_EVALUATED'
+    | 'TRANSFERRED_TO_NURTURE'
+    | 'PAUSED'
+    | 'RESUMED'
+    | 'EXITED_RULE';
   timestamp: string;
   details?: string;
+  exitTrigger?: SequenceExitRuleTrigger;
+  executedByMailbox?: string;
 }
+
+export type SequenceEnrollmentStepLog = SequenceStepExecutionLog;
 
 export interface SequenceEnrollment {
   id: string;
@@ -335,6 +445,10 @@ export interface SequenceEnrollment {
   contactId: string;
   dealId: string | null;
   status: SequenceEnrollmentStatus;
+  canonicalEnrollmentState?: CanonicalSequenceEnrollmentState;
+  enrolledVersion?: number;
+  assignedSeller?: string;
+  recipientTimezone?: string;
   currentStepOrder: number;
   stepsCompleted: number;
   sentCount: number;
@@ -343,7 +457,14 @@ export interface SequenceEnrollment {
   repliedAt: string | null;
   replySnippet: string | null;
   nextStepDueAt: string | null;
+  nextScheduledExecutionAt?: string | null;
+  exitReasonTrigger?: SequenceExitRuleTrigger | null;
+  exitReasonDetail?: string | null;
+  exitedAt?: string | null;
+  exitedByScope?: 'CONTACT_ONLY' | 'ENTIRE_COMPANY' | null;
+  transferredToNurtureCampaignId?: string | null;
   history: SequenceStepExecutionLog[];
+  stepHistory?: SequenceEnrollmentStepLog[];
   enrolledAt: string;
   updatedAt: string;
 }
@@ -354,6 +475,18 @@ export interface EmailSequence {
   description: string;
   category: 'OUTBOUND' | 'INBOUND_NURTURE' | 'FOLLOW_UP' | 'REENGAGEMENT';
   isActive: boolean;
+  version?: number;
+  sendingWindow?: SendingWindowConfig;
+  preventConflictingEnrollments?: boolean;
+  reentryPolicy?: 'NEVER' | 'AFTER_DAYS' | 'ALLOW_IF_COMPLETED';
+  reentryCooldownDays?: number;
+  exitScope?: 'CONTACT_ONLY' | 'ENTIRE_COMPANY';
+  exitRules?: SequenceExitRuleConfig[];
+  leadRoutingMode?: 'FIXED_OWNER' | 'ROUND_ROBIN';
+  assignedSellers?: string[];
+  lastAssignedSellerIndex?: number;
+  nurtureTargetCampaignId?: string | null;
+  highIntentUrls?: string[];
   steps: SequenceStep[];
   enrolledCount: number;
   activeCount: number;

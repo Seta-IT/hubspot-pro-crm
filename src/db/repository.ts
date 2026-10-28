@@ -646,6 +646,8 @@ export class CrmRepository {
           return {
             ...p,
             slaTier: p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
+            deliveryLeadTime: p.id === "prop-seta-001" && (!p.deliveryLeadTime || p.deliveryLeadTime.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryLeadTime,
+            deliveryForecast: p.id === "prop-seta-001" && (!p.deliveryForecast || p.deliveryForecast.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryForecast,
             technicalClauses: cleanedTc,
           };
         });

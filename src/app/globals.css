@@ -47,12 +47,45 @@ body {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 7mm 8mm 8mm 8mm;
   }
   html, body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     background: #ffffff !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+  #proposal-printable-sheet {
+    display: block !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .print-page-break-before {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+  .print-keep-with-next {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  thead {
+    display: table-header-group !important;
+  }
+  tfoot {
+    display: table-footer-group !important;
+  }
+  tr, td, th {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 
