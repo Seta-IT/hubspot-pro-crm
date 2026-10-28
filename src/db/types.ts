@@ -1527,6 +1527,9 @@ export interface StiHubSecurityAndMailerConfig {
   smtpProvider: "RESEND_HTTP_API" | "SMTP_SETA_TELECOM" | "GMAIL_CORPORATE_RELAY";
   smtpHost: string;
   smtpPort: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  resendApiKey?: string;
   fromName: string;
   fromEmail: string;
   replyToEmail: string;

@@ -30,6 +30,7 @@ import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
 import { SequenceService } from '../modules/sequences/sequence-service';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
+import nodemailer from 'nodemailer';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
 import { classifyRouteRequiredModule, isPublicStiHubPath } from '../middleware';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
@@ -476,18 +477,27 @@ export class CrmApiRouter {
     expiresAt: string;
   }): Promise<{
     delivered: boolean;
-    deliveryMode: "RESEND_HTTP_API" | "DEV_LOG_FALLBACK";
+    deliveryMode: "RESEND_HTTP_API" | "SMTP_NODEMAILER" | "UNCONFIGURED_NO_PROVIDER";
     protocol: string;
+    providerError?: string;
   }> {
     const protocol = `STI-OTP-${Date.now().toString(36).toUpperCase()}`;
-    const resendKey = (process.env.RESEND_API_KEY || "").trim();
-    if (resendKey) {
-      const configuredFrom =
-        (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || "").trim() ||
-        "STI-hub Segurança <seguranca@setatelecom.com.br>";
-      const subject = `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`;
-      const textBody = `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`;
+    const secCfg = this.repo.getRbacState().securityConfig;
+    const resendKey = (process.env.RESEND_API_KEY || secCfg?.resendApiKey || "").trim();
+    const smtpHost = (process.env.SMTP_HOST || secCfg?.smtpHost || "").trim();
+    const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
+    const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
+    const smtpPass = (process.env.SMTP_PASS || secCfg?.smtpPass || "").trim();
+    const configuredFrom =
+      (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || secCfg?.fromEmail || "").trim() ||
+      "STI-hub Segurança <seguranca@setatelecom.com.br>";
 
+    const subject = `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`;
+    const textBody = `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`;
+
+    // 1. Try Resend HTTP API if RESEND_API_KEY is configured
+    let lastError = "";
+    if (resendKey) {
       for (const sender of [configuredFrom, "STI-hub Seta Telecom <onboarding@resend.dev>"]) {
         try {
           const res = await fetch("https://api.resend.com/emails", {
@@ -506,12 +516,46 @@ export class CrmApiRouter {
           if (res.ok) {
             return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
           }
-        } catch {
-          // try fallback sender or dev log fallback
+          const errText = await res.text().catch(() => "");
+          lastError = `Resend HTTP ${res.status}: ${errText.slice(0, 160)}`;
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : "Erro de rede ao conectar na API Resend.";
         }
       }
     }
-    return { delivered: true, deliveryMode: "DEV_LOG_FALLBACK", protocol };
+
+    // 2. Try Direct SMTP via Nodemailer if SMTP_USER & SMTP_PASS are configured
+    if (smtpHost && smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+        });
+        await transporter.sendMail({
+          from: configuredFrom.includes("<") ? configuredFrom : `"STI-hub Segurança" <${smtpUser}>`,
+          to: params.toEmail,
+          subject,
+          text: textBody,
+        });
+        return { delivered: true, deliveryMode: "SMTP_NODEMAILER", protocol };
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : "Falha na autenticação SMTP.";
+      }
+    }
+
+    return {
+      delivered: false,
+      deliveryMode: "UNCONFIGURED_NO_PROVIDER",
+      protocol,
+      providerError:
+        lastError ||
+        "Serviço de disparo de e-mail (RESEND_API_KEY ou credenciais SMTP_HOST / SMTP_USER / SMTP_PASS) ainda não configurado nas variáveis de ambiente da Vercel. Utilize a opção Aplicativo Autenticador (Google Authenticator) ou configure o provedor SMTP/Resend.",
+    };
   }
 
   private async handleRoute(
@@ -3643,8 +3687,9 @@ export class CrmApiRouter {
 
         let emailDelivery: {
           delivered: boolean;
-          deliveryMode: "RESEND_HTTP_API" | "DEV_LOG_FALLBACK";
+          deliveryMode: "RESEND_HTTP_API" | "SMTP_NODEMAILER" | "UNCONFIGURED_NO_PROVIDER";
           protocol: string;
+          providerError?: string;
         } | null = null;
 
         if (
@@ -3660,6 +3705,8 @@ export class CrmApiRouter {
           });
         }
 
+        const isExternalHttp = query._fromHttpBridge === '1';
+
         return {
           status: 200,
           body: {
@@ -3668,13 +3715,18 @@ export class CrmApiRouter {
               challengeId: challenge.challengeId,
               mfaMethod: challenge.mfaMethod,
               totpConfigured: challenge.totpConfigured,
-              demoTotpCode: challenge.demoTotpCode,
+              demoTotpCode: isExternalHttp ? undefined : challenge.demoTotpCode,
               totpPairing: challenge.totpPairing,
               emailOtpStatus: challenge.emailOtpStatus
                 ? {
-                    ...challenge.emailOtpStatus,
-                    deliveryMode: emailDelivery?.deliveryMode || 'DEV_LOG_FALLBACK',
+                    dispatchedTo: challenge.emailOtpStatus.dispatchedTo,
+                    expiresAt: challenge.emailOtpStatus.expiresAt,
+                    ttlSeconds: challenge.emailOtpStatus.ttlSeconds,
+                    delivered: emailDelivery ? emailDelivery.delivered : false,
+                    deliveryMode: emailDelivery?.deliveryMode || 'UNCONFIGURED_NO_PROVIDER',
                     protocol: emailDelivery?.protocol || 'STI-OTP-LOCAL',
+                    providerError: emailDelivery?.providerError,
+                    devOtpPreview: isExternalHttp ? undefined : challenge.emailOtpStatus.devOtpPreview,
                   }
                 : undefined,
               user: challenge.user,
@@ -3710,6 +3762,26 @@ export class CrmApiRouter {
           expiresAt: otpChallenge.expiresAt!,
         });
 
+        const isExternalHttp = query._fromHttpBridge === '1';
+        if (isExternalHttp && !delivery.delivered) {
+          return {
+            status: 503,
+            body: {
+              error:
+                delivery.providerError ||
+                `Não foi possível entregar o e-mail para ${otpChallenge.email} pois o provedor SMTP / Resend ainda não está configurado no servidor.`,
+              code: 'EMAIL_PROVIDER_NOT_CONFIGURED',
+              data: {
+                challengeId: otpChallenge.challengeId,
+                email: otpChallenge.email,
+                delivered: false,
+                deliveryMode: delivery.deliveryMode,
+                protocol: delivery.protocol,
+              },
+            },
+          };
+        }
+
         return {
           status: 200,
           body: {
@@ -3722,7 +3794,7 @@ export class CrmApiRouter {
               delivered: delivery.delivered,
               deliveryMode: delivery.deliveryMode,
               protocol: delivery.protocol,
-              devOtpPreview: otpChallenge.otpCode,
+              devOtpPreview: isExternalHttp ? undefined : otpChallenge.otpCode,
               message: `Código OTP de 6 dígitos enviado para ${otpChallenge.email} (Protocolo ${delivery.protocol}). Válido por 5 minutos.`,
             },
           },

@@ -3379,10 +3379,19 @@ describe("Proposta: Prazo de Entrega editável e 4 layouts de template", () => {
     assert.equal(verifyData.mfaVerified, true);
     assert.equal(verifyData.verifiedVia, "EMAIL_OTP");
 
-    // 3. Verifica que src/app/login/page.tsx armazena e exibe devOtpPreview com botão de preenchimento rápido
+    // 3. Verifica que src/app/login/page.tsx NUNCA exibe devOtpPreview nem código OTP na tela, e que chamadas HTTP externas sem provedor retornam 503 sem vazar o código
     const loginPageSrc = fs.readFileSync(path.join(process.cwd(), "src/app/login/page.tsx"), "utf8");
-    assert.ok(loginPageSrc.includes("devOtpPreview"));
-    assert.ok(loginPageSrc.includes("Usar este código (Preencher)"));
+    assert.equal(loginPageSrc.includes("devOtpPreview"), false, "login/page.tsx jamais deve exibir devOtpPreview na tela");
+    assert.equal(loginPageSrc.includes("Usar este código (Preencher)"), false, "login/page.tsx jamais deve ter botão de autopreencher código OTP");
+
+    const externalHttpSendRes = await routerA.dispatch({
+      method: "POST",
+      path: "/api/auth/send-email-otp",
+      query: { _fromHttpBridge: "1" },
+      body: { email: "marcelo.mira@setatelecom.com.br" },
+    });
+    assert.equal(externalHttpSendRes.status, 503, "Sem provedor SMTP/Resend configurado, chamada HTTP externa deve informar 503 em vez de fingir envio ou vazar código");
+    assert.equal((externalHttpSendRes.body as { data?: { devOtpPreview?: string } }).data?.devOtpPreview, undefined, "Nunca deve vazar devOtpPreview via HTTP");
   });
 });
 

@@ -494,7 +494,7 @@ export default function StiHubAdminRbacPanel({
     const json = await res.json();
     if (res.ok && json?.data) {
       onShowToast(
-        `Código OTP enviado para ${json.data.email} (Protocolo ${json.data.protocol} • Código: ${json.data.devOtpPreview})!`
+        `Código OTP enviado para ${json.data.email} (Protocolo ${json.data.protocol})!`
       );
     } else {
       onShowToast(json?.error || 'Falha ao enviar OTP por e-mail.');
