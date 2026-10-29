@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Sparkles,
   Kanban,
@@ -16,6 +16,7 @@ import {
   Database,
   ChevronRight,
   Receipt,
+  Home,
 } from 'lucide-react';
 
 import OverviewAiCopilotTab from './components/OverviewAiCopilotTab';
@@ -32,6 +33,17 @@ import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from '.
 import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
 import UserAccountModal from './components/UserAccountModal';
+import HomeScreenPreferenceModal from './components/HomeScreenPreferenceModal';
+import {
+  HomeScreenId,
+  getHomeScreen,
+  loadHomeScreenPreference,
+  parseHomeDeepLink,
+  resolveInitialHomeScreen,
+  saveHomeScreenPreference,
+  shouldOfferHomeScreenChoice,
+  systemHasAccess,
+} from './lib/home-screen';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
@@ -131,6 +143,11 @@ export default function HubSpotProCrmApp() {
   const [activeRbacUser, setActiveRbacUser] = useState<StiHubUserRecord | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showUserAccountModal, setShowUserAccountModal] = useState(false);
+  const [showHomeScreenModal, setShowHomeScreenModal] = useState(false);
+  const [homeScreenPreference, setHomeScreenPreference] = useState<HomeScreenId | null>(null);
+  const homeScreenAppliedForUserRef = useRef<string | null>(null);
+  const [erpCurrentSection, setErpCurrentSection] = useState<GestaoClickMenuSection>('INICIO');
+  const [serviceDeskCurrentTab, setServiceDeskCurrentTab] = useState<'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS'>('OPERATIONS');
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -1061,6 +1078,96 @@ export default function HubSpotProCrmApp() {
     }
   }, [activeRbacUser, activeModule, isCrmActive, userModuleAccess.crm, userModuleAccess.erp, userModuleAccess.chamados]);
 
+  // ==========================================================================
+  // TELA INICIAL PADRAO POR USUARIO (CRM | ERP | CHAMADOS)
+  // ==========================================================================
+  const openHomeScreen = useCallback((screenId: HomeScreenId) => {
+    switch (screenId) {
+      case 'CRM_OVERVIEW':
+        setLastCrmSubModule('OVERVIEW_AI');
+        setActiveModule('OVERVIEW_AI');
+        break;
+      case 'CRM_DEALS':
+        setLastCrmSubModule('DEALS_KANBAN');
+        setActiveModule('DEALS_KANBAN');
+        break;
+      case 'CRM_CONTACTS':
+        setContactsInitialSubView('CONTACTS');
+        setContactsNavTrigger((n) => n + 1);
+        setLastCrmSubModule('CONTACTS_COMPANIES');
+        setActiveModule('CONTACTS_COMPANIES');
+        break;
+      case 'ERP_OVERVIEW':
+      case 'ERP_PROPOSALS':
+      case 'ERP_CONTRACTS':
+        setErpInitialSection(
+          screenId === 'ERP_PROPOSALS' ? 'ORCAMENTOS' : screenId === 'ERP_CONTRACTS' ? 'CONTRATOS' : 'INICIO'
+        );
+        setErpNavigationTrigger((n) => n + 1);
+        setActiveModule('ERP_GESTAOCLICK');
+        break;
+      case 'CHAMADOS_OVERVIEW':
+      case 'CHAMADOS_QUEUE':
+        setServiceDeskInitialTab(screenId === 'CHAMADOS_QUEUE' ? 'OPERATIONS' : 'DASHBOARD_CHAMADOS');
+        setServiceDeskNavTrigger((n) => n + 1);
+        setActiveModule('SERVICE_DESK');
+        break;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeRbacUser?.id) return;
+    if (homeScreenAppliedForUserRef.current === activeRbacUser.id) return;
+    homeScreenAppliedForUserRef.current = activeRbacUser.id;
+    const saved = loadHomeScreenPreference(activeRbacUser.id);
+    setHomeScreenPreference(saved);
+    const deepLink =
+      typeof window !== 'undefined'
+        ? parseHomeDeepLink(window.location.search, window.location.hash)
+        : { hasDeepLink: false, screenId: null };
+    const resolution = resolveInitialHomeScreen({ saved, access: userModuleAccess, deepLink });
+    if (resolution.screenId) openHomeScreen(resolution.screenId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRbacUser?.id, openHomeScreen]);
+
+  const currentHomeScreenId: HomeScreenId | null =
+    activeModule === 'OVERVIEW_AI'
+      ? 'CRM_OVERVIEW'
+      : activeModule === 'DEALS_KANBAN'
+        ? 'CRM_DEALS'
+        : activeModule === 'CONTACTS_COMPANIES' && contactsInitialSubView === 'CONTACTS'
+          ? 'CRM_CONTACTS'
+          : activeModule === 'ERP_GESTAOCLICK'
+            ? erpCurrentSection === 'INICIO'
+              ? 'ERP_OVERVIEW'
+              : erpCurrentSection === 'ORCAMENTOS'
+                ? 'ERP_PROPOSALS'
+                : erpCurrentSection === 'CONTRATOS'
+                  ? 'ERP_CONTRACTS'
+                  : null
+            : activeModule === 'SERVICE_DESK'
+              ? serviceDeskCurrentTab === 'OPERATIONS'
+                ? 'CHAMADOS_QUEUE'
+                : serviceDeskCurrentTab === 'DASHBOARD_CHAMADOS'
+                  ? 'CHAMADOS_OVERVIEW'
+                  : null
+              : null;
+  const canChooseHomeScreen = shouldOfferHomeScreenChoice(userModuleAccess);
+
+  const handleSaveHomeScreen = (screenId: HomeScreenId | null) => {
+    if (!activeRbacUser?.id) return;
+    if (screenId && !systemHasAccess(getHomeScreen(screenId).system, userModuleAccess)) return;
+    saveHomeScreenPreference(activeRbacUser.id, screenId);
+    setHomeScreenPreference(screenId);
+    setShowHomeScreenModal(false);
+    if (screenId) {
+      const def = getHomeScreen(screenId);
+      showToast(`Tela inicial padrão definida: ${def.system === 'CHAMADOS' ? 'Chamados' : def.system} - ${def.label}.`);
+    } else {
+      showToast('Tela inicial padrão restaurada para a Visão Geral do primeiro sistema permitido.');
+    }
+  };
+
   const macroNavItems: Array<{
     id: string;
     label: string;
@@ -1480,6 +1587,26 @@ export default function HubSpotProCrmApp() {
                       type="button"
                       onClick={() => {
                         setUserMenuOpen(false);
+                        setShowHomeScreenModal(true);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex flex-col">
+                        <span>Tela inicial padrão</span>
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          {homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
+                            ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+                            : canChooseHomeScreen
+                              ? 'Não definida (Visão Geral do primeiro sistema)'
+                              : 'Apenas um sistema disponível'}
+                        </span>
+                      </span>
+                      <Home className="w-3.5 h-3.5 text-slate-500" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
                         setActiveModule("ADMIN_RBAC");
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 flex items-center justify-between cursor-pointer"
@@ -1554,6 +1681,20 @@ export default function HubSpotProCrmApp() {
                 </button>
               );
             })}
+            {canChooseHomeScreen && currentHomeScreenId && (
+              <button
+                type="button"
+                onClick={() => handleSaveHomeScreen(currentHomeScreenId)}
+                disabled={homeScreenPreference === currentHomeScreenId}
+                title="Definir a tela atual como tela inicial padrão ao entrar no STI-hub"
+                className="ml-auto hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] text-[11px] font-semibold text-[#cbd6e2] hover:text-white hover:bg-[#33475b] disabled:opacity-70 disabled:hover:bg-transparent disabled:cursor-default transition cursor-pointer"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>
+                  {homeScreenPreference === currentHomeScreenId ? 'Tela inicial padrão' : 'Definir como padrão'}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -1829,6 +1970,7 @@ export default function HubSpotProCrmApp() {
               onShowToast={showToast}
               initialSection={erpInitialSection}
               navigationTrigger={erpNavigationTrigger}
+              onSectionChange={setErpCurrentSection}
               targetEntity={erpTargetEntity}
               onClearTargetEntity={() => setErpTargetEntity(null)}
               autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
@@ -1843,6 +1985,7 @@ export default function HubSpotProCrmApp() {
               onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
               initialMacroTab={serviceDeskInitialTab}
               navigationTrigger={serviceDeskNavTrigger}
+              onMacroTabChange={setServiceDeskCurrentTab}
               openNewTicketTrigger={openNewTicketTrigger}
               kpis={ticketKpis}
               contacts={contacts}
@@ -2229,6 +2372,16 @@ export default function HubSpotProCrmApp() {
           )}
         </main>
       </div>
+
+      {showHomeScreenModal && activeRbacUser && (
+        <HomeScreenPreferenceModal
+          userName={(activeRbacUser.name || '').split(' ')[0] || 'usuário'}
+          access={userModuleAccess}
+          savedScreenId={homeScreenPreference}
+          onSave={handleSaveHomeScreen}
+          onClose={() => setShowHomeScreenModal(false)}
+        />
+      )}
 
       {showUserAccountModal && activeRbacUser && (
         <UserAccountModal

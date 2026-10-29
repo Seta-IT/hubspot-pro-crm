@@ -171,6 +171,8 @@ interface ErpGestaoClickTabProps {
   onShowToast: (msg: string) => void;
   initialSection?: GestaoClickMenuSection;
   navigationTrigger?: number;
+  /** Notifica a secao ativa (usado para "Definir como padrao" no header). */
+  onSectionChange?: (section: GestaoClickMenuSection) => void;
   targetEntity?: { type: string; id: string; query?: string } | null;
   onClearTargetEntity?: () => void;
   autoOpenNewProposalTrigger?: number;
@@ -310,6 +312,7 @@ export default function ErpGestaoClickTab({
   onShowToast,
   initialSection,
   navigationTrigger,
+  onSectionChange,
   targetEntity,
   onClearTargetEntity,
   autoOpenNewProposalTrigger,
@@ -523,6 +526,11 @@ export default function ErpGestaoClickTab({
       setActiveSection(initialSection);
     }
   }, [initialSection, navigationTrigger]);
+
+  React.useEffect(() => {
+    onSectionChange?.(activeSection);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
 
   React.useEffect(() => {
     if (!targetEntity || !erpData) return;

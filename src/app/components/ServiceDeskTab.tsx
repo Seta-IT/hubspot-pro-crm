@@ -108,6 +108,8 @@ interface ServiceDeskTabProps {
   onClearInitialTicket?: () => void;
   initialMacroTab?: 'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS';
   navigationTrigger?: number;
+  /** Notifica a aba macro ativa (usado para "Definir como padrao" no header). */
+  onMacroTabChange?: (tab: 'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS') => void;
   openNewTicketTrigger?: number;
   onCreateTicket: (payload: {
     subject: string;
@@ -239,6 +241,7 @@ export default function ServiceDeskTab({
   onClearInitialTicket,
   initialMacroTab,
   navigationTrigger,
+  onMacroTabChange,
   openNewTicketTrigger,
   onCreateTicket,
   onUpdateTicket,
@@ -272,6 +275,11 @@ export default function ServiceDeskTab({
       setChamadosMacroTab(initialMacroTab);
     }
   }, [initialMacroTab, navigationTrigger]);
+
+  useEffect(() => {
+    onMacroTabChange?.(chamadosMacroTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chamadosMacroTab]);
 
   useEffect(() => {
     if (openNewTicketTrigger && openNewTicketTrigger > 0) {
