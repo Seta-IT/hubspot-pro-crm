@@ -86,6 +86,39 @@ import {
   WorkflowTriggerType,
 } from '../db/types';
 
+/** Remetente dos e-mails transacionais (RESEND_FROM_EMAIL / STI_HUB_FROM_EMAIL). */
+export const STI_HUB_DEFAULT_EMAIL_FROM = "STI-hub <onboarding@resend.dev>";
+export function resolveTransactionalEmailFrom(configured?: string | null): string {
+  return (
+    (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || configured || "").trim() ||
+    STI_HUB_DEFAULT_EMAIL_FROM
+  );
+}
+
+function escapeEmailHtml(v: string): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; expiresAt: string }): string {
+  const exp = new Date(p.expiresAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const u = escapeEmailHtml(p.inviteUrl);
+  return `<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 0"><tr><td align="center">
+<table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;border:1px solid #e5e7eb"><tr><td style="padding:28px 32px">
+<h1 style="font-size:20px;margin:0 0 16px;font-weight:600">Convite de acesso ao STI-hub</h1>
+<p style="font-size:14px;line-height:1.6;margin:0 0 12px">Olá, ${escapeEmailHtml(p.userName)}.</p>
+<p style="font-size:14px;line-height:1.6;margin:0 0 20px">Você recebeu um convite para acessar o STI-hub (Seta Telecom). Clique no botão abaixo para definir a sua senha. Em seguida, cadastre o Google Authenticator lendo o QR Code exibido no primeiro acesso.</p>
+<p style="margin:0 0 24px"><a href="${u}" style="display:inline-block;background:#0f4c81;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;font-size:14px;font-weight:600">Definir senha</a></p>
+<p style="font-size:12px;line-height:1.6;color:#6b7280;margin:0 0 8px">Este convite é válido por 72 horas (até ${escapeEmailHtml(exp)}, horário de Brasília) e é pessoal: não o encaminhe.</p>
+<p style="font-size:12px;line-height:1.6;color:#6b7280;margin:0">Se você não esperava este convite, ignore este e-mail.</p>
+</td></tr></table></td></tr></table></body></html>`;
+}
+
 export interface ApiRequest {
   method: string;
   path: string;
@@ -536,9 +569,7 @@ export class CrmApiRouter {
     const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
     const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
     const smtpPass = (process.env.SMTP_PASS || secCfg?.smtpPass || "").trim();
-    const configuredFrom =
-      (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || secCfg?.fromEmail || "").trim() ||
-      "STI-hub Segurança <seguranca@setatelecom.com.br>";
+    const configuredFrom = resolveTransactionalEmailFrom(secCfg?.fromEmail);
 
     const subject = `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`;
     const textBody = `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`;
@@ -546,7 +577,7 @@ export class CrmApiRouter {
     // 1. Try Resend HTTP API if RESEND_API_KEY is configured
     let lastError = "";
     if (resendKey) {
-      for (const sender of [configuredFrom, "STI-hub Seta Telecom <onboarding@resend.dev>"]) {
+      for (const sender of Array.from(new Set([configuredFrom, STI_HUB_DEFAULT_EMAIL_FROM]))) {
         try {
           const res = await fetch("https://api.resend.com/emails", {
             method: "POST",
@@ -565,7 +596,9 @@ export class CrmApiRouter {
             return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
           }
           const errText = await res.text().catch(() => "");
-          lastError = `Resend HTTP ${res.status}: ${errText.slice(0, 160)}`;
+          // Detalhe do provedor so no log do servidor (pode conter e-mail do dono da conta Resend).
+          console.warn(`[STI-hub e-mail] Resend HTTP ${res.status} (OTP): ${errText.slice(0, 200)}`);
+          lastError = `Provedor de e-mail recusou o envio (HTTP ${res.status}).`;
         } catch (err) {
           lastError = err instanceof Error ? err.message : "Erro de rede ao conectar na API Resend.";
         }
@@ -625,15 +658,13 @@ export class CrmApiRouter {
     const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
     const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
     const smtpPass = (process.env.SMTP_PASS || secCfg?.smtpPass || "").trim();
-    const configuredFrom =
-      (process.env.RESEND_FROM_EMAIL || process.env.STI_HUB_FROM_EMAIL || secCfg?.fromEmail || "").trim() ||
-      "STI-hub Seta Telecom <seguranca@setatelecom.com.br>";
+    const configuredFrom = resolveTransactionalEmailFrom(secCfg?.fromEmail);
 
-    const subject = `[STI-hub • Seta Telecom] Convite de Acesso — Cadastre sua Senha`;
+    const subject = `Convite de acesso ao STI-hub`;
     const textBody = `Olá, ${params.userName},\n\nVocê foi convidado(a) para acessar a plataforma STI-hub (Seta Telecom LTDA).\n\n• Perfil: ${params.roleName}\n• Módulos habilitados: ${params.enabledModules.join(", ")}\n\nClique no link seguro abaixo para cadastrar sua senha e configurar seu primeiro acesso (válido por 72 horas):\n\n${params.inviteUrl}\n\nProtocolo: ${protocol}\nEquipe STI-hub • Seta Telecom LTDA`;
 
     if (resendKey) {
-      for (const sender of [configuredFrom, "STI-hub Seta Telecom <onboarding@resend.dev>"]) {
+      for (const sender of Array.from(new Set([configuredFrom, STI_HUB_DEFAULT_EMAIL_FROM]))) {
         try {
           const res = await fetch("https://api.resend.com/emails", {
             method: "POST",
@@ -646,11 +677,14 @@ export class CrmApiRouter {
               to: [params.toEmail],
               subject,
               text: textBody,
+              html: buildInviteEmailHtml(params),
             }),
           });
           if (res.ok) {
             return { delivered: true, deliveryMode: "RESEND_HTTP_API", protocol };
           }
+          const errText = await res.text().catch(() => "");
+          console.warn(`[STI-hub e-mail] Resend HTTP ${res.status} (convite): ${errText.slice(0, 200)}`);
         } catch {
           // try fallback
         }
@@ -670,6 +704,7 @@ export class CrmApiRouter {
           to: params.toEmail,
           subject,
           text: textBody,
+          html: buildInviteEmailHtml(params),
         });
         return { delivered: true, deliveryMode: "SMTP_NODEMAILER", protocol };
       } catch {
@@ -4789,7 +4824,7 @@ export class CrmApiRouter {
         const target = userInviteMatch
           ? decodeURIComponent(userInviteMatch[1])
           : String(body.userId || body.email || '').trim();
-        const baseOrigin = String(body.origin || query._origin || 'https://sti-hub.vercel.app');
+        const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
         const resetTotp = body.resetTotp !== false;
         const inviteRes = this.repo.createUserInvite(target, baseOrigin, resetTotp);
         if (!inviteRes.ok || !inviteRes.user || !inviteRes.inviteUrl) {
@@ -4807,11 +4842,15 @@ export class CrmApiRouter {
           inviteUrl: inviteRes.inviteUrl,
           expiresAt: inviteRes.expiresAt!,
         });
+        // Link/token do convite so voltam ao admin autenticado quando o e-mail NAO foi entregue
+        // (fallback manual / mailto). Com entrega confirmada, nenhum link sai na resposta.
+        const { inviteToken: _invTok, inviteUrl: _invUrl, conviteUrl: _convUrl, ...inviteSafe } = inviteRes;
         return {
           status: 200,
           body: {
             data: {
-              ...inviteRes,
+              ...inviteSafe,
+              ...(delivery.delivered ? {} : { inviteToken: _invTok, inviteUrl: _invUrl, conviteUrl: _convUrl }),
               emailDelivered: delivery.delivered,
               deliveryMode: delivery.deliveryMode,
               protocol: delivery.protocol,
@@ -5008,7 +5047,7 @@ export class CrmApiRouter {
           };
         }
         const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
-        const baseOrigin = String(body.origin || query._origin || 'https://sti-hub.vercel.app');
+        const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
         const inviteDelivery = inviteInfo.inviteUrl
@@ -5036,9 +5075,13 @@ export class CrmApiRouter {
               otpauthUri,
               qrCodeSvgDataUrl,
               currentTotpCode,
-              inviteToken: inviteInfo.inviteToken,
-              inviteUrl: inviteInfo.inviteUrl,
-              conviteUrl: inviteInfo.conviteUrl,
+              ...(inviteDelivery?.delivered
+                ? {}
+                : {
+                    inviteToken: inviteInfo.inviteToken,
+                    inviteUrl: inviteInfo.inviteUrl,
+                    conviteUrl: inviteInfo.conviteUrl,
+                  }),
               inviteExpiresAt: inviteInfo.expiresAt,
               inviteEmailDelivered: inviteDelivery?.delivered || false,
               inviteDeliveryMode: inviteDelivery?.deliveryMode || 'INVITE_LINK_READY',
