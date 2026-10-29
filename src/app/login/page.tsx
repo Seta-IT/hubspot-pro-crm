@@ -342,9 +342,18 @@ export default function StiHubLoginPage() {
       setActiveMfaChannel('EMAIL_OTP');
       setMfaCode('');
       if (!res.ok) {
-        setErrorMsg(
-          'O envio de e-mail (SMTP / Resend) ainda não está configurado neste ambiente. Clique em "Aplicativo Autenticador" ao lado para autenticar ou cadastrar seu celular.'
-        );
+        // Mensagem real do servidor (sem codigo OTP); so cai no texto de "nao configurado"
+        // quando o provedor de fato nao esta disponivel.
+        const serverMsg = typeof json?.error === 'string' ? json.error : '';
+        if (res.status === 401) {
+          setErrorMsg(serverMsg || 'Sua etapa de login expirou. Entre novamente com e-mail e senha.');
+        } else if (res.status === 429) {
+          setErrorMsg(serverMsg || 'Muitas solicitações de código. Aguarde alguns minutos e tente novamente.');
+        } else {
+          setErrorMsg(
+            `${serverMsg || 'Não foi possível enviar o código por e-mail agora.'} Você pode usar o "Aplicativo Autenticador" ao lado.`
+          );
+        }
         return;
       }
       const otpData = json.data;
@@ -586,6 +595,14 @@ export default function StiHubLoginPage() {
                 <Lock className="w-4 h-4" />
                 <span>{loading ? 'Entrando...' : 'Login'}</span>
               </button>
+              <div className="text-center">
+                <a
+                  href="/esqueci-senha"
+                  className="text-xs font-semibold text-[#0d2b4e] hover:underline"
+                >
+                  Esqueci minha senha
+                </a>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleMfaSubmit} className="space-y-4">

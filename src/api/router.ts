@@ -86,6 +86,42 @@ import {
   WorkflowTriggerType,
 } from '../db/types';
 
+import {
+  buildPasswordResetEmailHtml,
+  isPasswordResetTokenStale,
+  passwordVersionOf,
+  FORGOT_PASSWORD_GENERIC_MESSAGE,
+  PASSWORD_RESET_MIN_LENGTH,
+  signPasswordResetToken,
+  SlidingWindowRateLimiter,
+  verifyPasswordResetToken,
+} from './password-reset';
+import { hashCorporatePassword } from '../app/lib/auth';
+
+/** Normaliza uma chave Resend (remove aspas, "Bearer ", espacos) e valida o formato re_... */
+export function normalizeResendApiKey(raw: unknown): string {
+  let k = String(raw ?? '').trim();
+  k = k.replace(/^Bearer\s+/i, '').trim();
+  k = k.replace(/^["'`]+|["'`]+$/g, '').trim();
+  return /^re_[A-Za-z0-9_-]{8,}$/.test(k) ? k : '';
+}
+
+type StiHubUserRecordLike = { id: string; email: string };
+let resendKeyFormatWarned = false;
+/**
+ * Chave Resend efetiva: RESEND_API_KEY (env) e, se ausente ou em formato invalido,
+ * a chave salva no painel administrativo. Formato invalido e registrado so no log.
+ */
+export function resolveResendApiKey(panelKey?: string | null): string {
+  const envRaw = typeof process !== 'undefined' ? process.env.RESEND_API_KEY : undefined;
+  const envKey = normalizeResendApiKey(envRaw);
+  if (envRaw && String(envRaw).trim() && !envKey && !resendKeyFormatWarned) {
+    resendKeyFormatWarned = true;
+    console.warn('[STI-hub e-mail] RESEND_API_KEY presente mas em formato invalido (esperado re_...). Ignorada.');
+  }
+  return envKey || normalizeResendApiKey(panelKey);
+}
+
 /** Remetente dos e-mails transacionais (RESEND_FROM_EMAIL / STI_HUB_FROM_EMAIL). */
 export const STI_HUB_DEFAULT_EMAIL_FROM = "STI-hub <onboarding@resend.dev>";
 export function resolveTransactionalEmailFrom(configured?: string | null): string {
@@ -526,7 +562,9 @@ export class CrmApiRouter {
             lookupUser:
               httpSessionValid ||
               (rawResponse.status === 200 &&
-                (cleanPath === "/api/auth/verify-mfa" || cleanPath === "/api/auth/accept-invite"))
+                (cleanPath === "/api/auth/verify-mfa" ||
+                  cleanPath === "/api/auth/accept-invite" ||
+                  cleanPath === "/api/auth/reset-password"))
                 ? (id, email) => this.repo.findRbacUserRecord(id, email)
                 : undefined,
           }),
@@ -551,6 +589,22 @@ export class CrmApiRouter {
     return response;
   }
 
+  private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
+  private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
+  private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
+  private readonly consumedPasswordResetNonces = new Set<string>();
+
+  /** Sessao emitida antes da ultima troca/redefinicao de senha do usuario => invalida. */
+  private isSessionOlderThanPasswordChange(token: string): boolean {
+    const claims = verifyStiHubSessionToken(token).claims;
+    if (!claims) return false;
+    const rec = this.repo.findRbacUserRecord(claims.uid, claims.email) as
+      | (StiHubUserRecordLike & { passwordChangedAt?: string })
+      | undefined;
+    const changedAt = rec?.passwordChangedAt ? Date.parse(rec.passwordChangedAt) : NaN;
+    return Number.isFinite(changedAt) && typeof claims.iat === 'number' && claims.iat < changedAt;
+  }
+
   private async dispatchEmailOtpMessage(params: {
     toEmail: string;
     userName: string;
@@ -564,7 +618,7 @@ export class CrmApiRouter {
   }> {
     const protocol = `STI-OTP-${Date.now().toString(36).toUpperCase()}`;
     const secCfg = this.repo.getRbacState().securityConfig;
-    const resendKey = (process.env.RESEND_API_KEY || secCfg?.resendApiKey || "").trim();
+    const resendKey = resolveResendApiKey(secCfg?.resendApiKey);
     const smtpHost = (process.env.SMTP_HOST || secCfg?.smtpHost || "").trim();
     const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
     const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
@@ -598,6 +652,10 @@ export class CrmApiRouter {
           const errText = await res.text().catch(() => "");
           // Detalhe do provedor so no log do servidor (pode conter e-mail do dono da conta Resend).
           console.warn(`[STI-hub e-mail] Resend HTTP ${res.status} (OTP): ${errText.slice(0, 200)}`);
+          if (res.status === 401 || /api key is invalid/i.test(errText)) {
+            lastError = "A chave da API de e-mail (Resend) configurada no servidor é inválida.";
+            break;
+          }
           lastError = `Provedor de e-mail recusou o envio (HTTP ${res.status}).`;
         } catch (err) {
           lastError = err instanceof Error ? err.message : "Erro de rede ao conectar na API Resend.";
@@ -639,6 +697,44 @@ export class CrmApiRouter {
     };
   }
 
+  private async dispatchPasswordResetEmail(params: {
+    toEmail: string;
+    userName: string;
+    resetUrl: string;
+    expiresAt: string;
+  }): Promise<{ delivered: boolean; emailId?: string }> {
+    const secCfg = this.repo.getRbacState().securityConfig;
+    const resendKey = resolveResendApiKey(secCfg?.resendApiKey);
+    if (!resendKey) {
+      console.warn("[STI-hub e-mail] Redefinicao de senha: provedor Resend nao configurado.");
+      return { delivered: false };
+    }
+    const exp = new Date(params.expiresAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const textBody = `Olá, ${params.userName},\n\nRecebemos um pedido para redefinir a senha da sua conta no STI-hub (Seta Telecom LTDA).\n\nAbra o link abaixo para cadastrar uma nova senha (válido por 30 minutos, até ${exp}, horário de Brasília, e de uso único):\n\n${params.resetUrl}\n\nSe você não pediu a redefinição, ignore este e-mail: a sua senha atual continua valendo.\n\nEquipe STI-hub • Seta Telecom LTDA`;
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: resolveTransactionalEmailFrom(secCfg?.fromEmail),
+          to: [params.toEmail],
+          subject: "Redefinição de senha do STI-hub",
+          text: textBody,
+          html: buildPasswordResetEmailHtml(params),
+        }),
+      });
+      if (res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { id?: string };
+        return { delivered: true, emailId: j.id };
+      }
+      const errText = await res.text().catch(() => "");
+      console.warn(`[STI-hub e-mail] Resend HTTP ${res.status} (redefinicao de senha): ${errText.slice(0, 200)}`);
+    } catch {
+      console.warn("[STI-hub e-mail] Falha de rede ao enviar e-mail de redefinicao de senha.");
+    }
+    return { delivered: false };
+  }
+
   private async dispatchUserInviteEmail(params: {
     toEmail: string;
     userName: string;
@@ -653,7 +749,7 @@ export class CrmApiRouter {
   }> {
     const protocol = `STI-INV-${Date.now().toString(36).toUpperCase()}`;
     const secCfg = this.repo.getRbacState().securityConfig;
-    const resendKey = (process.env.RESEND_API_KEY || secCfg?.resendApiKey || "").trim();
+    const resendKey = resolveResendApiKey(secCfg?.resendApiKey);
     const smtpHost = (process.env.SMTP_HOST || secCfg?.smtpHost || "").trim();
     const smtpPort = Number(process.env.SMTP_PORT || secCfg?.smtpPort || 587);
     const smtpUser = (process.env.SMTP_USER || secCfg?.smtpUser || "").trim();
@@ -763,6 +859,15 @@ export class CrmApiRouter {
 
       if (activeSessionToken && !isPublicStiHubPath(cleanPath, method)) {
         const resolvedSession = this.repo.resolveSessionFromToken(activeSessionToken);
+        if (resolvedSession.authenticated && this.isSessionOlderThanPasswordChange(activeSessionToken)) {
+          return {
+            status: 401,
+            body: {
+              error: "Sua senha foi redefinida. Faça login novamente.",
+              code: "MFA_SESSION_INVALID",
+            },
+          };
+        }
         if (!resolvedSession.authenticated || !resolvedSession.mfaVerified) {
           return {
             status: 401,
@@ -4150,7 +4255,7 @@ export class CrmApiRouter {
 
         // Optional external Resend HTTP relay if RESEND_API_KEY is configured
         let externalRelay = 'LOGGED_STI_HUB';
-        const resendKey = (process.env.RESEND_API_KEY || '').trim();
+        const resendKey = resolveResendApiKey();
         if (resendKey) {
           try {
             const res = await fetch('https://api.resend.com/emails', {
@@ -4751,10 +4856,107 @@ export class CrmApiRouter {
             body: { error: inspected.error || 'Convite inválido ou expirado.' },
           };
         }
+        // Seguranca 29/10/2026: o pareamento TOTP (segredo/otpauth/QR) so e entregue
+        // pelo POST /api/auth/accept-invite, depois que a senha foi definida.
+        const iu = inspected.user;
         return {
           status: 200,
           body: {
-            data: inspected,
+            data: {
+              ok: true,
+              expiresAt: inspected.expiresAt,
+              user: iu
+                ? {
+                    id: iu.id,
+                    name: iu.name,
+                    email: iu.email,
+                    jobTitle: iu.jobTitle,
+                    department: iu.department,
+                    roleId: iu.roleId,
+                    enabledModules: iu.enabledModules,
+                    mfaEnabled: iu.mfaEnabled,
+                  }
+                : undefined,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/auth/forgot-password' && method === 'POST') {
+        const startedAt = Date.now();
+        const generic = { status: 200, body: { data: { ok: true, message: FORGOT_PASSWORD_GENERIC_MESSAGE } } };
+        const emailIn = String(body.email || '').trim().toLowerCase().slice(0, 254);
+        const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+        const ipOk = this.forgotPasswordIpLimiter.hit(ip);
+        const emailOk = emailIn ? this.forgotPasswordEmailLimiter.hit(`${emailIn}`) : true;
+        if (ipOk && emailOk && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailIn)) {
+          const rec = this.repo.findRbacUserRecord('', emailIn);
+          if (rec && rec.active !== false && rec.email.toLowerCase() === emailIn) {
+            const pv = passwordVersionOf(rec as { passwordChangedAt?: string });
+            const { token, claims } = signPasswordResetToken({ uid: rec.id, email: rec.email, pv });
+            // Origem fixa do servidor (nunca derivada do Host da requisicao).
+            const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || 'https://sti-hub.vercel.app').replace(/\/+$/, '');
+            const sent = await this.dispatchPasswordResetEmail({
+              toEmail: rec.email,
+              userName: rec.name || rec.email,
+              resetUrl: `${origin}/redefinir-senha?token=${encodeURIComponent(token)}`,
+              expiresAt: new Date(claims.exp).toISOString(),
+            });
+            console.info(`[STI-hub auth] forgot-password: link emitido para ${rec.id} (entregue=${sent.delivered}${sent.emailId ? `, id=${sent.emailId}` : ''}).`);
+          }
+        } else if (!ipOk || !emailOk) {
+          console.warn(`[STI-hub auth] forgot-password: rate-limit atingido (ip=${ipOk ? 'ok' : 'limite'}, email=${emailOk ? 'ok' : 'limite'}).`);
+        }
+        // Tempo de resposta uniforme (anti-enumeracao).
+        const wait = 900 - (Date.now() - startedAt);
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        return generic;
+      }
+
+      if (cleanPath === '/api/auth/reset-password' && method === 'POST') {
+        const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+        if (!this.resetPasswordIpLimiter.hit(ip)) {
+          return { status: 429, body: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' } };
+        }
+        const invalidLink = {
+          status: 400,
+          body: { error: 'Link de redefinição inválido, expirado ou já utilizado. Solicite um novo em "Esqueci minha senha".' },
+        };
+        const verified = verifyPasswordResetToken(body.token);
+        if (!verified.ok) return invalidLink;
+        const c = verified.claims;
+        if (this.consumedPasswordResetNonces.has(c.nonce)) return invalidLink;
+        const newPassword = String(body.password || '').trim();
+        if (newPassword.length < PASSWORD_RESET_MIN_LENGTH) {
+          return { status: 400, body: { error: `A senha deve ter pelo menos ${PASSWORD_RESET_MIN_LENGTH} caracteres.` } };
+        }
+        const rec = this.repo.findRbacUserRecord(c.uid, c.email);
+        if (!rec || rec.active === false || rec.email.toLowerCase() !== c.email.toLowerCase()) return invalidLink;
+        const recPw = rec as unknown as { id: string; passwordHash?: string; passwordChangedAt?: string };
+        if (isPasswordResetTokenStale(c, recPw)) return invalidLink;
+        this.consumedPasswordResetNonces.add(c.nonce);
+        recPw.passwordHash = hashCorporatePassword(newPassword);
+        recPw.passwordChangedAt = new Date().toISOString();
+        (rec as unknown as { updatedAt?: string }).updatedAt = recPw.passwordChangedAt;
+        this.repo.markLocalIamChange(rec.id);
+        try {
+          (this.repo as unknown as { save?: () => void }).save?.();
+        } catch {
+          // persistencia local opcional
+        }
+        console.info(`[STI-hub auth] reset-password: senha redefinida para ${rec.id}; sessoes anteriores invalidadas.`);
+        const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
+        return {
+          status: 200,
+          headers: { 'Set-Cookie': `stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}` },
+          body: {
+            data: {
+              ok: true,
+              passwordReset: true,
+              loginRequired: true,
+              user: { id: rec.id, email: rec.email, name: rec.name, roleId: rec.roleId },
+              message: 'Senha redefinida com sucesso. Faça login com a nova senha e o seu código de verificação em 2 etapas.',
+            },
           },
         };
       }

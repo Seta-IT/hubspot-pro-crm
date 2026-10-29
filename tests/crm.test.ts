@@ -3983,7 +3983,8 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
       data: { user: { email: string }; totpPairing: { totpSecret: string; qrCodeSvgDataUrl: string } };
     }).data;
     assert.equal(inspected.user.email, "fernanda.costa@setatelecom.com.br");
-    assert.ok(inspected.totpPairing.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"));
+    // Seguranca 29/10/2026: pareamento TOTP so e entregue depois que a senha e definida.
+    assert.equal(inspected.totpPairing, undefined);
 
     // 3. Usuário cadastra sua senha no convite -> POST /api/auth/accept-invite
     const acceptRes = await router.dispatch({
