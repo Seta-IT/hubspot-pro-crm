@@ -82,6 +82,10 @@ interface FormsBuilderTabProps {
   }) => Promise<HubSpotMigrationReport | null>;
   onNavigateToServiceDesk?: () => void;
   onNavigateToDeals?: () => void;
+  /** Sub-visão controlada do Marketing Hub (aberta pela barra lateral do CRM). */
+  marketingView?: MarketingHubSubView;
+  onMarketingViewChange?: (v: MarketingHubSubView) => void;
+  onMarketingEmailsCountChange?: (count: number) => void;
 }
 
 const SIMULATOR_PRESETS: Array<{
@@ -153,6 +157,9 @@ export default function FormsBuilderTab({
   onRunHubSpotMigration,
   onNavigateToServiceDesk,
   onNavigateToDeals,
+  marketingView,
+  onMarketingViewChange,
+  onMarketingEmailsCountChange,
 }: FormsBuilderTabProps) {
   const [selectedFormId, setSelectedFormId] = useState<string>(
     forms[0]?.id || 'form-enterprise-demo'
@@ -178,7 +185,14 @@ export default function FormsBuilderTab({
 
   // Create new form modal + dynamic fields editor
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [mktView, setMktView] = useState<MarketingHubSubView>('CAMPAIGNS_ROI');
+  const [internalMktView, setInternalMktView] = useState<MarketingHubSubView>(
+    marketingView || 'CAMPAIGNS_ROI'
+  );
+  const mktView = marketingView ?? internalMktView;
+  const setMktView = (v: MarketingHubSubView) => {
+    setInternalMktView(v);
+    onMarketingViewChange?.(v);
+  };
   const [mktEmailPayload, setMktEmailPayload] = useState<ClientEmailInitialPayload | null>(null);
   const [newName, setNewName] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -385,7 +399,10 @@ export default function FormsBuilderTab({
         activeView={mktView}
         onSelectView={setMktView}
         onOpenEmailModal={(p) => setMktEmailPayload(p)}
+        onMarketingEmailsCountChange={onMarketingEmailsCountChange}
       />
+      {/* Na sub-visão "E-mails de Marketing" a tela fica dedicada à listagem (sem o construtor de formulários abaixo). */}
+      <div className={mktView === 'MARKETING_EMAILS' ? 'hidden' : 'space-y-6'}>
       {/* TOP KPI STRIP */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
@@ -1391,6 +1408,7 @@ export default function FormsBuilderTab({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import {
   LayoutDashboard,
   Kanban,
   Users,
-  FileCode2,
+  Megaphone,
   Workflow,
   ShieldCheck,
   Settings,
@@ -15,6 +15,15 @@ import {
   X,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
+import type { MarketingHubSubView } from './MarketingAndSalesHubSuites';
+
+/** Subitens do menu Marketing na barra lateral (abrem MARKETING_FORMS na sub-visão correspondente). */
+export const CRM_MARKETING_SUBITEMS: Array<{ id: MarketingHubSubView; label: string }> = [
+  { id: 'MARKETING_EMAILS', label: 'E-mails de Marketing' },
+  { id: 'CAMPAIGNS_ROI', label: 'Campanhas & ROI' },
+  { id: 'SEGMENTS_SCORING', label: 'Segmentos & Lead Scoring' },
+  { id: 'FORMS_LANDING_PAGES', label: 'Formulários & Leads' },
+];
 
 export type CrmModuleId =
   | 'OVERVIEW_AI'
@@ -42,6 +51,9 @@ interface CrmSidebarProps {
   companiesCount: number;
   dealsCount: number;
   formsCount: number;
+  marketingEmailsCount?: number;
+  activeMarketingSubView?: MarketingHubSubView;
+  onSelectMarketingSubView?: (view: MarketingHubSubView) => void;
   automationsCount: number;
   healthScore: number;
   onToggleCollapse?: () => void;
@@ -66,6 +78,9 @@ export default function CrmSidebar({
   companiesCount,
   dealsCount,
   formsCount,
+  marketingEmailsCount,
+  activeMarketingSubView,
+  onSelectMarketingSubView,
   automationsCount,
   healthScore,
   onToggleCollapse,
@@ -357,14 +372,17 @@ export default function CrmSidebar({
               MARKETING &amp; AUTOMAÇÃO
             </div>
 
+            {/* Marketing (expansível): E-mails, Campanhas, Segmentos e Formulários */}
             <div className="rounded-md">
               <button
                 type="button"
-                onClick={() => {
-                  setExpanded({});
-                  onSelectForms();
-                  closeMobileIfOpen();
-                }}
+                onClick={() =>
+                  toggleGroup('MARKETING_FORMS', () => {
+                    if (onSelectMarketingSubView) onSelectMarketingSubView('MARKETING_EMAILS');
+                    else onSelectForms();
+                    closeMobileIfOpen();
+                  })
+                }
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'MARKETING_FORMS'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
@@ -372,23 +390,57 @@ export default function CrmSidebar({
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
-                  <FileCode2
+                  <Megaphone
                     className={`w-4 h-4 shrink-0 ${
                       activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
                     }`}
                   />
-                  <span className="truncate">Formulários &amp; Leads</span>
+                  <span className="truncate">Marketing</span>
                 </span>
-                <span
-                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                    activeModule === 'MARKETING_FORMS'
-                      ? 'bg-white/20 text-white'
-                      : 'bg-slate-200/80 text-slate-600'
-                  }`}
-                >
-                  {formsCount}
+                <span className="flex items-center gap-1 shrink-0">
+                  {expanded.MARKETING_FORMS ? (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                  )}
                 </span>
               </button>
+
+              {expanded.MARKETING_FORMS && (
+                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+                  {CRM_MARKETING_SUBITEMS.map((sub) => {
+                    const isSubActive =
+                      activeModule === 'MARKETING_FORMS' && activeMarketingSubView === sub.id;
+                    const count =
+                      sub.id === 'MARKETING_EMAILS'
+                        ? marketingEmailsCount
+                        : sub.id === 'FORMS_LANDING_PAGES'
+                          ? formsCount
+                          : undefined;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          if (onSelectMarketingSubView) onSelectMarketingSubView(sub.id);
+                          else onSelectForms();
+                          closeMobileIfOpen();
+                        }}
+                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
+                          isSubActive
+                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        }`}
+                      >
+                        <span className="truncate">{sub.label}</span>
+                        {count !== undefined && (
+                          <span className="text-[10px] font-bold text-slate-400">({count})</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="rounded-md">

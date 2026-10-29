@@ -45,6 +45,7 @@ import {
   systemHasAccess,
 } from './lib/home-screen';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
+import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Lock, Menu } from 'lucide-react';
@@ -128,6 +129,8 @@ export default function HubSpotProCrmApp() {
   const [autoOpenNewProposalTrigger, setAutoOpenNewProposalTrigger] = useState<number>(0);
   const [prefillProposalDeal, setPrefillProposalDeal] = useState<EnrichedDeal | null>(null);
   const [contactsInitialSubView, setContactsInitialSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>('CONTACTS');
+  const [marketingSubView, setMarketingSubView] = useState<MarketingHubSubView>('CAMPAIGNS_ROI');
+  const [marketingEmailsCount, setMarketingEmailsCount] = useState<number>(0);
   const [dataHealthScope, setDataHealthScope] = useState<'CRM' | 'ERP'>('CRM');
   const [lastCrmSubModule, setLastCrmSubModule] = useState<CrmModuleId>('DEALS_KANBAN');
   const [crmMobileDrawerOpen, setCrmMobileDrawerOpen] = useState(false);
@@ -235,6 +238,7 @@ export default function HubSpotProCrmApp() {
           if (d.webForms) setWebForms(d.webForms);
           if (d.formSubmissions) setFormSubmissions(d.formSubmissions);
           if (d.formsSummary) setFormsSummary(d.formsSummary);
+          if (Array.isArray(d.marketingEmails)) setMarketingEmailsCount(d.marketingEmails.length);
           setTickets(mergedTickets);
           if (d.ticketKpis) setTicketKpis(d.ticketKpis);
           if (d.erp) setErpData(d.erp);
@@ -2138,6 +2142,13 @@ export default function HubSpotProCrmApp() {
                 companiesCount={companies.length}
                 dealsCount={deals.length}
                 formsCount={webForms.length}
+                marketingEmailsCount={marketingEmailsCount}
+                activeMarketingSubView={marketingSubView}
+                onSelectMarketingSubView={(view) => {
+                  setMarketingSubView(view);
+                  setLastCrmSubModule('MARKETING_FORMS');
+                  setActiveModule('MARKETING_FORMS');
+                }}
                 automationsCount={workflows.length + sequences.length}
                 healthScore={healthSummary?.globalHealthScore ?? 0}
                 onSelectOverview={() => {
@@ -2304,6 +2315,9 @@ export default function HubSpotProCrmApp() {
 
                 {activeModule === 'MARKETING_FORMS' && (
                   <FormsBuilderTab
+                    marketingView={marketingSubView}
+                    onMarketingViewChange={setMarketingSubView}
+                    onMarketingEmailsCountChange={setMarketingEmailsCount}
                     forms={webForms}
                     submissions={formSubmissions}
                     summary={formsSummary}
@@ -2333,6 +2347,7 @@ export default function HubSpotProCrmApp() {
                     onAdvanceStep={handleAdvanceSequenceStep}
                     onRecordInteraction={handleSequenceInteraction}
                     onCreateSequence={handleCreateSequence}
+                    onSequencesChanged={() => fetchAllCrmData()}
                   />
                 )}
 

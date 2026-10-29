@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatBRL } from './ui-helpers';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import MarketingEmailsManager from './MarketingEmailsManager';
 import type {
   AccountEngagementSummary,
   MarketingCampaign,
@@ -31,6 +32,7 @@ import type {
 // ============================================================================
 
 export type MarketingHubSubView =
+  | 'MARKETING_EMAILS'
   | 'CAMPAIGNS_ROI'
   | 'EMAIL_MARKETING'
   | 'SEGMENTS_SCORING'
@@ -206,10 +208,12 @@ export function MarketingHubSuiteTop({
   activeView,
   onSelectView,
   onOpenEmailModal,
+  onMarketingEmailsCountChange,
 }: {
   activeView: MarketingHubSubView;
   onSelectView: (v: MarketingHubSubView) => void;
   onOpenEmailModal?: (payload: ClientEmailInitialPayload) => void;
+  onMarketingEmailsCountChange?: (count: number) => void;
 }) {
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>(INITIAL_CAMPAIGNS);
   const [segments, setSegments] = useState<MarketingSegment[]>(INITIAL_SEGMENTS);
@@ -392,6 +396,7 @@ export function MarketingHubSuiteTop({
         <div className="flex flex-wrap items-center gap-1.5">
           {(
             [
+              ['MARKETING_EMAILS', 'E-mails de Marketing', Mail],
               ['CAMPAIGNS_ROI', 'Campanhas, Funil & Receita (ROI)', Megaphone],
               ['EMAIL_MARKETING', 'E-mail Marketing & Motores de Envio', Mail],
               ['SEGMENTS_SCORING', 'Segmentos, Contas ABM & LGPD', Users],
@@ -418,8 +423,13 @@ export function MarketingHubSuiteTop({
         </div>
       </div>
 
+      {/* VIEW 0: MARKETING — E-MAILS DE MARKETING (LISTAGEM REAL /api/marketing/emails) */}
+      {activeView === 'MARKETING_EMAILS' && (
+        <MarketingEmailsManager onCountChange={onMarketingEmailsCountChange} />
+      )}
+
       {/* PAINEL EXECUTIVO EMAIL & SALES ENGAGEMENT (ESPECIFICACAO SETA TELECOM — ULTIMOS 30 DIAS) */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-4">
+      <div className={`bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-4 ${activeView === 'MARKETING_EMAILS' ? 'hidden' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e]">

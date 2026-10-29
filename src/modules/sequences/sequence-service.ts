@@ -390,6 +390,39 @@ export function buildSeta21DayTemplateSteps(): SequenceStep[] {
   ];
 }
 
+/**
+ * Deslocamento (em minutos) do fuso IANA informado em relação ao UTC no instante dado.
+ * Fusos inválidos caem para 0 (UTC) sem lançar erro.
+ */
+export function getTimezoneOffsetMinutes(date: Date, timeZone: string): number {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const parts: Record<string, number> = {};
+    for (const p of dtf.formatToParts(date)) {
+      if (p.type !== 'literal') parts[p.type] = Number(p.value);
+    }
+    const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour % 24, parts.minute, parts.second);
+    return Math.round((asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60000);
+  } catch {
+    return 0;
+  }
+}
+
+/** Data local (YYYY-MM-DD) no fuso informado. */
+export function formatLocalYmd(date: Date, timeZone: string): string {
+  const offset = getTimezoneOffsetMinutes(date, timeZone);
+  return new Date(date.getTime() + offset * 60000).toISOString().slice(0, 10);
+}
+
 export class SequenceService {
   private recalculateSequenceRates(seq: EmailSequence): EmailSequence {
     const sent = Math.max(1, seq.sentCount);
@@ -424,6 +457,8 @@ export class SequenceService {
     recipientTimezone?: string;
   }): {
     scheduledAtIso: string;
+    scheduledLocalDisplay: string;
+    utcOffsetMinutes: number;
     adjustedForBusinessHours: boolean;
     skippedWeekendDays: number;
     skippedHolidayDates: string[];
@@ -465,9 +500,14 @@ export class SequenceService {
     const [startHour, startMin] = win.businessHoursStart.split(':').map((n) => Number(n) || 0);
     const [endHour, endMin] = win.businessHoursEnd.split(':').map((n) => Number(n) || 0);
 
-    const candidate = new Date(
+    const candidateUtc = new Date(
       base.getTime() + delayDays * 24 * 60 * 60 * 1000 + delayHours * 60 * 60 * 1000
     );
+
+    // Trabalha no "relógio de parede" do fuso do destinatário: os métodos UTC do objeto
+    // abaixo representam a hora local do destinatário.
+    const initialOffset = getTimezoneOffsetMinutes(candidateUtc, timezoneUsed);
+    const candidate = new Date(candidateUtc.getTime() + initialOffset * 60000);
 
     let adjustedForBusinessHours = false;
     let skippedWeekendDays = 0;
@@ -481,7 +521,7 @@ export class SequenceService {
       adjustedForBusinessHours = true;
     };
 
-    // Check time of day first
+    // Check time of day first (hora local do destinatário)
     const currentMinutes = candidate.getUTCHours() * 60 + candidate.getUTCMinutes();
     const startMinutes = startHour * 60 + startMin;
     const endMinutes = endHour * 60 + endMin;
@@ -493,7 +533,7 @@ export class SequenceService {
       advanceToNextDayStart(candidate);
     }
 
-    // Advance past weekends and holidays
+    // Advance past weekends and holidays (datas locais do destinatário)
     let safetyCounter = 0;
     while (safetyCounter < 45) {
       safetyCounter++;
@@ -515,12 +555,50 @@ export class SequenceService {
       break;
     }
 
+    // Converte o horário local de volta para UTC (recalcula o offset para cobrir horário de verão)
+    const approxUtc = new Date(candidate.getTime() - initialOffset * 60000);
+    const finalOffset = getTimezoneOffsetMinutes(approxUtc, timezoneUsed);
+    const scheduled = new Date(candidate.getTime() - finalOffset * 60000);
+    const localDisplay = `${formatYmd(candidate)} ${String(candidate.getUTCHours()).padStart(2, '0')}:${String(
+      candidate.getUTCMinutes()
+    ).padStart(2, '0')}`;
+
     return {
-      scheduledAtIso: candidate.toISOString(),
+      scheduledAtIso: scheduled.toISOString(),
+      scheduledLocalDisplay: localDisplay,
       adjustedForBusinessHours,
       skippedWeekendDays,
       skippedHolidayDates,
       timezoneUsed,
+      utcOffsetMinutes: finalOffset,
+    };
+  }
+
+  /**
+   * Limite diário por caixa postal: zera o contador quando o dia (no fuso padrão da cadência) muda.
+   * Retorna o estado atual do limite.
+   */
+  ensureMailboxDailyCounter(
+    seq: EmailSequence,
+    now: Date = new Date()
+  ): { limit: number; sentToday: number; remaining: number; reached: boolean; mailbox: string } {
+    const win = seq.sendingWindow;
+    if (!win) {
+      return { limit: Infinity, sentToday: 0, remaining: Infinity, reached: false, mailbox: '' };
+    }
+    const today = formatLocalYmd(now, win.defaultTimezone || 'America/Sao_Paulo');
+    if (win.currentTodayDate && win.currentTodayDate !== today) {
+      win.currentTodaySent = 0;
+    }
+    win.currentTodayDate = today;
+    const limit = win.dailyMailboxSendLimit || 150;
+    const sentToday = win.currentTodaySent || 0;
+    return {
+      limit,
+      sentToday,
+      remaining: Math.max(0, limit - sentToday),
+      reached: sentToday >= limit,
+      mailbox: win.senderMailbox,
     };
   }
 
@@ -576,11 +654,10 @@ export class SequenceService {
 
     // 2. Safeguard: Check Mailbox Daily Send Limit
     if (seq.sendingWindow) {
-      const currentSent = seq.sendingWindow.currentTodaySent || 0;
-      const limit = seq.sendingWindow.dailyMailboxSendLimit || 150;
-      if (currentSent >= limit) {
+      const mailboxState = this.ensureMailboxDailyCounter(seq);
+      if (mailboxState.reached) {
         throw new Error(
-          `Limite diário da caixa postal (${seq.sendingWindow.senderMailbox}: ${limit} envios/dia) atingido. Inscrição retida para proteção de reputação.`
+          `Limite diário da caixa postal (${seq.sendingWindow.senderMailbox}: ${mailboxState.limit} envios/dia) atingido. Inscrição retida para proteção de reputação.`
         );
       }
     }
@@ -885,7 +962,7 @@ export class SequenceService {
   advanceStep(
     repo: CrmRepository,
     enrollmentId: string
-  ): { enrollment: SequenceEnrollment; sequence: EmailSequence } {
+  ): { enrollment: SequenceEnrollment; sequence: EmailSequence; deferredByMailboxLimit?: boolean } {
     const enrollment = repo.getSequenceEnrollmentById(enrollmentId);
     if (!enrollment) {
       throw new Error(`Inscrição de cadência (${enrollmentId}) não encontrada.`);
@@ -920,6 +997,44 @@ export class SequenceService {
       seq.completedCount += 1;
       repo.updateSequence(seq.id, seq, { bumpVersion: false });
       return { enrollment, sequence: seq };
+    }
+
+    // Limite diário por caixa postal: passos de e-mail que excederem o limite são adiados
+    // para a próxima janela comercial (sem perder o passo nem alterar o estado da inscrição).
+    const isMailboxEmailStep =
+      step.stepType === 'AUTO_EMAIL' ||
+      step.stepType === 'MANUAL_EMAIL' ||
+      step.stepType === 'EMAIL' ||
+      step.stepType === 'FOLLOW_UP' ||
+      step.stepType === 'BREAKUP';
+    if (isMailboxEmailStep && seq.sendingWindow) {
+      const mailboxState = this.ensureMailboxDailyCounter(seq, now);
+      if (mailboxState.reached) {
+        const deferred = this.calculateNextBusinessExecutionWindow({
+          baseDate: now,
+          delayDays: 1,
+          delayHours: 0,
+          sendingWindow: seq.sendingWindow,
+          recipientTimezone: enrollment.recipientTimezone,
+        });
+        enrollment.nextStepDueAt = deferred.scheduledAtIso;
+        enrollment.nextScheduledExecutionAt = deferred.scheduledAtIso;
+        enrollment.updatedAt = nowIso;
+        enrollment.history.push({
+          stepOrder: nextStepOrder,
+          stepType: step.stepType,
+          dayOffset: step.dayOffset,
+          subject: step.subject,
+          action: 'DEFERRED_MAILBOX_LIMIT',
+          timestamp: nowIso,
+          details: `Passo ${nextStepOrder} adiado: limite diário da caixa postal ${mailboxState.mailbox} (${mailboxState.limit} envios/dia) atingido. Reagendado para ${deferred.scheduledLocalDisplay} (${deferred.timezoneUsed}).`,
+          executedByMailbox: mailboxState.mailbox,
+        });
+        enrollment.stepHistory = enrollment.history;
+        repo.saveSequenceEnrollment(enrollment);
+        repo.updateSequence(seq.id, seq, { bumpVersion: false });
+        return { enrollment, sequence: seq, deferredByMailboxLimit: true };
+      }
     }
 
     const renderedSubject = this.renderTemplate(step.subject, {

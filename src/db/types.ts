@@ -163,6 +163,8 @@ export interface SendingWindowConfig {
   defaultTimezone: string;
   dailyMailboxSendLimit: number;
   currentTodaySent: number;
+  /** Data (YYYY-MM-DD no fuso padrão) a que se refere currentTodaySent; zera o contador na virada do dia. */
+  currentTodayDate?: string;
   senderMailbox: string;
   sendingProvider: 'OUTLOOK_M365' | 'MARKETING_ESP';
 }
@@ -430,7 +432,8 @@ export interface SequenceStepExecutionLog {
     | 'TRANSFERRED_TO_NURTURE'
     | 'PAUSED'
     | 'RESUMED'
-    | 'EXITED_RULE';
+    | 'EXITED_RULE'
+    | 'DEFERRED_MAILBOX_LIMIT';
   timestamp: string;
   details?: string;
   exitTrigger?: SequenceExitRuleTrigger;
@@ -469,6 +472,17 @@ export interface SequenceEnrollment {
   updatedAt: string;
 }
 
+export interface EmailSequenceVersionSnapshot {
+  version: number;
+  savedAt: string;
+  changedFields: string[];
+  steps: SequenceStep[];
+  sendingWindow?: SendingWindowConfig;
+  exitRules?: SequenceExitRuleConfig[];
+  exitScope?: 'CONTACT_ONLY' | 'ENTIRE_COMPANY';
+  reentryPolicy?: 'NEVER' | 'AFTER_DAYS' | 'ALLOW_IF_COMPLETED';
+}
+
 export interface EmailSequence {
   id: string;
   name: string;
@@ -487,6 +501,8 @@ export interface EmailSequence {
   lastAssignedSellerIndex?: number;
   nurtureTargetCampaignId?: string | null;
   highIntentUrls?: string[];
+  /** Histórico auditável de versões (snapshot da configuração anterior a cada alteração estrutural). */
+  versionHistory?: EmailSequenceVersionSnapshot[];
   steps: SequenceStep[];
   enrolledCount: number;
   activeCount: number;

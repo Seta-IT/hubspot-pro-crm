@@ -20,6 +20,8 @@ import {
   SequenceStep,
 } from '../../db/types';
 import { formatDateTimeBR } from './ui-helpers';
+import SequenceCadenceStudio, { TEN_CADENCE_STATES, canonicalStateOf } from './SequenceCadenceStudio';
+import type { CanonicalSequenceEnrollmentState } from '../../db/types';
 
 export interface EnrichedEnrollment extends SequenceEnrollment {
   contact: Contact | null;
@@ -47,6 +49,8 @@ interface SequencesSectionProps {
     category: 'OUTBOUND' | 'INBOUND_NURTURE' | 'FOLLOW_UP' | 'REENGAGEMENT';
     steps: SequenceStep[];
   }) => Promise<void>;
+  /** Recarrega os dados do CRM após ações do estúdio (salvar passos, janela, regras, clonar). */
+  onSequencesChanged?: () => Promise<void> | void;
 }
 
 export default function SequencesSection({
@@ -58,6 +62,7 @@ export default function SequencesSection({
   onAdvanceStep,
   onRecordInteraction,
   onCreateSequence,
+  onSequencesChanged,
 }: SequencesSectionProps) {
   const [selectedSequenceId, setSelectedSequenceId] = useState<string>(
     sequences[0]?.id || 'seq-outbound-enterprise'
@@ -65,9 +70,8 @@ export default function SequencesSection({
   const [enrollContactId, setEnrollContactId] = useState<string>(contacts[0]?.id || '');
   const [enrollDealId, setEnrollDealId] = useState<string>('');
   const [enrolling, setEnrolling] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<
-    'ALL' | 'ACTIVE' | 'PAUSED_ON_REPLY' | 'COMPLETED'
-  >('ALL');
+  const [statusFilter, setStatusFilter] = useState<CanonicalSequenceEnrollmentState | 'ALL'>('ALL');
+  const [use21DayTemplate, setUse21DayTemplate] = useState(false);
 
   const [replyModalEnrollment, setReplyModalEnrollment] = useState<EnrichedEnrollment | null>(null);
   const [replyText, setReplyText] = useState(
@@ -110,7 +114,8 @@ export default function SequencesSection({
   const filteredEnrollments =
     statusFilter === 'ALL'
       ? enrollments
-      : enrollments.filter((e) => e.status === statusFilter);
+      : enrollments.filter((e) => canonicalStateOf(e) === statusFilter);
+  const template21d = sequences.find((s) => s.id === 'seq-seta-21d-prospeccao');
 
   const handleEnrollSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,7 +191,22 @@ export default function SequencesSection({
           replyCount: 0,
         },
       ];
-      if (includeStep3 && step3Subject.trim()) {
+      if (use21DayTemplate && template21d) {
+        const stamp = Date.now();
+        steps.splice(
+          0,
+          steps.length,
+          ...template21d.steps.map((st, i) => ({
+            ...structuredClone(st),
+            id: `step-${stamp}-${i + 1}`,
+            stepOrder: i + 1,
+            sentCount: 0,
+            openCount: 0,
+            clickCount: 0,
+            replyCount: 0,
+          }))
+        );
+      } else if (includeStep3 && step3Subject.trim()) {
         steps.push({
           id: `step-${Date.now()}-3`,
           stepOrder: 3,
@@ -373,6 +393,18 @@ export default function SequencesSection({
             </div>
           </div>
 
+          {/* FASE 2 (MODULO C): ESTUDIO DE CADENCIAS AVANCADAS */}
+          <SequenceCadenceStudio
+            sequence={activeSequence}
+            allSequences={sequences}
+            enrollments={enrollments}
+            selectedStateFilter={statusFilter}
+            onSelectStateFilter={setStatusFilter}
+            onChanged={onSequencesChanged}
+            onSelectSequence={(id) => setSelectedSequenceId(id)}
+            onFeedback={(msg) => setFeedbackBanner(msg)}
+          />
+
           {/* Enroll Contact Form */}
           <form
             onSubmit={handleEnrollSubmit}
@@ -439,23 +471,26 @@ export default function SequencesSection({
             <select
               value={statusFilter}
               onChange={(e) =>
-                setStatusFilter(
-                  e.target.value as 'ALL' | 'ACTIVE' | 'PAUSED_ON_REPLY' | 'COMPLETED'
-                )
+                setStatusFilter(e.target.value as CanonicalSequenceEnrollmentState | 'ALL')
               }
               className="bg-transparent font-semibold text-slate-800 focus:outline-none"
             >
               <option value="ALL">Todos ({enrollments.length})</option>
-              <option value="ACTIVE">ACTIVE (Em andamento)</option>
-              <option value="PAUSED_ON_REPLY">PAUSED_ON_REPLY (Respondeu)</option>
-              <option value="COMPLETED">COMPLETED (Finalizado)</option>
+              {TEN_CADENCE_STATES.map((st) => (
+                <option key={st.state} value={st.state}>
+                  {st.labelPt} ({enrollments.filter((e) => canonicalStateOf(e) === st.state).length})
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
         <div className="p-6 space-y-3">
           {filteredEnrollments.map((enr) => {
-            const isPausedOnReply = enr.status === 'PAUSED_ON_REPLY';
+            const canonical = canonicalStateOf(enr);
+            const canonicalMeta = TEN_CADENCE_STATES.find((st) => st.state === canonical);
+            const isPausedOnReply = canonical === 'REPLIED';
+            const isRunning = canonical === 'IN_SEQUENCE' || canonical === 'WAITING_NEXT_STEP';
             const isProcessing = processingEnrollmentId === enr.id;
 
             return (
@@ -474,15 +509,19 @@ export default function SequencesSection({
                         className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                           isPausedOnReply
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : enr.status === 'ACTIVE'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-slate-100 text-slate-700'
+                            : `border ${canonicalMeta?.tone || 'bg-slate-100 text-slate-700'}`
                         }`}
                       >
                         {isPausedOnReply
-                          ? 'PAUSED_ON_REPLY (Pausado Automaticamente — Lead Respondeu!)'
-                          : `Status: ${enr.status}`}
+                          ? 'Respondeu (cadência pausada automaticamente)'
+                          : canonicalMeta?.labelPt || enr.status}
                       </span>
+                      {enr.exitReasonTrigger && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                          Saída: {enr.exitReasonTrigger}
+                          {enr.exitedByScope === 'ENTIRE_COMPANY' ? ' (empresa)' : ''}
+                        </span>
+                      )}
                       <span className="text-xs font-semibold text-slate-900">
                         {enr.contact
                           ? `${enr.contact.firstName} ${enr.contact.lastName} (${enr.contact.email})`
@@ -521,7 +560,7 @@ export default function SequencesSection({
 
                   {/* Interactive Controls for Enrollment */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    {enr.status === 'ACTIVE' && (
+                    {isRunning && (
                       <>
                         <button
                           type="button"
@@ -723,6 +762,17 @@ export default function SequencesSection({
                   />
                 </div>
               </div>
+
+              {template21d && (
+                <label className="flex items-center gap-2 p-3 rounded-xl border border-orange-200 bg-orange-50/60 text-xs font-semibold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={use21DayTemplate}
+                    onChange={(e) => setUse21DayTemplate(e.target.checked)}
+                  />
+                  Iniciar a partir do modelo oficial de 21 dias (7 passos: Dia 1, 3, 5, 7, 10, 14 e 21)
+                </label>
+              )}
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                 <div className="text-xs font-semibold text-slate-800">Passo 1 (Dia 1 - Envio Imediato)</div>

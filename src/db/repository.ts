@@ -2211,12 +2211,37 @@ export class CrmRepository {
         : shouldBump
           ? (current.version || 1) + 1
           : current.version || 1;
+    const nowIso = new Date().toISOString();
+    let versionHistory = current.versionHistory || [];
+    if (nextVersion !== (current.version || 1)) {
+      const structuralKeys = ['steps', 'sendingWindow', 'exitRules', 'exitScope', 'reentryPolicy', 'name', 'description'];
+      const changedFields = structuralKeys.filter(
+        (k) =>
+          (patch as Record<string, unknown>)[k] !== undefined &&
+          JSON.stringify((patch as Record<string, unknown>)[k]) !==
+            JSON.stringify((current as unknown as Record<string, unknown>)[k])
+      );
+      versionHistory = [
+        {
+          version: current.version || 1,
+          savedAt: nowIso,
+          changedFields,
+          steps: structuredClone(current.steps || []),
+          sendingWindow: current.sendingWindow ? structuredClone(current.sendingWindow) : undefined,
+          exitRules: current.exitRules ? structuredClone(current.exitRules) : undefined,
+          exitScope: current.exitScope,
+          reentryPolicy: current.reentryPolicy,
+        },
+        ...versionHistory,
+      ].slice(0, 50);
+    }
     const updated: EmailSequence = {
       ...current,
       ...patch,
+      versionHistory,
       version: nextVersion,
       id,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     };
     this.state.sequences[idx] = updated;
     this.save();
@@ -2240,6 +2265,7 @@ export class CrmRepository {
       id: `seq-clone-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: newName?.trim() || `${source.name} (Clonar)`,
       version: 1,
+      versionHistory: [],
       steps: clonedSteps,
       enrolledCount: 0,
       activeCount: 0,
@@ -2414,7 +2440,9 @@ export class CrmRepository {
     input: Partial<MarketingEmailBroadcast> & { name: string }
   ): MarketingEmailBroadcast {
     const list = this.listMarketingEmails();
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const nowDisplay = formatMarketingEmailDisplayDate(nowDate);
     const created: MarketingEmailBroadcast = {
       id: input.id || `mktemail-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: input.name.trim(),
@@ -2426,11 +2454,11 @@ export class CrmRepository {
       deliveredCount: input.deliveredCount ?? 0,
       openRatePercent: input.openRatePercent ?? 0,
       clickRatePercent: input.clickRatePercent ?? 0,
-      updatedAtDisplay: input.updatedAtDisplay || '28 de Outubro de 2026 15:58',
+      updatedAtDisplay: input.updatedAtDisplay || nowDisplay,
       updatedBy: input.updatedBy || 'Marcelo Lopes Mira',
       publishedAtDisplay:
         input.status === 'SENT'
-          ? input.publishedAtDisplay || '28 de Outubro de 2026 15:58'
+          ? input.publishedAtDisplay || nowDisplay
           : input.publishedAtDisplay || '--',
       campaignId: input.campaignId ?? 'cmp-1',
       segmentId: input.segmentId ?? 'seg-abm-tier1-decisores',
@@ -2457,6 +2485,7 @@ export class CrmRepository {
       openRatePercent: 0,
       clickRatePercent: 0,
       publishedAtDisplay: '--',
+      updatedAtDisplay: undefined,
       updatedBy: 'Marcelo Lopes Mira',
     });
   }
@@ -9109,4 +9138,29 @@ export function createInMemoryRepository(initialState?: CrmDatabaseState): CrmRe
     autoSeed: !initialState,
     initialState,
   });
+}
+
+/** Data no formato exibido na listagem de e-mails de marketing (ex.: "29 de Outubro de 2026 11:40"), fuso America/Sao_Paulo. */
+export function formatMarketingEmailDisplayDate(date: Date): string {
+  const months = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+  ];
+  try {
+    const parts: Record<string, string> = {};
+    for (const p of new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(date)) {
+      if (p.type !== 'literal') parts[p.type] = p.value;
+    }
+    return `${Number(parts.day)} de ${months[Number(parts.month) - 1]} de ${parts.year} ${parts.hour}:${parts.minute}`;
+  } catch {
+    return date.toISOString().slice(0, 16).replace('T', ' ');
+  }
 }

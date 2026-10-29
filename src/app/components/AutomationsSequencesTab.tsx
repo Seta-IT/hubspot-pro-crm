@@ -65,6 +65,7 @@ interface AutomationsSequencesTabProps {
     category: 'OUTBOUND' | 'INBOUND_NURTURE' | 'FOLLOW_UP' | 'REENGAGEMENT';
     steps: SequenceStep[];
   }) => Promise<void>;
+  onSequencesChanged?: () => Promise<void> | void;
 }
 
 const TRIGGER_LABELS: Record<WorkflowTriggerType, string> = {
@@ -89,6 +90,7 @@ export default function AutomationsSequencesTab({
   onAdvanceStep,
   onRecordInteraction,
   onCreateSequence,
+  onSequencesChanged,
 }: AutomationsSequencesTabProps) {
   const [activeTab, setActiveTab] = useState<'WORKFLOWS' | 'SEQUENCES'>('WORKFLOWS');
   const [testTargetContactId, setTestTargetContactId] = useState<string>(
@@ -573,6 +575,7 @@ export default function AutomationsSequencesTab({
           onAdvanceStep={onAdvanceStep}
           onRecordInteraction={onRecordInteraction}
           onCreateSequence={onCreateSequence}
+          onSequencesChanged={onSequencesChanged}
         />
       )}
 
