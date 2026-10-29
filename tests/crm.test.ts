@@ -4111,3 +4111,114 @@ describe('15. Contratos GestãoClick: 12 ações no final do contrato (3 pontos)
     assert.ok(tab.includes("setEditingContractTab('FATURAMENTO_RECIBOS')"));
   });
 });
+
+describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Customizadas, Versionamento e 1 Página A4 (28/10/2026)', () => {
+  it('calcula regras customizadas de vencimento ("45 dias + próxima quarta-feira" e "30 dias + próxima quinta-feira") com precisão', async () => {
+    const { computeCustomDueDateFromRule } = await import('../src/db/repository');
+    // 2026-10-28 (quarta-feira) + 45 dias = 2026-12-12 (sábado) -> próxima quarta-feira = 2026-12-16
+    const r45Wed = computeCustomDueDateFromRule({
+      baseDate: '2026-10-28',
+      offsetDays: 45,
+      targetWeekday: 'WEDNESDAY',
+    });
+    assert.equal(r45Wed.afterOffsetDateIso, '2026-12-12');
+    assert.equal(r45Wed.dueDateIso, '2026-12-16');
+    assert.equal(r45Wed.dueDateBr, '16/12/2026');
+    assert.equal(r45Wed.weekdayLabelPt, 'Quarta-feira');
+    assert.equal(r45Wed.ruleLabel, '45 dias + próxima quarta-feira');
+
+    // 2026-10-28 + 30 dias = 2026-11-27 (sexta-feira) -> próxima quinta-feira = 2026-12-03
+    const r30Thu = computeCustomDueDateFromRule({
+      baseDate: '2026-10-28',
+      offsetDays: 30,
+      targetWeekday: 'THURSDAY',
+    });
+    assert.equal(r30Thu.afterOffsetDateIso, '2026-11-27');
+    assert.equal(r30Thu.dueDateIso, '2026-12-03');
+    assert.equal(r30Thu.dueDateBr, '03/12/2026');
+    assert.equal(r30Thu.weekdayLabelPt, 'Quinta-feira');
+    assert.equal(r30Thu.ruleLabel, '30 dias + próxima quinta-feira');
+  });
+
+  it('versiona contratos automaticamente em JSON leve (0 MB PDF), restaura versões e imprime Recibo de Locação em 1 Página A4 Única', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    // 1. Atualizar contrato ctr-loc-453 com novos dados GestãoClick -> incrementa versão e grava versionHistory
+    const patchRes = await router.dispatch({
+      method: 'PATCH',
+      path: '/api/erp/rental-contracts/ctr-loc-453',
+      body: {
+        monthlyValue: 920,
+        customerPurchaseOrderNumber: 'PO-FORTIS-999',
+        measurementNumber: 'BM-12/2026-453',
+        paymentMethod: 'Boleto Inter',
+        customDueRuleEnabled: true,
+        customDueOffsetDays: 45,
+        customDueTargetWeekday: 'WEDNESDAY',
+        customDueRuleLabel: '45 dias + próxima quarta-feira',
+      },
+    });
+    assert.equal(patchRes.status, 200);
+    const updatedCtr = (patchRes.body as { data: { version: number; versionLabel: string; monthlyValue: number } }).data;
+    assert.ok(updatedCtr.version >= 2);
+
+    // 2. Consultar histórico de versões do contrato
+    const verRes = await router.dispatch({
+      method: 'GET',
+      path: '/api/erp/rental-contracts/ctr-loc-453/versions',
+    });
+    assert.equal(verRes.status, 200);
+    const versions = (verRes.body as { data: Array<{ versionNumber: number; versionLabel: string; changedFields: string[] }> }).data;
+    assert.ok(versions.length >= 2);
+
+    // 3. Restaurar versão v1.0
+    const restoreRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/rental-contracts/ctr-loc-453/restore-version',
+      body: { targetVersion: 1, restoredBy: 'Marcelo Mira' },
+    });
+    assert.equal(restoreRes.status, 200);
+
+    // 4. Gerar fatura a partir do contrato propagando PO, Medição, Regra de Vencimento e dados GestãoClick
+    const genInvRes = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/rental-contracts/ctr-loc-453/generate-invoice',
+      body: {
+        competenceMonth: '12/2026',
+        issueDate: '2026-10-28',
+        customDueRuleEnabled: true,
+        customDueOffsetDays: 45,
+        customDueTargetWeekday: 'WEDNESDAY',
+        customerPurchaseOrderNumber: 'PED-CLI-2026-4654',
+        measurementNumber: 'BM-12/2026-453',
+      },
+    });
+    assert.equal(genInvRes.status, 201);
+    const genInv = (genInvRes.body as {
+      data: {
+        dueDate: string;
+        customDueRuleLabel: string;
+        customerPurchaseOrderNumber: string;
+        measurementNumber: string;
+        sellerName: string;
+        costCenter: string;
+        chartOfAccounts: string;
+      };
+    }).data;
+    assert.equal(genInv.dueDate, '2026-12-16');
+    assert.equal(genInv.customDueRuleLabel, '45 dias + próxima quarta-feira');
+    assert.equal(genInv.customerPurchaseOrderNumber, 'PED-CLI-2026-4654');
+    assert.equal(genInv.measurementNumber, 'BM-12/2026-453');
+    assert.equal(genInv.sellerName, 'Marcelo Mira');
+    assert.equal(genInv.costCenter, 'LOCAÇÃO DE EQUIPAMENTO');
+    assert.equal(genInv.chartOfAccounts, 'Locação de equipamento');
+
+    // 5. Verificar que o HTML de impressão da Fatura/Recibo de Locação está configurado para 1 única página A4
+    const utils = await import('../src/app/lib/contract-billing-utils');
+    const html = utils.buildPrintableRentalInvoiceHtml(genInv as never);
+    assert.ok(html.includes('@page { size: A4 portrait; margin: 7mm; }'));
+    assert.ok(html.includes('max-height: 282mm;'));
+    assert.ok(html.includes('1 Página A4 Única'));
+  });
+});

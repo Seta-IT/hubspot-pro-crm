@@ -84,7 +84,7 @@
   - `GET /api/erp/cnpj/:cnpj`
 - **Entregas Concluídas:**
   - Ficha de Clientes PJ/PF expandida com todos os campos do GestãoClick (CNPJ/CPF, Razão Social, Nome Fantasia, IE, Indicador de IE, IM, Regime Tributário, CNAE, Endereço completo com CEP e Código IBGE, Contatos Adicionais e Limite de Crédito/Condição de Pagamento).
-  - Consulta pública automática de CNPJ na Receita Federal / BrasilAPI / CNPJ.ws.
+  - Consulta pública automática de CNPJ na Receita Federal / BrasilAPI / CNPJ.ws + Painel **Consulta SERASA** (Score PJ 0–1000, risco, protestos/PEFIN e limite de crédito com trava "Permitir exceder o limite"), incluindo cliente **Digisystem Servicos Especializados LTDA** (`01.936.069/0001-94`, CEP `01311-926`).
   - Botão padronizado `Editar / Abrir Cadastro` na tabela (sem botão de exclusão direto na linha; exclusão protegida dentro da ficha).
   - Trava Fiscal obrigatória impedindo unificação de CNPJs distintos.
 
@@ -100,7 +100,7 @@
   - `PATCH / PUT / DELETE /api/erp/catalog/:id`
 - **Entregas Concluídas:**
   - Catálogo técnico completo de equipamentos Telecom/TI (PABX IP, Gateways E1/SIP, Aparelhos IP Yealink/Intelbras, Switches PoE, Firewalls SD-WAN, Licenças Cisco) e Serviços Técnicos NOC/Engenharia (LC 116/03 Item `01.07`).
-  - Modal completo de Produto (`GestaoClickProductEditModal`) com abas de Dados, Valores (Custo, Markup, Venda, Locação Mensal), Estoque (Mínimo, Máximo, Atual, Controle por S/N), Fiscal (NCM, CEST, CFOP padrão `5.908` / `5.102`, Origem ICMS) e Fornecedores vinculados.
+  - Modal completo de Produto (`GestaoClickProductEditModal`) com as **7 abas laterais verticais** (`Dados`, `Detalhes`, `Valores`, `Estoque`, `Fotos`, `Fiscal` e `Fornecedores`), tabela **Confira as referências de NF-e deste produto** (`KIT1000-ETQTERM-TMT - 1000 Etiquetas Termicas 10x15 / 100x150 Em Resma Serrilhada`), Kardex de entradas/saídas/remessas e item de locação **`WS-C3850-48F-S - Stackable 48 10/100/1000 Ethernet PoE+ port`** (`Estoque: 4,00`, `Vr. unitário: R$ 375,00`).
 
 ---
 
@@ -139,25 +139,46 @@
 
 ---
 
-### Pilar 5 — Contratos e locações (`344 Contratos Ativos` • Reajuste IGP-M/IPCA & Recibo 0% ISS SV 31 STF)
+### Pilar 5 — Contratos e locações (`344 Contratos Ativos` • Ficha Completa GestãoClick, Histórico de Faturamentos no Contrato, Recorrência, Regras Customizadas `45 dias + próxima quarta-feira` / `30 dias + próxima quinta-feira`, Versionamento `v1.0/v2.0`, PDFs Sob Demanda 0 MB e Recibo em 1 Página A4)
 - **Status Geral:** **100% Concluído**
 - **Componentes & Arquivos:**
   - `src/app/components/ErpGestaoClickTab.tsx` (Seção `CONTRATOS`: sub-abas `CTR_LOCACOES`, `CTR_SERVICOS`, `CTR_ASSINATURAS`, `CTR_AUXILIARES`)
-  - `src/app/components/ErpEditModals.tsx` (`ContractEditModal`)
+  - `src/app/components/ErpEditModals.tsx` (`ContractEditModal` e `InvoiceEditModal`)
+  - `src/app/components/ContractBillingPanels.tsx` (`ContractGestaoClickDataPanel`, `ContractBillingHistoryPanel`, `ContractVersionHistoryPanel`, `ContractAuxOptionsManager`, `InvoiceExtraFieldsPanel`)
+  - `src/app/lib/contract-billing-utils.ts` (`computeCustomDueDateClient`, `buildStandaloneInvoiceHtml`, `buildPrintableRentalInvoiceHtml`, `downloadInvoicePdfOnDemand`, `downloadContractInvoicesCsvOnDemand`, `downloadContractBillingHistoryReportOnDemand`, `downloadContractVersionPdfOnDemand`)
   - `src/app/components/GestaoClickEnrichedModals.tsx` (`PartialEquipmentReturnProRataModal` e `BatchRentalBillingAndEmailModal`)
 - **Rotas de API:**
   - `GET / POST / PATCH / DELETE /api/erp/rental-contracts`
+  - `GET /api/erp/rental-contracts/:id/versions` & `POST /api/erp/rental-contracts/:id/restore-version` (Versionamento automático de contratos `v1.0, v2.0...` sem salvar PDFs em disco)
   - `POST /api/erp/rental-contracts/:id/readjust`
   - `POST /api/erp/rental-contracts/:id/renew`
   - `POST /api/erp/rental-contracts/:id/generate-invoice`
   - `POST /api/erp/rental-contracts/:id/generate-remessa`
   - `POST /api/erp/rental-contracts/:id/partial-return`
   - `POST /api/erp/rental-contracts/batch-billing` & `POST /api/erp/rental-contracts/batch-email`
-- **Entregas Concluídas:**
-  - Gestão completa de Contratos de Locação Pura (`0% ISS — SV 31 STF`), Híbridos, Serviços Técnicos (`LC 116 01.07`) e Assinaturas SCM (`Mod. 62`).
-  - Rastreamento individual por `S/N` e Tag, RMA, devolução parcial com cálculo Pro-Rata mantendo o contrato `ATIVO`, reajuste anual IGP-M/IPCA/IST Anatel e faturamento em lote.
-  - **Layout GestãoClick Padronizado nos 3 Pontos (`Locações`, `Serviços`, `Assinaturas`):** Barra `+ Adicionar`, `Devoluções`, `Mais ações ▾`, seletor de competência, colunas `Nº`, `Tipo` (`Aluguel`, `Serviço`, `Assinatura`), `Cliente`, `Data`, `Próximo vencimento`, `Periodicidade`, `Situação`, `Valor` e botões `Lupa`, `Lápis` e menu `⋮` com as **12 funcionalidades** (`Link de cobrança`, `Imprimir A4`, `Alterar situação`, `Enviar por e-mail`, `Enviar por WhatsApp`, `Gerar próxima fatura`, `Devolução de produtos`, `Renovar locação/contrato`, `Agendar compromisso`, `Ver no financeiro`, `Solicitar assinatura` e `Excluir`).
-  - **Minutas Jurídicas Distintas por Tipo (`Opções auxiliares` e `Imprimir A4`):** Modelos editáveis separados para **Contrato de Locação de Equipamentos** (Arts. 565-578 CC, Súmula Vinculante 31 STF, CFOP 5.908/6.908), **Contrato de Prestação de Serviços Técnicos** (LC 116/2003, NFS-e, SLA NOC) e **Termo de Assinatura Recorrente** (SCM/SVA/Cloud).
+- **Entregas Concluídas (incluindo todas as evoluções de 28/10/2026):**
+  1. **Histórico de Faturamentos Dentro do Contrato (`[t2u]`)**:
+     - Exibição direta dentro de cada linha/card de contrato e dentro do `ContractEditModal` (abas `3. Faturamento & Recibos` e `6. Documento PDF & Histórico`) de todas as Faturas de Locação (`FATURA_LOCACAO`), NF-e de Remessa (`CFOP 5.908/6.908`), NF-e de Retorno Parcial (`CFOP 5.909/6.909`) e títulos em Contas a Receber vinculados ao contrato, com botão **`+ Gerar Novo Faturamento`** sem sair do contrato.
+  2. **Dados Completos do Contrato GestãoClick Replicados no Contrato e na Fatura (`[t3u]` e `[t4u]`)**:
+     - **Bloco `Dados do contrato`**: `Vendedor` (`Marcelo Mira`), `Centro de custo` (`LOCAÇÃO DE EQUIPAMENTO`), `Plano de contas *` (`Locação de equipamento`), `Proposta` (`4654`), `Frete` (`400` / `R$ 400,00`), `Contrato n.` (`LOC-2026-101` / `453`), `Nota Fiscal de Remessa` (`2164`), `Prazo do Contrato` (`2 meses`, `12 meses`, `24 meses`).
+     - **Informações Extras na Fatura e no Contrato (`[t4u]`)**: **Número do Pedido do Cliente (PO / Ordem de Compra)** (`customerPurchaseOrderNumber`, ex.: `PO-NUBANK-2026-9910` / `PED-CLI-2026-4654`) e **Medição / Boletim de Medição (BM)** (`measurementNumber`, ex.: `BM-10/2026-101` / `BM-11/2026-453`, e `measurementPeriod`, ex.: `01/10/2026 a 31/10/2026`).
+     - **Bloco `Adicione os produtos locados`**: Produto (`WS-C3850-48F-S - Stackable 48 10/100/1000 Ethernet PoE+ port`), Variação / detalhes (S/N, Tag de Patrimônio, NCM, CFOP), Quantidade (`2,00`) com saldo abaixo (`Estoque: 4,00`), Vr. unitário (`R$ 375,00`), Subtotal (`R$ 750,00`), botão excluir e `+ Adicionar outro produto`.
+     - **Bloco `Confira o total da locação` (`[t3u]` e `[t6u]`)**: 5 campos lado a lado — `Produtos (R$)` (Soma dos produtos: `R$ 750,00`), `Acréscimo (R$)` (Somado à locação: `R$ 0,00`), `Desconto (R$)` (Em reais: `R$ 0,00`), `Desconto (%)` (Preencha um dos dois, sincronizado bidirecionalmente: `0,00%`) e `Valor total * (R$)` (Valor de cada fatura do aluguel: `R$ 750,00`).
+     - **Bloco `Combine a entrega e a retirada` + Controle de Fretes (`[t3u]`, `[t6u]`, `[t10u]`)**: `Cidade` (`São Paulo`), Endereço de Entrega/Retirada, Data de Entrega, Data Prevista de Retirada, Valor do Frete (`R$ 400,00`), Frete de Retirada (`returnFreightValueBrl`), Modalidade de Frete (`CIF_EMITENTE`, `FOB_DESTINATARIO`, `TERCEIROS`, `PROPRIO_SETA`, `SEM_FRETE`), Transportadora, Código de Rastreio/CT-e e opção `Incluir frete na fatura`.
+  3. **Download do Histórico de Faturas e Geração de PDFs 100% Sob Demanda (0 MB em Disco) (`[t4u]` e `[t5u]`)**:
+     - Botão **`Baixar Fatura (PDF / A4)`** em cada fatura individual e botões **`Baixar Histórico Completo (CSV / Excel)`** (UTF-8 BOM) e **`Baixar / Imprimir Relatório de Faturas (PDF / A4)`**.
+     - **Regra de Armazenamento Zero-PDF (`[t5u]`)**: nenhum arquivo PDF ou blob binário é salvo em disco ou banco; apenas metadados JSON leves são persistidos e os PDFs são gerados sob demanda (*on-the-fly*) no momento do download com liberação imediata de memória (`URL.revokeObjectURL`).
+  4. **Recorrência da Cobrança, Forma de Pagamento, Múltiplos E-mails e Automações (`[t7u]`, `[t9u]`, `[t10u]`, `[t11u]`)**:
+     - **Bloco `Defina a recorrência da cobrança`**: seletor `Sem término` (`SEM_TERMINO`), `Até uma data` (`ATE_UMA_DATA`), `Por vezes` (`POR_VEZES`); `Próximo vencimento *` (`09/12/2026`); `Repetir a cobrança *` (`A cada 1 mês`, `A cada 2 meses`, `A cada 3 meses`, `A cada 6 meses`, `A cada 1 ano`); `Gerar a fatura *` (`21 dias antes do vencimento`, `15`, `10`, `7`, `5`, `No dia do vencimento`).
+     - **Bloco `Escolha a cobrança e as automações`**: `Forma de pagamento *` (`Boleto Inter`, `Boleto Itaú Seta`, `Boleto + PIX QR Code`, `PIX Automático Inter`, `Transferência / TED Bancária`, `Cartão de Crédito Recorrente`); `Enviar a fatura por e-mail *` (`Selecione`, `Não enviar e-mail`, `Enviar lembrete de pagamento e boleto`, `Enviar somente o lembrete de pagamento`, `Enviar fatura, boleto, PIX e demonstrativo S/N`); **Múltiplos E-mails Destinatários (`billingRecipientEmails`)** com chips/tags; e switch **`Gerar a próxima fatura agora`**.
+     - **Bloco `Insira as informações de observação e anexos`**: observações impressas no contrato/fatura, observações internas e metadados de anexos.
+  5. **Gerenciador Dinâmico em `Contratos -> Opções auxiliares` (`[t10u]` e `[t11u]`)**:
+     - Cadastro, edição e exclusão de Formas de Pagamento, Centros de Custo, Planos de Contas, Regras de Envio de E-mail, Antecedência de Geração da Fatura e Regras Customizadas de Vencimento, além de atalho `+ Cadastrar em Opções Auxiliares` direto no formulário do contrato.
+  6. **Regra Customizável de Vencimento e Geração de Fatura (`X dias + próximo dia da semana`) (`[t12u]` e `[t13u]`)**:
+     - Função `computeCustomDueDateFromRule` / `computeCustomDueDateClient` com regras pré-cadastradas **`45 dias + próxima quarta-feira`**, **`30 dias + próxima quinta-feira`**, **`30 dias + próxima quarta-feira`**, **`30 dias + próxima sexta-feira`**, **`60 dias + próxima quarta-feira`** e **`15 dias corridos`**, além de construtor livre para qualquer número de dias `X` + qualquer dia da semana.
+  7. **Versionamento Automático de Contratos (`v1.0, v2.0...`) e Impressão do Recibo de Locação em 1 Página A4 Única (`[t14u]`)**:
+     - Versionamento automático em JSON leve (`version`, `versionLabel`, `versionHistory` com `changedFields`, restauração em 1 clique e download de PDF da versão sob demanda).
+     - Recibo / Fatura de Locação (`FATURA_LOCACAO`) formatado com `@page { size: A4 portrait; margin: 7mm }` e `.page { width: 196mm; max-height: 282mm; overflow: hidden; page-break-after: avoid; page-break-inside: avoid }` para caber **estritamente em 1 única página A4**.
 
 ---
 
@@ -254,3 +275,27 @@
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
   - **Diretriz do Marcéllo (`[t58u]`):** *"Ao criar uma proposta no ERP, ter a opção de criar no CRM, deixe isso no roadmap e me pergunte antes de criar para mais regras."*
   - **Status:** Registrado no Roadmap e **bloqueado para implementação até alinhamento prévio das regras de negócio com o Marcéllo** (ex.: em qual pipeline e etapa o Deal deve nascer, quando criar ou vincular a um Deal já existente, mapeamento de valores/MRR e gatilhos de atualização).
+
+
+---
+
+## 5. Registro Detalhado das Entregas de 28/10/2026 (Contratos, Faturamento, Recorrência, Regras Customizadas, Versionamento e PDF 1 Página A4)
+
+- **`[t1u]` — Devolução Parcial com Rateio Pro-Rata sem pausar contrato, Faturamento/E-mails em Massa e Cadastros GestãoClick + RFB/Serasa:**
+  - Endpoint `POST /api/erp/rental-contracts/:id/partial-return`: devolução parcial de equipamentos (ex.: 2 de 10 unidades) calculando pro-rata dos dias utilizados, emitindo NF-e de Retorno Parcial (`CFOP 5.909/6.909`) e Fatura Pro-Rata, mantendo o contrato `ATIVO`.
+  - Endpoints `POST /api/erp/rental-contracts/batch-billing` e `POST /api/erp/rental-contracts/batch-email`.
+  - Consulta CNPJ na Receita Federal + Serasa (`GET /api/erp/cnpj/:cnpj`, cliente `Digisystem Servicos Especializados LTDA` — `01.936.069/0001-94`) e Produto com 7 abas laterais + referências NF-e (`KIT1000-ETQTERM-TMT`).
+- **`[t2u]` — Histórico de Faturamentos Dentro do Contrato:**
+  - Painel `ContractBillingHistoryPanel` exibido diretamente dentro do Contrato (na listagem e no `ContractEditModal`) com acesso imediato à visualização, edição, envio por e-mail e geração de nova fatura sem sair do contrato.
+- **`[t3u]` e `[t4u]` — Todos os Blocos de Dados do Contrato GestãoClick + Propagação para a Fatura + PO / Medição + Download do Histórico:**
+  - Campos `Vendedor` (`Marcelo Mira`), `Centro de custo` (`LOCAÇÃO DE EQUIPAMENTO`), `Plano de contas *` (`Locação de equipamento`), `Proposta` (`4654`), `Frete` (`R$ 400,00`), `Contrato n.` (`453` / `LOC-2026-101`), `Nota Fiscal de Remessa` (`2164`), `Prazo do Contrato` (`2 meses`), `Número do Pedido do Cliente (PO)` (`PED-CLI-2026-4654`), `Boletim de Medição (BM)` (`BM-11/2026-453`) e produto `WS-C3850-48F-S - Stackable 48 10/100/1000 Ethernet PoE+ port` (`Qtd: 2,00`, `Estoque: 4,00`, `Vr. unitário: R$ 375,00`, `Subtotal: R$ 750,00`).
+- **`[t5u]` — Geração de PDFs 100% Sob Demanda (0 MB em Disco):**
+  - Nenhum PDF é armazenado em disco/banco para histórico de faturas ou versões de propostas/contratos; todos os PDFs e CSVs são gerados em memória no ato do clique.
+- **`[t6u]` — Controle Completo de Fretes e Campos de Acréscimo (R$) / Desconto (R$ e %):**
+  - Seção `Confira o total da locação` com `Produtos (R$)`, `Acréscimo (R$)`, `Desconto (R$)`, `Desconto (%)` e `Valor total (R$)`, mais modalidade de frete CIF/FOB/Terceiros/Próprio, transportadora, rastreio CT-e e cidade de entrega (`São Paulo`).
+- **`[t7u]`, `[t9u]`, `[t10u]`, `[t11u]` — Recorrência da Cobrança, Forma de Pagamento, Múltiplos E-mails e Opções Auxiliares:**
+  - Seções `Defina a recorrência da cobrança` (`Sem término`, `Até uma data`, `Por vezes`, `Próximo vencimento 09/12/2026`, `A cada 1 mês`, `21 dias antes do vencimento`) e `Escolha a cobrança e as automações` (`Forma de pagamento: Boleto Inter`, opções exatas de envio de e-mail, múltiplos e-mails destinatários e switch `Gerar a próxima fatura agora`), além do gerenciador `ContractAuxOptionsManager` em `Contratos -> Opções auxiliares`.
+- **`[t12u]` e `[t13u]` — Regra Customizável de Vencimento (`45 dias + próxima quarta-feira` e `30 dias + próxima quinta-feira`):**
+  - Calculadora `computeCustomDueDateFromRule` / `computeCustomDueDateClient` com presets e construtor customizável para qualquer quantidade de dias + dia da semana alvo.
+- **`[t14u]` — Versionamento Automático de Contratos (`v1.0, v2.0...`) e Impressão do Recibo de Locação em 1 Página A4 Única:**
+  - Rotas `GET /api/erp/rental-contracts/:id/versions` e `POST /api/erp/rental-contracts/:id/restore-version` + painel `ContractVersionHistoryPanel` e formatação compacta A4 de página única (`@page { size: A4 portrait; margin: 7mm }`, `max-height: 282mm`).

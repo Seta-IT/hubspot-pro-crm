@@ -95,7 +95,18 @@ import {
 } from '../lib/durable-storage';
 import { appendClientProposalVersion, buildProposalVersionUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
-import { CONTRACT_DOCUMENT_TEMPLATES, buildStandaloneContractA4Html, printOrDownloadContractA4 } from '../lib/contract-billing-utils';
+import {
+  CONTRACT_DOCUMENT_TEMPLATES,
+  buildStandaloneContractA4Html,
+  downloadInvoicePdfOnDemand,
+  matchInvoicesForContract,
+  printOrDownloadContractA4,
+} from '../lib/contract-billing-utils';
+import {
+  ContractAuxOptionsManager,
+  ContractBillingHistoryPanel,
+  ContractVersionHistoryPanel,
+} from './ContractBillingPanels';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
@@ -371,6 +382,8 @@ export default function ErpGestaoClickTab({
     "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES"
   >("TODOS");
   const [highlightedContractId, setHighlightedContractId] = useState<string | null>(null);
+  const [expandedContractHistoryId, setExpandedContractHistoryId] = useState<string | null>('ctr-loc-101');
+  const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null);
   const [contractRowMenuId, setContractRowMenuId] = useState<string | null>(null);
   const [contractStatusPickerFor, setContractStatusPickerFor] = useState<ErpRentalContract | null>(null);
   const [contractReturnFor, setContractReturnFor] = useState<ErpRentalContract | null>(null);
@@ -818,19 +831,55 @@ export default function ErpGestaoClickTab({
   const handleGenerateContractInvoice = async (contractId: string, options?: Record<string, unknown>) => {
     setBusyId(contractId);
     try {
-      const res = await fetch(`/api/erp/rental-contracts/${contractId}/generate-invoice`, {
+      const localCtr = rentalContracts.find((c) => c.id === contractId || c.contractNumber === contractId);
+      const res = await fetch(`/api/erp/rental-contracts/${encodeURIComponent(contractId)}/generate-invoice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ competenceMonth: '11/2026', ...(options || {}) }),
+        body: JSON.stringify({
+          competenceMonth: '11/2026',
+          ...(localCtr ? { contractSnapshot: localCtr } : {}),
+          ...(options || {}),
+        }),
       });
       if (res.ok) {
         const j = await res.json();
-        if (j.data) recordUpsertedInvoice(j.data);
+        if (j.data) {
+          recordUpsertedInvoice(j.data);
+          setExpandedContractHistoryId(localCtr?.id || contractId);
+          setHighlightedInvoiceId(j.data.id);
+        }
         onShowToast(
-          `Fatura/Recibo de Locação ${j.data?.documentNumber} emitida (0% ISS — Súmula Vinculante 31 STF)!`
+          `Fatura/Recibo de Locação ${j.data?.documentNumber} emitida (0% ISS — Súmula Vinculante 31 STF) e registrada no Histórico do Contrato!`
         );
         await onRefresh();
         if (j.data) setSelectedInvoiceForPrint(j.data);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleGenerateRentalInvoice = handleGenerateContractInvoice;
+
+  const handleRestoreContractVersion = async (contractId: string, targetVersion: number) => {
+    setBusyId(`ver-${contractId}`);
+    try {
+      const res = await fetch(`/api/erp/rental-contracts/${encodeURIComponent(contractId)}/restore-version`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetVersion,
+          restoredBy: activeUser?.name || 'Marcelo Mira',
+        }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        if (j.data) {
+          recordUpsertedContract(j.data);
+          setEditingContract(j.data);
+        }
+        onShowToast(`Versão v${targetVersion}.0 restaurada com sucesso no contrato!`);
+        await onRefresh();
       }
     } finally {
       setBusyId(null);
@@ -3197,6 +3246,7 @@ export default function ErpGestaoClickTab({
                 <span className="text-[11px] text-slate-500">Periodicidades disponíveis: A cada 1 mês • A cada 3 meses • A cada 6 meses • A cada 12 meses</span>
               </div>
             </div>
+            <ContractAuxOptionsManager onShowToast={onShowToast} />
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-md border border-slate-200 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
@@ -3426,8 +3476,8 @@ export default function ErpGestaoClickTab({
                     const isChecked = selectedContractIdsForBatch.includes(ctr.id);
 
                     return (
+                      <React.Fragment key={ctr.id}>
                       <tr
-                        key={ctr.id}
                         onClick={() => {
                           setEditingContractReadOnly(false);
                           setEditingContractTab('DADOS_GERAIS');
@@ -3454,7 +3504,10 @@ export default function ErpGestaoClickTab({
                           />
                         </td>
                         <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          {ctr.gestaoClickCode || ctr.contractNumber}
+                          <div>{ctr.gestaoClickCode || ctr.contractNumber}</div>
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[9px] font-black">
+                            {ctr.versionLabel || `v${ctr.version || 1}.0`}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3 font-semibold text-slate-700">
                           {contractTypeLabel(modality)}
@@ -3516,6 +3569,24 @@ export default function ErpGestaoClickTab({
                           <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
+                              title="Ver Histórico de Faturamentos e Gerar Nova Fatura deste Contrato"
+                              onClick={() =>
+                                setExpandedContractHistoryId((prev) => (prev === ctr.id ? null : ctr.id))
+                              }
+                              className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold cursor-pointer"
+                            >
+                              Faturas ({matchInvoicesForContract(ctr, invoices).length})
+                            </button>
+                            <button
+                              type="button"
+                              title="Emitir Fatura de Locação do Mês em 1 clique"
+                              onClick={() => void handleGenerateContractInvoice(ctr.id)}
+                              className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer"
+                            >
+                              + Faturar
+                            </button>
+                            <button
+                              type="button"
                               title="Consultar / Visualizar Contrato (6 Abas)"
                               aria-label="Consultar Cadastro"
                               onClick={() => {
@@ -3572,6 +3643,47 @@ export default function ErpGestaoClickTab({
                           </div>
                         </td>
                       </tr>
+                      {expandedContractHistoryId === ctr.id && (
+                        <tr onClick={(e) => e.stopPropagation()} className="bg-slate-50/90">
+                          <td colSpan={10} className="p-3 space-y-2">
+                            <ContractBillingHistoryPanel
+                              contract={ctr}
+                              invoices={invoices}
+                              highlightInvoiceId={highlightedInvoiceId}
+                              onGenerateNew={() => handleGenerateContractInvoice(ctr.id)}
+                              onGenerateCustom={(opts) => handleGenerateContractInvoice(ctr.id, opts)}
+                              onView={(inv) => setSelectedInvoiceForPrint(inv)}
+                              onEdit={(inv) => setEditingInvoice(inv)}
+                              onEmail={(inv) =>
+                                setEmailModalPayload({
+                                  docType: inv.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
+                                  recipientName: ctr.companyName,
+                                  recipientEmail: (inv.billingRecipientEmails || ctr.billingRecipientEmails || []).join(', '),
+                                  companyName: ctr.companyName,
+                                  companyCnpj: ctr.companyCnpj,
+                                  documentCode: inv.documentNumber,
+                                  amountBrl: inv.netAmount,
+                                  pixCode: inv.pixCopyPaste,
+                                  boletoLine: inv.boletoDigitableLine,
+                                })
+                              }
+                              onGoFiscal={(inv) => {
+                                setInvoicesSearchQuery(inv.documentNumber);
+                                setActiveSection('FISCAL');
+                              }}
+                              onGoReceivables={() => {
+                                setActiveSection('FINANCEIRO');
+                                setActiveSubId('FIN_RECEBER');
+                              }}
+                            />
+                            <ContractVersionHistoryPanel
+                              contract={ctr}
+                              onRestore={(entry) => handleRestoreContractVersion(ctr.id, entry.versionNumber)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -6875,15 +6987,50 @@ export default function ErpGestaoClickTab({
                 <span className="font-extrabold text-sm">
                   Espelho Oficial do Documento Fiscal — {selectedInvoiceForPrint.documentNumber}
                 </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[10px] font-black">
+                  Formato Compacto: 1 Página A4 Única
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    const linkedCtr = rentalContracts.find(
+                      (c) =>
+                        c.id === selectedInvoiceForPrint.rentalContractId ||
+                        c.contractNumber === selectedInvoiceForPrint.contractNumber
+                    );
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT');
+                  }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  Imprimir / Salvar PDF
+                  Imprimir 1 Página A4 / Salvar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const linkedCtr = rentalContracts.find(
+                      (c) =>
+                        c.id === selectedInvoiceForPrint.rentalContractId ||
+                        c.contractNumber === selectedInvoiceForPrint.contractNumber
+                    );
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  Baixar PDF / A4
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inv = selectedInvoiceForPrint;
+                    setSelectedInvoiceForPrint(null);
+                    setEditingInvoice(inv);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer"
+                >
+                  Editar Fatura
                 </button>
                 <button
                   type="button"
@@ -6954,7 +7101,23 @@ export default function ErpGestaoClickTab({
                   <div>
                     Competência: <strong>{selectedInvoiceForPrint.competenceMonth}</strong>
                   </div>
+                  {selectedInvoiceForPrint.customDueRuleLabel && (
+                    <div className="text-[11px] font-bold text-indigo-800">
+                      Regra de Vencimento: {selectedInvoiceForPrint.customDueRuleLabel}
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              <div className="p-3 rounded-[4px] bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Contrato / Proposta</span><strong>{selectedInvoiceForPrint.contractNumber || '—'}</strong> • Prop: <strong>{selectedInvoiceForPrint.proposalNumber || '—'}</strong></div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">NF Remessa / Prazo</span><strong>{selectedInvoiceForPrint.remessaNfeNumber || '—'}</strong> • {selectedInvoiceForPrint.contractTermLabel || '24 meses'}</div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Pedido do Cliente (PO)</span><strong>{selectedInvoiceForPrint.customerPurchaseOrderNumber || '—'}</strong></div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Boletim de Medição (BM)</span><strong>{selectedInvoiceForPrint.measurementNumber || '—'}</strong> ({selectedInvoiceForPrint.measurementPeriod || selectedInvoiceForPrint.competenceMonth})</div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Vendedor / Forma Pagto</span><strong>{selectedInvoiceForPrint.sellerName || 'Marcelo Mira'}</strong> • {selectedInvoiceForPrint.paymentMethodLabel || 'Boleto Inter'}</div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Centro de Custo</span><strong>{selectedInvoiceForPrint.costCenter || 'LOCAÇÃO DE EQUIPAMENTO'}</strong></div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Plano de Contas</span><strong>{selectedInvoiceForPrint.chartOfAccounts || 'Locação de equipamento'}</strong></div>
+                <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Frete / Cidade Entrega</span><strong>{formatBRL(selectedInvoiceForPrint.freightValueBrl || 0)}</strong> ({selectedInvoiceForPrint.deliveryCity || 'São Paulo'})</div>
               </div>
 
               <div className="border border-[#cbd6e2] rounded-[4px] overflow-hidden">

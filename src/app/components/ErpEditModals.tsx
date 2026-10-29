@@ -44,6 +44,12 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import {
+  ContractBillingHistoryPanel,
+  ContractGestaoClickDataPanel,
+  ContractVersionHistoryPanel,
+  InvoiceExtraFieldsPanel,
+} from './ContractBillingPanels';
+import {
   formatBrPhoneMask,
   formatCnpjMask,
   formatCpfMask,
@@ -2622,16 +2628,22 @@ export function ContractEditModal({
   contract,
   initialTab = 'DADOS_GERAIS',
   readOnly: readOnlyProp = false,
+  catalog = [],
+  invoices = [],
   onClose,
   onSave,
   onDelete,
   onGenerateInvoice,
   onGenerateRemessaNfe,
   onOpenPartialReturn,
+  onViewInvoice,
+  onEditInvoice,
+  onEmailInvoice,
+  onRestoreVersion,
   onShowToast,
-  invoices = [],
 }: {
   contract: ErpRentalContract;
+  catalog?: ErpCatalogItem[];
   invoices?: ErpFiscalInvoice[];
   initialTab?: ContractModalTabId;
   readOnly?: boolean;
@@ -2641,6 +2653,10 @@ export function ContractEditModal({
   onGenerateInvoice?: (contractId: string, options?: Record<string, unknown>) => Promise<void>;
   onGenerateRemessaNfe?: (contractId: string) => Promise<void>;
   onOpenPartialReturn?: (contract: ErpRentalContract) => void;
+  onViewInvoice?: (inv: ErpFiscalInvoice) => void;
+  onEditInvoice?: (inv: ErpFiscalInvoice) => void;
+  onEmailInvoice?: (inv: ErpFiscalInvoice) => void;
+  onRestoreVersion?: (versionNumber: number) => Promise<void>;
   onShowToast?: (msg: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ContractModalTabId>(initialTab);
@@ -2878,8 +2894,11 @@ export function ContractEditModal({
               <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
                 Central do Contrato • Seta Telecom ERP (6 Abas de Gestão e Confirmação)
               </span>
-              <h3 className="text-sm sm:text-base font-extrabold">
-                {draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}
+              <h3 className="text-sm sm:text-base font-extrabold flex items-center gap-2">
+                <span>{draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}</span>
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[10px] font-black">
+                  {draft.versionLabel || `v${draft.version || 1}.0`}
+                </span>
               </h3>
             </div>
           </div>
@@ -3116,6 +3135,13 @@ export function ContractEditModal({
                   />
                 </div>
               </div>
+
+              <ContractGestaoClickDataPanel
+                draft={draft}
+                setDraft={setDraft}
+                catalog={catalog}
+                disabled={isReadOnly}
+              />
             </fieldset>
           )}
 
@@ -3922,6 +3948,29 @@ export function ContractEditModal({
                   Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
                 </p>
               </div>
+
+              <ContractVersionHistoryPanel
+                contract={draft}
+                onRestore={
+                  onRestoreVersion
+                    ? async (entry) => {
+                        await onRestoreVersion(entry.versionNumber);
+                      }
+                    : undefined
+                }
+              />
+
+              <ContractBillingHistoryPanel
+                contract={draft}
+                invoices={invoices}
+                onGenerateNew={
+                  onGenerateInvoice ? () => onGenerateInvoice(draft.id) : undefined
+                }
+                onView={onViewInvoice}
+                onEdit={onEditInvoice}
+                onEmail={onEmailInvoice}
+                compact
+              />
             </div>
           )}
 
@@ -4142,6 +4191,8 @@ export function InvoiceEditModal({
               className="w-full px-3 py-2 rounded border"
             />
           </div>
+
+          <InvoiceExtraFieldsPanel draft={draft} setDraft={setDraft} />
 
           <div className="flex justify-end gap-2 pt-3 border-t">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
