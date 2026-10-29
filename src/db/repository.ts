@@ -8109,6 +8109,7 @@ export class CrmRepository {
       moduleAccess,
       crmPermissions,
       erpPermissions,
+      erpRole: realUserRecord?.erpRole || (user as { erpRole?: string }).erpRole || undefined,
       mfaVerified: true,
       mfaMethod: isValidEmailOtp ? "EMAIL_OTP" : user.mfaMethod,
       iat: nowMs,

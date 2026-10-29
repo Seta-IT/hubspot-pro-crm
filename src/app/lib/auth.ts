@@ -44,6 +44,8 @@ export interface StiHubSignedSessionClaims {
   moduleAccess: StiHubUserModuleAccess;
   crmPermissions?: StiHubCrmPermissions;
   erpPermissions?: StiHubErpPermissions;
+  /** Tipo de conta ERP efetivo (ERP_ADMIN, ERP_COMMERCIAL, ...), usado pelo middleware. */
+  erpRole?: string;
   mfaVerified: boolean;
   mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
   iat: number;
@@ -813,51 +815,9 @@ export function verifyStiHubSessionToken(
     }
   }
 
-  // 2. Legacy base64/base64url JSON session payload
-  try {
-    const jsonStr = base64UrlDecodeToString(cleaned);
-    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== 'object') {
-      return { valid: false, claims: null, reason: 'INVALID_SESSION_OBJECT' };
-    }
-    const email = String(parsed.email || '');
-    const mfaVerified = parsed.mfaVerified === true;
-    if (!email || !mfaVerified) {
-      return { valid: false, claims: null, reason: 'UNVERIFIED_OR_INVALID_TOKEN' };
-    }
-    const exp = typeof parsed.exp === 'number' ? parsed.exp : Date.now() + 86400000;
-    if (Date.now() > exp) {
-      return { valid: false, claims: null, reason: 'SESSION_EXPIRED' };
-    }
-    const enabledModules: StiHubMacroModule[] = Array.isArray(parsed.enabledModules)
-      ? (parsed.enabledModules as StiHubMacroModule[])
-      : ['CRM', 'ERP', 'CHAMADOS'];
-    const moduleAccess: StiHubUserModuleAccess = (parsed.moduleAccess as StiHubUserModuleAccess) || {
-      crm: enabledModules.includes('CRM'),
-      erp: enabledModules.includes('ERP'),
-      chamados: enabledModules.includes('CHAMADOS'),
-    };
-    return {
-      valid: true,
-      claims: {
-        uid: String(parsed.uid || parsed.userId || 'usr-seta-01'),
-        email,
-        name: String(parsed.name || email),
-        roleId: String(parsed.roleId || parsed.role || 'SUPER_ADMIN'),
-        scope: String(parsed.scope || 'TODOS'),
-        enabledModules,
-        moduleAccess,
-        mfaVerified: true,
-        mfaMethod:
-          parsed.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR',
-        iat: typeof parsed.iat === 'number' ? parsed.iat : Date.now(),
-        exp,
-      },
-      reason: 'MFA_SESSION_VERIFIED',
-    };
-  } catch {
-    return { valid: false, claims: null, reason: 'INVALID_SESSION_ENCODING' };
-  }
+  // 2. Tokens sem assinatura HMAC (formato legado base64 JSON) NAO sao mais aceitos:
+  // qualquer pessoa poderia forjar {"email":..., "mfaVerified":true} e burlar o middleware.
+  return { valid: false, claims: null, reason: 'UNSIGNED_TOKEN_REJECTED' };
 }
 
 export function encodeSessionCookie(session: StiHubSessionPayload): string {

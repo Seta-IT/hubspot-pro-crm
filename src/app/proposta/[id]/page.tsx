@@ -86,7 +86,13 @@ function PublicProposalPrintContent() {
   const [showIcpSignatureModal, setShowIcpSignatureModal] = useState(false);
   const [signatureVerifiedBanner, setSignatureVerifiedBanner] = useState<string | null>(null);
   const [signerName, setSignerName] = useState("");
-  const [signerCpf, setSignerCpf] = useState("284.910.538-09");
+  const [signerCpf, setSignerCpf] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  // Sessao interna STI-hub: somente usuarios logados (MFA) veem a barra de edicao,
+  // versoes e restauracao. O cliente sem login so visualiza, imprime/PDF e aprova.
+  const [isInternalUser, setIsInternalUser] = useState(false);
   const [signerRole, setSignerRole] = useState("Diretor / Representante Legal");
   const [signatureModality, setSignatureModality] = useState<
     "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
@@ -220,6 +226,49 @@ function PublicProposalPrintContent() {
   }, [rawId, encodedData, versionParam]);
 
   useEffect(() => {
+    let active = true;
+    fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!active) return;
+        const data = json?.data;
+        const ok = Boolean(data && data.authenticated === true && data.mfaVerified === true);
+        setIsInternalUser(ok);
+        if (!ok) {
+          setIsEditing(false);
+          setShowInternalVersionsModal(false);
+        }
+      })
+      .catch(() => {
+        if (active) setIsInternalUser(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const describeProtectedFailure = (status: number): string | null => {
+    if (status === 401) {
+      return "Sua sessão não está ativa. Entre no STI-hub com login e 2FA para editar ou restaurar versões desta proposta.";
+    }
+    if (status === 403) {
+      return "Seu perfil não tem permissão para editar ou restaurar propostas. Somente os perfis ERP Administrador e ERP Comercial podem fazer essa alteração.";
+    }
+    return null;
+  };
+
+  const reportProtectedFailure = (res: Response | null): boolean => {
+    if (!res) return false;
+    const msg = describeProtectedFailure(res.status);
+    if (msg) {
+      setAuthNotice(msg);
+      setTimeout(() => setAuthNotice(null), 7000);
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
     if (proposal && autoPrint && !isEditing) {
       const timer = setTimeout(() => {
         window.print();
@@ -243,6 +292,11 @@ function PublicProposalPrintContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(computed),
     }).catch(() => null);
+
+    if (reportProtectedFailure(res)) {
+      setIsEditing(false);
+      return;
+    }
 
     let finalProposal: ErpCommercialProposal = clientVersioned;
     if (res && res.ok) {
@@ -287,6 +341,10 @@ function PublicProposalPrintContent() {
 
   const handleRestoreVersionInPage = async (entry: ErpProposalVersionEntry) => {
     if (!proposal) return;
+    if (!isInternalUser) {
+      setAuthNotice(describeProtectedFailure(401));
+      return;
+    }
     setRestoringVersion(entry.version);
     try {
       const snapProp = proposalFromVersionSnapshot(proposal, entry);
@@ -307,6 +365,11 @@ function PublicProposalPrintContent() {
           }),
         }
       ).catch(() => null);
+
+      if (reportProtectedFailure(res)) {
+        setShowInternalVersionsModal(false);
+        return;
+      }
 
       if (res && res.ok) {
         const json = await res.json().catch(() => null);
@@ -338,7 +401,7 @@ function PublicProposalPrintContent() {
   };
 
   const handleSlaTierChange = async (newSlaId: string) => {
-    if (!proposal) return;
+    if (!proposal || !isInternalUser) return;
     const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === newSlaId) || PROPOSAL_SLA_OPTIONS[0];
     const updated = computeProposalTotals({
       ...proposal,
@@ -365,7 +428,7 @@ function PublicProposalPrintContent() {
         slaAvailabilityPercent: opt.slaAvailabilityPercent,
         slaResponseHours: opt.slaResponseHours,
       }),
-    }).catch(() => null);
+    }).then(reportProtectedFailure).catch(() => null);
   };
 
   const handleValidateExistingSignature = () => {
@@ -382,7 +445,7 @@ function PublicProposalPrintContent() {
   const handleTemplateStyleChange = async (
     newStyle: NonNullable<ErpCommercialProposal["templateStyle"]>
   ) => {
-    if (!proposal) return;
+    if (!proposal || !isInternalUser) return;
     const updated = computeProposalTotals({
       ...proposal,
       templateStyle: newStyle,
@@ -402,11 +465,11 @@ function PublicProposalPrintContent() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ templateStyle: newStyle }),
-    }).catch(() => null);
+    }).then(reportProtectedFailure).catch(() => null);
   };
 
   const handleDeliveryLeadTimeChange = async (newLeadTime: string) => {
-    if (!proposal) return;
+    if (!proposal || !isInternalUser) return;
     const updated = computeProposalTotals({
       ...proposal,
       deliveryLeadTime: newLeadTime,
@@ -427,32 +490,57 @@ function PublicProposalPrintContent() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deliveryLeadTime: newLeadTime, deliveryForecast: newLeadTime }),
-    }).catch(() => null);
+    }).then(reportProtectedFailure).catch(() => null);
   };
 
   const handleApproveAndConvertInPage = async () => {
     if (!proposal) return;
+    setApprovalError(null);
+    if (!signerName.trim() || !signerCpf.trim() || !signerRole.trim()) {
+      setApprovalError("Preencha nome completo, CPF e cargo do signatário para concluir o aceite.");
+      return;
+    }
+    if (!acceptedTerms) {
+      setApprovalError("Para concluir, confirme que leu e aceita os termos desta proposta comercial.");
+      return;
+    }
     setApprovingContract(true);
     try {
-      const effectiveSignerName =
-        signerName.trim() || proposal.careOf || proposal.contactName || 'Representante Legal Autorizado';
-      await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(proposal),
-      }).catch(() => null);
-
+      // Aceite do cliente sem login: todos os dados da assinatura seguem no proprio POST /approve.
+      // Nenhuma edicao (PATCH) da proposta e feita pelo cliente.
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          signerName: effectiveSignerName,
-          signerCpf: signerCpf.trim() || '284.910.538-09',
-          signerRole: signerRole.trim() || 'Diretor / Representante Legal',
+          signerName: signerName.trim(),
+          signerCpf: signerCpf.trim(),
+          signerRole: signerRole.trim(),
+          signerEmail: proposal.contactEmail || undefined,
           modality: signatureModality,
+          acceptedTerms: true,
           proposal,
         }),
-      });
+      }).catch(() => null);
+      if (!res) {
+        setApprovalError("Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.");
+        return;
+      }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        if (res.status === 401 || res.status === 403) {
+          setApprovalError(
+            "Não foi possível registrar o aceite neste momento. Atualize a página e tente novamente; se o problema continuar, fale com o seu consultor Seta Telecom."
+          );
+        } else if (res.status === 404) {
+          setApprovalError("Proposta não localizada. Solicite um novo link ao seu consultor Seta Telecom.");
+        } else {
+          setApprovalError(
+            (typeof errJson?.error === "string" && errJson.error) ||
+              "Não foi possível registrar o aceite. Revise os dados informados e tente novamente."
+          );
+        }
+        return;
+      }
       if (res.ok) {
         const json = await res.json();
         const sig: ErpProposalDigitalSignature | undefined =
@@ -746,13 +834,24 @@ function PublicProposalPrintContent() {
               )}
             </div>
             <p className="text-[11px] text-slate-200">
-              Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
-              <strong>Imprimir / Salvar em PDF</strong>.
+              {isInternalUser ? (
+                <>
+                  Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
+                  <strong>Imprimir / Salvar em PDF</strong>.
+                </>
+              ) : (
+                <>
+                  Revise a proposta, clique em <strong>Imprimir / Salvar em PDF</strong> ou{' '}
+                  <strong>assine e aprove</strong> eletronicamente.
+                </>
+              )}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {isInternalUser && (
+            <>
           <button
             type="button"
             onClick={() => setIsEditing(true)}
@@ -809,6 +908,8 @@ function PublicProposalPrintContent() {
               </option>
             ))}
           </select>
+            </>
+          )}
 
           {proposal.status !== "CONVERTIDA_CONTRATO" && !proposal.convertedContractId ? (
             <button
@@ -901,7 +1002,7 @@ function PublicProposalPrintContent() {
                 <Printer className="w-3.5 h-3.5 text-[#ff7a59]" />
                 Baixar / Imprimir PDF desta Versão
               </button>
-              {currentViewedEntry && (
+              {currentViewedEntry && isInternalUser && (
                 <button
                   type="button"
                   disabled={restoringVersion === currentViewedEntry.version}
@@ -943,7 +1044,20 @@ function PublicProposalPrintContent() {
       )}
 
       {/* FULL GESTÃOCLICK PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
-      {isEditing && (
+      {authNotice && (
+        <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-amber-50 text-amber-950 border border-amber-300 flex items-center justify-between gap-3 text-xs shadow-sm print:hidden">
+          <span className="font-semibold">{authNotice}</span>
+          <button
+            type="button"
+            onClick={() => setAuthNotice(null)}
+            className="text-amber-700 hover:text-amber-950 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {isEditing && isInternalUser && (
         <div className="print:hidden">
           <ProposalEditModal
             proposal={proposal}
@@ -954,7 +1068,7 @@ function PublicProposalPrintContent() {
       )}
 
       {/* MODAL SIMPLES E DIRETO DE VERSÕES DA PROPOSTA (HIDDEN ON PRINT) */}
-      {showInternalVersionsModal && (
+      {showInternalVersionsModal && isInternalUser && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 print:hidden"
           onClick={() => setShowInternalVersionsModal(false)}
@@ -1243,6 +1357,24 @@ function PublicProposalPrintContent() {
                   </select>
                 </div>
               </div>
+
+              <label className="flex items-start gap-2 p-3 rounded bg-slate-50 border border-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="font-semibold text-slate-700">
+                  Declaro que li e aceito integralmente os termos, valores e condições desta proposta comercial ({proposal.code}).
+                </span>
+              </label>
+
+              {approvalError && (
+                <div className="p-3 rounded bg-red-50 border border-red-200 text-red-800 font-semibold">
+                  {approvalError}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button

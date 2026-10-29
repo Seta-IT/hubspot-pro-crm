@@ -678,6 +678,13 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     const appRes = await router.dispatch({
       method: 'POST',
       path: '/api/erp/proposals/prop-seta-002/approve',
+      body: {
+        signerName: 'Carlos Eduardo Almeida',
+        signerCpf: '529.982.247-25',
+        signerRole: 'Diretor / Representante Legal',
+        modality: 'ICP_BRASIL_A1',
+        acceptedTerms: true,
+      },
     });
     assert.equal(appRes.status, 200);
     const appData = (appRes.body as {
@@ -1272,6 +1279,13 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     const appRes = await router.dispatch({
       method: 'POST',
       path: '/api/erp/proposals/prop-seta-003/approve',
+      body: {
+        signerName: 'Carlos Eduardo Almeida',
+        signerCpf: '529.982.247-25',
+        signerRole: 'Diretor / Representante Legal',
+        modality: 'ICP_BRASIL_A1',
+        acceptedTerms: true,
+      },
     });
     assert.equal(appRes.status, 200);
     const appContract = (appRes.body as {
@@ -1837,9 +1851,10 @@ DATA:OFXSGML
       path: '/api/erp/proposals/prop-seta-002/approve',
       body: {
         signerName: 'Maria Luiza Fontes',
-        signerCpf: '319.482.107-44',
+        signerCpf: '111.444.777-35',
         signerRole: 'Diretora de TI & Compras',
         modality: 'ICP_BRASIL_A1',
+        acceptedTerms: true,
       },
     });
     assert.equal(approveRes.status, 200);
@@ -1851,7 +1866,7 @@ DATA:OFXSGML
     }).data;
     assert.equal(approveData.proposal.status, 'CONVERTIDA_CONTRATO');
     assert.equal(approveData.digitalSignature.signerName, 'Maria Luiza Fontes');
-    assert.equal(approveData.digitalSignature.signerCpf, '319.482.107-44');
+    assert.equal(approveData.digitalSignature.signerCpf, '111.444.777-35');
     assert.equal(approveData.digitalSignature.signatureHashSha256.length, 64);
     assert.ok(approveData.digitalSignature.timestampToken.startsWith('ACT-ITI-'));
 
@@ -3123,9 +3138,10 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       path: "/api/erp/proposals/prop-shared-custom-99/approve",
       body: {
         signerName: "Roberto Carlos Diretor",
-        signerCpf: "123.456.789-01",
+        signerCpf: "529.982.247-25",
         signerRole: "Diretor Executivo",
         modality: "ICP_BRASIL_A1",
+        acceptedTerms: true,
         proposal: {
           id: "prop-shared-custom-99",
           code: "PROP-CUSTOM-99",

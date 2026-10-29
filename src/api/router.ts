@@ -40,6 +40,7 @@ import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
 import { classifyRouteRequiredModule, isPublicStiHubPath } from '../middleware';
+import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
@@ -3168,7 +3169,44 @@ export class CrmApiRouter {
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        const res = this.repo.approveProposalAndConvertToContract(decodeURIComponent(approvePropMatch[1]), body);
+        // Aceite publico do cliente: dados da assinatura e do aceite chegam no corpo do POST.
+        // Nenhum PATCH previo e necessario. Validacao de campos obrigatorios e status permitido.
+        const approveId = decodeURIComponent(approvePropMatch[1]).trim();
+        const existingProp = this.repo
+          .listProposals()
+          .find(
+            (p) =>
+              p.id === approveId ||
+              p.id.toLowerCase() === approveId.toLowerCase() ||
+              p.code === approveId ||
+              String(p.code || '').toLowerCase() === approveId.toLowerCase()
+          );
+        const incomingProp =
+          !existingProp && body.proposal && typeof body.proposal === 'object'
+            ? (body.proposal as Record<string, unknown>)
+            : null;
+        const approval = validateProposalApprovalInput(
+          body,
+          existingProp ? existingProp.status : incomingProp ? String(incomingProp.status || '') : null,
+          existingProp
+            ? existingProp.convertedContractId || null
+            : incomingProp && typeof incomingProp.convertedContractId === 'string'
+              ? incomingProp.convertedContractId
+              : null
+        );
+        if (!approval.ok) {
+          return {
+            status: approval.status,
+            body: { error: approval.error, code: approval.code, fields: approval.fields },
+          };
+        }
+        const res = this.repo.approveProposalAndConvertToContract(approveId, {
+          ...approval.data,
+          ipAddress: query._clientIp || undefined,
+          // O payload completo da proposta so e usado quando ela ainda nao existe nesta instancia
+          // (link compartilhado ?d=); uma proposta existente no servidor nunca e sobrescrita.
+          ...(incomingProp ? { proposal: incomingProp } : {}),
+        } as Record<string, unknown>);
         if (!res) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         }

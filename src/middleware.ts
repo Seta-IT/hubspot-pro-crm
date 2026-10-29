@@ -35,18 +35,92 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
     if (!rest) return false;
     const segments = rest.split('/').filter(Boolean);
     const upper = String(method || 'GET').toUpperCase();
-    if (segments.length === 1 && (upper === 'GET' || upper === 'PATCH')) {
+    // Somente leitura (GET :id) e aceite do cliente (POST :id/approve) sao publicos.
+    // PATCH :id (edicao) e POST :id/restore-version exigem sessao MFA + perfil ERP_ADMIN/ERP_COMMERCIAL.
+    if (segments.length === 1 && upper === 'GET') {
       return true;
     }
-    if (
-      segments.length === 2 &&
-      (segments[1] === 'approve' || segments[1] === 'restore-version') &&
-      upper === 'POST'
-    ) {
+    if (segments.length === 2 && segments[1] === 'approve' && upper === 'POST') {
       return true;
     }
   }
   return false;
+}
+
+function matchesApiPrefix(clean: string, prefix: string): boolean {
+  return clean === prefix || clean.startsWith(`${prefix}/`);
+}
+
+/**
+ * Rotas de API que SEMPRE exigem sessao autenticada valida (401 sem sessao),
+ * independentemente de referer de mesma origem ou de variaveis de ambiente de relaxamento.
+ */
+export function isAlwaysProtectedApiPath(pathname: string, method = 'GET'): boolean {
+  const clean = ((pathname || '/').replace(/\/+$/, '') || '/').toLowerCase();
+  if (!clean.startsWith('/api/')) return false;
+  if (isPublicStiHubPath(clean, method)) return false;
+  if (matchesApiPrefix(clean, '/api/companies')) return true;
+  if (matchesApiPrefix(clean, '/api/erp/financial')) return true;
+  if (isProposalMutationPath(clean, method)) return true;
+  return false;
+}
+
+/** PATCH /api/erp/proposals/:id ou POST /api/erp/proposals/:id/restore-version */
+export function isProposalMutationPath(pathname: string, method = 'GET'): boolean {
+  const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  if (!clean.startsWith('/api/erp/proposals/')) return false;
+  const segments = clean.slice('/api/erp/proposals/'.length).split('/').filter(Boolean);
+  const upper = String(method || 'GET').toUpperCase();
+  if (segments.length === 1 && upper === 'PATCH') return true;
+  if (segments.length === 2 && segments[1] === 'restore-version' && upper === 'POST') return true;
+  return false;
+}
+
+export const PROPOSAL_EDITOR_ERP_ROLES = ['ERP_ADMIN', 'ERP_COMMERCIAL'] as const;
+
+const ERP_ACCOUNT_ROLES = [
+  'ERP_ADMIN',
+  'ERP_COMMERCIAL',
+  'ERP_FINANCE',
+  'ERP_STOCK_MANAGER',
+  'ERP_CONTRACTS_OS',
+  'ERP_PDV_BALCAO',
+  'ERP_NONE',
+];
+
+// Mapeamento explicito dos perfis legados (roleId) para o tipo de conta ERP.
+// Perfis desconhecidos resolvem para ERP_NONE (negar por padrao).
+const LEGACY_ROLE_TO_ERP_ROLE: Record<string, string> = {
+  SUPER_ADMIN: 'ERP_ADMIN',
+  DIRETORIA: 'ERP_ADMIN',
+  SALES_MANAGER: 'ERP_COMMERCIAL',
+  GERENTE_COMERCIAL: 'ERP_COMMERCIAL',
+  SALES_REP: 'ERP_COMMERCIAL',
+  VENDEDOR_SALES: 'ERP_COMMERCIAL',
+  MARKETING_SPECIALIST: 'ERP_NONE',
+  ANALISTA_MARKETING: 'ERP_NONE',
+  ERP_FINANCE_FISCAL: 'ERP_FINANCE',
+  FINANCEIRO_FATURAMENTO: 'ERP_FINANCE',
+  FISCAL_CONTABIL: 'ERP_FINANCE',
+  STOCK_MANAGER: 'ERP_STOCK_MANAGER',
+  GERENCIA_ESTOQUE: 'ERP_STOCK_MANAGER',
+  SUPPORT_NOC_OS: 'ERP_CONTRACTS_OS',
+  TECNICO_NOC_OS: 'ERP_CONTRACTS_OS',
+  PDV_STOCK_OPERATOR: 'ERP_PDV_BALCAO',
+  OPERADOR_PDV_ESTOQUE: 'ERP_PDV_BALCAO',
+};
+
+export function resolveErpAccountRoleFromClaims(
+  claims: Pick<StiHubSignedSessionClaims, 'roleId' | 'erpPermissions'> & { erpRole?: string } | null | undefined
+): string {
+  if (!claims) return 'ERP_NONE';
+  const explicit = String(claims.erpRole || '').toUpperCase();
+  if (ERP_ACCOUNT_ROLES.includes(explicit)) return explicit;
+  const fromPerms = String(claims.erpPermissions?.erpRole || '').toUpperCase();
+  if (ERP_ACCOUNT_ROLES.includes(fromPerms)) return fromPerms;
+  if (fromPerms && LEGACY_ROLE_TO_ERP_ROLE[fromPerms]) return LEGACY_ROLE_TO_ERP_ROLE[fromPerms];
+  const legacy = String(claims.roleId || '').toUpperCase();
+  return LEGACY_ROLE_TO_ERP_ROLE[legacy] || 'ERP_NONE';
 }
 
 export function classifyRouteRequiredModule(
@@ -153,6 +227,21 @@ export function evaluateStiHubRouteProtection(input: {
       }
     }
 
+    if (isProposalMutationPath(input.pathname, input.method)) {
+      const erpRole = resolveErpAccountRoleFromClaims(claims);
+      if (!(PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole)) {
+        return {
+          allowed: false,
+          isPublicRoute: false,
+          redirectTo: null,
+          statusCode: 403,
+          reason: 'ERP_PROPOSAL_ROLE_FORBIDDEN',
+          requiredModule,
+          claims,
+        };
+      }
+    }
+
     return {
       allowed: true,
       isPublicRoute: false,
@@ -164,7 +253,7 @@ export function evaluateStiHubRouteProtection(input: {
     };
   }
 
-  if (input.enforceStrictLock !== false) {
+  if (input.enforceStrictLock !== false || isAlwaysProtectedApiPath(input.pathname, input.method)) {
     return {
       allowed: false,
       isPublicRoute: false,
@@ -211,23 +300,29 @@ export function middleware(req: NextRequest) {
     null;
 
   const isLoggedOutCookie = req.cookies.get('stihub_logged_out')?.value === '1';
-  const isApiRoute = pathname.startsWith('/api/');
-  const hasSameOriginReferer = Boolean(
-    req.headers.get('referer') &&
-      req.headers.get('host') &&
-      req.headers.get('referer')?.includes(req.headers.get('host') || '')
-  );
 
-  // Enforce strict MFA lock on all page routes, and on API routes whenever a token is present,
-  // when logged out explicitly, or when called externally without same-origin session context.
+  // Cron diario da Vercel (GET /api/erp/daily-sync): autorizado somente com
+  // Authorization: Bearer <CRON_SECRET> quando CRON_SECRET estiver configurado.
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (
+    cronSecret &&
+    cronSecret.length >= 16 &&
+    pathname === '/api/erp/daily-sync' &&
+    req.method === 'GET' &&
+    req.headers.get('authorization') === `Bearer ${cronSecret}`
+  ) {
+    return applySecurityHeaders(NextResponse.next(), 'cron-secret-allowed');
+  }
+
+  // Bloqueio estrito em todas as paginas e em todas as rotas /api nao publicas:
+  // sem sessao MFA valida (cookie stihub_session ou header x-stihub-session) => 401 JSON.
+  // O referer de mesma origem NAO concede mais acesso. STI_HUB_STRICT_AUTH=false (somente
+  // ambientes de desenvolvimento) relaxa as demais rotas, mas nunca as rotas de
+  // isAlwaysProtectedApiPath (companies, erp/financial, edicao e restauracao de proposta).
   const enforceStrictLock =
-    process.env.STI_HUB_STRICT_AUTH === 'false'
+    process.env.STI_HUB_STRICT_AUTH === 'false' && !isLoggedOutCookie && !sessionToken
       ? false
-      : isLoggedOutCookie || Boolean(sessionToken)
-        ? true
-        : isApiRoute
-          ? !hasSameOriginReferer && process.env.STI_HUB_STRICT_API_AUTH === 'true'
-          : true;
+      : true;
 
   const decision = evaluateStiHubRouteProtection({
     pathname,
@@ -248,9 +343,11 @@ export function middleware(req: NextRequest) {
       NextResponse.json(
         {
           error:
-            decision.statusCode === 403
-              ? `Acesso negado pela política IAM: seu usuário não possui o módulo ${decision.requiredModule} habilitado.`
-              : 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
+            decision.reason === 'ERP_PROPOSAL_ROLE_FORBIDDEN'
+              ? 'Acesso negado: somente perfis ERP Administrador ou ERP Comercial podem editar ou restaurar versões de propostas.'
+              : decision.statusCode === 403
+                ? `Acesso negado pela política IAM: seu usuário não possui o módulo ${decision.requiredModule} habilitado.`
+                : 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
           code: decision.reason,
           requiredModule: decision.requiredModule || undefined,
         },

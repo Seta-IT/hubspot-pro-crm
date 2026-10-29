@@ -25,6 +25,10 @@ export async function forwardToCrmRouter(
   if (enrolledCookie && !query._enrolledUsers) {
     query._enrolledUsers = enrolledCookie;
   }
+  // IP real do cliente (usado na trilha de auditoria do aceite publico de propostas).
+  // Sempre sobrescreve qualquer valor vindo da query string.
+  const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
+  query._clientIp = forwardedFor.split(',')[0]?.trim() || undefined;
   if (!query._fromHttpBridge) {
     query._fromHttpBridge = '1';
   }
