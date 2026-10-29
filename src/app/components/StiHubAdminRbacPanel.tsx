@@ -25,6 +25,14 @@ import {
   saveClientIamUserOverride,
 } from '../lib/auth';
 import {
+  HOME_SCREENS,
+  HomeScreenId,
+  getHomeScreen,
+  isHomeScreenId,
+  moduleAccessFromUser,
+  systemHasAccess,
+} from '../lib/home-screen';
+import {
   ShieldCheck,
   Users,
   KeyRound,
@@ -528,6 +536,49 @@ export default function StiHubAdminRbacPanel({
     await onRefresh();
   };
 
+  // Tela inicial padrao por usuario (somente SUPER_ADMIN ou Full Control do modulo; validado no servidor)
+  const [savingHomeScreenUserId, setSavingHomeScreenUserId] = useState<string | null>(null);
+  const actorIsSuperAdmin = activeUser?.roleId === 'SUPER_ADMIN';
+  const actorFullControlModules = (['CRM', 'ERP', 'CHAMADOS'] as StiHubMacroModule[]).filter((m) =>
+    activeUser ? isModuleFullControl(activeUser, m) : false
+  );
+  const canAdminHomeScreen = actorIsSuperAdmin || actorFullControlModules.length > 0;
+  const homeScreenOptionsFor = (user: StiHubUserRecord) => {
+    const access = moduleAccessFromUser(user);
+    return HOME_SCREENS.filter(
+      (scr) =>
+        systemHasAccess(scr.system, access) &&
+        (actorIsSuperAdmin || actorFullControlModules.includes(scr.system as StiHubMacroModule))
+    );
+  };
+  const handleSetUserHomeScreen = async (user: StiHubUserRecord, screenId: HomeScreenId | null) => {
+    setSavingHomeScreenUserId(user.id);
+    try {
+      const res = await fetch(`/api/iam/users/${encodeURIComponent(user.id)}/home-screen`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ homeScreen: screenId, iamUsersOverride: loadClientIamUsersOverride() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onShowToast(json?.error || 'Não foi possível salvar a tela inicial padrão.');
+        return;
+      }
+      if (json?.data?.user) {
+        saveClientIamUserOverride(json.data.user);
+        if (editingUser && editingUser.id === user.id) setEditingUser(json.data.user);
+      }
+      onShowToast(
+        screenId
+          ? `Tela inicial de ${user.name}: ${getHomeScreen(screenId).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}.`
+          : `Tela inicial de ${user.name} restaurada para o padrão do sistema.`
+      );
+      await onRefresh();
+    } finally {
+      setSavingHomeScreenUserId(null);
+    }
+  };
+
   const handleApplyFullControlQuick = async (
     user: StiHubUserRecord,
     mod: StiHubMacroModule
@@ -995,6 +1046,7 @@ export default function StiHubAdminRbacPanel({
                   <th className="py-3 px-3.5 font-semibold">Colaborador / E-mail</th>
                   <th className="py-3 px-3.5 font-semibold">Cargo / Departamento</th>
                   <th className="py-3 px-3.5 font-semibold">Módulos &amp; Tipos de Conta</th>
+                  <th className="py-3 px-3.5 font-semibold">Tela inicial padrão</th>
                   <th className="py-3 px-3.5 font-semibold">Autenticador 2FA</th>
                   <th className="py-3 px-3.5 font-semibold">Status</th>
                   <th className="py-3 px-3.5 text-right font-semibold">Ações</th>
@@ -1054,6 +1106,53 @@ export default function StiHubAdminRbacPanel({
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="py-3 px-3.5" onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const saved = isHomeScreenId(u.homeScreen) ? u.homeScreen : null;
+                          const savedAllowed = saved ? systemHasAccess(getHomeScreen(saved).system, moduleAccessFromUser(u)) : false;
+                          const savedLabel = saved
+                            ? `${getHomeScreen(saved).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(saved).system} - ${getHomeScreen(saved).label}`
+                            : 'Padrão do sistema';
+                          if (!canAdminHomeScreen) {
+                            return <span className="text-[11px] font-semibold text-slate-600">{savedLabel}</span>;
+                          }
+                          const options = homeScreenOptionsFor(u);
+                          return (
+                            <div className="flex flex-col gap-1 min-w-[190px]">
+                              <select
+                                aria-label={`Tela inicial padrão de ${u.name}`}
+                                value={saved && options.some((o) => o.id === saved) ? saved : ''}
+                                disabled={savingHomeScreenUserId === u.id}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  handleSetUserHomeScreen(u, v && isHomeScreenId(v) ? v : null);
+                                }}
+                                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] font-semibold text-slate-700 cursor-pointer disabled:opacity-60"
+                              >
+                                <option value="">Padrão do sistema</option>
+                                {(['CRM', 'ERP', 'CHAMADOS'] as const).map((sys) => {
+                                  const group = options.filter((o) => o.system === sys);
+                                  if (group.length === 0) return null;
+                                  return (
+                                    <optgroup key={sys} label={sys === 'CHAMADOS' ? 'Chamados' : sys}>
+                                      {group.map((o) => (
+                                        <option key={o.id} value={o.id}>
+                                          {o.label}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  );
+                                })}
+                              </select>
+                              {saved && !savedAllowed && (
+                                <span className="text-[10px] font-semibold text-amber-700">
+                                  Sem acesso ao sistema salvo: abre o primeiro permitido
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-3.5" onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-wrap items-center gap-1.5">

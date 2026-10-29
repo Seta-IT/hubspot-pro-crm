@@ -37,6 +37,7 @@ import HomeScreenPreferenceModal from './components/HomeScreenPreferenceModal';
 import {
   HomeScreenId,
   getHomeScreen,
+  isHomeScreenId,
   loadHomeScreenPreference,
   parseHomeDeepLink,
   resolveInitialHomeScreen,
@@ -44,6 +45,7 @@ import {
   shouldOfferHomeScreenChoice,
   systemHasAccess,
 } from './lib/home-screen';
+import { loadClientIamUsersOverride, saveClientIamUserOverride } from './lib/auth';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
@@ -149,6 +151,7 @@ export default function HubSpotProCrmApp() {
   const [showHomeScreenModal, setShowHomeScreenModal] = useState(false);
   const [homeScreenPreference, setHomeScreenPreference] = useState<HomeScreenId | null>(null);
   const homeScreenAppliedForUserRef = useRef<string | null>(null);
+  const [homeScreenResolved, setHomeScreenResolved] = useState(false);
   const [erpCurrentSection, setErpCurrentSection] = useState<GestaoClickMenuSection>('INICIO');
   const [serviceDeskCurrentTab, setServiceDeskCurrentTab] = useState<'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS'>('OPERATIONS');
 
@@ -1119,20 +1122,84 @@ export default function HubSpotProCrmApp() {
     }
   }, []);
 
+  /** Registro selado do proprio usuario (cache IAM do navegador), enviado para nao perder configuracoes em instancia fria. */
+  const ownSealedIamRecords = (userId: string, email?: string) =>
+    loadClientIamUsersOverride().filter(
+      (u) =>
+        String(u.id || '') === userId ||
+        (!!email && String(u.email || '').toLowerCase() === email.toLowerCase())
+    );
+
   useEffect(() => {
     if (!activeRbacUser?.id) return;
     if (homeScreenAppliedForUserRef.current === activeRbacUser.id) return;
     homeScreenAppliedForUserRef.current = activeRbacUser.id;
-    const saved = loadHomeScreenPreference(activeRbacUser.id);
-    setHomeScreenPreference(saved);
+    const userId = activeRbacUser.id;
+    const access = userModuleAccess;
     const deepLink =
       typeof window !== 'undefined'
         ? parseHomeDeepLink(window.location.search, window.location.hash)
         : { hasDeepLink: false, screenId: null };
-    const resolution = resolveInitialHomeScreen({ saved, access: userModuleAccess, deepLink });
-    if (resolution.screenId) openHomeScreen(resolution.screenId);
+    const apply = (saved: HomeScreenId | null) => {
+      setHomeScreenPreference(saved);
+      const resolution = resolveInitialHomeScreen({ saved, access, deepLink });
+      if (resolution.screenId) openHomeScreen(resolution.screenId);
+      setHomeScreenResolved(true);
+    };
+    const cached = loadHomeScreenPreference(userId);
+    if (deepLink.hasDeepLink && !deepLink.screenId) {
+      // Link direto: abre o destino sem esperar a preferencia do servidor.
+      setHomeScreenPreference(cached);
+      setHomeScreenResolved(true);
+    }
+    let cancelled = false;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeout = setTimeout(() => controller?.abort(), 5000);
+    (async () => {
+      try {
+        const own = ownSealedIamRecords(userId, activeRbacUser.email);
+        const res = await fetch('/api/me/preferences', {
+          method: 'GET',
+          cache: 'no-store',
+          headers: own.length > 0 ? { 'x-stihub-iam-users': encodeURIComponent(JSON.stringify(own)) } : {},
+          signal: controller?.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (cancelled) return;
+        const serverValue: unknown = json?.data?.homeScreen;
+        const serverScreen = isHomeScreenId(serverValue) ? serverValue : null;
+        if (json?.data?.user) saveClientIamUserOverride(json.data.user);
+        saveHomeScreenPreference(userId, serverScreen);
+        if (deepLink.hasDeepLink && !deepLink.screenId) {
+          setHomeScreenPreference(serverScreen);
+          return;
+        }
+        apply(serverScreen);
+      } catch {
+        if (cancelled) return;
+        // API indisponivel: usa o cache local como fallback.
+        if (deepLink.hasDeepLink && !deepLink.screenId) return;
+        apply(cached);
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRbacUser?.id, openHomeScreen]);
+
+  // Sem usuario resolvido apos o carregamento, libera a tela para nao travar o carregamento.
+  useEffect(() => {
+    if (!loadingAll && !activeRbacUser) setHomeScreenResolved(true);
+  }, [loadingAll, activeRbacUser]);
+  useEffect(() => {
+    const t = setTimeout(() => setHomeScreenResolved(true), 8000);
+    return () => clearTimeout(t);
+  }, []);
 
   const currentHomeScreenId: HomeScreenId | null =
     activeModule === 'OVERVIEW_AI'
@@ -1158,17 +1225,36 @@ export default function HubSpotProCrmApp() {
               : null;
   const canChooseHomeScreen = shouldOfferHomeScreenChoice(userModuleAccess);
 
-  const handleSaveHomeScreen = (screenId: HomeScreenId | null) => {
+  const handleSaveHomeScreen = async (screenId: HomeScreenId | null) => {
     if (!activeRbacUser?.id) return;
     if (screenId && !systemHasAccess(getHomeScreen(screenId).system, userModuleAccess)) return;
-    saveHomeScreenPreference(activeRbacUser.id, screenId);
+    const userId = activeRbacUser.id;
+    // Cache local imediato (fallback se a API falhar).
+    saveHomeScreenPreference(userId, screenId);
     setHomeScreenPreference(screenId);
     setShowHomeScreenModal(false);
-    if (screenId) {
-      const def = getHomeScreen(screenId);
-      showToast(`Tela inicial padrão definida: ${def.system === 'CHAMADOS' ? 'Chamados' : def.system} - ${def.label}.`);
-    } else {
-      showToast('Tela inicial padrão restaurada para a Visão Geral do primeiro sistema permitido.');
+    const label = screenId
+      ? `${getHomeScreen(screenId).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}`
+      : 'Visão Geral do primeiro sistema permitido';
+    try {
+      const res = await fetch('/api/me/preferences', {
+        method: 'PATCH',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          homeScreen: screenId,
+          iamUsersOverride: ownSealedIamRecords(userId, activeRbacUser.email),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(`Tela inicial salva apenas neste navegador: ${json?.error || 'o servidor recusou a alteração.'}`);
+        return;
+      }
+      if (json?.data?.user) saveClientIamUserOverride(json.data.user);
+      showToast(screenId ? `Tela inicial padrão definida: ${label}.` : `Tela inicial padrão restaurada: ${label}.`);
+    } catch {
+      showToast(`Tela inicial salva apenas neste navegador (servidor indisponível): ${label}.`);
     }
   };
 
@@ -1958,6 +2044,13 @@ export default function HubSpotProCrmApp() {
 
         {/* MODULE VIEWPORT */}
         <main className="flex-1 p-4 sm:p-6 max-w-[1680px] w-full mx-auto">
+          {!homeScreenResolved && (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-slate-500">
+              <RefreshCw className="w-6 h-6 animate-spin text-[#ff7a59]" />
+              <span className="text-sm font-semibold text-[#33475b]">Carregando sua tela inicial...</span>
+            </div>
+          )}
+          {homeScreenResolved && (<>
           {activeModule === 'ERP_GESTAOCLICK' && (
             <ErpGestaoClickTab
               erpData={erpData}
@@ -2385,6 +2478,7 @@ export default function HubSpotProCrmApp() {
               </div>
             </div>
           )}
+          </>)}
         </main>
       </div>
 

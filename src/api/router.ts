@@ -38,7 +38,15 @@ import {
 import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
-import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
+import { STI_HUB_MODULES_LIST, isModuleFullControl } from '../modules/erp/rbac-seed';
+import {
+  effectiveHomeScreenFor,
+  getHomeScreen,
+  isHomeScreenId,
+  moduleAccessFromUser,
+  validateHomeScreenPatch,
+  HOME_SCREEN_ALLOWLIST,
+} from '../app/lib/home-screen';
 import {
   classifyRouteRequiredModule,
   isProposalMutationPath,
@@ -5121,6 +5129,133 @@ export class CrmApiRouter {
             message: `Autenticador resetado para ${updated.name}. No próximo login será exibido o QR Code para novo cadastro.`,
           },
         };
+      }
+
+      // ======================================================================
+      // TELA INICIAL PADRAO (homeScreen) - /api/me/preferences e /api/iam/users/:id/home-screen
+      // Sessao MFA obrigatoria; allowlist fixa; merge apenas do campo homeScreen; auditoria.
+      // ======================================================================
+      const iamHomeScreenMatch = cleanPath.match(/^\/api\/iam\/users\/([^/]+)\/home-screen$/);
+      if (cleanPath === '/api/me/preferences' || iamHomeScreenMatch) {
+        const prefToken =
+          query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+        const prefSession = prefToken ? this.repo.resolveSessionFromToken(prefToken) : null;
+        if (!prefSession || !prefSession.authenticated || !prefSession.mfaVerified) {
+          return {
+            status: 401,
+            body: {
+              error: 'Sessão corporativa STI-hub com MFA obrigatória.',
+              code: 'MFA_AUTH_REQUIRED',
+            },
+          };
+        }
+        const actor = prefSession.user;
+        const buildPrefPayload = (u: typeof actor) => {
+          const access = moduleAccessFromUser(u);
+          return {
+            userId: u.id,
+            homeScreen: isHomeScreenId(u.homeScreen) ? u.homeScreen : null,
+            effectiveHomeScreen: effectiveHomeScreenFor(u.homeScreen, access),
+            moduleAccess: access,
+            allowedHomeScreens: HOME_SCREEN_ALLOWLIST.filter((id) => {
+              const sys = getHomeScreen(id).system;
+              return sys === 'CRM' ? access.crm : sys === 'ERP' ? access.erp : access.chamados;
+            }),
+            user: u,
+          };
+        };
+        const prefBody = { ...(body as Record<string, unknown>) };
+        delete prefBody._sessionToken;
+        delete prefBody._reconcileJournal;
+
+        if (cleanPath === '/api/me/preferences') {
+          if (method === 'GET') {
+            return { status: 200, body: { data: buildPrefPayload(actor) } };
+          }
+          if (method !== 'PATCH') {
+            return { status: 405, body: { error: 'Método não permitido.', code: 'METHOD_NOT_ALLOWED' } };
+          }
+          const v = validateHomeScreenPatch(prefBody, moduleAccessFromUser(actor));
+          if (!v.ok) {
+            return { status: 400, body: { error: v.error, code: v.code } };
+          }
+          const res = this.repo.setUserHomeScreen(actor.id, v.screenId);
+          if (!res.ok || !res.user) {
+            return { status: 404, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };
+          }
+          this.repo.appendSecurityAuditLog({
+            actorEmail: actor.email,
+            actorName: actor.name,
+            actorRole: prefSession.role.id,
+            action: 'IAM_USER_HOME_SCREEN_UPDATED',
+            module: 'IAM_RBAC',
+            resource: `PATCH /api/me/preferences`,
+            status: 'SUCCESS',
+            ipAddress: query._clientIp,
+            details: `${actor.email} alterou a própria tela inicial padrão de ${res.previous || 'padrão do sistema'} para ${v.screenId || 'padrão do sistema'}.`,
+          });
+          return { status: 200, body: { data: buildPrefPayload(res.user) } };
+        }
+
+        // PATCH /api/iam/users/:id/home-screen (admin)
+        if (method !== 'PATCH') {
+          return { status: 405, body: { error: 'Método não permitido.', code: 'METHOD_NOT_ALLOWED' } };
+        }
+        const targetId = decodeURIComponent(iamHomeScreenMatch![1]);
+        const target = this.repo.findRbacUserRecord(targetId, targetId);
+        const actorIsSuperAdmin = actor.roleId === 'SUPER_ADMIN' || prefSession.role.id === 'SUPER_ADMIN';
+        const requestedRaw = (prefBody as Record<string, unknown>).homeScreen;
+        const requestedSystem = isHomeScreenId(requestedRaw) ? getHomeScreen(requestedRaw).system : null;
+        const targetMods = target ? (['CRM', 'ERP', 'CHAMADOS'] as const).filter((m) => {
+          const a = moduleAccessFromUser(target);
+          return m === 'CRM' ? a.crm : m === 'ERP' ? a.erp : a.chamados;
+        }) : [];
+        const actorHasFullControl = requestedSystem
+          ? isModuleFullControl(actor, requestedSystem)
+          : targetMods.some((m) => isModuleFullControl(actor, m));
+        if (!actorIsSuperAdmin && !actorHasFullControl) {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: actor.email,
+            actorName: actor.name,
+            actorRole: prefSession.role.id,
+            action: 'IAM_USER_HOME_SCREEN_FORBIDDEN',
+            module: 'IAM_RBAC',
+            resource: `PATCH ${cleanPath}`,
+            status: 'BLOCKED',
+            ipAddress: query._clientIp,
+            details: `${actor.email} tentou alterar a tela inicial de ${targetId} sem ser SUPER_ADMIN nem ter Full Control do módulo.`,
+          });
+          return {
+            status: 403,
+            body: {
+              error: 'Permissão negada: somente SUPER_ADMIN ou usuário com Full Control do módulo pode definir a tela inicial de outro usuário.',
+              code: 'IAM_HOME_SCREEN_FORBIDDEN',
+            },
+          };
+        }
+        if (!target) {
+          return { status: 404, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };
+        }
+        const v = validateHomeScreenPatch(prefBody, moduleAccessFromUser(target));
+        if (!v.ok) {
+          return { status: 400, body: { error: v.error, code: v.code } };
+        }
+        const res = this.repo.setUserHomeScreen(target.id, v.screenId);
+        if (!res.ok || !res.user) {
+          return { status: 404, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };
+        }
+        this.repo.appendSecurityAuditLog({
+          actorEmail: actor.email,
+          actorName: actor.name,
+          actorRole: prefSession.role.id,
+          action: 'IAM_USER_HOME_SCREEN_UPDATED',
+          module: 'IAM_RBAC',
+          resource: `PATCH /api/iam/users/${target.id}/home-screen`,
+          status: 'SUCCESS',
+          ipAddress: query._clientIp,
+          details: `${actor.email} alterou a tela inicial padrão de ${target.email} de ${res.previous || 'padrão do sistema'} para ${v.screenId || 'padrão do sistema'}.`,
+        });
+        return { status: 200, body: { data: buildPrefPayload(res.user) } };
       }
 
       const fullControlMatch = cleanPath.match(/^\/api\/(?:admin|rbac)\/users\/([^/]+)\/full-control$/);

@@ -7227,6 +7227,30 @@ export class CrmRepository {
     }
   }
 
+  /**
+   * Tela inicial padrao: altera SOMENTE o campo homeScreen do registro IAM existente
+   * (merge de um campo; nao passa por upsertRbacUser nem volta ao seed).
+   */
+  setUserHomeScreen(
+    userId: string,
+    homeScreen: string | null
+  ): { ok: boolean; user?: StiHubUserRecord; previous?: string | null } {
+    const rbac = this.ensureRbacState();
+    const q = String(userId || "").trim().toLowerCase();
+    const found = rbac.users.find((u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q);
+    if (!found) return { ok: false };
+    const previous = found.homeScreen ?? null;
+    if (homeScreen) {
+      found.homeScreen = homeScreen;
+    } else {
+      delete found.homeScreen;
+    }
+    found.updatedAt = new Date().toISOString();
+    this.markLocalIamChange(found.id);
+    this.save();
+    return { ok: true, user: found, previous };
+  }
+
   deleteRbacUser(
     userOrEmail: string,
     actorEmail?: string

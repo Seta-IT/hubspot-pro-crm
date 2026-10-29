@@ -1939,6 +1939,8 @@ export interface StiHubUserRecord {
   inviteStatus?: "PENDING_INVITE" | "ACTIVE";
   invitedAt?: string | null;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
+  /** Tela inicial padrao (ID da allowlist em src/app/lib/home-screen.ts). */
+  homeScreen?: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;

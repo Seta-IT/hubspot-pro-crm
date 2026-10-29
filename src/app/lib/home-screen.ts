@@ -205,3 +205,76 @@ export function saveHomeScreenPreference(
     // armazenamento indisponivel: a preferencia vale apenas nesta sessao
   }
 }
+
+// ----------------------------------------------------------------------------
+// Validacao no servidor (allowlist fixa, sem URL livre)
+// ----------------------------------------------------------------------------
+
+/** Allowlist fixa de telas internas aceitas no campo homeScreen do IAM. */
+export const HOME_SCREEN_ALLOWLIST: readonly HomeScreenId[] = Object.freeze(HOME_SCREENS.map((s) => s.id));
+
+/** Chaves de transporte que o bridge injeta no corpo (registros IAM selados); nao sao dados da preferencia. */
+export const HOME_SCREEN_TRANSPORT_KEYS: readonly string[] = Object.freeze(['iamUsersOverride', 'iamDeletedUsersOverride']);
+
+export type HomeScreenValidation =
+  | { ok: true; screenId: HomeScreenId | null }
+  | { ok: false; code: 'HOME_SCREEN_EXTRA_KEYS' | 'HOME_SCREEN_MISSING' | 'HOME_SCREEN_NOT_ALLOWED' | 'HOME_SCREEN_MODULE_FORBIDDEN'; error: string };
+
+export function moduleAccessFromUser(user: {
+  enabledModules?: string[] | null;
+  moduleAccess?: Partial<HomeModuleAccess> | null;
+} | null | undefined): HomeModuleAccess {
+  const mods = Array.isArray(user?.enabledModules) ? (user!.enabledModules as string[]) : [];
+  const ma = user?.moduleAccess || null;
+  return {
+    crm: ma && typeof ma.crm === 'boolean' ? ma.crm : mods.includes('CRM'),
+    erp: ma && typeof ma.erp === 'boolean' ? ma.erp : mods.includes('ERP'),
+    chamados: ma && typeof ma.chamados === 'boolean' ? ma.chamados : mods.includes('CHAMADOS'),
+  };
+}
+
+/**
+ * Valida o corpo de PATCH de preferencia: aceita SOMENTE `homeScreen` (mais as chaves de
+ * transporte do bridge). `homeScreen` precisa ser um ID exato da allowlist (ou null para
+ * limpar) e pertencer a um modulo que o usuario-alvo possui.
+ */
+export function validateHomeScreenPatch(body: unknown, targetAccess: HomeModuleAccess): HomeScreenValidation {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { ok: false, code: 'HOME_SCREEN_MISSING', error: 'Corpo inválido: envie { "homeScreen": "<tela>" }.' };
+  }
+  const keys = Object.keys(body as Record<string, unknown>).filter((k) => !HOME_SCREEN_TRANSPORT_KEYS.includes(k));
+  const extra = keys.filter((k) => k !== 'homeScreen');
+  if (extra.length > 0) {
+    return {
+      ok: false,
+      code: 'HOME_SCREEN_EXTRA_KEYS',
+      error: `Somente o campo "homeScreen" pode ser alterado nesta rota (recebido: ${extra.slice(0, 5).join(', ')}).`,
+    };
+  }
+  if (!keys.includes('homeScreen')) {
+    return { ok: false, code: 'HOME_SCREEN_MISSING', error: 'Informe o campo "homeScreen".' };
+  }
+  const raw = (body as Record<string, unknown>).homeScreen;
+  if (raw === null) return { ok: true, screenId: null };
+  if (typeof raw !== 'string' || raw.length > 40 || !(HOME_SCREEN_ALLOWLIST as readonly string[]).includes(raw)) {
+    return {
+      ok: false,
+      code: 'HOME_SCREEN_NOT_ALLOWED',
+      error: `Tela inicial inválida. Valores aceitos: ${HOME_SCREEN_ALLOWLIST.join(', ')} ou null.`,
+    };
+  }
+  const def = getHomeScreen(raw as HomeScreenId);
+  if (!systemHasAccess(def.system, targetAccess)) {
+    return {
+      ok: false,
+      code: 'HOME_SCREEN_MODULE_FORBIDDEN',
+      error: `O usuário não tem acesso ao sistema ${def.system === 'CHAMADOS' ? 'Chamados' : def.system}, portanto essa tela não pode ser a inicial.`,
+    };
+  }
+  return { ok: true, screenId: def.id };
+}
+
+/** Tela efetiva para o usuario: a salva, se ainda permitida, senao a Visao Geral do primeiro sistema permitido. */
+export function effectiveHomeScreenFor(saved: unknown, access: HomeModuleAccess): HomeScreenId | null {
+  return resolveInitialHomeScreen({ saved: isHomeScreenId(saved) ? saved : null, access }).screenId;
+}
