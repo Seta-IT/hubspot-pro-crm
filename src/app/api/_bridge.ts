@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CrmApiRouter } from '../../api/router';
 import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE } from '../lib/auth';
+import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
 
 const router = new CrmApiRouter();
 
@@ -24,6 +25,54 @@ export async function forwardToCrmRouter(
     undefined;
   if (sessionCookie) {
     query._sessionToken = sessionCookie;
+  }
+
+  // Conta de servico: Bearer stihub_svc_... sem credencial de sessao. O token bruto nao
+  // segue adiante: o router recebe so o SHA-256 e revalida tudo (defesa em profundidade).
+  const svcToken = sessionCookie ? null : parseServiceBearer(req.headers.get('authorization'));
+  if (svcToken !== null) {
+    const declaredLen = Number(req.headers.get('content-length') || '0');
+    if (Number.isFinite(declaredLen) && declaredLen > SERVICE_MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: 'Corpo da requisição acima do limite permitido para a conta de serviço.', code: 'SVC_BODY_TOO_LARGE' },
+        { status: 413, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+    const svcQuery: Record<string, string | undefined> = { ...query };
+    delete svcQuery._sessionToken;
+    svcQuery._svcBearer = '1';
+    svcQuery._svcTokenSha256 = svcToken ? hashServiceToken(svcToken) : '';
+    const forwardedForSvc = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
+    svcQuery._clientIp = forwardedForSvc.split(',')[0]?.trim() || undefined;
+    svcQuery._fromHttpBridge = '1';
+    let svcBody: unknown = undefined;
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const text = await req.text().catch(() => '');
+      if (text.length > SERVICE_MAX_BODY_BYTES) {
+        return NextResponse.json(
+          { error: 'Corpo da requisição acima do limite permitido para a conta de serviço.', code: 'SVC_BODY_TOO_LARGE' },
+          { status: 413, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
+      try {
+        svcBody = text ? JSON.parse(text) : {};
+      } catch {
+        svcBody = {};
+      }
+    }
+    const svcRes = await router.dispatch({ method: req.method, path, query: svcQuery, body: svcBody });
+    const svcHeaders: Record<string, string> = {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      Pragma: 'no-cache',
+      Expires: '0',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'no-referrer',
+    };
+    for (const [k, v] of Object.entries(svcRes.headers || {})) {
+      if (k.toLowerCase() !== 'set-cookie') svcHeaders[k] = v; // conta de servico nunca recebe cookie
+    }
+    return NextResponse.json(svcRes.body, { status: svcRes.status, headers: svcHeaders });
   }
   // Cookie de pareamento da epoca de rotacao atual (o cookie antigo e ignorado).
   const enrolledCookie = req.cookies.get(STIHUB_TOTP_ENROLLED_COOKIE)?.value;

@@ -1993,6 +1993,26 @@ export interface StiHubRbacState {
   users: StiHubUserRecord[];
   securityConfig: StiHubSecurityAndMailerConfig;
   auditLogs?: StiHubSecurityAuditLogEntry[];
+  /** Contas de servico (nao humanas): fora de `users`, sem senha/TOTP/convite. */
+  serviceAccounts?: StiHubServiceAccountRecord[];
+}
+
+/** Conta de servico (ex.: agente "Assistente de Vendas"). Nunca loga em /login. */
+export interface StiHubServiceAccountRecord {
+  id: string;
+  accountType: 'SERVICE';
+  name: string;
+  description: string;
+  active: boolean;
+  roleId: StiHubRoleId;
+  crmRole: string;
+  erpRole: string;
+  enabledModules: StiHubMacroModule[];
+  allowedOperations: string[];
+  createdAt: string;
+  updatedAt: string;
+  deactivatedAt?: string | null;
+  deactivatedBy?: string | null;
 }
 
 export interface CrmDatabaseState {

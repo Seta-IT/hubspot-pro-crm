@@ -56,6 +56,20 @@ import {
 } from '../middleware';
 import { verifyStiHubSessionToken } from '../app/lib/auth';
 import { sanitizeApiResponseBody } from '../db/iam-security';
+import {
+  classifySalesAgentRoute,
+  getConfiguredSalesAgentTokenHashes,
+  isAcceptedServiceTokenHash,
+  SALES_AGENT_ACTOR_EMAIL,
+  SALES_AGENT_ACTOR_NAME,
+  SALES_AGENT_SERVICE_ID,
+  SERVICE_CREATES_PER_DAY,
+  SERVICE_LIST_DEFAULT_LIMIT,
+  SERVICE_LIST_MAX_LIMIT,
+  SERVICE_MAX_BODY_BYTES,
+  SERVICE_RATE_PER_MINUTE,
+} from '../app/lib/service-account';
+import { isServiceAccountIdentity } from '../db/repository';
 import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -128,6 +142,97 @@ export function resolveResendApiKey(panelKey?: string | null): string {
     console.warn('[STI-hub e-mail] RESEND_API_KEY presente mas em formato invalido (esperado re_...). Ignorada.');
   }
   return envKey || normalizeResendApiKey(panelKey);
+}
+
+
+// ---------------------------------------------------------------------------
+// Conta de servico: campos permitidos na criacao e projecao LGPD das respostas
+// ---------------------------------------------------------------------------
+const SVC_CONTACT_CREATE_FIELDS = ['firstName', 'lastName', 'name', 'email', 'phone', 'jobTitle', 'department', 'companyId', 'buyingRole'];
+const SVC_COMPANY_CREATE_FIELDS = ['name', 'domain', 'cnpj', 'industry', 'size', 'city', 'state', 'country', 'personType'];
+const SVC_PROPOSAL_FORBIDDEN_FIELDS = [
+  'id', 'code', 'status', 'convertedContractId', 'convertedInvoiceId', 'digitalSignature', 'version',
+  'versionHistory', 'statusHistory', 'createdAt', 'updatedAt', 'approval', 'approvedAt', 'approvedBy',
+];
+const SVC_CONTACT_FIELDS = ['id', 'firstName', 'lastName', 'email', 'phone', 'jobTitle', 'department', 'companyId', 'lifecycleStage', 'leadStatus', 'buyingRole', 'ownerName', 'createdAt', 'updatedAt'];
+const SVC_COMPANY_FIELDS = ['id', 'name', 'domain', 'cnpj', 'industry', 'size', 'city', 'state', 'country', 'ownerName', 'isTargetAccount', 'icpTier', 'createdAt', 'updatedAt'];
+const SVC_PROPOSAL_STRIP_FIELDS = ['digitalSignature', 'versionHistory', 'statusHistory', 'internalNotes'];
+
+function pickFields(src: unknown, fields: string[]): Record<string, unknown> | null {
+  if (!src || typeof src !== 'object') return null;
+  const o = src as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const f of fields) if (o[f] !== undefined) out[f] = o[f];
+  return out;
+}
+
+export function sanitizeSalesAgentCreateBody(
+  resource: 'PROPOSAL' | 'COMPANY' | 'CONTACT',
+  raw: Record<string, unknown>
+): Record<string, unknown> {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  if (resource === 'CONTACT') return pickFields(src, SVC_CONTACT_CREATE_FIELDS) || {};
+  if (resource === 'COMPANY') {
+    const out = pickFields(src, SVC_COMPANY_CREATE_FIELDS) || {};
+    const cp = src.customProperties as Record<string, unknown> | undefined;
+    if (cp && typeof cp.customerType === 'string') out.customProperties = { customerType: cp.customerType.slice(0, 10) };
+    return out;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (k.startsWith('_') || k.startsWith('iam') || SVC_PROPOSAL_FORBIDDEN_FIELDS.includes(k)) continue;
+    out[k] = v;
+  }
+  out.commercialNotes = [typeof out.commercialNotes === 'string' ? out.commercialNotes : '', `Criada por ${SALES_AGENT_ACTOR_NAME}.`]
+    .filter(Boolean)
+    .join(' ');
+  return out;
+}
+
+function projectProposal(p: unknown): unknown {
+  if (!p || typeof p !== 'object') return p;
+  const out = { ...(p as Record<string, unknown>) };
+  for (const k of SVC_PROPOSAL_STRIP_FIELDS) delete out[k];
+  return out;
+}
+
+export function projectSalesAgentResponse(
+  resource: 'PROPOSAL' | 'COMPANY' | 'CONTACT',
+  body: unknown,
+  query: Record<string, string | undefined>
+): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const b = body as Record<string, unknown>;
+  if (b.error) return { error: b.error, code: b.code };
+  const one = (x: unknown): unknown => {
+    if (resource === 'CONTACT') {
+      const c = pickFields(x, SVC_CONTACT_FIELDS);
+      const comp = (x as Record<string, unknown>)?.company as Record<string, unknown> | null | undefined;
+      return c ? { ...c, companyName: comp && typeof comp.name === 'string' ? comp.name : undefined } : c;
+    }
+    if (resource === 'COMPANY') {
+      const c = pickFields(x, SVC_COMPANY_FIELDS);
+      const contacts = (x as Record<string, unknown>)?.contacts;
+      if (c && Array.isArray(contacts)) {
+        c.contacts = contacts.slice(0, SERVICE_LIST_MAX_LIMIT).map((ct) => pickFields(ct, SVC_CONTACT_FIELDS));
+      }
+      return c;
+    }
+    const pr = x as Record<string, unknown>;
+    // GET :id/acceptance-status ja e minimo
+    if (pr && typeof pr === 'object' && 'acceptance' in pr) return pr;
+    return projectProposal(x);
+  };
+  if (Array.isArray(b.data)) {
+    const limit = Math.min(
+      SERVICE_LIST_MAX_LIMIT,
+      Math.max(1, Math.floor(Number(query.limit) || SERVICE_LIST_DEFAULT_LIMIT))
+    );
+    const offset = Math.max(0, Math.floor(Number(query.offset) || 0));
+    const page = b.data.slice(offset, offset + limit).map(one);
+    return { data: page, total: b.data.length, limit, offset, hasMore: offset + limit < b.data.length };
+  }
+  return { data: one(b.data) };
 }
 
 /** Remetente dos e-mails transacionais (RESEND_FROM_EMAIL / STI_HUB_FROM_EMAIL). */
@@ -543,6 +648,11 @@ export class CrmApiRouter {
       }
     }
 
+    // Conta de servico (Bearer): pipeline proprio, sem sessao, sem journal, sem override IAM.
+    if (query._fromHttpBridge === "1" && query._svcBearer === "1") {
+      return this.dispatchSalesAgent(method, cleanPath, query, body);
+    }
+
     // Requisicoes HTTP (via _bridge): o journal do cliente so e aplicado com sessao MFA valida.
     const isHttpRequest = query._fromHttpBridge === "1";
     const httpSessionValid =
@@ -595,6 +705,122 @@ export class CrmApiRouter {
     }
 
     return response;
+  }
+
+
+  // ==========================================================================
+  // CONTA DE SERVICO "ASSISTENTE DE VENDAS" (Bearer stihub_svc_...)
+  // ==========================================================================
+  private readonly svcMinuteLimiter = new SlidingWindowRateLimiter(SERVICE_RATE_PER_MINUTE, 60 * 1000);
+  private readonly svcDailyCreateLimiter = new SlidingWindowRateLimiter(SERVICE_CREATES_PER_DAY, 24 * 3600 * 1000);
+  /** Limita a auditoria de tentativas NAO autenticadas por IP (evita inundar a trilha). */
+  private readonly svcDeniedAuditLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
+
+  private auditSalesAgent(
+    method: string,
+    cleanPath: string,
+    status: number,
+    outcome: string,
+    ip: string | undefined,
+    authenticated: boolean
+  ): void {
+    if (!authenticated && !this.svcDeniedAuditLimiter.hit(ip || 'sem-ip')) return;
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: SALES_AGENT_ACTOR_EMAIL,
+        actorName: SALES_AGENT_ACTOR_NAME,
+        actorRole: 'SERVICE_ERP_COMMERCIAL',
+        action: `SVC_${method}`,
+        module: cleanPath.startsWith('/api/erp/') ? 'ERP' : 'CRM',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: status >= 200 && status < 400 ? 'SUCCESS' : 'BLOCKED',
+        ipAddress: ip,
+        details: `svc=${SALES_AGENT_SERVICE_ID}; metodo=${method}; rota=${cleanPath.slice(0, 160)}; resultado=HTTP ${status}; ${outcome}`,
+      });
+    } catch {
+      // auditoria nunca derruba a requisicao
+    }
+  }
+
+  private async dispatchSalesAgent(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    rawBody: Record<string, unknown>
+  ): Promise<ApiResponse> {
+    const ip = query._clientIp;
+    const deny = (status: number, code: string, error: string, authenticated: boolean): ApiResponse => {
+      this.auditSalesAgent(method, cleanPath, status, `negado=${code}`, ip, authenticated);
+      return { status, body: { error, code } };
+    };
+
+    // 1. Autenticacao: hash do token contra STI_HUB_SALES_AGENT_TOKEN_SHA256 (sem env => sempre 401).
+    const hashes = getConfiguredSalesAgentTokenHashes();
+    if (hashes.length === 0) {
+      return deny(401, 'SVC_AUTH_DISABLED', 'Credencial de serviço inválida ou não habilitada.', false);
+    }
+    const tokenHash = String(query._svcTokenSha256 || '');
+    if (!isAcceptedServiceTokenHash(tokenHash, hashes)) {
+      return deny(401, 'SVC_TOKEN_INVALID', 'Credencial de serviço inválida ou não habilitada.', false);
+    }
+    // 2. Status da conta no IAM, a cada requisicao.
+    const account = this.repo.getServiceAccount(SALES_AGENT_SERVICE_ID);
+    if (!account || account.active !== true || account.accountType !== 'SERVICE') {
+      return deny(401, 'SVC_ACCOUNT_DISABLED', 'Conta de serviço desativada no IAM.', true);
+    }
+    // 3. Rate limit por token.
+    if (!this.svcMinuteLimiter.hit(tokenHash)) {
+      return deny(429, 'SVC_RATE_LIMITED', 'Limite de requisições por minuto da conta de serviço atingido.', true);
+    }
+    // 4. Allowlist estrita.
+    const route = classifySalesAgentRoute(method, cleanPath);
+    if (!route.allowed) {
+      return deny(403, 'SVC_ROUTE_FORBIDDEN', 'Acesso negado: operação fora do escopo autorizado para a conta de serviço.', true);
+    }
+    // 5. Corpo: tamanho maximo e campos permitidos (nada de override IAM, journal ou chaves internas).
+    let bodySize = 0;
+    try {
+      bodySize = JSON.stringify(rawBody || {}).length;
+    } catch {
+      bodySize = SERVICE_MAX_BODY_BYTES + 1;
+    }
+    if (bodySize > SERVICE_MAX_BODY_BYTES) {
+      return deny(413, 'SVC_BODY_TOO_LARGE', 'Corpo da requisição acima do limite permitido para a conta de serviço.', true);
+    }
+    if (route.kind === 'CREATE' && !this.svcDailyCreateLimiter.hit(tokenHash)) {
+      return deny(429, 'SVC_DAILY_CREATE_LIMIT', 'Limite diário de criações da conta de serviço atingido.', true);
+    }
+    const body = route.kind === 'CREATE' ? sanitizeSalesAgentCreateBody(route.resource, rawBody) : {};
+
+    const internalQuery: Record<string, string | undefined> = {};
+    for (const k of ['search', 'q', 'companyId', 'lifecycleStage', 'industry']) {
+      const v = query[k];
+      if (typeof v === 'string' && v.length <= 120) internalQuery[k] = v;
+    }
+
+    const raw = await this.handleRoute(method, cleanPath, internalQuery, body);
+    const sanitized = sanitizeApiResponseBody(raw.body, { path: cleanPath });
+    const projected = projectSalesAgentResponse(route.resource, sanitized, query);
+    this.auditSalesAgent(
+      method,
+      cleanPath,
+      raw.status,
+      route.kind === 'CREATE' && raw.status === 201
+        ? `criado=${String(((raw.body as { data?: { id?: string } })?.data || {}).id || '?')}`
+        : 'ok',
+      ip,
+      true
+    );
+
+    if (this.isSingletonRepo && isPostgresEnabled() && route.kind === 'CREATE' && raw.status >= 200 && raw.status < 400) {
+      try {
+        await syncStateToPostgres(this.repo.getState());
+      } catch {
+        // sincronizacao opcional
+      }
+    }
+    // Nunca devolve headers (em especial Set-Cookie) para a conta de servico.
+    return { status: raw.status, body: projected };
   }
 
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
@@ -826,6 +1052,20 @@ export class CrmApiRouter {
     body: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
+      // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
+      const humanUserTarget = cleanPath.match(/^\/api\/(?:admin|rbac|iam)\/users\/([^/]+)/);
+      if (
+        (humanUserTarget && isServiceAccountIdentity(decodeURIComponent(humanUserTarget[1]))) ||
+        (/^\/api\/(?:admin|rbac)\/users$/.test(cleanPath) && method === 'POST' && isServiceAccountIdentity(body.id, body.email)) ||
+        (cleanPath === '/api/auth/send-invite' && isServiceAccountIdentity(body.userId || body.id, body.email))
+      ) {
+        // (login/esqueci-senha: a conta de servico nao existe em rbac.users, logo nunca autentica.)
+        return {
+          status: 403,
+          body: { error: 'Contas de serviço não usam login, convite, senha ou 2FA.', code: 'SERVICE_ACCOUNT_NOT_HUMAN' },
+        };
+      }
+
       // Contencao 29/10/2026: antes da autenticacao so sao aceitos registros IAM SELADOS
       // pelo servidor (iamSeal). Override "cru" do cliente so depois da sessao MFA e com
       // permissao canManageUsersRbac (ver abaixo).
@@ -3488,6 +3728,33 @@ export class CrmApiRouter {
         };
       }
 
+      const acceptanceStatusMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/acceptance-status$/);
+      if (acceptanceStatusMatch && method === 'GET') {
+        const propId = decodeURIComponent(acceptanceStatusMatch[1]);
+        const found = this.repo
+          .listProposals()
+          .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        const accepted = found.status === 'APROVADA' || found.status === 'CONVERTIDA_CONTRATO';
+        return {
+          status: 200,
+          body: {
+            data: {
+              proposalId: found.id,
+              code: found.code,
+              status: found.status,
+              acceptance: {
+                accepted,
+                acceptedAt: accepted ? found.digitalSignature?.signedAt || null : null,
+                signatureModality: accepted ? found.digitalSignature?.modality || null : null,
+                convertedContractId: found.convertedContractId || null,
+              },
+              updatedAt: found.updatedAt,
+            },
+          },
+        };
+      }
+
       const proposalIdMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)$/);
       if (proposalIdMatch) {
         const propId = decodeURIComponent(proposalIdMatch[1]);
@@ -5335,6 +5602,32 @@ export class CrmApiRouter {
             },
           },
         };
+      }
+
+      // Contas de servico: listagem e ativacao/desativacao (somente admin IAM com sessao MFA).
+      const svcAccountMatch = cleanPath.match(/^\/api\/iam\/service-accounts(?:\/([^/]+))?$/);
+      if (svcAccountMatch) {
+        const sess = this.repo.resolveSessionFromToken(query._sessionToken || null);
+        if (!sess.authenticated || !sess.effectiveActionGuards.canManageUsersRbac) {
+          return {
+            status: 403,
+            body: { error: 'Permissão negada: somente administradores de IAM gerenciam contas de serviço.', code: 'IAM_ADMIN_FORBIDDEN' },
+          };
+        }
+        if (!svcAccountMatch[1] && method === 'GET') {
+          return { status: 200, body: { data: this.repo.listServiceAccounts() } };
+        }
+        if (svcAccountMatch[1] && (method === 'PATCH' || method === 'POST') && typeof body.active === 'boolean') {
+          const updated = this.repo.setServiceAccountActive(decodeURIComponent(svcAccountMatch[1]), body.active, {
+            email: sess.user.email,
+            name: sess.user.name,
+            role: sess.user.roleId,
+            ip: query._clientIp,
+          });
+          if (!updated) return { status: 404, body: { error: 'Conta de serviço não encontrada.' } };
+          return { status: 200, body: { data: updated } };
+        }
+        return { status: 400, body: { error: 'Operação inválida para conta de serviço (use {"active": true|false}).' } };
       }
 
       if ((cleanPath === '/api/admin/rbac' || cleanPath === '/api/rbac') && method === 'GET') {

@@ -855,6 +855,13 @@ export function verifyStiHubSessionToken(
       if (!parsed || !parsed.email || !parsed.mfaVerified) {
         return { valid: false, claims: null, reason: 'MFA_NOT_VERIFIED_IN_CLAIMS' };
       }
+      // Contas de servico nunca usam sessao/cookie (somente Bearer com allowlist).
+      if (
+        String(parsed.uid || '').toLowerCase().startsWith('svc-') ||
+        String(parsed.email || '').toLowerCase().endsWith('@servico.sti-hub')
+      ) {
+        return { valid: false, claims: null, reason: 'SERVICE_ACCOUNT_SESSION_FORBIDDEN' };
+      }
       if (parsed.exp && Date.now() > parsed.exp) {
         return { valid: false, claims: null, reason: 'SESSION_EXPIRED' };
       }

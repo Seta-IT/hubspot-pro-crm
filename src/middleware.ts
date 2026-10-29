@@ -5,6 +5,7 @@ import {
   verifyStiHubSessionToken,
 } from './app/lib/auth';
 import type { StiHubMacroModule } from './db/types';
+import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -285,6 +286,33 @@ function applySecurityHeaders(res: NextResponse, guardReason: string): NextRespo
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Conta de servico (Assistente de Vendas): Bearer stihub_svc_... SEM cookie/header de sessao.
+  // Avaliada antes das rotas publicas: com Bearer de servico nada e "publico" (nem /api/auth/*).
+  // Com cookie de sessao junto, o Bearer e ignorado (nunca mistura identidades).
+  const svcToken = parseServiceBearer(req.headers.get('authorization'));
+  const hasSessionCredential = Boolean(
+    req.cookies.get('stihub_session')?.value || req.headers.get('x-stihub-session')
+  );
+  if (svcToken !== null && !hasSessionCredential) {
+    const svc = evaluateServiceBearerAtEdge({ method: req.method, pathname, token: svcToken });
+    if (!svc.allowed) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          {
+            error:
+              svc.status === 403
+                ? 'Acesso negado: operação fora do escopo autorizado para a conta de serviço.'
+                : 'Credencial de serviço inválida ou não habilitada.',
+            code: svc.code,
+          },
+          { status: svc.status }
+        ),
+        svc.code
+      );
+    }
+    return applySecurityHeaders(NextResponse.next(), 'service-account-bearer');
+  }
 
   if (isPublicStiHubPath(pathname, req.method)) {
     return applySecurityHeaders(NextResponse.next(), 'public-allowed');

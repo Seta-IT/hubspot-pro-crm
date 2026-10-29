@@ -123,6 +123,47 @@ import {
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
 import { deriveServerTotpSecret, unsealIamRecord } from './iam-security';
+import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
+import type { StiHubServiceAccountRecord } from './types';
+
+/** Identidade reservada a contas de servico (id svc-* ou e-mail @servico.sti-hub). */
+export function isServiceAccountIdentity(id: unknown, email?: unknown): boolean {
+  const i = String(id || '').trim().toLowerCase();
+  const e = String(email || '').trim().toLowerCase();
+  return i.startsWith('svc-') || e.endsWith('@servico.sti-hub');
+}
+
+export function buildDefaultSalesAgentServiceAccount(): StiHubServiceAccountRecord {
+  const now = new Date().toISOString();
+  return {
+    id: SALES_AGENT_SERVICE_ID,
+    accountType: 'SERVICE',
+    name: 'Assistente de Vendas (serviço)',
+    description:
+      'Agente de vendas automatizado. Autentica somente por token Bearer (hash em STI_HUB_SALES_AGENT_TOKEN_SHA256); sem senha, sem 2FA, sem acesso a /login.',
+    active: true,
+    roleId: 'VENDEDOR_SALES' as StiHubServiceAccountRecord['roleId'],
+    crmRole: 'CRM_SALES_REP',
+    erpRole: 'ERP_COMMERCIAL',
+    enabledModules: ['CRM', 'ERP'],
+    allowedOperations: [
+      'GET /api/erp/proposals',
+      'POST /api/erp/proposals',
+      'GET /api/erp/proposals/:id',
+      'GET /api/erp/proposals/:id/acceptance-status',
+      'GET /api/companies',
+      'POST /api/companies',
+      'GET /api/companies/:id',
+      'GET /api/contacts',
+      'POST /api/contacts',
+      'GET /api/contacts/:id',
+    ],
+    createdAt: now,
+    updatedAt: now,
+    deactivatedAt: null,
+    deactivatedBy: null,
+  };
+}
 
 // Contencao 29/10/2026: todo segredo TOTP e derivado no servidor (HMAC com a chave
 // STI_HUB_SESSION_SECRET + epoca de rotacao). Segredos vindos do cliente, do seed,
@@ -6585,6 +6626,15 @@ export class CrmRepository {
     if (!Array.isArray(rbac.auditLogs)) {
       rbac.auditLogs = [];
     }
+    // Contas de servico: criadas por merge (nunca sobrescreve status/configs existentes)
+    // e mantidas FORA da lista de usuarios humanos.
+    if (!Array.isArray(rbac.serviceAccounts)) rbac.serviceAccounts = [];
+    if (!rbac.serviceAccounts.some((s) => s.id === SALES_AGENT_SERVICE_ID)) {
+      rbac.serviceAccounts.push(buildDefaultSalesAgentServiceAccount());
+    }
+    if (rbac.users.some((u) => isServiceAccountIdentity(u.id, u.email))) {
+      rbac.users = rbac.users.filter((u) => !isServiceAccountIdentity(u.id, u.email));
+    }
     for (const r of rbac.roles) {
       if (!r.enabledModules || !r.moduleAccess) {
         const mod = buildDefaultModuleAccessForRole(r.id);
@@ -6632,6 +6682,46 @@ export class CrmRepository {
       }
     }
     return rbac;
+  }
+
+  /** Conta de servico (copia). */
+  getServiceAccount(id: string): StiHubServiceAccountRecord | undefined {
+    const rbac = this.ensureRbacState();
+    const found = (rbac.serviceAccounts || []).find((s) => s.id === id);
+    return found ? { ...found } : undefined;
+  }
+
+  listServiceAccounts(): StiHubServiceAccountRecord[] {
+    return (this.ensureRbacState().serviceAccounts || []).map((s) => ({ ...s }));
+  }
+
+  /** Ativa/desativa a conta de servico (efeito imediato nesta instancia), com auditoria. */
+  setServiceAccountActive(
+    id: string,
+    active: boolean,
+    actor: { email?: string; name?: string; role?: string; ip?: string }
+  ): StiHubServiceAccountRecord | undefined {
+    const rbac = this.ensureRbacState();
+    const found = (rbac.serviceAccounts || []).find((s) => s.id === id);
+    if (!found) return undefined;
+    const nowIso = new Date().toISOString();
+    found.active = active;
+    found.updatedAt = nowIso;
+    found.deactivatedAt = active ? null : nowIso;
+    found.deactivatedBy = active ? null : actor.email || null;
+    this.appendSecurityAuditLog({
+      actorEmail: actor.email,
+      actorName: actor.name,
+      actorRole: actor.role,
+      action: active ? "SERVICE_ACCOUNT_ENABLED" : "SERVICE_ACCOUNT_DISABLED",
+      module: "IAM_RBAC",
+      resource: `service-account:${id}`,
+      status: "SUCCESS",
+      ipAddress: actor.ip,
+      details: `Conta de servico ${id} ${active ? "reativada" : "desativada"} por ${actor.email || "admin"}.`,
+    });
+    this.save();
+    return { ...found };
   }
 
   appendSecurityAuditLog(input: {
@@ -7153,6 +7243,7 @@ export class CrmRepository {
       const rec = unsealIamRecord((raw as Record<string, unknown>).iamSeal);
       if (!rec) continue;
       const u = rec.user;
+      if (isServiceAccountIdentity(u.id, u.email)) continue;
       if (this.deletedUserIds.has(u.id) || this.deletedUserEmails.has(String(u.email).toLowerCase())) continue;
       const existing = rbac.users.find(
         (x) => x.id === u.id || x.email.toLowerCase() === String(u.email).toLowerCase()
@@ -7228,6 +7319,7 @@ export class CrmRepository {
       if (unsealIamRecord((raw as Record<string, unknown>).iamSeal)) continue;
       const item = { ...(raw as Partial<StiHubUserRecord> & { password?: string }) } as Record<string, unknown>;
       if (!item.email && !item.id) continue;
+      if (isServiceAccountIdentity(item.id, item.email)) continue;
       if (
         (item.id && this.deletedUserIds.has(String(item.id))) ||
         (item.email && this.deletedUserEmails.has(String(item.email).toLowerCase()))
