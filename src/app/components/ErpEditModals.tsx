@@ -13,8 +13,6 @@ import {
   Truck,
   Calculator,
   Calendar,
-  Wrench,
-  Package,
   Search,
   Building2,
   CheckCircle2,
@@ -36,13 +34,13 @@ import {
   ErpFiscalInvoice,
   ErpFiscalNature,
   ErpProposalInstallment,
-  ErpProposalItem,
   ErpAssetStatus,
   ErpContractModality,
   ErpRentalContract,
   ErpRentalEquipmentItem,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { ProposalItemsGrid } from './ProposalItemsGrid';
 import {
   ContractBillingHistoryPanel,
   ContractGestaoClickDataPanel,
@@ -57,7 +55,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionUrl, computeProposalTotals, inferProposalItemType, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalVersionShortUrl, computeProposalTotals, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import {
   loadContractAuxiliaryOptions,
   computeCustomDueDateClient,
@@ -461,11 +459,6 @@ export function ProposalEditModal({
     }
   };
 
-  const [selectedProductSku, setSelectedProductSku] = useState<string>('');
-  const [productSearch, setProductSearch] = useState<string>('');
-  const [selectedServiceSku, setSelectedServiceSku] = useState<string>('');
-  const [serviceSearch, setServiceSearch] = useState<string>('');
-
   const [installmentCount, setInstallmentCount] = useState<number>(() =>
     Array.isArray(proposal.installments) && proposal.installments.length > 0
       ? proposal.installments.length
@@ -484,90 +477,8 @@ export function ProposalEditModal({
     return 'BOLETO';
   });
 
-  const catalogProducts = catalog.filter(
-    (c) =>
-      c.fiscalNature !== 'SERVICO_TECNICO_TI_TELECOM' &&
-      c.category !== 'SERVICO_TECNICO_LC116' &&
-      (!productSearch.trim() ||
-        c.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-        c.gestaoClickCode.toLowerCase().includes(productSearch.toLowerCase()))
-  );
-
-  const catalogServices = catalog.filter(
-    (c) =>
-      (c.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
-        c.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA' ||
-        c.category === 'SERVICO_TECNICO_LC116' ||
-        c.category === 'TELECOM_SCM_SVA') &&
-      (!serviceSearch.trim() ||
-        c.name.toLowerCase().includes(serviceSearch.toLowerCase()) ||
-        c.gestaoClickCode.toLowerCase().includes(serviceSearch.toLowerCase()))
-  );
-
   const updateDraft = (patch: Partial<ErpCommercialProposal>) => {
     setDraft((prev) => computeProposalTotals({ ...prev, ...patch }));
-  };
-
-  const productItemsWithIdx = draft.items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => inferProposalItemType(item) === 'PRODUCT');
-
-  const serviceItemsWithIdx = draft.items
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => inferProposalItemType(item) === 'SERVICE');
-
-  const handleAddProductFromCatalog = () => {
-    const found = selectedProductSku
-      ? catalog.find((c) => c.gestaoClickCode === selectedProductSku)
-      : undefined;
-    const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
-    const newItem: ErpProposalItem = {
-      id: `item-prd-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      sku: found?.gestaoClickCode || '',
-      description: found?.name || '',
-      itemType: 'PRODUCT',
-      unit: 'UN',
-      fiscalNature:
-        found?.fiscalNature === 'VENDA_EQUIPAMENTO'
-          ? 'VENDA_EQUIPAMENTO'
-          : 'LOCACAO_BENS_MOVEIS',
-      ncmOrServiceCode: found?.ncmOrLc116 || 'NCM 8517.62.59 (0% ISS — SV 31 STF)',
-      quantity: 1,
-      unitPrice: price,
-      discountPercent: 0,
-      discountAmount: 0,
-      subtotal: price,
-      isRecurring: draft.budgetType !== 'PRODUTOS',
-      totalMonthly: price,
-    };
-    updateDraft({ items: [...draft.items, newItem] });
-  };
-
-  const handleAddServiceFromCatalog = () => {
-    const found = selectedServiceSku
-      ? catalog.find((c) => c.gestaoClickCode === selectedServiceSku)
-      : undefined;
-    const price = found ? (found.monthlyRentalPrice || found.saleOrSetupPrice || 0) : 0;
-    const newItem: ErpProposalItem = {
-      id: `item-srv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      sku: found?.gestaoClickCode || '',
-      description: found?.name || '',
-      itemType: 'SERVICE',
-      unit: 'SV',
-      fiscalNature:
-        found?.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
-          ? 'SERVICO_COMUNICACAO_SCM_SVA'
-          : 'SERVICO_TECNICO_TI_TELECOM',
-      ncmOrServiceCode: found?.ncmOrLc116 || 'LC 116/03 Item 01.07',
-      quantity: 1,
-      unitPrice: price,
-      discountPercent: 0,
-      discountAmount: 0,
-      subtotal: price,
-      isRecurring: true,
-      totalMonthly: price,
-    };
-    updateDraft({ items: [...draft.items, newItem] });
   };
 
   const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) => {
@@ -1341,435 +1252,27 @@ export function ProposalEditModal({
             </div>
           </div>
 
-          {/* BLOCO 2: PRODUTOS / EQUIPAMENTOS */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-[#1e3a6e]" />
-                <div>
-                  <div className="text-sm font-bold text-slate-800">
-                    Adicione os <span className="text-[#1e3a6e]">produtos</span> do orçamento ({productItemsWithIdx.length})
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    Catálogo GestãoClick (786 produtos) • Locação de Bens Móveis (0% ISS — SV 31 STF) ou Venda de Hardware.
-                  </div>
-                </div>
-              </div>
+          {/* BLOCO 2: PRODUTOS (grade padrao GestaoClick com autocomplete do catalogo) */}
+          <ProposalItemsGrid
+            kind="PRODUCT"
+            items={draft.items}
+            catalog={catalog}
+            budgetType={draft.budgetType}
+            serviceType={draft.serviceType}
+            subtotal={draft.productsSubtotal || 0}
+            onItemsChange={(items) => updateDraft({ items })}
+          />
 
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Filtrar SKU/nome nos produtos..."
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs w-48"
-                />
-                <select
-                  value={selectedProductSku}
-                  onChange={(e) => setSelectedProductSku(e.target.value)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs max-w-xs"
-                >
-                  <option value="">-- Escolher produto do catálogo --</option>
-                  {catalogProducts.slice(0, 60).map((c) => (
-                    <option key={c.id} value={c.gestaoClickCode}>
-                      {c.gestaoClickCode} — {c.name.slice(0, 48)} ({formatBRL(c.monthlyRentalPrice)})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleAddProductFromCatalog}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> + Adicionar Produto
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 space-y-3">
-              {productItemsWithIdx.length === 0 ? (
-                <div className="text-center py-4 text-slate-400 text-xs">
-                  Nenhum produto/equipamento adicionado neste orçamento. Clique em <strong>+ Adicionar Produto</strong> acima.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2 px-2 w-28">SKU</th>
-                        <th className="py-2 px-2">Produto / Equipamento</th>
-                        <th className="py-2 px-2 w-28">Recorrência</th>
-                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
-                        <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
-                        <th className="py-2 px-2 w-20 text-right">Desc. %</th>
-                        <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
-                        <th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
-                        <th className="py-2 px-1 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {productItemsWithIdx.map(({ item, idx }) => (
-                        <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              value={item.sku}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], sku: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-mono text-[11px]"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              value={item.description}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], description: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
-                            />
-                          </td>
-
-                          <td className="py-2 px-2">
-                            <select
-                              value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
-                              onChange={(e) => {
-                                const isRec = e.target.value === 'MENSAL';
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  isRecurring: isRec,
-                                  unit: 'UN',
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
-                            >
-                              <option value="MENSAL">Mensal (MRR)</option>
-                              <option value="UNICO">Único / Venda</option>
-                            </select>
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  quantity: Math.max(1, Number(e.target.value) || 1),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-bold"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={item.unitPrice}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  unitPrice: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-semibold"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.1"
-                              value={item.discountPercent || 0}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  discountPercent: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={item.discountAmount || 0}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  discountAmount: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-2 text-right font-extrabold text-slate-900">
-                            {formatBRL(item.subtotal ?? item.totalMonthly)}
-                          </td>
-                          <td className="py-2 px-1 text-right">
-                            <button
-                              type="button"
-                              disabled={draft.items.length <= 1}
-                              onClick={() =>
-                                updateDraft({
-                                  items: draft.items.filter((_, i) => i !== idx),
-                                })
-                              }
-                              className="p-1.5 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
-                <span>
-                  Subtotal Produtos / Equipamentos:{' '}
-                  <strong className="text-[#1e3a6e] text-sm">
-                    {formatBRL(draft.productsSubtotal || 0)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* BLOCO 3: SERVIÇOS TÉCNICOS & TELECOM */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-[#1e3a6e]" />
-                <div>
-                  <div className="text-sm font-bold text-slate-800">
-                    3. <span className="text-[#1e3a6e]">Serviços</span> Técnicos TI / Telecom ({serviceItemsWithIdx.length})
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    Catálogo GestãoClick (39 serviços) • Enquadramento LC 116/03 (01.07, 01.03, 14.01, 21.01) e SCM/SVA.
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
-                  placeholder="Filtrar serviço..."
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs w-44"
-                />
-                <select
-                  value={selectedServiceSku}
-                  onChange={(e) => setSelectedServiceSku(e.target.value)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs max-w-xs"
-                >
-                  <option value="">-- Escolher serviço do catálogo --</option>
-                  {catalogServices.map((c) => (
-                    <option key={c.id} value={c.gestaoClickCode}>
-                      {c.gestaoClickCode} — {c.name.slice(0, 48)} ({formatBRL(c.monthlyRentalPrice)})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleAddServiceFromCatalog}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> + Adicionar Serviço
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 space-y-3">
-              {serviceItemsWithIdx.length === 0 ? (
-                <div className="text-center py-4 text-slate-400 text-xs">
-                  Nenhum serviço técnico incluído neste orçamento. Clique em <strong>+ Adicionar Serviço</strong> para incluir instalação, suporte NOC ou link SCM.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] border-b border-slate-200">
-                      <tr>
-                        <th className="py-2 px-2 w-28">Código</th>
-                        <th className="py-2 px-2">Serviço / Escopo Técnico</th>
-                        <th className="py-2 px-2 w-28">Recorrência</th>
-                        <th className="py-2 px-2 w-24 text-center">Qtd (Itens)</th>
-                        <th className="py-2 px-2 w-28 text-right">Vlr. Unit. (R$)</th>
-                        <th className="py-2 px-2 w-20 text-right">Desc. %</th>
-                        <th className="py-2 px-2 w-24 text-right">Desc. R$</th>
-                        <th className="py-2 px-2 w-28 text-right">Subtotal Líq.</th>
-                        <th className="py-2 px-1 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {serviceItemsWithIdx.map(({ item, idx }) => (
-                        <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              value={item.sku}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], sku: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-mono text-[11px]"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="text"
-                              value={item.description}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = { ...copy[idx], description: e.target.value };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 font-semibold"
-                            />
-                          </td>
-
-                          <td className="py-2 px-2">
-                            <select
-                              value={item.isRecurring !== false ? 'MENSAL' : 'UNICO'}
-                              onChange={(e) => {
-                                const isRec = e.target.value === 'MENSAL';
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  isRecurring: isRec,
-                                  unit: isRec ? 'SV' : 'HR',
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px]"
-                            >
-                              <option value="MENSAL">Mensal (MRR)</option>
-                              <option value="UNICO">Taxa Única / Setup</option>
-                            </select>
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  quantity: Math.max(1, Number(e.target.value) || 1),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-center font-bold"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={item.unitPrice}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  unitPrice: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right font-semibold"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.1"
-                              value={item.discountPercent || 0}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  discountPercent: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={item.discountAmount || 0}
-                              onChange={(e) => {
-                                const copy = [...draft.items];
-                                copy[idx] = {
-                                  ...copy[idx],
-                                  discountAmount: Math.max(0, Number(e.target.value) || 0),
-                                };
-                                updateDraft({ items: copy });
-                              }}
-                              className="w-full px-2 py-1 rounded border border-slate-300 text-right"
-                            />
-                          </td>
-                          <td className="py-2 px-2 text-right font-extrabold text-indigo-900">
-                            {formatBRL(item.subtotal ?? item.totalMonthly)}
-                          </td>
-                          <td className="py-2 px-1 text-right">
-                            <button
-                              type="button"
-                              disabled={draft.items.length <= 1}
-                              onClick={() =>
-                                updateDraft({
-                                  items: draft.items.filter((_, i) => i !== idx),
-                                })
-                              }
-                              className="p-1.5 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div className="flex justify-end pt-2 border-t border-slate-100 text-xs">
-                <span>
-                  Subtotal Serviços Técnicos:{' '}
-                  <strong className="text-indigo-800 text-sm">
-                    {formatBRL(draft.servicesSubtotal || 0)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
+          {/* BLOCO 3: SERVICOS (mesma grade; Tipo = tipo de servico) */}
+          <ProposalItemsGrid
+            kind="SERVICE"
+            items={draft.items}
+            catalog={catalog}
+            budgetType={draft.budgetType}
+            serviceType={draft.serviceType}
+            subtotal={draft.servicesSubtotal || 0}
+            onItemsChange={(items) => updateDraft({ items })}
+          />
 
           {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
@@ -2244,8 +1747,8 @@ export function ProposalEditModal({
                         const savedDateFormatted = ver.savedAt
                           ? new Date(ver.savedAt).toLocaleString("pt-BR")
                           : "—";
-                        const screenUrl = buildProposalVersionUrl(draft, ver);
-                        const pdfUrl = buildProposalVersionUrl(draft, ver, { autoPrint: true });
+                        const screenUrl = buildProposalVersionShortUrl(draft.id, ver.version);
+                        const pdfUrl = buildProposalVersionShortUrl(draft.id, ver.version, { autoPrint: true });
 
                         return (
                           <tr

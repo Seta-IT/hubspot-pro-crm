@@ -28,8 +28,8 @@ import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionE
 import { formatBRL } from '../../components/ui-helpers';
 import {
   appendClientProposalVersion,
-  buildProposalVersionUrl,
   buildPublicProposalUrl,
+  buildProposalVersionShortUrl,
   buildSnapshotFromProposal,
   proposalFromVersionSnapshot,
   computeProposalTotals,
@@ -56,11 +56,12 @@ import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, reco
 import { ProposalEditModal } from '../../components/ErpEditModals';
 
 function PublicProposalPrintContent() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ id: string; n?: string }>();
   const searchParams = useSearchParams();
   const rawId = decodeURIComponent(String(params?.id || ''));
   const encodedData = searchParams?.get("d");
-  const versionParam = searchParams?.get("v");
+  // Short link /proposta/<id>/v/<n> usa o segmento [n]; o formato antigo usa ?v=<n>.
+  const versionParam = searchParams?.get("v") || (params?.n ? String(params.n) : null);
   const autoPrint = searchParams?.get("print") === "1";
 
   const [proposal, setProposal] = useState<ErpCommercialProposal | null>(() =>
@@ -172,9 +173,12 @@ function PublicProposalPrintContent() {
           return;
         }
       }
-      setProposal(computeProposalTotals(localFound));
-      setLoading(false);
-      return;
+      // Versao pedida pelo short link nao existe no navegador: resolve no servidor (versionHistory).
+      if (!requestedVer) {
+        setProposal(computeProposalTotals(localFound));
+        setLoading(false);
+        return;
+      }
     }
 
     let active = true;
@@ -334,7 +338,7 @@ function PublicProposalPrintContent() {
     setViewingVersionNum(entry.version === latestVer ? null : entry.version);
     setShowInternalVersionsModal(false);
     if (typeof window !== "undefined") {
-      const url = buildProposalVersionUrl(proposal, entry);
+      const url = buildProposalVersionShortUrl(proposal.id, entry.version);
       window.history.replaceState({}, "", url);
     }
   };
@@ -576,9 +580,36 @@ function PublicProposalPrintContent() {
     }
   };
 
-  const handleCopyPublicLink = () => {
+  const handleCopyPublicLink = async () => {
     if (!proposal) return;
-    const url = buildPublicProposalUrl(proposal);
+    const fullUrl = buildPublicProposalUrl(proposal);
+    const currentVer = Number(viewingVersionNum || proposal.version || 1);
+    let url = fullUrl;
+    // Short link quando o servidor ja tem a versao; senao sincroniza (PATCH) e confere de novo.
+    const serverHasVersion = async (): Promise<boolean> => {
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, { cache: "no-store" }).catch(() => null);
+      if (!res || !res.ok) return false;
+      const json = await res.json().catch(() => null);
+      const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
+      return Boolean(
+        apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.some((v) => Number(v.version) === currentVer)
+      );
+    };
+    try {
+      let ok = await serverHasVersion();
+      if (!ok && isInternalUser && !viewingVersionNum) {
+        await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(proposal),
+        }).catch(() => null);
+        ok = await serverHasVersion();
+      }
+      if (ok) url = buildProposalVersionShortUrl(proposal.id, currentVer);
+    } catch {
+      url = fullUrl;
+    }
     navigator.clipboard?.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
@@ -674,6 +705,16 @@ function PublicProposalPrintContent() {
   const deliveryLeadTime = resolveProposalDeliveryLeadTime(proposal);
   const activeLayoutSpec = PROPOSAL_TEMPLATE_STYLE_OPTIONS.find((o) => o.id === activeLayout);
   const docHeadings = resolveProposalDocumentHeadings(proposal);
+  // Versao exibida no topo (tela e PDF): a versao aberta pelo short link ou a atual.
+  const displayedVersionNum = Math.max(
+    1,
+    Number(
+      viewingVersionNum ||
+        proposal.version ||
+        (Array.isArray(proposal.versionHistory) ? proposal.versionHistory.length : 0) ||
+        1
+    )
+  );
   const {
     headerDocLabel,
     dividerTitle,
@@ -826,6 +867,9 @@ function PublicProposalPrintContent() {
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
                 {proposal.code}
+              </span>
+              <span data-testid="proposal-version-topbar" className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/90 text-slate-950 whitespace-nowrap">
+                Versão {displayedVersionNum}
               </span>
               {savedNotice && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
@@ -1133,8 +1177,8 @@ function PublicProposalPrintContent() {
                           const isCurrentlyViewing =
                             viewingVersionNum === ver.version ||
                             (!viewingVersionNum && isLatest);
-                          const verScreenUrl = buildProposalVersionUrl(proposal, ver);
-                          const verPdfUrl = buildProposalVersionUrl(proposal, ver, {
+                          const verScreenUrl = buildProposalVersionShortUrl(proposal.id, ver.version);
+                          const verPdfUrl = buildProposalVersionShortUrl(proposal.id, ver.version, {
                             autoPrint: true,
                           });
                           const mrrVal =
@@ -1434,8 +1478,16 @@ function PublicProposalPrintContent() {
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
                 PROPOSTA COMERCIAL / ORÇAMENTO
               </div>
-              <div className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight mt-0.5">
-                {proposal.code}
+              <div className="flex items-baseline gap-2 sm:justify-end print:justify-end mt-0.5">
+                <span className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight">
+                  {proposal.code}
+                </span>
+                <span
+                  data-testid="proposal-version-header"
+                  className="px-1.5 py-0.5 rounded border border-[#1e3a6e]/30 bg-[#1e3a6e]/5 text-[11px] font-semibold text-[#1e3a6e] whitespace-nowrap print:border-[#1e3a6e]/40"
+                >
+                  Versão {displayedVersionNum}
+                </span>
               </div>
               <div className="text-[11px] text-slate-600 mt-0.5">
                 Emissão: <strong className="text-slate-900">{issueDateStr}</strong> • Validade: <strong className="text-slate-900">{validUntilStr}</strong>

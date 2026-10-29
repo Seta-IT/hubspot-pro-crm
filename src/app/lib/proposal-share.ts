@@ -282,6 +282,22 @@ export const PROPOSAL_SERVICE_TYPE_OPTIONS: readonly string[] = [
   "Suporte Técnico & Spare Parts (Hard Parts)",
 ] as const;
 
+/** Linha da grade GestaoClick: item com tipo de servico opcional (Suporte, Spare Parts, Configuracao, Instalacao). */
+export type ProposalGridItem = ErpProposalItem & { serviceKind?: string };
+
+/** Short link de uma versao: /proposta/<id>/v/<n> (resolve o snapshot do versionHistory no servidor). */
+export function buildProposalVersionShortUrl(
+  proposalId: string,
+  version: number,
+  options?: { autoPrint?: boolean; origin?: string }
+): string {
+  const baseOrigin =
+    options?.origin ||
+    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
+  const url = `${baseOrigin}/proposta/${encodeURIComponent(proposalId)}/v/${Math.max(1, Math.floor(Number(version) || 1))}`;
+  return options?.autoPrint ? `${url}?print=1` : url;
+}
+
 export function resolveProposalServiceType(prop: Partial<ErpCommercialProposal>): string {
   const raw = String(prop.serviceType || "").trim();
   if (raw) return raw;
@@ -739,6 +755,7 @@ export interface CompactProposalPayload {
     un?: string; // unit
     fn: string; // fiscalNature
     nc: string; // ncmOrServiceCode
+    sk?: string; // serviceKind (tipo de servico da linha)
     q: number; // quantity
     u: number; // unitPrice
     dp?: number; // discountPercent
@@ -814,6 +831,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
         un: normalizeProposalItemUnit(item.unit, inferProposalItemType(item)),
         fn: item.fiscalNature,
         nc: item.ncmOrServiceCode,
+        sk: (item as ProposalGridItem).serviceKind || undefined,
         q: item.quantity,
         u: item.unitPrice,
         dp: item.discountPercent || undefined,
@@ -880,6 +898,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
             unit: normalizeProposalItemUnit(it.un, itemType),
             fiscalNature: fn,
             ncmOrServiceCode: it.nc || 'NCM 8517.62.59',
+            ...(it.sk ? { serviceKind: it.sk } : {}),
             quantity: qty,
             unitPrice,
             discountPercent: discPct,

@@ -93,7 +93,7 @@ import {
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
 } from '../lib/durable-storage';
-import { appendClientProposalVersion, buildProposalVersionUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { appendClientProposalVersion, buildProposalVersionShortUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
@@ -7557,8 +7557,8 @@ export default function ErpGestaoClickTab({
                           <tbody className="divide-y divide-slate-100">
                             {versions.map((ver) => {
                               const isLatest = ver.version === latestVer;
-                              const screenUrl = buildProposalVersionUrl(statusModalProposal, ver);
-                              const pdfUrl = buildProposalVersionUrl(statusModalProposal, ver, {
+                              const screenUrl = buildProposalVersionShortUrl(statusModalProposal.id, ver.version);
+                              const pdfUrl = buildProposalVersionShortUrl(statusModalProposal.id, ver.version, {
                                 autoPrint: true,
                               });
                               const mrrVal =

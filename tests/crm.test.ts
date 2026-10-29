@@ -2224,9 +2224,52 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(fnSlice.includes('items: []'), 'items deve iniciar como array vazio []');
     assert.ok(fnSlice.includes('totalContractValue: 0'), 'totalContractValue deve iniciar zerado');
 
-    // Ao adicionar linha em branco no ProposalEditModal sem selecionar SKU, não deve injetar item pré-preenchido
-    assert.ok(modalsSrc.includes("sku: found?.gestaoClickCode || ''"));
-    assert.ok(modalsSrc.includes("description: found?.name || ''"));
+    // Grade GestaoClick do ProposalEditModal: sem SKU selecionado nao injeta item pre-preenchido
+    const gridSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
+    assert.ok(modalsSrc.includes('<ProposalItemsGrid'));
+    assert.ok(gridSrc.includes("sku: found?.gestaoClickCode || ''"));
+    assert.ok(gridSrc.includes('description: found?.name || freeText'));
+    assert.ok(gridSrc.includes('if (!found && !text) return;'));
+  });
+
+  it('grade de produtos/servicos igual ao GestaoClick: colunas, autocomplete navy, + Adicionar novo e linha vazia pronta', () => {
+    const rootDir = process.cwd();
+    const modalsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpEditModals.tsx'), 'utf8');
+    const gridSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
+    assert.equal(modalsSrc.includes('-- Escolher produto do catálogo --'), false, 'combo antigo removido');
+    assert.equal(modalsSrc.includes('+ Adicionar Produto'), false);
+    assert.ok(modalsSrc.includes('kind="PRODUCT"') && modalsSrc.includes('kind="SERVICE"'));
+    for (const col of ['Detalhes', 'Quant.', 'Tipo', 'Valor', 'Desconto', 'Subtotal', 'Ações']) {
+      assert.ok(gridSrc.includes(col), `coluna ausente: ${col}`);
+    }
+    assert.ok(gridSrc.includes('do orçamento'));
+    assert.ok(gridSrc.includes('quantidade, valor e desconto por linha.'));
+    assert.ok(gridSrc.includes('bg-[#1b2559] text-white'), 'linha destacada navy no autocomplete');
+    assert.ok(gridSrc.includes('Adicionar novo'));
+    assert.ok(gridSrc.includes('bg-[#e9ecef]'));
+    assert.ok(gridSrc.includes("<option value=\"LOCACAO\">Locação</option>") && gridSrc.includes("<option value=\"VENDA\">Venda</option>"));
+    assert.ok(gridSrc.includes("fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO'"));
+    assert.ok(gridSrc.includes('PROPOSAL_SERVICE_PILL_OPTIONS'));
+  });
+
+  it('short link de versao /proposta/<id>/v/<n> e versao exibida no topo da proposta', async () => {
+    const rootDir = process.cwd();
+    const shareMod = await import('../src/app/lib/proposal-share');
+    assert.equal(
+      shareMod.buildProposalVersionShortUrl('prop-gc-4695', 2, { origin: 'https://sti-hub.vercel.app' }),
+      'https://sti-hub.vercel.app/proposta/prop-gc-4695/v/2'
+    );
+    assert.equal(
+      shareMod.buildProposalVersionShortUrl('prop-gc-4695', 1, { origin: 'https://x.test', autoPrint: true }),
+      'https://x.test/proposta/prop-gc-4695/v/1?print=1'
+    );
+    const routeSrc = fs.readFileSync(path.join(rootDir, 'src/app/proposta/[id]/v/[n]/page.tsx'), 'utf8');
+    assert.ok(routeSrc.includes("export { default } from '../../page'"));
+    const pageSrc = fs.readFileSync(path.join(rootDir, 'src/app/proposta/[id]/page.tsx'), 'utf8');
+    assert.ok(pageSrc.includes('params?.n'));
+    assert.ok(pageSrc.includes('Versão {displayedVersionNum}'));
+    assert.ok(pageSrc.includes('data-testid="proposal-version-header"'));
+    assert.ok(pageSrc.includes('buildProposalVersionShortUrl(proposal.id, ver.version'));
   });
 
   it('implementa busca autocomplete no campo Cliente * da proposta, alerta quando cliente não está cadastrado e botão verde "+ Adicionar novo" com vínculo imediato na própria tela da proposta', () => {
