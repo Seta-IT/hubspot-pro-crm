@@ -596,15 +596,42 @@ export function verifyCorporatePassword(
   if (clean.length < 6) return false;
   if (storedPasswordHash) {
     const candidateHash = hashCorporatePassword(clean);
-    if (candidateHash === storedPasswordHash) return true;
+    if (constantTimeEqual(candidateHash, storedPasswordHash)) return true;
   }
-  const validCorporateDefaults = new Set([
-    'Seta@2026#StiHub',
-    'Seta@2026',
-    'StiHub@2026',
-    'SetaTelecom#118887',
-  ]);
-  return validCorporateDefaults.has(clean) || (!storedPasswordHash && clean.length >= 6);
+  // Seguranca (contencao 29/10/2026): NAO existem mais senhas-mestras nem aceite de
+  // qualquer senha para usuario sem hash proprio. Sem hash => login negado (use o convite).
+  return false;
+}
+
+/** Comparacao de strings em tempo constante (assinaturas HMAC / hashes). */
+export function constantTimeEqual(a: string, b: string): boolean {
+  const sa = String(a ?? '');
+  const sb = String(b ?? '');
+  let diff = sa.length ^ sb.length;
+  const len = Math.max(sa.length, sb.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (sa.charCodeAt(i) || 0) ^ (sb.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+/** Epoca da rotacao de TOTP: pareamentos anteriores a esta epoca nao valem mais. */
+export const STIHUB_TOTP_ROTATION_EPOCH = '2026-10-29-r1';
+/** Cookie (nao sensivel) que indica pareamento concluido nesta epoca de rotacao. */
+export const STIHUB_TOTP_ENROLLED_COOKIE = 'stihub_totp_enrolled_r1';
+
+export class StiHubSigningSecretMissingError extends Error {
+  constructor() {
+    super('STI_HUB_SESSION_SECRET ausente em producao: autenticacao bloqueada (fail-closed).');
+    this.name = 'StiHubSigningSecretMissingError';
+  }
+}
+
+function isStiHubProductionRuntime(): boolean {
+  if (typeof process === 'undefined' || !process.env) return false;
+  const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
+  if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
+  return process.env.NODE_ENV === 'production' && process.env.STI_HUB_ALLOW_DEV_SECRET !== 'true';
 }
 
 // ============================================================================
@@ -621,14 +648,18 @@ export function resolveStiHubSigningSecret(): string {
       return configuredSecret;
     }
 
-    if (process.env.NODE_ENV === 'production' && !productionSecretWarningLogged) {
-      productionSecretWarningLogged = true;
-      console.warn(
-        '[STI-hub Security] Variável STI_HUB_SESSION_SECRET / NEXTAUTH_SECRET ausente em produção. Utilizando chave HMAC-SHA256 determinística derivada do domínio corporativo (compatível entre Node.js API e Edge Middleware). Configure STI_HUB_SESSION_SECRET com pelo menos 32 bytes de entropia.'
-      );
+    if (isStiHubProductionRuntime()) {
+      if (!productionSecretWarningLogged) {
+        productionSecretWarningLogged = true;
+        console.error(
+          '[STI-hub Security] STI_HUB_SESSION_SECRET ausente em producao/preview. Autenticacao bloqueada (fail-closed) ate a variavel ser configurada.'
+        );
+      }
+      throw new StiHubSigningSecretMissingError();
     }
   }
 
+  // Somente desenvolvimento local / testes: chave derivada deterministica.
   const globalScope = globalThis as unknown as Record<string, string | undefined>;
   if (!globalScope[GLOBAL_EPHEMERAL_SECRET_KEY]) {
     // Deterministic across Node.js runtime, Next.js Edge Middleware isolate, and Browser
@@ -692,10 +723,16 @@ export function signUserInviteToken(
 
 export function verifyUserInviteToken(
   token: string | null | undefined,
-  secret: string = resolveStiHubSigningSecret()
+  secretInput?: string
 ): { valid: boolean; claims: StiHubUserInviteClaims | null; reason: string } {
   if (!token || typeof token !== "string") {
     return { valid: false, claims: null, reason: "MISSING_INVITE_TOKEN" };
+  }
+  let secret: string;
+  try {
+    secret = secretInput || resolveStiHubSigningSecret();
+  } catch {
+    return { valid: false, claims: null, reason: "SIGNING_SECRET_UNAVAILABLE" };
   }
   let cleaned = token.trim();
   if (cleaned.includes("%")) {
@@ -715,7 +752,7 @@ export function verifyUserInviteToken(
   }
   const [payloadB64, sigB64] = parts;
   const expectedSig = hmacSha256Base64Url(secret, payloadB64);
-  if (sigB64 !== expectedSig) {
+  if (!constantTimeEqual(sigB64, expectedSig)) {
     return { valid: false, claims: null, reason: "INVALID_INVITE_SIGNATURE" };
   }
   try {
@@ -743,15 +780,21 @@ export function signMfaChallengeToken(
 
 export function verifyMfaChallengeToken(
   token: string | null | undefined,
-  secret: string = resolveStiHubSigningSecret()
+  secretInput?: string
 ): StiHubMfaChallengeClaims | null {
   if (!token || typeof token !== "string" || !token.startsWith("MFA-")) return null;
+  let secret: string;
+  try {
+    secret = secretInput || resolveStiHubSigningSecret();
+  } catch {
+    return null;
+  }
   const stripped = token.slice(4);
   const parts = stripped.split(".");
   if (parts.length !== 2) return null;
   const [payloadB64, sigB64] = parts;
   const expectedSig = hmacSha256Base64Url(secret, payloadB64);
-  if (sigB64 !== expectedSig) return null;
+  if (!constantTimeEqual(sigB64, expectedSig)) return null;
   try {
     const parsed = JSON.parse(base64UrlDecodeToString(payloadB64)) as StiHubMfaChallengeClaims;
     if (!parsed || !parsed.email || (parsed.exp && Date.now() > parsed.exp)) return null;
@@ -772,7 +815,7 @@ export function signStiHubSessionToken(
 
 export function verifyStiHubSessionToken(
   rawToken: string | null | undefined,
-  secret: string = resolveStiHubSigningSecret()
+  secretInput?: string
 ): {
   valid: boolean;
   claims: StiHubSignedSessionClaims | null;
@@ -780,6 +823,12 @@ export function verifyStiHubSessionToken(
 } {
   if (!rawToken || typeof rawToken !== 'string') {
     return { valid: false, claims: null, reason: 'MISSING_SESSION_TOKEN' };
+  }
+  let secret: string;
+  try {
+    secret = secretInput || resolveStiHubSigningSecret();
+  } catch {
+    return { valid: false, claims: null, reason: 'SIGNING_SECRET_UNAVAILABLE' };
   }
   let cleaned = rawToken.trim();
   if (cleaned.includes('%')) {
@@ -798,7 +847,7 @@ export function verifyStiHubSessionToken(
     }
     const [payloadB64, providedSig] = parts;
     const expectedSig = hmacSha256Base64Url(secret, payloadB64);
-    if (providedSig !== expectedSig) {
+    if (!constantTimeEqual(providedSig, expectedSig)) {
       return { valid: false, claims: null, reason: 'INVALID_HMAC_SIGNATURE' };
     }
     try {
@@ -939,7 +988,13 @@ export function saveClientIamUserOverride(user: Record<string, unknown> | null |
         (id ? String(u.id || "") !== id : true) &&
         (email ? String(u.email || "").toLowerCase() !== email : true)
     );
-    filtered.unshift(user);
+    // Contencao 29/10/2026: nunca guardar senha em claro, hash ou segredo TOTP no navegador.
+    // A persistencia entre instancias usa o campo opaco iamSeal emitido pelo servidor.
+    const safeUser: Record<string, unknown> = { ...user };
+    for (const k of ["password", "passwordHash", "totpSecret", "totpSecretFormatted", "lastUsedTotpTimeStep"]) {
+      delete safeUser[k];
+    }
+    filtered.unshift(safeUser);
     window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(filtered.slice(0, 50)));
   } catch {
     // ignore storage quota errors

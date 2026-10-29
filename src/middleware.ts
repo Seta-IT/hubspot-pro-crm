@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  constantTimeEqual,
   StiHubSignedSessionClaims,
   verifyStiHubSessionToken,
 } from './app/lib/auth';
@@ -253,26 +254,19 @@ export function evaluateStiHubRouteProtection(input: {
     };
   }
 
-  if (input.enforceStrictLock !== false || isAlwaysProtectedApiPath(input.pathname, input.method)) {
-    return {
-      allowed: false,
-      isPublicRoute: false,
-      redirectTo: isApi ? null : `/login?next=${encodeURIComponent(input.pathname)}`,
-      statusCode: isApi ? 401 : 307,
-      reason:
-        verified.reason === 'MISSING_SESSION_TOKEN'
-          ? 'MFA_AUTH_REQUIRED'
-          : verified.reason,
-      requiredModule,
-    };
-  }
-
+  // Contencao 29/10/2026: NAO existe mais fallback anonimo (DEFAULT_ADMIN_SESSION_FALLBACK).
+  // Sem sessao MFA assinada valida => 401 (API) ou redirect para /login (paginas), sempre.
+  // enforceStrictLock e mantido na assinatura apenas por compatibilidade e e ignorado.
+  void input.enforceStrictLock;
   return {
-    allowed: true,
+    allowed: false,
     isPublicRoute: false,
-    redirectTo: null,
-    statusCode: 200,
-    reason: 'DEFAULT_ADMIN_SESSION_FALLBACK',
+    redirectTo: isApi ? null : `/login?next=${encodeURIComponent(input.pathname)}`,
+    statusCode: isApi ? 401 : 307,
+    reason:
+      verified.reason === 'MISSING_SESSION_TOKEN'
+        ? 'MFA_AUTH_REQUIRED'
+        : verified.reason,
     requiredModule,
   };
 }
@@ -309,20 +303,16 @@ export function middleware(req: NextRequest) {
     cronSecret.length >= 16 &&
     pathname === '/api/erp/daily-sync' &&
     req.method === 'GET' &&
-    req.headers.get('authorization') === `Bearer ${cronSecret}`
+    constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {
     return applySecurityHeaders(NextResponse.next(), 'cron-secret-allowed');
   }
 
   // Bloqueio estrito em todas as paginas e em todas as rotas /api nao publicas:
   // sem sessao MFA valida (cookie stihub_session ou header x-stihub-session) => 401 JSON.
-  // O referer de mesma origem NAO concede mais acesso. STI_HUB_STRICT_AUTH=false (somente
-  // ambientes de desenvolvimento) relaxa as demais rotas, mas nunca as rotas de
-  // isAlwaysProtectedApiPath (companies, erp/financial, edicao e restauracao de proposta).
-  const enforceStrictLock =
-    process.env.STI_HUB_STRICT_AUTH === 'false' && !isLoggedOutCookie && !sessionToken
-      ? false
-      : true;
+  // Nao ha mais relaxamento por referer, STI_HUB_STRICT_AUTH ou STI_HUB_STRICT_API_AUTH.
+  void isLoggedOutCookie;
+  const enforceStrictLock = true;
 
   const decision = evaluateStiHubRouteProtection({
     pathname,
