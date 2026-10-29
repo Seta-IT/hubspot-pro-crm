@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import AuthCardShell, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '../lib/AuthCardShell';
-import { loadClientIamUsersOverride, saveClientIamUserOverride } from '../lib/auth';
+import { loadClientIamUsersOverride } from '../lib/auth';
+import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 
 export default function RedefinirSenhaPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function RedefinirSenhaPage() {
         setError(json?.error || 'Não foi possível redefinir a senha.');
         return;
       }
-      if (json?.data?.user) saveClientIamUserOverride(json.data.user);
+      if (json?.data?.user) saveClientIamUserOverrideIfNewer(json.data.user);
       // Encerra qualquer sessao local: o proximo acesso exige login + 2FA.
       try {
         localStorage.removeItem('stihub_active_session_v1');

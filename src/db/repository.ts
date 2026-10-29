@@ -7154,16 +7154,39 @@ export class CrmRepository {
       if (!rec) continue;
       const u = rec.user;
       if (this.deletedUserIds.has(u.id) || this.deletedUserEmails.has(String(u.email).toLowerCase())) continue;
-      if ((this.sealAppliedAt.get(u.id) || 0) >= rec.sealedAt) continue;
-      if ((this.localIamChangeAt.get(u.id) || 0) > rec.sealedAt) continue;
       const existing = rbac.users.find(
         (x) => x.id === u.id || x.email.toLowerCase() === String(u.email).toLowerCase()
       );
+      // homeScreen tem versao propria (homeScreenUpdatedAt): o selo com a versao mais nova
+      // vence, mesmo quando o restante do registro selado e descartado por ser mais antigo.
+      const applyNewerHomeScreen = (target: StiHubUserRecord): boolean => {
+        const sealedVer = Date.parse(String(u.homeScreenUpdatedAt || "")) || 0;
+        const existingVer = Date.parse(String(target.homeScreenUpdatedAt || "")) || 0;
+        if (!(sealedVer > existingVer || (sealedVer === existingVer && sealedVer > 0))) return false;
+        if (typeof u.homeScreen === "string" && u.homeScreen) {
+          target.homeScreen = u.homeScreen;
+        } else {
+          delete target.homeScreen;
+        }
+        target.homeScreenUpdatedAt = String(u.homeScreenUpdatedAt);
+        return sealedVer > existingVer;
+      };
+      if (
+        (this.sealAppliedAt.get(u.id) || 0) >= rec.sealedAt ||
+        (this.localIamChangeAt.get(u.id) || 0) > rec.sealedAt
+      ) {
+        if (existing && applyNewerHomeScreen(existing)) applied++;
+        continue;
+      }
       const patch = { ...(u as Record<string, unknown>) };
       delete patch.totpSecret;
       delete patch.lastUsedTotpTimeStep;
       if (existing) {
+        // homeScreen: um selo mais antigo nunca sobrescreve (nem apaga) a tela definida depois.
+        delete patch.homeScreen;
+        delete patch.homeScreenUpdatedAt;
         Object.assign(existing, patch);
+        applyNewerHomeScreen(existing);
       } else {
         rbac.users.push(patch as unknown as StiHubUserRecord);
       }
@@ -7220,6 +7243,9 @@ export class CrmRepository {
         "lastUsedTotpTimeStep",
         "passwordHash",
         "iamSeal",
+        // homeScreen so muda pelas rotas validadas (allowlist) ou por registro selado.
+        "homeScreen",
+        "homeScreenUpdatedAt",
       ]) {
         delete item[k];
       }
@@ -7245,7 +7271,11 @@ export class CrmRepository {
     } else {
       delete found.homeScreen;
     }
-    found.updatedAt = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    // Versao monotonica do campo (o selo mais recente vence ao reaplicar registros selados).
+    const prevVersion = Date.parse(String(found.homeScreenUpdatedAt || "")) || 0;
+    found.homeScreenUpdatedAt = new Date(Math.max(Date.now(), prevVersion + 1)).toISOString();
+    found.updatedAt = nowIso;
     this.markLocalIamChange(found.id);
     this.save();
     return { ok: true, user: found, previous };

@@ -5179,6 +5179,7 @@ export class CrmApiRouter {
           if (!v.ok) {
             return { status: 400, body: { error: v.error, code: v.code } };
           }
+          // Somente homeScreen chega ao repositorio; chaves de transporte nunca sao gravadas aqui.
           const res = this.repo.setUserHomeScreen(actor.id, v.screenId);
           if (!res.ok || !res.user) {
             return { status: 404, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };

@@ -16,8 +16,8 @@ import {
 import {
   loadClientDeletedUsersOverride,
   loadClientIamUsersOverride,
-  saveClientIamUserOverride,
 } from '../lib/auth';
+import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 
 export default function StiHubLoginPage() {
   const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
@@ -197,7 +197,7 @@ export default function StiHubLoginPage() {
       }
       const d = json.data;
       if (d?.user) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...d.user,
           password: newPassword.trim(),
         });
@@ -420,7 +420,7 @@ export default function StiHubLoginPage() {
       }
 
       if (json.data?.user) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...json.data.user,
           mfaEnabled: true,
           totpConfigured: true,

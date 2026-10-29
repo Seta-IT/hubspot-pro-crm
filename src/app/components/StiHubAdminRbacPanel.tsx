@@ -22,8 +22,8 @@ import {
   loadClientDeletedUsersOverride,
   loadClientIamUsersOverride,
   saveClientDeletedUserOverride,
-  saveClientIamUserOverride,
 } from '../lib/auth';
+import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import {
   HOME_SCREENS,
   HomeScreenId,
@@ -472,7 +472,7 @@ export default function StiHubAdminRbacPanel({
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...json.data,
           ...(patch.password ? { password: patch.password } : {}),
         });
@@ -495,7 +495,7 @@ export default function StiHubAdminRbacPanel({
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...json.data,
           totpConfigured: false,
           totpConfiguredAt: null,
@@ -565,7 +565,7 @@ export default function StiHubAdminRbacPanel({
         return;
       }
       if (json?.data?.user) {
-        saveClientIamUserOverride(json.data.user);
+        saveClientIamUserOverrideIfNewer(json.data.user);
         if (editingUser && editingUser.id === user.id) setEditingUser(json.data.user);
       }
       onShowToast(
@@ -591,7 +591,7 @@ export default function StiHubAdminRbacPanel({
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverride(json.data);
+        saveClientIamUserOverrideIfNewer(json.data);
         if (editingUser && editingUser.id === user.id) {
           setEditingUser(json.data);
         }
@@ -610,7 +610,7 @@ export default function StiHubAdminRbacPanel({
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...json.data,
           totpConfigured: false,
           totpConfiguredAt: null,
@@ -638,7 +638,7 @@ export default function StiHubAdminRbacPanel({
       const json = await res.json();
       const d = json?.data;
       if (d?.user) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...d.user,
           totpConfigured: false,
           totpConfiguredAt: null,
@@ -791,7 +791,7 @@ export default function StiHubAdminRbacPanel({
       const json = await res.json();
       const created = json?.data;
       if (created) {
-        saveClientIamUserOverride({
+        saveClientIamUserOverrideIfNewer({
           ...created,
           totpConfigured: false,
           totpConfiguredAt: null,

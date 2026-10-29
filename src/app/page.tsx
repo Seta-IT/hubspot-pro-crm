@@ -45,7 +45,8 @@ import {
   shouldOfferHomeScreenChoice,
   systemHasAccess,
 } from './lib/home-screen';
-import { loadClientIamUsersOverride, saveClientIamUserOverride } from './lib/auth';
+import { loadClientIamUsersOverride } from './lib/auth';
+import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
@@ -1169,7 +1170,7 @@ export default function HubSpotProCrmApp() {
         if (cancelled) return;
         const serverValue: unknown = json?.data?.homeScreen;
         const serverScreen = isHomeScreenId(serverValue) ? serverValue : null;
-        if (json?.data?.user) saveClientIamUserOverride(json.data.user);
+        if (json?.data?.user) saveClientIamUserOverrideIfNewer(json.data.user);
         saveHomeScreenPreference(userId, serverScreen);
         if (deepLink.hasDeepLink && !deepLink.screenId) {
           setHomeScreenPreference(serverScreen);
@@ -1251,7 +1252,7 @@ export default function HubSpotProCrmApp() {
         showToast(`Tela inicial salva apenas neste navegador: ${json?.error || 'o servidor recusou a alteração.'}`);
         return;
       }
-      if (json?.data?.user) saveClientIamUserOverride(json.data.user);
+      if (json?.data?.user) saveClientIamUserOverrideIfNewer(json.data.user);
       showToast(screenId ? `Tela inicial padrão definida: ${label}.` : `Tela inicial padrão restaurada: ${label}.`);
     } catch {
       showToast(`Tela inicial salva apenas neste navegador (servidor indisponível): ${label}.`);

@@ -1941,6 +1941,8 @@ export interface StiHubUserRecord {
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   /** Tela inicial padrao (ID da allowlist em src/app/lib/home-screen.ts). */
   homeScreen?: string | null;
+  /** Versao (ISO) do campo homeScreen; vai no selo IAM e o mais recente vence. */
+  homeScreenUpdatedAt?: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
