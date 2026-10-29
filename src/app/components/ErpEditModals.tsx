@@ -40,7 +40,7 @@ import {
   ErpRentalEquipmentItem,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
-import { ProposalItemsGrid } from './ProposalItemsGrid';
+import { applyBudgetTypeToItems, ProposalItemsGrid } from './ProposalItemsGrid';
 import {
   ContractBillingHistoryPanel,
   ContractGestaoClickDataPanel,
@@ -94,7 +94,10 @@ export function ProposalEditModal({
   isNew?: boolean;
 }) {
   const [draft, setDraft] = useState<ErpCommercialProposal>(() =>
-    computeProposalTotals(structuredClone(proposal))
+    computeProposalTotals({
+      ...structuredClone(proposal),
+      items: applyBudgetTypeToItems(structuredClone(proposal.items || []), proposal.budgetType, proposal.serviceType, catalog),
+    })
   );
   const [saving, setSaving] = useState(false);
   const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(true);
@@ -478,7 +481,14 @@ export function ProposalEditModal({
   });
 
   const updateDraft = (patch: Partial<ErpCommercialProposal>) => {
-    setDraft((prev) => computeProposalTotals({ ...prev, ...patch }));
+    setDraft((prev) => {
+      const merged = { ...prev, ...patch };
+      // Tipo de orcamento/servico definido no topo da proposta define a natureza de todos os itens.
+      if ('budgetType' in patch || 'serviceType' in patch) {
+        merged.items = applyBudgetTypeToItems(merged.items, merged.budgetType, merged.serviceType, catalog);
+      }
+      return computeProposalTotals(merged);
+    });
   };
 
   const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) => {

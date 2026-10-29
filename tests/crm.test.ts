@@ -2247,9 +2247,30 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(gridSrc.includes('bg-[#1b2559] text-white'), 'linha destacada navy no autocomplete');
     assert.ok(gridSrc.includes('Adicionar novo'));
     assert.ok(gridSrc.includes('bg-[#e9ecef]'));
-    assert.ok(gridSrc.includes("<option value=\"LOCACAO\">Locação</option>") && gridSrc.includes("<option value=\"VENDA\">Venda</option>"));
-    assert.ok(gridSrc.includes("fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO'"));
-    assert.ok(gridSrc.includes('PROPOSAL_SERVICE_PILL_OPTIONS'));
+    // Sem coluna Tipo*: natureza derivada do Tipo de Orcamento da proposta
+    assert.equal(gridSrc.includes('Tipo<span'), false, 'coluna Tipo* removida');
+    assert.equal(gridSrc.includes('<option value="VENDA">Venda</option>'), false);
+    assert.ok(modalsSrc.includes('applyBudgetTypeToItems(merged.items, merged.budgetType, merged.serviceType, catalog)'));
+  });
+
+  it('natureza dos itens derivada do budgetType (LOCACAO/PRODUTOS/SERVICOS) e recalculada ao trocar o tipo', async () => {
+    const gridMod = await import('../src/app/components/ProposalItemsGrid');
+    const base: any[] = [
+      { id: 'a', sku: 'X1', description: 'Switch', itemType: 'PRODUCT', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 1, unitPrice: 100, discountPercent: 0, isRecurring: true, totalMonthly: 100 },
+      { id: 'b', sku: 'S1', description: 'Instalacao', itemType: 'SERVICE', fiscalNature: 'SERVICO_TECNICO_TI_TELECOM', ncmOrServiceCode: '', quantity: 1, unitPrice: 50, discountPercent: 0, isRecurring: true, totalMonthly: 50 },
+    ];
+    const catalog: any[] = [{ id: 'c1', gestaoClickCode: 'X1', name: 'Switch', category: 'EQUIPAMENTO_LOCACAO', fiscalNature: 'LOCACAO_BENS_MOVEIS', monthlyRentalPrice: 100, saleOrSetupPrice: 900, isActive: true }];
+    const asSale = gridMod.applyBudgetTypeToItems(base, 'PRODUTOS', undefined, catalog);
+    assert.equal(asSale[0].fiscalNature, 'VENDA_EQUIPAMENTO');
+    assert.equal(asSale[0].isRecurring, false);
+    assert.equal(asSale[0].unitPrice, 900, 'preco de catalogo acompanha a natureza');
+    const backToRental = gridMod.applyBudgetTypeToItems(asSale, 'LOCACAO', undefined, catalog);
+    assert.equal(backToRental[0].fiscalNature, 'LOCACAO_BENS_MOVEIS');
+    assert.equal(backToRental[0].isRecurring, true);
+    assert.equal(backToRental[0].unitPrice, 100);
+    const services = gridMod.applyBudgetTypeToItems(base, 'SERVICOS', 'Instalação', catalog);
+    assert.equal((services[1] as any).serviceKind, 'Instalação');
+    assert.equal(services[1].fiscalNature, 'SERVICO_TECNICO_TI_TELECOM');
   });
 
   it('short link de versao /proposta/<id>/v/<n> e versao exibida no topo da proposta', async () => {

@@ -4,12 +4,13 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Menu, Package, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
 import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
-import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS } from '../lib/proposal-share';
+import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
 
 /**
  * Grade de itens no padrao GestaoClick ("Adicione os produtos do orcamento"):
- * Produto* | Detalhes | Quant.* | Tipo* | Valor* | Desconto | Subtotal | Acoes.
+ * Produto* | Detalhes | Quant.* | Valor* | Desconto | Subtotal | Acoes.
+ * Sem coluna Tipo: a natureza vem do Tipo de Orcamento da proposta (applyBudgetTypeToItems).
  * Sempre ha uma linha vazia pronta; digitar no Produto abre o autocomplete do
  * catalogo e "+ Adicionar novo" inclui um item livre com o texto digitado.
  */
@@ -39,14 +40,14 @@ export function isServiceCatalogItem(c: ErpCatalogItem): boolean {
   );
 }
 
-function defaultServiceKind(serviceType?: string): string {
-  const raw = String(serviceType || '').trim();
-  const exact = PROPOSAL_SERVICE_PILL_OPTIONS.find((o) => o === raw);
-  return exact || PROPOSAL_SERVICE_PILL_OPTIONS[0];
+/** Tipo de servico das linhas = tipo de servico definido no topo da proposta (chips). */
+function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], serviceType?: string): string {
+  return resolveProposalServiceType({ budgetType, serviceType }) || PROPOSAL_SERVICE_PILL_OPTIONS[0];
 }
 
-function productIsRental(item: ErpProposalItem): boolean {
-  return item.fiscalNature !== 'VENDA_EQUIPAMENTO';
+/** Locacao (MRR) para LOCACAO/SERVICOS/CONJUNTO; venda de equipamento para PRODUTOS. */
+function isRentalBudget(budgetType?: ErpCommercialProposal['budgetType']): boolean {
+  return budgetType !== 'PRODUTOS';
 }
 
 function catalogPriceFor(found: ErpCatalogItem, kind: GridKind, rental: boolean): number {
@@ -54,6 +55,38 @@ function catalogPriceFor(found: ErpCatalogItem, kind: GridKind, rental: boolean)
   return rental
     ? found.monthlyRentalPrice || found.saleOrSetupPrice || 0
     : found.saleOrSetupPrice || found.monthlyRentalPrice || 0;
+}
+
+/**
+ * Deriva a natureza fiscal de cada linha a partir do Tipo de Orcamento da proposta
+ * (LOCACAO -> LOCACAO_BENS_MOVEIS; PRODUTOS -> VENDA_EQUIPAMENTO; servicos -> serviceType da proposta).
+ * Chamado ao trocar o tipo de orcamento/servico: o preco do catalogo acompanha a natureza
+ * somente quando a linha ainda esta com o preco de catalogo da natureza anterior.
+ */
+export function applyBudgetTypeToItems(
+  items: ErpProposalItem[],
+  budgetType?: ErpCommercialProposal['budgetType'],
+  serviceType?: string,
+  catalog: ErpCatalogItem[] = []
+): ErpProposalItem[] {
+  const rental = isRentalBudget(budgetType);
+  const serviceKind = defaultServiceKind(budgetType, serviceType);
+  return (items || []).map((item) => {
+    if (inferProposalItemType(item) === 'SERVICE') {
+      return { ...item, serviceKind } as ProposalGridItem;
+    }
+    const nextNature: ErpProposalItem['fiscalNature'] = rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO';
+    if (item.fiscalNature === nextNature && item.isRecurring === rental) return item;
+    const found = catalog.find((c) => c.gestaoClickCode === item.sku);
+    const wasCatalogPrice =
+      found && Number(item.unitPrice) === catalogPriceFor(found, 'PRODUCT', item.fiscalNature !== 'VENDA_EQUIPAMENTO');
+    return {
+      ...item,
+      fiscalNature: nextNature,
+      isRecurring: rental,
+      ...(found && wasCatalogPrice ? { unitPrice: catalogPriceFor(found, 'PRODUCT', rental) } : {}),
+    };
+  });
 }
 
 function skuPrefix(item: ErpProposalItem): string {
@@ -124,7 +157,7 @@ export function ProposalItemsGrid({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const isProduct = kind === 'PRODUCT';
-  const defaultRental = budgetType !== 'PRODUTOS';
+  const defaultRental = isRentalBudget(budgetType);
   const noun = isProduct ? 'produtos' : 'serviços';
 
   const rows = items
@@ -184,7 +217,7 @@ export function ProposalItemsGrid({
       fiscalNature:
         found?.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA' ? 'SERVICO_COMUNICACAO_SCM_SVA' : 'SERVICO_TECNICO_TI_TELECOM',
       ncmOrServiceCode: found?.ncmOrLc116 || 'LC 116/03 Item 01.07',
-      serviceKind: defaultServiceKind(serviceType),
+      serviceKind: defaultServiceKind(budgetType, serviceType),
       quantity: 1,
       unitPrice: price,
       discountPercent: 0,
@@ -243,13 +276,12 @@ export function ProposalItemsGrid({
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-slate-200">
-              <th className={`${th} min-w-[220px]`}>{isProduct ? 'Produto' : 'Serviço'}<span className="text-rose-600">*</span></th>
-              <th className={`${th} min-w-[130px]`}>Detalhes</th>
+              <th className={`${th} w-[38%] min-w-[240px]`}>{isProduct ? 'Produto' : 'Serviço'}<span className="text-rose-600">*</span></th>
+              <th className={`${th} w-[20%] min-w-[140px]`}>Detalhes</th>
               <th className={`${th} w-[70px]`}>Quant.<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[120px]`}>Tipo<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[100px]`}>Valor<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[110px]`}>Desconto</th>
-              <th className={`${th} w-[100px]`}>Subtotal</th>
+              <th className={`${th} w-[110px]`}>Valor<span className="text-rose-600">*</span></th>
+              <th className={`${th} w-[120px]`}>Desconto</th>
+              <th className={`${th} w-[110px]`}>Subtotal</th>
               <th className={`${th} w-[64px] text-center`}>Ações</th>
             </tr>
           </thead>
@@ -290,38 +322,6 @@ export function ProposalItemsGrid({
                         onChange={(e) => patchRow(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })}
                         className={`${inputBase} text-center`}
                       />
-                    </td>
-                    <td className={td}>
-                      {isProduct ? (
-                        <select
-                          value={productIsRental(item) ? 'LOCACAO' : 'VENDA'}
-                          onChange={(e) => {
-                            const rental = e.target.value === 'LOCACAO';
-                            const found = catalog.find((c) => c.gestaoClickCode === item.sku);
-                            patchRow(idx, {
-                              fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO',
-                              isRecurring: rental,
-                              ...(found ? { unitPrice: catalogPriceFor(found, 'PRODUCT', rental) } : {}),
-                            });
-                          }}
-                          className={inputBase}
-                        >
-                          <option value="LOCACAO">Locação</option>
-                          <option value="VENDA">Venda</option>
-                        </select>
-                      ) : (
-                        <select
-                          value={gridItem.serviceKind || defaultServiceKind(serviceType)}
-                          onChange={(e) => patchRow(idx, { serviceKind: e.target.value })}
-                          className={inputBase}
-                        >
-                          {PROPOSAL_SERVICE_PILL_OPTIONS.map((o) => (
-                            <option key={o} value={o}>
-                              {o}
-                            </option>
-                          ))}
-                        </select>
-                      )}
                     </td>
                     <td className={td}>
                       <input
@@ -370,7 +370,7 @@ export function ProposalItemsGrid({
                   </tr>
                   {isEditing && (
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td colSpan={8} className="px-2 py-2">
+                      <td colSpan={7} className="px-2 py-2">
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[11px] text-slate-600">
                           <label className="space-y-0.5">
                             <span>Código / SKU</span>
@@ -492,13 +492,6 @@ export function ProposalItemsGrid({
               </td>
               <td className={td}>
                 <input type="text" disabled value="" className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td}>
-                <select disabled className={`${inputBase} opacity-70`}>
-                  <option>
-                    {isProduct ? (defaultRental ? 'Locação' : 'Venda') : defaultServiceKind(serviceType)}
-                  </option>
-                </select>
               </td>
               <td className={td}>
                 <input type="text" disabled className={`${inputBase} opacity-70`} />
