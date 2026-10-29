@@ -1916,6 +1916,8 @@ export interface StiHubUserRecord {
   totpSecret?: string;
   totpConfigured?: boolean;
   totpConfiguredAt?: string | null;
+  /** Epoca de rotacao em que o pareamento TOTP foi concluido (ver STIHUB_TOTP_ROTATION_EPOCH). */
+  totpEpoch?: string | null;
   lastUsedTotpTimeStep?: number | null;
   passwordHash?: string;
   inviteStatus?: "PENDING_INVITE" | "ACTIVE";

@@ -102,8 +102,8 @@ import {
   buildTotpQrCodeSvgDataUrl,
   computeRfc6238Totp,
   formatBase32SecretBlocks,
-  generateTotpSecretBase32,
   hashCorporatePassword,
+  STIHUB_TOTP_ROTATION_EPOCH,
   isValidPureBase32Secret,
   sha256Hex,
   signMfaChallengeToken,
@@ -122,6 +122,14 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
+import { deriveServerTotpSecret, unsealIamRecord } from './iam-security';
+
+// Contencao 29/10/2026: todo segredo TOTP e derivado no servidor (HMAC com a chave
+// STI_HUB_SESSION_SECRET + epoca de rotacao). Segredos vindos do cliente, do seed,
+// de overrides ou de estado antigo em /tmp sao ignorados.
+function generateTotpSecretBase32(seedIdentifier?: string): string {
+  return deriveServerTotpSecret(String(seedIdentifier || ''));
+}
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
 import {
@@ -6580,8 +6588,13 @@ export class CrmRepository {
       if (!u.erpPermissions) {
         u.erpPermissions = buildDefaultErpPermissionsForRole(u.roleId);
       }
-      if (!u.totpSecret || !isValidPureBase32Secret(u.totpSecret)) {
-        u.totpSecret = generateTotpSecretBase32(u.email);
+      u.totpSecret = generateTotpSecretBase32(u.email);
+      if (u.totpEpoch !== STIHUB_TOTP_ROTATION_EPOCH) {
+        // Rotacao de TOTP: pareamentos de epocas anteriores nao valem mais (forca QR no proximo login).
+        u.totpConfigured = false;
+        u.totpConfiguredAt = null;
+        u.lastUsedTotpTimeStep = null;
+        u.totpEpoch = null;
       }
       if (u.mfaEnabled === false) {
         u.totpConfigured = false;
@@ -6676,6 +6689,7 @@ export class CrmRepository {
     const nowIso = new Date().toISOString();
     const id = input.id ? String(input.id) : "";
     const emailNorm = input.email ? String(input.email).trim().toLowerCase() : "";
+    this.markLocalIamChange(id || rbac.users.find((u) => u.email.toLowerCase() === emailNorm)?.id);
 
     let existing = rbac.users.find(
       (u) => (id && u.id === id) || (emailNorm && u.email.toLowerCase() === emailNorm)
@@ -6724,19 +6738,16 @@ export class CrmRepository {
       if (input.password && String(input.password).trim().length >= 6) {
         existing.passwordHash = hashCorporatePassword(String(input.password));
       }
-      if (input.totpSecret && isValidPureBase32Secret(input.totpSecret)) {
-        const cleanSec = input.totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
-        if (cleanSec !== existing.totpSecret && input.totpConfigured === undefined) {
-          existing.totpConfigured = false;
-          existing.totpConfiguredAt = null;
-        }
-        existing.totpSecret = cleanSec;
-      } else if (!existing.totpSecret || !isValidPureBase32Secret(existing.totpSecret)) {
-        existing.totpSecret = generateTotpSecretBase32(existing.email);
-      }
-      if (typeof input.totpConfigured === "boolean") {
-        existing.totpConfigured = input.totpConfigured;
-        existing.totpConfiguredAt = input.totpConfigured ? (existing.totpConfiguredAt || nowIso) : null;
+      // totpSecret nunca e aceito da entrada: sempre derivado no servidor.
+      existing.totpSecret = generateTotpSecretBase32(existing.email);
+      if (input.totpConfigured === false) {
+        existing.totpConfigured = false;
+        existing.totpConfiguredAt = null;
+        existing.totpEpoch = null;
+      } else if (input.totpConfigured === true && input.totpEpoch === STIHUB_TOTP_ROTATION_EPOCH) {
+        existing.totpConfigured = true;
+        existing.totpConfiguredAt = existing.totpConfiguredAt || nowIso;
+        existing.totpEpoch = STIHUB_TOTP_ROTATION_EPOCH;
       }
       if ((input as Record<string, unknown>).inviteStatus) {
         existing.inviteStatus = (input as Record<string, unknown>).inviteStatus as "PENDING_INVITE" | "ACTIVE";
@@ -6878,9 +6889,11 @@ export class CrmRepository {
       active: input.active !== false,
       mfaEnabled: input.mfaEnabled !== false,
       mfaMethod: input.mfaMethod || "TOTP_AUTHENTICATOR",
-      totpSecret: input.totpSecret || generateTotpSecretBase32(targetEmail),
-      totpConfigured: Boolean(input.totpConfigured),
-      totpConfiguredAt: input.totpConfigured ? nowIso : null,
+      totpSecret: generateTotpSecretBase32(targetEmail),
+      totpConfigured: Boolean(input.totpConfigured) && input.totpEpoch === STIHUB_TOTP_ROTATION_EPOCH,
+      totpConfiguredAt:
+        input.totpConfigured && input.totpEpoch === STIHUB_TOTP_ROTATION_EPOCH ? nowIso : null,
+      totpEpoch: input.totpConfigured && input.totpEpoch === STIHUB_TOTP_ROTATION_EPOCH ? STIHUB_TOTP_ROTATION_EPOCH : null,
       lastUsedTotpTimeStep: null,
       passwordHash:
         input.password && String(input.password).trim().length >= 6
@@ -7081,6 +7094,64 @@ export class CrmRepository {
     };
   }
 
+  /** Momento (ms) da ultima alteracao IAM local por usuario nesta instancia. */
+  private localIamChangeAt = new Map<string, number>();
+  /** sealedAt (ms) do ultimo selo IAM aplicado por usuario nesta instancia. */
+  private sealAppliedAt = new Map<string, number>();
+
+  /** Registro IAM autoritativo (para selar respostas). */
+  findRbacUserRecord(id: string, email: string): StiHubUserRecord | undefined {
+    const rbac = this.ensureRbacState();
+    const e = String(email || "").toLowerCase();
+    return rbac.users.find((u) => u.id === id) || rbac.users.find((u) => u.email.toLowerCase() === e);
+  }
+
+  markLocalIamChange(userId: string | undefined | null): void {
+    if (userId) this.localIamChangeAt.set(String(userId), Date.now());
+  }
+
+  /**
+   * Pre-autenticacao: aplica SOMENTE registros IAM selados pelo proprio servidor
+   * (campo iamSeal, AES-256-GCM com chave derivada de STI_HUB_SESSION_SECRET).
+   * Entradas sem selo valido sao ignoradas. Nunca altera o segredo TOTP.
+   */
+  applySealedIamOverrides(overrides?: unknown): number {
+    if (!Array.isArray(overrides) || overrides.length === 0) return 0;
+    const rbac = this.ensureRbacState();
+    let applied = 0;
+    for (const raw of overrides.slice(0, 200)) {
+      if (!raw || typeof raw !== "object") continue;
+      const rec = unsealIamRecord((raw as Record<string, unknown>).iamSeal);
+      if (!rec) continue;
+      const u = rec.user;
+      if (this.deletedUserIds.has(u.id) || this.deletedUserEmails.has(String(u.email).toLowerCase())) continue;
+      if ((this.sealAppliedAt.get(u.id) || 0) >= rec.sealedAt) continue;
+      if ((this.localIamChangeAt.get(u.id) || 0) > rec.sealedAt) continue;
+      const existing = rbac.users.find(
+        (x) => x.id === u.id || x.email.toLowerCase() === String(u.email).toLowerCase()
+      );
+      const patch = { ...(u as Record<string, unknown>) };
+      delete patch.totpSecret;
+      delete patch.lastUsedTotpTimeStep;
+      if (existing) {
+        Object.assign(existing, patch);
+      } else {
+        rbac.users.push(patch as unknown as StiHubUserRecord);
+      }
+      this.sealAppliedAt.set(u.id, rec.sealedAt);
+      applied++;
+    }
+    if (applied > 0) {
+      this.ensureRbacState();
+      this.save();
+    }
+    return applied;
+  }
+
+  /**
+   * Pos-autenticacao, SOMENTE para sessao com canManageUsersRbac (chamado pelo router).
+   * Campos de 2FA (segredo, pareamento, epoca) vindos do cliente sao descartados.
+   */
   applyIamUsersOverride(overrides?: unknown, deletedOverrides?: unknown): void {
     if (Array.isArray(deletedOverrides) && deletedOverrides.length > 0) {
       const rbac = this.ensureRbacState();
@@ -7098,9 +7169,12 @@ export class CrmRepository {
       this.save();
     }
     if (!Array.isArray(overrides) || overrides.length === 0) return;
+    // Registros selados primeiro (estado autoritativo emitido pelo servidor).
+    this.applySealedIamOverrides(overrides);
     for (const raw of overrides) {
       if (!raw || typeof raw !== "object") continue;
-      const item = raw as Partial<StiHubUserRecord> & { password?: string };
+      if (unsealIamRecord((raw as Record<string, unknown>).iamSeal)) continue;
+      const item = { ...(raw as Partial<StiHubUserRecord> & { password?: string }) } as Record<string, unknown>;
       if (!item.email && !item.id) continue;
       if (
         (item.id && this.deletedUserIds.has(String(item.id))) ||
@@ -7108,7 +7182,19 @@ export class CrmRepository {
       ) {
         continue;
       }
-      this.upsertRbacUser(item);
+      for (const k of [
+        "totpSecret",
+        "totpSecretFormatted",
+        "totpConfigured",
+        "totpConfiguredAt",
+        "totpEpoch",
+        "lastUsedTotpTimeStep",
+        "passwordHash",
+        "iamSeal",
+      ]) {
+        delete item[k];
+      }
+      this.upsertRbacUser(item as Partial<StiHubUserRecord> & { password?: string });
     }
   }
 
@@ -7252,7 +7338,7 @@ export class CrmRepository {
       enabledModules: normMod.enabledModules,
       mfaEnabled: found.mfaEnabled !== false,
       mfaMethod: found.mfaMethod || "TOTP_AUTHENTICATOR",
-      totpSecret: found.totpSecret,
+      totpSecret: "", // segredo TOTP nunca vai dentro de token legivel (derivado no servidor)
       iat: nowMs,
       exp: expMs,
     });
@@ -7339,7 +7425,7 @@ export class CrmRepository {
       });
     }
 
-    const secret = user.totpSecret || c.totpSecret || generateTotpSecretBase32(c.email);
+    const secret = generateTotpSecretBase32(user.email || c.email);
     const otpauthUri = buildOtpAuthUri({
       secretBase32: secret,
       email: user.email,
@@ -7518,18 +7604,13 @@ export class CrmRepository {
     if (!found) {
       return { ok: false, error: "Usuário não encontrado na matriz IAM." };
     }
-    if (explicitSecret && isValidPureBase32Secret(explicitSecret)) {
-      found.totpSecret = explicitSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
-      found.totpConfiguredAt = new Date().toISOString();
-      this.save();
-    } else if (!found.totpSecret || !isValidPureBase32Secret(found.totpSecret) || regenerateSecret) {
-      found.totpSecret = regenerateSecret
-        ? generateTotpSecretBase32()
-        : generateTotpSecretBase32(found.email);
-      if (regenerateSecret) {
-        found.totpConfigured = false;
-        found.totpConfiguredAt = null;
-      }
+    // Segredo explicito do cliente e ignorado (contencao 29/10/2026): sempre derivado no servidor.
+    void explicitSecret;
+    found.totpSecret = generateTotpSecretBase32(found.email);
+    if (regenerateSecret) {
+      found.totpConfigured = false;
+      found.totpConfiguredAt = null;
+      found.totpEpoch = null;
       this.save();
     }
     const otpauthUri = buildOtpAuthUri({
@@ -7622,7 +7703,7 @@ export class CrmRepository {
       uid: found.id,
       email: found.email,
       mfaMethod: "EMAIL_OTP",
-      totpSecret: found.totpSecret || generateTotpSecretBase32(found.email),
+      totpSecret: "", // nunca embutir o segredo TOTP no desafio
       emailOtpHash: sha256Hex(otpCode),
       iat: nowMs,
       exp: expiresAtMs,
@@ -7810,7 +7891,7 @@ export class CrmRepository {
       uid: found.id,
       email: found.email,
       mfaMethod: found.mfaMethod,
-      totpSecret: found.totpSecret,
+      totpSecret: "", // nunca embutir o segredo TOTP no desafio (era legivel em base64)
       emailOtpHash: emailOtpStatus?.devOtpPreview
         ? sha256Hex(emailOtpStatus.devOtpPreview)
         : undefined,
@@ -7903,10 +7984,8 @@ export class CrmRepository {
       realUserRecord?.mfaEnabled !== false && realUserRecord?.totpConfigured === true
     );
 
-    const userSecret =
-      user.totpSecret && isValidPureBase32Secret(user.totpSecret)
-        ? user.totpSecret
-        : generateTotpSecretBase32(user.email);
+    // Segredo TOTP sempre derivado no servidor (nunca do cliente / desafio / override).
+    const userSecret = generateTotpSecretBase32(user.email);
 
     // If challengeId was provided and is expired or already consumed, reject immediately
     let statelessChallenge: ReturnType<typeof verifyMfaChallengeToken> = null;
@@ -7928,13 +8007,10 @@ export class CrmRepository {
 
     // Only allow external candidatePairingSecret during initial enrollment (!isTotpAlreadyConfigured)
     // or when rotating explicitly with a valid pairing secret
-    const rawCandidateSecret = !isTotpAlreadyConfigured
-      ? input.totpSecret || statelessChallenge?.totpSecret
-      : input.totpSecret;
-    const candidatePairingSecret =
-      rawCandidateSecret && isValidPureBase32Secret(rawCandidateSecret)
-        ? rawCandidateSecret.toUpperCase().replace(/[^A-Z2-7]/g, "")
-        : null;
+    // Contencao 29/10/2026: segredo de pareamento enviado pelo cliente NAO e mais aceito
+    // (permitia parear um segredo do atacante em conta ja configurada).
+    void isTotpAlreadyConfigured;
+    const candidatePairingSecret: string | null = null;
 
     const currentTimeStep = Math.floor(nowMs / 30000);
     const previousTimeStep = currentTimeStep - 1;
@@ -8085,6 +8161,8 @@ export class CrmRepository {
         realUserRecord.mfaEnabled = true;
         realUserRecord.totpSecret = matchedTotpSecret;
         realUserRecord.totpConfigured = true;
+        realUserRecord.totpEpoch = STIHUB_TOTP_ROTATION_EPOCH;
+        this.markLocalIamChange(realUserRecord.id);
         realUserRecord.totpConfiguredAt =
           realUserRecord.totpConfiguredAt || new Date().toISOString();
         realUserRecord.lastUsedTotpTimeStep = currentTimeStep;
@@ -8180,6 +8258,7 @@ export class CrmRepository {
             mfaEnabled: true,
             mfaMethod: c.mfaMethod || "TOTP_AUTHENTICATOR",
             totpConfigured: true,
+            totpEpoch: STIHUB_TOTP_ROTATION_EPOCH,
             active: true,
           });
         } else if (exists) {

@@ -110,7 +110,7 @@ export default function StiHubLoginPage() {
     document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
     document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
     if (verifiedEmail && userObj?.totpConfigured !== false) {
-      document.cookie = `stihub_totp_enrolled=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      document.cookie = `stihub_totp_enrolled_r1=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
     }
     const params = new URLSearchParams(window.location.search);
     const rawNext = params.get('next') || '/';
@@ -333,6 +333,7 @@ export default function StiHubLoginPage() {
         body: JSON.stringify({
           email: targetEmail,
           userId: challengeData?.user?.id,
+          challengeId: challengeData?.challengeId,
           iamUsersOverride: loadClientIamUsersOverride(),
           iamDeletedUsersOverride: loadClientDeletedUsersOverride(),
         }),

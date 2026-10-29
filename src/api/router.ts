@@ -39,7 +39,15 @@ import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
 import { STI_HUB_MODULES_LIST } from '../modules/erp/rbac-seed';
-import { classifyRouteRequiredModule, isPublicStiHubPath } from '../middleware';
+import {
+  classifyRouteRequiredModule,
+  isProposalMutationPath,
+  isPublicStiHubPath,
+  PROPOSAL_EDITOR_ERP_ROLES,
+  resolveErpAccountRoleFromClaims,
+} from '../middleware';
+import { verifyStiHubSessionToken } from '../app/lib/auth';
+import { sanitizeApiResponseBody } from '../db/iam-security';
 import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -458,13 +466,39 @@ export class CrmApiRouter {
       }
     }
 
+    // Requisicoes HTTP (via _bridge): o journal do cliente so e aplicado com sessao MFA valida.
+    const isHttpRequest = query._fromHttpBridge === "1";
+    const httpSessionValid =
+      !isHttpRequest || verifyStiHubSessionToken(query._sessionToken || null).valid;
+
     let journalReconciled = false;
-    if (body && typeof body._reconcileJournal === "object" && body._reconcileJournal !== null) {
+    if (
+      httpSessionValid &&
+      body &&
+      typeof body._reconcileJournal === "object" &&
+      body._reconcileJournal !== null
+    ) {
       const rec = this.repo.reconcileClientState(body._reconcileJournal as ClientDurableJournal);
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const response = await this.handleRoute(method, cleanPath, query, body);
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body);
+    // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
+    const response = isHttpRequest
+      ? {
+          ...rawResponse,
+          body: sanitizeApiResponseBody(rawResponse.body, {
+            path: cleanPath,
+            // Selo IAM so para quem tem sessao valida ou acabou de autenticar (verify-mfa / aceite de convite).
+            lookupUser:
+              httpSessionValid ||
+              (rawResponse.status === 200 &&
+                (cleanPath === "/api/auth/verify-mfa" || cleanPath === "/api/auth/accept-invite"))
+                ? (id, email) => this.repo.findRbacUserRecord(id, email)
+                : undefined,
+          }),
+        }
+      : rawResponse;
 
     if (
       this.isSingletonRepo &&
@@ -653,15 +687,36 @@ export class CrmApiRouter {
     body: Record<string, unknown>
   ): Promise<ApiResponse> {
     try {
-      if (
-        body &&
-        (Array.isArray((body as Record<string, unknown>).iamUsersOverride) ||
-          Array.isArray((body as Record<string, unknown>).iamDeletedUsersOverride))
-      ) {
-        this.repo.applyIamUsersOverride(
-          (body as Record<string, unknown>).iamUsersOverride,
-          (body as Record<string, unknown>).iamDeletedUsersOverride
-        );
+      // Contencao 29/10/2026: antes da autenticacao so sao aceitos registros IAM SELADOS
+      // pelo servidor (iamSeal). Override "cru" do cliente so depois da sessao MFA e com
+      // permissao canManageUsersRbac (ver abaixo).
+      const rawIamOverride = (body as Record<string, unknown>)?.iamUsersOverride;
+      const rawIamDeleted = (body as Record<string, unknown>)?.iamDeletedUsersOverride;
+      if (Array.isArray(rawIamOverride)) {
+        this.repo.applySealedIamOverrides(rawIamOverride);
+      }
+
+      const isHttpRequest = query._fromHttpBridge === "1";
+      const isCronAuthorized =
+        query._cronAuthorized === "1" &&
+        cleanPath === "/api/erp/daily-sync" &&
+        method === "GET";
+      const requestSessionToken =
+        query._sessionToken ||
+        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+
+      // Defesa em profundidade: toda requisicao HTTP a rota nao publica exige sessao MFA valida,
+      // mesmo que o middleware seja contornado ou mal configurado.
+      if (isHttpRequest && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
+        if (!requestSessionToken || !verifyStiHubSessionToken(requestSessionToken).valid) {
+          return {
+            status: 401,
+            body: {
+              error: "Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.",
+              code: "MFA_AUTH_REQUIRED",
+            },
+          };
+        }
       }
 
       // ======================================================================
@@ -681,6 +736,38 @@ export class CrmApiRouter {
               code: "MFA_SESSION_INVALID",
             },
           };
+        }
+
+        // Override IAM "cru" do cliente: somente apos autenticacao e com alcada de admin de usuarios.
+        if (
+          (Array.isArray(rawIamOverride) || Array.isArray(rawIamDeleted)) &&
+          resolvedSession.effectiveActionGuards.canManageUsersRbac
+        ) {
+          this.repo.applyIamUsersOverride(rawIamOverride, rawIamDeleted);
+        }
+
+        // PATCH/PUT :id e POST :id/restore-version de proposta: perfil ERP_ADMIN/ERP_COMMERCIAL
+        // verificado tambem no servidor (nao apenas no middleware).
+        if (
+          isProposalMutationPath(cleanPath, method) ||
+          (method === "PUT" && /^\/api\/erp\/proposals\/[^/]+$/.test(cleanPath))
+        ) {
+          const claims = verifyStiHubSessionToken(activeSessionToken).claims;
+          const erpRole = resolveErpAccountRoleFromClaims(
+            claims
+              ? { ...claims, erpRole: claims.erpRole || resolvedSession.user.erpRole }
+              : null
+          );
+          if (!(PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole)) {
+            return {
+              status: 403,
+              body: {
+                error:
+                  "Acesso negado: somente perfis ERP Administrador ou ERP Comercial podem editar ou restaurar versões de propostas.",
+                code: "ERP_PROPOSAL_ROLE_FORBIDDEN",
+              },
+            };
+          }
         }
 
         const reqMod = classifyRouteRequiredModule(cleanPath);
@@ -4298,7 +4385,7 @@ export class CrmApiRouter {
       // ======================================================================
       if (cleanPath === '/api/auth/login' && method === 'POST') {
         const email = String(body.email || '').trim();
-        const password = body.password !== undefined ? String(body.password) : 'Seta@2026';
+        const password = body.password !== undefined ? String(body.password) : '';
         const enrolledCookieRaw = String(query._enrolledUsers || '');
         const enrolledSet = new Set(
           enrolledCookieRaw
@@ -4410,6 +4497,20 @@ export class CrmApiRouter {
             body: { error: 'Informe o e-mail ou ID do colaborador para enviar o código OTP.' },
           };
         }
+        // Contencao 29/10/2026: via HTTP o OTP por e-mail so e emitido apos a senha (desafio da etapa 1).
+        if (query._fromHttpBridge === '1') {
+          const ch = verifyMfaChallengeToken(typeof body.challengeId === 'string' ? body.challengeId : undefined);
+          const who = target.toLowerCase();
+          if (!ch || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+            return {
+              status: 401,
+              body: {
+                error: 'Faça login com a sua senha antes de solicitar o código por e-mail.',
+                code: 'MFA_CHALLENGE_REQUIRED',
+              },
+            };
+          }
+        }
         const otpChallenge = this.repo.createEmailOtpChallenge(target);
         if (!otpChallenge.ok || !otpChallenge.otpCode || !otpChallenge.email) {
           return {
@@ -4494,9 +4595,17 @@ export class CrmApiRouter {
             (verifiedStep1Challenge.email.toLowerCase() === target.toLowerCase() ||
               verifiedStep1Challenge.uid.toLowerCase() === target.toLowerCase())
         );
+        // Contencao 29/10/2026: o QR/segredo so sai para (a) o PROPRIO usuario com sessao MFA valida
+        // ou (b) quem acabou de validar a senha do mesmo usuario (desafio da etapa 1) e ainda nao pareou.
+        const callerIsTargetSelf = Boolean(
+          callerSession?.authenticated &&
+            callerSession?.mfaVerified &&
+            targetUser &&
+            (callerSession.user.id === targetUser.id ||
+              callerSession.user.email.toLowerCase() === targetUser.email.toLowerCase())
+        );
         const isCallerAuthenticated = Boolean(
-          (callerSession?.authenticated && callerSession?.mfaVerified) ||
-            (hasValidStep1Challenge && !targetUser?.totpConfigured)
+          callerIsTargetSelf || (hasValidStep1Challenge && !targetUser?.totpConfigured)
         );
 
         if (isAlreadyEnrolled && !isCallerAuthenticated && query._fromHttpBridge === '1') {
@@ -4505,6 +4614,16 @@ export class CrmApiRouter {
             body: {
               error: 'O Google Authenticator já está configurado para esta conta. Para reconfigurar ou visualizar o QR Code, autentique-se primeiro com seu código de 6 dígitos e acesse Minha Conta.',
               code: 'TOTP_ALREADY_CONFIGURED_FORBIDDEN',
+            },
+          };
+        }
+
+        if (query._fromHttpBridge === '1' && !isCallerAuthenticated) {
+          return {
+            status: 401,
+            body: {
+              error: 'Para parear o Google Authenticator, faça login com a sua senha (ou autentique-se com a sua própria sessão).',
+              code: 'TOTP_SETUP_AUTH_REQUIRED',
             },
           };
         }
@@ -4534,6 +4653,21 @@ export class CrmApiRouter {
             : undefined;
         const totpSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
         const challengeId = typeof body.challengeId === 'string' ? body.challengeId : undefined;
+        // Contencao 29/10/2026: via HTTP o codigo 2FA so vale com o desafio da etapa 1 (senha validada)
+        // do MESMO usuario. Sem isso, o codigo TOTP sozinho permitia login sem senha.
+        if (query._fromHttpBridge === '1') {
+          const ch = verifyMfaChallengeToken(challengeId);
+          const who = String(email || userId || '').trim().toLowerCase();
+          if (!ch || !who || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+            return {
+              status: 401,
+              body: {
+                error: 'Desafio 2FA ausente ou expirado. Faça login novamente com a sua senha.',
+                code: 'MFA_CHALLENGE_REQUIRED',
+              },
+            };
+          }
+        }
         const verified = this.repo.verifyMfaAndCreateSession({
           email,
           userId,

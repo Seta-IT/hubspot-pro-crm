@@ -494,7 +494,7 @@ export default function StiHubAdminRbacPanel({
         });
       }
       if (typeof document !== 'undefined') {
-        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
+        document.cookie = 'stihub_totp_enrolled_r1=; Path=/; Max-Age=0; SameSite=Lax';
       }
       onShowToast(
         nextEnabled
@@ -566,7 +566,7 @@ export default function StiHubAdminRbacPanel({
         });
       }
       if (typeof document !== 'undefined') {
-        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
+        document.cookie = 'stihub_totp_enrolled_r1=; Path=/; Max-Age=0; SameSite=Lax';
       }
       onShowToast(
         `QR Code do autenticador resetado para ${user.name}! No próximo login será exibido o QR Code para novo pareamento.`
@@ -761,7 +761,7 @@ export default function StiHubAdminRbacPanel({
         }
       }
       if (typeof document !== 'undefined') {
-        document.cookie = 'stihub_totp_enrolled=; Path=/; Max-Age=0; SameSite=Lax';
+        document.cookie = 'stihub_totp_enrolled_r1=; Path=/; Max-Age=0; SameSite=Lax';
       }
       setShowNewUserModal(false);
       setNewUserName('');
