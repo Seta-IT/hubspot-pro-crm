@@ -48,6 +48,8 @@ import {
   ContractGestaoClickDataPanel,
   ContractVersionHistoryPanel,
   InvoiceExtraFieldsPanel,
+  ReceiptDraftPreviewButton,
+  ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
 import {
   formatBrPhoneMask,
@@ -64,6 +66,7 @@ import {
   downloadInvoicePdfOnDemand,
   downloadContractInvoicesCsvOnDemand,
   downloadContractBillingHistoryReportOnDemand,
+  type ContractBillingRunOptions,
 } from '../lib/contract-billing-utils';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
@@ -2685,6 +2688,7 @@ export function ContractEditModal({
     draft.lastBilledCompetence || '10/2026'
   );
   const [billingIssuing, setBillingIssuing] = useState<boolean>(false);
+  const [receiptDraftOpen, setReceiptDraftOpen] = useState<boolean>(false);
 
   const [readjPercentInput, setReadjPercentInput] = useState<string>(
     draft.readjustmentIndex === 'IGP-M' ? '3.80' : '4.50'
@@ -2727,6 +2731,37 @@ export function ContractEditModal({
       const next = { ...prev, ...patch };
       return autoSyncMonthly ? { ...next, monthlyValue: computedInvoiceTotal(next) } : next;
     });
+  };
+  // Mesmo payload usado na finalização do faturamento (e na pré-visualização do rascunho).
+  const buildBillingRunOptions = (): ContractBillingRunOptions => ({
+    competenceMonth: billingCompetence,
+    dueDate: draft.nextBillingDate || draft.nextDueDate,
+    customAmountBrl: draft.monthlyValue,
+    additionValueBrl: draft.additionValueBrl,
+    discountValueBrl: draft.discountValueBrl,
+    discountPercent: draft.discountPercent,
+    freightValueBrl: draft.freightValueBrl,
+    includeFreightInInvoice: draft.includeFreightInInvoice,
+    customerPurchaseOrderNumber: draft.customerPurchaseOrderNumber,
+    measurementNumber: draft.measurementNumber,
+    measurementPeriod: draft.measurementPeriod,
+    measurementNotes: draft.measurementNotes,
+    customDueRuleEnabled: draft.customDueRuleEnabled,
+    customDueOffsetDays: draft.customDueOffsetDays,
+    customDueTargetWeekday: draft.customDueTargetWeekday,
+    customDueRuleLabel: draft.customDueRuleLabel || (draft.customDueRuleEnabled ? dueRulePreview.ruleLabel : undefined),
+    billingRecipientEmails: draft.billingRecipientEmails,
+    contractNotes: draft.contractNotes,
+  });
+  const finalizeContractBilling = async () => {
+    if (!onGenerateInvoice) return;
+    setBillingIssuing(true);
+    try {
+      await onSave(draft);
+      await onGenerateInvoice(draft.id, { ...buildBillingRunOptions() });
+    } finally {
+      setBillingIssuing(false);
+    }
   };
   const renderContractDataBlock = () => (
     <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
@@ -3431,10 +3466,23 @@ export function ContractEditModal({
                 <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
                   FATURAMENTO DO CONTRATO — FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF), NFS-E OU NF-E REMESSA
                 </span>
-                <h4 className="text-sm font-extrabold text-slate-900">
-                  Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
-                </h4>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-extrabold text-slate-900">
+                    Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
+                  </h4>
+                  <ReceiptDraftPreviewButton onClick={() => setReceiptDraftOpen(true)} />
+                </div>
               </div>
+              {receiptDraftOpen && (
+                <ReceiptDraftPreviewModal
+                  contract={draft}
+                  options={buildBillingRunOptions()}
+                  existingInvoicesCount={(invoices || []).length}
+                  onClose={() => setReceiptDraftOpen(false)}
+                  onFinalize={onGenerateInvoice && !isReadOnly ? finalizeContractBilling : undefined}
+                  finalizeLabel="Finalizar faturamento (emitir fatura / recibo)"
+                />
+              )}
 
               {renderContractDataBlock()}
 
@@ -3662,39 +3710,13 @@ export function ContractEditModal({
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2" data-testid="contract-billing-actions">
+                <ReceiptDraftPreviewButton className="py-2.5 rounded-lg" onClick={() => setReceiptDraftOpen(true)} />
                 {onGenerateInvoice && (
                   <button
                     type="button"
                     disabled={billingIssuing}
-                    onClick={async () => {
-                      setBillingIssuing(true);
-                      try {
-                        await onSave(draft);
-                        await onGenerateInvoice(draft.id, {
-                          competenceMonth: billingCompetence,
-                          dueDate: draft.nextBillingDate || draft.nextDueDate,
-                          customAmountBrl: draft.monthlyValue,
-                          additionValueBrl: draft.additionValueBrl,
-                          discountValueBrl: draft.discountValueBrl,
-                          discountPercent: draft.discountPercent,
-                          freightValueBrl: draft.freightValueBrl,
-                          includeFreightInInvoice: draft.includeFreightInInvoice,
-                          customerPurchaseOrderNumber: draft.customerPurchaseOrderNumber,
-                          measurementNumber: draft.measurementNumber,
-                          measurementPeriod: draft.measurementPeriod,
-                          measurementNotes: draft.measurementNotes,
-                          customDueRuleEnabled: draft.customDueRuleEnabled,
-                          customDueOffsetDays: draft.customDueOffsetDays,
-                          customDueTargetWeekday: draft.customDueTargetWeekday,
-                          customDueRuleLabel: draft.customDueRuleLabel || (draft.customDueRuleEnabled ? dueRulePreview.ruleLabel : undefined),
-                          billingRecipientEmails: draft.billingRecipientEmails,
-                          contractNotes: draft.contractNotes,
-                        });
-                      } finally {
-                        setBillingIssuing(false);
-                      }
-                    }}
+                    onClick={() => void finalizeContractBilling()}
                     className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
                   >
                     Confirmar e Emitir Fatura / Recibo de Locação do Mês

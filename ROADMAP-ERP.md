@@ -179,6 +179,8 @@
   7. **Versionamento Automático de Contratos (`v1.0, v2.0...`) e Impressão do Recibo de Locação em 1 Página A4 Única (`[t14u]`)**:
      - Versionamento automático em JSON leve (`version`, `versionLabel`, `versionHistory` com `changedFields`, restauração em 1 clique e download de PDF da versão sob demanda).
      - Recibo / Fatura de Locação (`FATURA_LOCACAO`) formatado com `@page { size: A4 portrait; margin: 7mm }` e `.page { width: 196mm; max-height: 282mm; overflow: hidden; page-break-after: avoid; page-break-inside: avoid }` para caber **estritamente em 1 única página A4**.
+  8. **Botão `Visualizar recibo (rascunho)` antes de finalizar o faturamento (`[t19u]`)**:
+     - Botão com ícone de olho na aba `3. Faturamento & Recibos` do `ContractEditModal`, no painel `ContractBillingHistoryPanel` (cabeçalho e formulário `Personalizar competência / valor`, antes de `Emitir Fatura`) e no `+ Faturar` da listagem (que agora abre o rascunho antes de emitir). Gera on-the-fly, no navegador, o mesmo recibo A4 do fluxo final (`buildDraftReceiptHtml` → `buildStandaloneInvoiceHtml`) com os dados atuais do formulário (mesmo não salvos), marca d'água/faixa **`RASCUNHO — NÃO É DOCUMENTO FISCAL / pré-visualização`** e Nº provisório `RASCUNHO-FAT-LOC-AAAA-NNNN`; não cria fatura, título, NF, não envia e-mail e não persiste nada. Ações: `Imprimir / Baixar PDF`, `Voltar e editar` e `Finalizar faturamento` (mesmo fluxo de emissão existente).
 
 ---
 
@@ -299,3 +301,5 @@
   - Calculadora `computeCustomDueDateFromRule` / `computeCustomDueDateClient` com presets e construtor customizável para qualquer quantidade de dias + dia da semana alvo.
 - **`[t14u]` — Versionamento Automático de Contratos (`v1.0, v2.0...`) e Impressão do Recibo de Locação em 1 Página A4 Única:**
   - Rotas `GET /api/erp/rental-contracts/:id/versions` e `POST /api/erp/rental-contracts/:id/restore-version` + painel `ContractVersionHistoryPanel` e formatação compacta A4 de página única (`@page { size: A4 portrait; margin: 7mm }`, `max-height: 282mm`).
+- **`[t19u]` — Botão `Visualizar recibo (rascunho)` na aba de faturamento:**
+  - Pré-visualização client-side do recibo A4 (mesmo template do recibo final) com marca d'água `RASCUNHO — NÃO É DOCUMENTO FISCAL`, Nº provisório e botões `Imprimir / Baixar PDF`, `Voltar e editar` e `Finalizar faturamento`; zero efeitos colaterais (sem fatura, título, NF, e-mail ou arquivo salvo). Teste automatizado garante que vencimento e valores do rascunho batem com a fatura final.

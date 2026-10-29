@@ -4237,4 +4237,39 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.ok(html.includes('max-height: 282mm;'));
     assert.ok(html.includes('1 Página A4 Única'));
   });
+
+  it('gera o RASCUNHO do recibo (Visualizar recibo) idêntico ao final, com marca d\'água e sem efeitos colaterais', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const utils = await import('../src/app/lib/contract-billing-utils');
+    const contract = repo.listRentalContracts().find((c) => c.id === 'ctr-loc-453');
+    assert.ok(contract);
+    const invoicesBefore = repo.listInvoices().length;
+    const opts = {
+      competenceMonth: '12/2026',
+      issueDate: '2026-10-28',
+      customDueRuleEnabled: true,
+      customDueOffsetDays: 45,
+      customDueTargetWeekday: 'WEDNESDAY' as const,
+      customerPurchaseOrderNumber: 'PED-CLI-2026-4654',
+      measurementNumber: 'BM-12/2026-453',
+    };
+    const { invoice: draftInv, html } = utils.buildDraftReceiptHtml(contract!, opts, invoicesBefore);
+    // Nenhuma fatura criada pela pré-visualização
+    assert.equal(repo.listInvoices().length, invoicesBefore);
+    assert.ok(html.includes('RASCUNHO — NÃO É DOCUMENTO FISCAL / pré-visualização'));
+    assert.ok(html.includes('@page { size: A4 portrait; margin: 7mm; }'));
+    assert.ok(draftInv.documentNumber.startsWith('RASCUNHO-FAT-LOC-'));
+    assert.ok(!html.includes('34191.79001'));
+
+    // Finalizar pelo fluxo existente gera fatura com mesmos valores/vencimento do rascunho
+    const genRes = await router.dispatch({ method: 'POST', path: '/api/erp/rental-contracts/ctr-loc-453/generate-invoice', body: opts });
+    assert.equal(genRes.status, 201);
+    const finalInv = (genRes.body as { data: { dueDate: string; netAmount: number; grossAmount: number; customerPurchaseOrderNumber: string; documentNumber: string } }).data;
+    assert.equal(draftInv.dueDate, finalInv.dueDate);
+    assert.equal(draftInv.netAmount, finalInv.netAmount);
+    assert.equal(draftInv.grossAmount, finalInv.grossAmount);
+    assert.equal(draftInv.customerPurchaseOrderNumber, finalInv.customerPurchaseOrderNumber);
+    assert.equal(draftInv.documentNumber.replace('RASCUNHO-', ''), finalInv.documentNumber);
+  });
 });

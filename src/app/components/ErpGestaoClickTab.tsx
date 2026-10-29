@@ -106,6 +106,7 @@ import {
   ContractAuxOptionsManager,
   ContractBillingHistoryPanel,
   ContractVersionHistoryPanel,
+  ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
@@ -828,6 +829,7 @@ export default function ErpGestaoClickTab({
     );
   };
 
+  const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
   const handleGenerateContractInvoice = async (contractId: string, options?: Record<string, unknown>) => {
     setBusyId(contractId);
     try {
@@ -3579,8 +3581,8 @@ export default function ErpGestaoClickTab({
                             </button>
                             <button
                               type="button"
-                              title="Emitir Fatura de Locação do Mês em 1 clique"
-                              onClick={() => void handleGenerateContractInvoice(ctr.id)}
+                              title="Visualizar o recibo (rascunho) e então finalizar a Fatura de Locação do Mês"
+                              onClick={() => setRowBillingPreviewContract(ctr)}
                               className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer"
                             >
                               + Faturar
@@ -6664,6 +6666,16 @@ export default function ErpGestaoClickTab({
           contacts={contacts}
           deals={deals}
           isNew={isCreatingProposalModal}
+        />
+      )}
+      {rowBillingPreviewContract && (
+        <ReceiptDraftPreviewModal
+          contract={rowBillingPreviewContract}
+          options={{ competenceMonth: '11/2026' }}
+          existingInvoicesCount={invoices.length}
+          onClose={() => setRowBillingPreviewContract(null)}
+          onFinalize={() => handleGenerateContractInvoice(rowBillingPreviewContract.id)}
+          finalizeLabel="Finalizar faturamento (emitir fatura / recibo)"
         />
       )}
       {editingContract && (

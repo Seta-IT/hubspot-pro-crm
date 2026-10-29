@@ -1,4 +1,5 @@
 import { ErpContractVersionEntry, ErpFiscalInvoice, ErpRentalContract } from '../../db/types';
+import { calculateBrazilianTaxBreakdown } from '../../modules/erp/erp-tax-engine';
 
 export interface CustomDueDateRulePreset {
   id: string;
@@ -341,10 +342,19 @@ function formatMoneyBr(val: number | undefined | null): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+export interface StandaloneInvoiceHtmlOptions {
+  /** Rascunho / pré-visualização: marca d'água, faixa "NÃO É DOCUMENTO FISCAL" e sem toolbar. */
+  draft?: boolean;
+}
+
+export const RECEIPT_DRAFT_BANNER_TEXT = 'RASCUNHO — NÃO É DOCUMENTO FISCAL / pré-visualização';
+
 export function buildStandaloneInvoiceHtml(
   invoice: ErpFiscalInvoice,
-  contract?: ErpRentalContract | null
+  contract?: ErpRentalContract | null,
+  htmlOptions?: StandaloneInvoiceHtmlOptions
 ): string {
+  const isDraft = Boolean(htmlOptions?.draft);
   const ctrNum = invoice.contractNumber || contract?.contractNumber || 'LOC-SETA';
   const propNum = invoice.proposalNumber || contract?.proposalNumber || '—';
   const remNfe = invoice.remessaNfeNumber || contract?.remessaNfeNumber || '—';
@@ -405,7 +415,7 @@ export function buildStandaloneInvoiceHtml(
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Recibo / Fatura de Locação ${invoice.documentNumber} - 1 Página A4 Única</title>
+  <title>${isDraft ? 'RASCUNHO — ' : ''}Recibo / Fatura de Locação ${invoice.documentNumber} - 1 Página A4 Única</title>
   <style>
     @page { size: A4 portrait; margin: 7mm; }
     * { box-sizing: border-box; }
@@ -424,15 +434,21 @@ export function buildStandaloneInvoiceHtml(
       .no-print { display: none !important; }
       body { padding: 0; margin: 0; }
       .page { width: 196mm; max-height: 282mm; }
-    }
+    }${isDraft ? `
+    .page { position: relative; }
+    .draft-band { border: 2px dashed #b91c1c; background: #fef2f2; color: #b91c1c; font-weight: 900; text-align: center; font-size: 11px; letter-spacing: .3px; padding: 4px 6px; margin-bottom: 6px; text-transform: uppercase; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .draft-watermark { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg); font-size: 64px; font-weight: 900; color: rgba(185, 28, 28, 0.13); white-space: nowrap; pointer-events: none; z-index: 5; letter-spacing: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .draft-watermark small { display: block; font-size: 18px; letter-spacing: 2px; text-align: center; }` : ''}
   </style>
 </head>
 <body>
-  <div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:7px 12px;border-radius:5px;">
+  ${isDraft ? '' : `<div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:7px 12px;border-radius:5px;">
     <span><strong>Recibo / Fatura de Locação ${invoice.documentNumber}</strong> — Formato Compacto: 1 Página A4 Única (0 MB em disco)</span>
     <button onclick="window.print()" style="background:#ff7a59;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-weight:bold;cursor:pointer;">Imprimir em 1 Página A4 / Salvar PDF</button>
-  </div>
+  </div>`}
   <div class="page">
+    ${isDraft ? `<div class="draft-watermark" aria-hidden="true">RASCUNHO<small>NÃO É DOCUMENTO FISCAL</small></div>
+    <div class="draft-band" data-testid="receipt-draft-band">${RECEIPT_DRAFT_BANNER_TEXT} — Nº provisório ${invoice.documentNumber} • nada foi salvo, emitido ou enviado</div>` : ''}
     <div class="header">
       <div>
         <div style="font-size:14px;font-weight:900;color:#0d2b4e;">SETA TELECOM LTDA</div>
@@ -515,8 +531,10 @@ export function buildStandaloneInvoiceHtml(
       </div>
       <div class="box" style="background:#f1f5f9;margin-bottom:0;">
         <div style="font-weight:800;color:#0f172a;margin-bottom:3px;text-transform:uppercase;font-size:9.5px;">5. Liquidação Financeira (${paymentMethod})</div>
-        <div style="font-family:monospace;font-size:9.5px;margin-bottom:3px;"><strong>Linha Digitável:</strong> ${invoice.boletoDigitableLine}</div>
-        <div style="font-family:monospace;font-size:9px;word-break:break-all;"><strong>PIX Copia e Cola:</strong> ${invoice.pixCopyPaste}</div>
+        ${isDraft
+          ? `<div style="font-size:9.5px;color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</div>`
+          : `<div style="font-family:monospace;font-size:9.5px;margin-bottom:3px;"><strong>Linha Digitável:</strong> ${invoice.boletoDigitableLine}</div>
+        <div style="font-family:monospace;font-size:9px;word-break:break-all;"><strong>PIX Copia e Cola:</strong> ${invoice.pixCopyPaste}</div>`}
       </div>
     </div>
   </div>
@@ -525,6 +543,201 @@ export function buildStandaloneInvoiceHtml(
 }
 
 export const buildPrintableRentalInvoiceHtml = buildStandaloneInvoiceHtml;
+
+/**
+ * Opções aceitas pelo fluxo de faturamento do contrato
+ * (mesmo payload enviado a POST /api/erp/rental-contracts/:id/generate-invoice).
+ */
+export interface ContractBillingRunOptions {
+  competenceMonth?: string;
+  dueDate?: string;
+  issueDate?: string;
+  customAmountBrl?: number;
+  additionValueBrl?: number;
+  discountValueBrl?: number;
+  discountPercent?: number;
+  freightValueBrl?: number;
+  includeFreightInInvoice?: boolean;
+  customerPurchaseOrderNumber?: string;
+  measurementNumber?: string;
+  measurementPeriod?: string;
+  measurementNotes?: string;
+  customDueRuleEnabled?: boolean;
+  customDueOffsetDays?: number;
+  customDueTargetWeekday?: ErpRentalContract['customDueTargetWeekday'];
+  customDueRuleLabel?: string;
+  billingRecipientEmails?: string[];
+  contractNotes?: string;
+  notes?: string;
+}
+
+/**
+ * Monta, 100% no navegador e SEM efeitos colaterais, a fatura/recibo de locação
+ * que seria emitida pelo fluxo de faturamento (espelha a lógica do repositório
+ * `generateRentalInvoice`). Usada apenas para a pré-visualização do RASCUNHO:
+ * não cria fatura, título, NF, não envia e-mail e não persiste nada.
+ */
+export function buildDraftRentalInvoiceFromContract(
+  contract: ErpRentalContract,
+  options: ContractBillingRunOptions = {},
+  existingInvoicesCount = 0
+): ErpFiscalInvoice {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const issueDateIso = options.issueDate || nowIso.slice(0, 10);
+  const comp =
+    options.competenceMonth ||
+    `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+  const equipments = contract.equipments || [];
+  const productsSum =
+    contract.productsSubtotalBrl ??
+    equipments.reduce((s, eq) => s + Number(eq.quantity || 1) * Number(eq.unitMonthlyRent || 0), 0);
+  const pick = (v: number | undefined, fallback: number | undefined) =>
+    v !== undefined && v !== null && !Number.isNaN(Number(v)) ? Number(v) : Number(fallback || 0);
+  const additionVal = pick(options.additionValueBrl, contract.additionValueBrl);
+  const discountVal = pick(options.discountValueBrl, contract.discountValueBrl);
+  const discountPct = pick(options.discountPercent, contract.discountPercent);
+  const freightVal = pick(options.freightValueBrl, contract.freightValueBrl);
+  const includeFreight =
+    options.includeFreightInInvoice !== undefined
+      ? Boolean(options.includeFreightInInvoice)
+      : Boolean(contract.includeFreightInInvoice);
+  const computedBase =
+    options.customAmountBrl !== undefined && options.customAmountBrl !== null
+      ? Number(options.customAmountBrl)
+      : Math.max(
+          0,
+          Math.round(
+            ((productsSum > 0 ? productsSum : contract.monthlyValue) +
+              additionVal +
+              (includeFreight ? freightVal : 0)) *
+              100
+          ) / 100
+        );
+  const taxBreakdown = calculateBrazilianTaxBreakdown({
+    grossAmount: computedBase,
+    discountAmount: discountVal,
+    documentType: 'FATURA_LOCACAO',
+  });
+  const seqNum = String(Math.max(0, existingInvoicesCount) + 1).padStart(4, '0');
+  const docNum = `RASCUNHO-FAT-LOC-${now.getFullYear()}-${seqNum}`;
+
+  const useRule =
+    options.customDueRuleEnabled !== undefined
+      ? options.customDueRuleEnabled
+      : options.customDueOffsetDays !== undefined || Boolean(contract.customDueRuleEnabled);
+  const ruleOffset =
+    options.customDueOffsetDays !== undefined
+      ? Number(options.customDueOffsetDays)
+      : Number(contract.customDueOffsetDays ?? 45);
+  const ruleWeekday = options.customDueTargetWeekday || contract.customDueTargetWeekday || 'WEDNESDAY';
+  let dueDate = new Date(now.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+  let ruleLabel: string | null = options.customDueRuleLabel || contract.customDueRuleLabel || null;
+  if (options.dueDate) {
+    dueDate = options.dueDate;
+  } else if (useRule) {
+    const calc = computeCustomDueDateClient({ baseDate: issueDateIso, offsetDays: ruleOffset, targetWeekday: ruleWeekday });
+    dueDate = calc.dueDateIso;
+    ruleLabel = options.customDueRuleLabel || contract.customDueRuleLabel || calc.ruleLabel;
+  } else if (contract.nextBillingDate) {
+    dueDate = contract.nextBillingDate;
+  }
+
+  const nextInstallmentIndex = Number(contract.billedInstallmentsCount || 0) + 1;
+  const totalInstallments = Number(contract.totalInstallmentsCount || contract.contractMonths || 24);
+  const installmentLabel =
+    contract.recurrenceEndMode === 'SEM_TERMINO'
+      ? `Ciclo #${nextInstallmentIndex} (Sem término)`
+      : `Parcela ${nextInstallmentIndex}/${totalInstallments}`;
+  const notes = [options.contractNotes ?? contract.contractNotes ?? '', options.notes || '']
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+    .join(' • ');
+
+  return {
+    id: `draft-preview-${contract.id}`,
+    documentNumber: docNum,
+    documentType: 'FATURA_LOCACAO',
+    competenceMonth: comp,
+    companyId: contract.companyId,
+    companyName: contract.companyName,
+    companyCnpj: contract.companyCnpj,
+    companyAddress: contract.deliveryAddress || 'Endereço Comercial Cadastrado — São Paulo/SP',
+    rentalContractId: contract.id,
+    proposalId: contract.proposalId,
+    dealId: contract.dealId,
+    grossAmount: computedBase,
+    discountAmount: discountVal,
+    netAmount: taxBreakdown.netReceivableAmount,
+    status: 'EMITIDA',
+    issueDate: issueDateIso,
+    dueDate,
+    paidAt: null,
+    paymentMethod: 'BOLETO_PIX',
+    serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+    cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${contract.remessaCfop} nº ${contract.remessaNfeNumber})`,
+    cstIcms: '41 - Não Tributada',
+    cstPisCofins: '01 - Operação Tributável Alíquota Básica',
+    verificationCodeOrKey: 'RASCUNHO-SEM-AUTENTICACAO',
+    pixCopyPaste: '— (gerado ao finalizar o faturamento)',
+    boletoDigitableLine: '— (gerado ao finalizar o faturamento)',
+    itemsDescription: equipments.map((eq) => ({
+      description: `Locação Mensal: ${eq.description} (Contrato ${contract.contractNumber})`,
+      serialNumber: eq.serialNumber,
+      quantity: eq.quantity,
+      unitValue: eq.unitMonthlyRent,
+      totalValue: Number(eq.quantity || 0) * Number(eq.unitMonthlyRent || 0),
+    })),
+    taxBreakdown,
+    contractNumber: contract.contractNumber,
+    externalContractNumber: contract.externalContractNumber || contract.contractNumber,
+    proposalNumber: contract.proposalNumber || null,
+    remessaNfeNumber: contract.remessaNfeNumber || null,
+    contractTermLabel: contract.contractTermLabel || `${contract.contractMonths} meses`,
+    sellerName: contract.sellerName || 'Marcelo Mira',
+    costCenter: contract.costCenter || 'LOCAÇÃO DE EQUIPAMENTO',
+    chartOfAccounts: contract.chartOfAccounts || 'Locação de equipamento',
+    productsSubtotalBrl: productsSum,
+    freightValueBrl: freightVal,
+    returnFreightValueBrl: contract.returnFreightValueBrl || 0,
+    freightModality: contract.freightModality || 'CIF_EMITENTE',
+    freightTrackingCode: contract.freightTrackingCode || null,
+    includeFreightInInvoice: includeFreight,
+    additionValueBrl: additionVal,
+    discountPercent: discountPct,
+    deliveryDate: contract.deliveryDate || null,
+    pickupDate: contract.pickupDate || null,
+    deliveryCarrier: contract.deliveryCarrier || null,
+    deliveryCity: contract.deliveryCity || 'São Paulo',
+    deliveryAddress: contract.deliveryAddress || 'São Paulo/SP',
+    deliveryNotes: contract.deliveryNotes || null,
+    customerPurchaseOrderNumber: options.customerPurchaseOrderNumber ?? contract.customerPurchaseOrderNumber ?? null,
+    measurementNumber:
+      options.measurementNumber ?? contract.measurementNumber ?? `BM-${comp}-${contract.contractNumber}`,
+    measurementPeriod: options.measurementPeriod ?? contract.measurementPeriod ?? `Competência ${comp}`,
+    measurementNotes: options.measurementNotes ?? contract.measurementNotes ?? null,
+    billingRecurrence: contract.billingRecurrence || 'MENSAL',
+    installmentLabel,
+    paymentMethodLabel: contract.paymentMethod || 'Boleto Inter',
+    billingRecipientEmails: options.billingRecipientEmails ?? contract.billingRecipientEmails ?? [],
+    contractNotes: notes || null,
+    customDueRuleLabel: ruleLabel,
+    customDueOffsetDays: useRule ? ruleOffset : undefined,
+    customDueTargetWeekday: useRule ? ruleWeekday : null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+/** HTML do RASCUNHO do recibo — mesmo template A4 do recibo final, com marca d'água. */
+export function buildDraftReceiptHtml(
+  contract: ErpRentalContract,
+  options: ContractBillingRunOptions = {},
+  existingInvoicesCount = 0
+): { invoice: ErpFiscalInvoice; html: string } {
+  const invoice = buildDraftRentalInvoiceFromContract(contract, options, existingInvoicesCount);
+  return { invoice, html: buildStandaloneInvoiceHtml(invoice, contract, { draft: true }) };
+}
 export function downloadInvoicePdfOnDemand(
   invoice: ErpFiscalInvoice,
   contract?: ErpRentalContract | null,

@@ -1,8 +1,10 @@
 "use client";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Eye } from "lucide-react";
 import { ErpCatalogItem, ErpContractVersionEntry, ErpFiscalInvoice, ErpRentalContract, ErpRentalEquipmentItem } from "../../db/types";
 import { formatBRL } from "./ui-helpers";
-import { ContractAuxiliaryOptions, CustomDueDateRulePreset, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
+import { ContractAuxiliaryOptions, ContractBillingRunOptions, CustomDueDateRulePreset, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
 
 type Weekday = 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY';
 
@@ -385,6 +387,101 @@ function invoiceStatusLabel(inv: ErpFiscalInvoice): string {
   return 'EMITIDA';
 }
 
+/** Botão padrão "Visualizar recibo (rascunho)" (ícone de olho). */
+export function ReceiptDraftPreviewButton({ onClick, className = '', label = 'Visualizar recibo (rascunho)' }: { onClick: () => void; className?: string; label?: string }) {
+  return (
+    <button
+      type="button"
+      data-testid="btn-preview-receipt-draft"
+      title="Pré-visualizar o recibo/fatura A4 com os dados atuais (sem salvar, sem emitir e sem enviar e-mail)"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded border-2 border-[#0d2b4e] bg-white text-[#0d2b4e] hover:bg-slate-50 font-extrabold cursor-pointer ${className}`}
+    >
+      <Eye className="w-4 h-4" /> {label}
+    </button>
+  );
+}
+
+/**
+ * Pré-visualização do RASCUNHO do recibo/fatura de locação (A4), gerada on-the-fly
+ * a partir dos dados atuais do formulário. Não cria fatura, título, NF, não envia
+ * e-mail e não grava nada em disco/banco.
+ */
+export function ReceiptDraftPreviewModal({
+  contract,
+  options,
+  existingInvoicesCount = 0,
+  onClose,
+  onFinalize,
+  finalizeLabel = 'Finalizar faturamento',
+}: {
+  contract: ErpRentalContract;
+  options: ContractBillingRunOptions;
+  existingInvoicesCount?: number;
+  onClose: () => void;
+  onFinalize?: () => void | Promise<void>;
+  finalizeLabel?: string;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [finalizing, setFinalizing] = useState(false);
+  const { invoice, html } = useMemo(
+    () => buildDraftReceiptHtml(contract, options, existingInvoicesCount),
+    [contract, options, existingInvoicesCount]
+  );
+  const print = () => {
+    const w = iframeRef.current?.contentWindow;
+    if (w) {
+      w.focus();
+      w.print();
+    }
+  };
+  const modal = (
+    <div data-testid="receipt-draft-preview" role="dialog" aria-modal="true" aria-label="Pré-visualização do recibo (rascunho)" className="fixed inset-0 z-[80] bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[96vh] flex flex-col overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#0d2b4e] text-white">
+          <div>
+            <div className="text-sm font-extrabold flex items-center gap-2"><Eye className="w-4 h-4" /> Visualizar recibo — rascunho antes de finalizar o faturamento</div>
+            <div className="text-[11px] text-slate-200">
+              Nº provisório <span className="font-mono font-bold">{invoice.documentNumber}</span> • {contract.companyName} • Competência {invoice.competenceMonth} • Vencimento {invoice.dueDate.split('-').reverse().join('/')} • Total {formatBRL(invoice.netAmount)}
+            </div>
+          </div>
+          <span className="px-2 py-1 rounded bg-rose-600 text-white text-[10px] font-black uppercase">{RECEIPT_DRAFT_BANNER_TEXT}</span>
+        </div>
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 font-bold">
+          Este rascunho é gerado no navegador com os dados atuais do formulário (mesmo não salvos). Nada é salvo, nenhuma fatura, título no Contas a Receber ou NF é criada e nenhum e-mail é enviado até você clicar em <strong>{finalizeLabel}</strong>.
+        </div>
+        <div className="flex-1 overflow-auto bg-slate-200 p-2 sm:p-4">
+          <iframe ref={iframeRef} title="Rascunho do recibo A4" srcDoc={html} className="w-full bg-white shadow mx-auto block" style={{ maxWidth: '230mm', height: '75vh', border: 0 }} />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50 text-xs">
+          <button type="button" onClick={print} className="px-3 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer">Imprimir / Baixar PDF</button>
+          <button type="button" onClick={onClose} disabled={finalizing} className="px-3 py-2 rounded border border-slate-300 bg-white font-bold cursor-pointer">Voltar e editar</button>
+          {onFinalize && (
+            <button
+              type="button"
+              data-testid="btn-finalize-billing-from-preview"
+              disabled={finalizing}
+              onClick={async () => {
+                setFinalizing(true);
+                try {
+                  await onFinalize();
+                  onClose();
+                } finally {
+                  setFinalizing(false);
+                }
+              }}
+              className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-extrabold cursor-pointer"
+            >
+              {finalizing ? 'Finalizando...' : finalizeLabel}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+  return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
+}
+
 export function ContractBillingHistoryPanel({
   contract,
   invoices,
@@ -424,6 +521,8 @@ export function ContractBillingHistoryPanel({
   const [bm, setBm] = useState(contract.measurementNumber || '');
   const [bmPeriod, setBmPeriod] = useState(contract.measurementPeriod || '');
   const [notes, setNotes] = useState('');
+  const [draftPreview, setDraftPreview] = useState<{ options: ContractBillingRunOptions; finalize?: () => void | Promise<void> } | null>(null);
+  const customOpts = () => ({ competenceMonth: comp, dueDate: due, customAmountBrl: Number(amount) || undefined, customerPurchaseOrderNumber: po, measurementNumber: bm, measurementPeriod: bmPeriod, notes });
   const cycles = computeUpcomingRecurringCycles(contract, 6);
   const recLabel = contract.periodicityLabel || ({ MENSAL: 'MENSAL', BIMESTRAL: 'BIMESTRAL', TRIMESTRAL: 'TRIMESTRAL', SEMESTRAL: 'SEMESTRAL', ANUAL: 'ANUAL' } as Record<string, string>)[contract.billingRecurrence || 'MENSAL'];
 
@@ -441,6 +540,7 @@ export function ContractBillingHistoryPanel({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <ReceiptDraftPreviewButton onClick={() => setDraftPreview({ options: { competenceMonth: '11/2026' }, finalize: onGenerateNew ? () => onGenerateNew() : undefined })} />
           {onGenerateNew && <button type="button" onClick={() => void onGenerateNew()} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer">+ Gerar Novo Faturamento</button>}
           {onGenerateCustom && <button type="button" onClick={() => setShowCustom((v) => !v)} className="px-3 py-1.5 rounded border border-emerald-600 text-emerald-800 bg-white font-bold cursor-pointer">Personalizar competência / valor</button>}
           <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(contract, list)} className="px-3 py-1.5 rounded border border-slate-300 bg-white font-bold cursor-pointer">Baixar Histórico Completo (CSV / Excel)</button>
@@ -449,7 +549,7 @@ export function ContractBillingHistoryPanel({
       </div>
 
       {showCustom && onGenerateCustom && (
-        <div className="grid grid-cols-2 sm:grid-cols-8 gap-2 p-2 rounded border border-emerald-300 bg-white">
+        <div className="grid grid-cols-2 sm:grid-cols-7 gap-2 p-2 rounded border border-emerald-300 bg-white">
           <input aria-label="Competência" value={comp} onChange={(e) => setComp(e.target.value)} placeholder="MM/AAAA" className="px-2 py-1.5 rounded border border-slate-300" />
           <input aria-label="Vencimento" type="date" value={due} onChange={(e) => setDue(e.target.value)} className="px-2 py-1.5 rounded border border-slate-300" />
           <input aria-label="Valor" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="px-2 py-1.5 rounded border border-slate-300" />
@@ -457,8 +557,21 @@ export function ContractBillingHistoryPanel({
           <input aria-label="Medição (BM)" value={bm} onChange={(e) => setBm(e.target.value)} placeholder="Nº Medição (BM)" className="px-2 py-1.5 rounded border border-slate-300" />
           <input aria-label="Período de Medição" value={bmPeriod} onChange={(e) => setBmPeriod(e.target.value)} placeholder="Período Medição" className="px-2 py-1.5 rounded border border-slate-300" />
           <input aria-label="Observações" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observações" className="px-2 py-1.5 rounded border border-slate-300" />
-          <button type="button" onClick={() => { void onGenerateCustom({ competenceMonth: comp, dueDate: due, customAmountBrl: Number(amount) || undefined, customerPurchaseOrderNumber: po, measurementNumber: bm, measurementPeriod: bmPeriod, notes }); setShowCustom(false); }} className="px-2 py-1.5 rounded bg-emerald-700 text-white font-extrabold cursor-pointer">Emitir Fatura</button>
+          <div className="col-span-2 sm:col-span-7 flex flex-wrap justify-end gap-2">
+            <ReceiptDraftPreviewButton onClick={() => { const opts = customOpts(); setDraftPreview({ options: opts, finalize: async () => { await onGenerateCustom(opts); setShowCustom(false); } }); }} />
+            <button type="button" onClick={() => { void onGenerateCustom(customOpts()); setShowCustom(false); }} className="px-3 py-1.5 rounded bg-emerald-700 text-white font-extrabold cursor-pointer">Emitir Fatura</button>
+          </div>
         </div>
+      )}
+
+      {draftPreview && (
+        <ReceiptDraftPreviewModal
+          contract={contract}
+          options={draftPreview.options}
+          existingInvoicesCount={invoices.length}
+          onClose={() => setDraftPreview(null)}
+          onFinalize={draftPreview.finalize}
+        />
       )}
 
       <div className="flex items-center gap-1.5">
