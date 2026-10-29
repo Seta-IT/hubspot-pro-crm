@@ -10,7 +10,7 @@ import {
 } from '../src/app/lib/rbac';
 import { generateTotpCodeSync } from '../src/app/lib/auth';
 import { isPublicStiHubPath, evaluateStiHubRouteProtection, classifyRouteRequiredModule } from '../src/middleware';
-import { resolveStiHubSigningSecret, signStiHubSessionToken, verifyStiHubSessionToken } from '../src/app/lib/auth';
+import { resolveStiHubSigningSecret, signMfaChallengeToken, signStiHubSessionToken, STIHUB_TOTP_ROTATION_EPOCH, verifyStiHubSessionToken } from '../src/app/lib/auth';
 import { filterGlobalSearchEntries, SEARCH_CATEGORY_PILLS, SearchCategoryKey, SearchResultEntry } from '../src/app/components/GlobalHeaderSearch';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1531,6 +1531,8 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
   it('autentica usuário Seta Telecom em 2 etapas obrigatórias (Login + Código MFA 2FA de 6 dígitos) e emite sessão HttpOnly', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
+    // Contencao 29/10/2026: sem senha-mestra; o usuario precisa de senha propria (hash).
+    repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', password: 'Seta@2026#StiHub' });
 
     // Etapa 1: Credenciais corporativas -> Desafio MFA
     const loginRes = await router.dispatch({
@@ -3012,6 +3014,8 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
   it("completa o fluxo ponta a ponta de 2FA Google Authenticator (login -> refresh/setup-totp -> verify-mfa -> middleware em isolate separado sem loop para /login) e mantém o campo de 6 dígitos sempre limpo na UI", async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
+    // Contencao 29/10/2026: sem senha-mestra; o usuario precisa de senha propria (hash).
+    repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', password: 'Seta@2026#StiHub' });
 
     // Etapa 1: Login inicial -> recebe QR Code e segredo TOTP
     const loginRes = await router.dispatch({
@@ -3187,6 +3191,10 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
   it("rejeita códigos TOTP expirados (janela anterior de 30s), bloqueia reutilização (anti-replay) do mesmo código e oculta o QR Code/segredo quando o 2FA já está configurado", async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
+    // Contencao 29/10/2026: sem senha-mestra; o usuario precisa de senha propria (hash).
+    repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', password: 'Seta@2026#StiHub' });
+    // Pareamento concluido na epoca de rotacao atual.
+    repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', totpConfigured: true, totpEpoch: STIHUB_TOTP_ROTATION_EPOCH });
     const { computeRfc6238Totp, verifyRfc6238Totp } = await import("../src/app/lib/auth");
 
     // 1. Usuário existente com 2FA já configurado (totpConfigured === true): login NÃO pode expor totpPairing nem QR Code
@@ -3285,6 +3293,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       email: "primeiro.acesso@setatelecom.com.br",
       roleId: "VENDEDOR_SALES",
       totpConfigured: false,
+      password: "Seta@2026#StiHub",
     });
     assert.equal(newUser.totpConfigured, false);
 
@@ -3554,11 +3563,28 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.equal(loginPageSrc.includes("devOtpPreview"), false, "login/page.tsx jamais deve exibir devOtpPreview na tela");
     assert.equal(loginPageSrc.includes("Usar este código (Preencher)"), false, "login/page.tsx jamais deve ter botão de autopreencher código OTP");
 
-    const externalHttpSendRes = await routerA.dispatch({
+    // Contencao 29/10/2026: via HTTP o OTP por e-mail exige o desafio da senha (etapa 1).
+    const noChallengeRes = await routerA.dispatch({
       method: "POST",
       path: "/api/auth/send-email-otp",
       query: { _fromHttpBridge: "1" },
       body: { email: "marcelo.mira@setatelecom.com.br" },
+    });
+    assert.equal(noChallengeRes.status, 401);
+    const stepOneChallenge = signMfaChallengeToken({
+      cid: "MFA-TEST-STEP1",
+      uid: "usr-seta-01",
+      email: "marcelo.mira@setatelecom.com.br",
+      mfaMethod: "TOTP_AUTHENTICATOR",
+      totpSecret: "",
+      iat: Date.now(),
+      exp: Date.now() + 60_000,
+    });
+    const externalHttpSendRes = await routerA.dispatch({
+      method: "POST",
+      path: "/api/auth/send-email-otp",
+      query: { _fromHttpBridge: "1" },
+      body: { email: "marcelo.mira@setatelecom.com.br", challengeId: stepOneChallenge },
     });
     assert.equal(externalHttpSendRes.status, 503, "Sem provedor SMTP/Resend configurado, chamada HTTP externa deve informar 503 em vez de fingir envio ou vazar código");
     assert.equal((externalHttpSendRes.body as { data?: { devOtpPreview?: string } }).data?.devOtpPreview, undefined, "Nunca deve vazar devOtpPreview via HTTP");
