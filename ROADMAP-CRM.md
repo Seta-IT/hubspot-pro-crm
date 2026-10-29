@@ -435,6 +435,26 @@ Inclui suporte planejado e auditado para: Formulários de captura, Landing pages
 
 ---
 
+## 10. Infraestrutura de E-mail: Resend (Transacional) + Provedor Próprio de E-mail Marketing (aprovado por Marcéllo em 29/10/2026)
+
+> Item solicitado pelo Marcéllo via CISO em 29/10/2026. Regra de roteamento: **transacional sempre pela Resend; marketing sempre pelo servidor próprio**, para que a reputação de campanhas nunca afete o 2FA, convites, boletos e NF.
+
+### 10.1. Curto prazo (agora) — Resend como provedor transacional
+- [ ] Resend para convites, OTP 2FA, boletos e NF.
+- [ ] Subdomínio dedicado `notificacoes.setatelecom.com.br` com SPF, DKIM e DMARC.
+- [ ] Variável `RESEND_API_KEY` na Vercel (em configuração pelo CISO em 29/10) e `RESEND_FROM_EMAIL` apontando para o subdomínio.
+- [ ] Plano Free agora; migrar para o Pro (US$ 20/mês) quando o faturamento (boletos/NF) começar.
+
+### 10.2. Médio prazo — Provedor PRÓPRIO de e-mail marketing (substitui o HubSpot, que será aposentado)
+- [ ] MTA open-source (**Postal** ou **Mailcow**) em IP próprio da Seta, com rDNS, SPF, DKIM e DMARC.
+- [ ] Subdomínio separado `news.setatelecom.com.br`.
+- [ ] Aquecimento gradual do IP e monitoramento de blocklists.
+- [ ] Tratamento de bounces e reclamações (FBL).
+- [ ] Descadastro com `List-Unsubscribe` (e one-click), com consentimento e opt-out registrados conforme a LGPD.
+- [ ] No STI-hub: módulo de campanhas e roteamento por tipo de envio (transacional → Resend; marketing → servidor próprio).
+- [ ] Responsáveis: campanhas e listas com **CRM - Marketing & Leads**; revisão de segurança e LGPD obrigatória com o **CISO** antes de iniciar.
+- [ ] Plano de saída do HubSpot (Portal `#4369067`): migração de contatos, listas, consentimentos e histórico de envios.
+
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
