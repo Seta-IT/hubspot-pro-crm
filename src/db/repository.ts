@@ -122,7 +122,7 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
-import { deriveServerTotpSecret, unsealIamRecord } from './iam-security';
+import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
 
@@ -6680,6 +6680,12 @@ export class CrmRepository {
       } else if (u.totpConfigured === undefined) {
         u.totpConfigured = Boolean(u.totpConfiguredAt || (u.mfaEnabled && u.active));
       }
+      // Pareamento fixado no servidor (env): instancia fria nunca trata como "nao pareado".
+      if (u.mfaEnabled !== false && isTotpPairingPinnedByServer(u.email)) {
+        u.totpConfigured = true;
+        u.totpEpoch = STIHUB_TOTP_ROTATION_EPOCH;
+        u.totpConfiguredAt = u.totpConfiguredAt || u.createdAt || null;
+      }
     }
     return rbac;
   }
@@ -7712,7 +7718,6 @@ export class CrmRepository {
         userId: updatedUser.id,
         code: rawCode,
         mfaMethod: "TOTP_AUTHENTICATOR",
-        totpSecret: updatedUser.totpSecret,
         ipAddress: input.ipAddress,
       });
       if (!mfaRes.ok) {
@@ -7756,8 +7761,7 @@ export class CrmRepository {
 
   setupUserTotp(
     userOrEmail: string,
-    regenerateSecret = false,
-    explicitSecret?: string
+    regenerateSecret = false
   ): {
     ok: boolean;
     error?: string;
@@ -7779,8 +7783,7 @@ export class CrmRepository {
     if (!found) {
       return { ok: false, error: "Usuário não encontrado na matriz IAM." };
     }
-    // Segredo explicito do cliente e ignorado (contencao 29/10/2026): sempre derivado no servidor.
-    void explicitSecret;
+    // Segredo sempre derivado no servidor (sem parametro de segredo do cliente).
     found.totpSecret = generateTotpSecretBase32(found.email);
     if (regenerateSecret) {
       found.totpConfigured = false;
@@ -8103,9 +8106,11 @@ export class CrmRepository {
     userId?: string;
     code: string;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
-    totpSecret?: string;
+    // Revisao 7706b4a: nao existe parametro de segredo TOTP vindo do cliente.
     challengeId?: string;
     ipAddress?: string;
+    /** Reverificacao (step-up) de sessao ja autenticada: marca mfaStepUpAt no novo token. */
+    stepUp?: boolean;
   }): {
     ok: boolean;
     error?: string;
@@ -8364,6 +8369,7 @@ export class CrmRepository {
       erpPermissions,
       erpRole: realUserRecord?.erpRole || (user as { erpRole?: string }).erpRole || undefined,
       canManageUsersRbac: Boolean(effectiveActionGuards?.canManageUsersRbac),
+      ...(input.stepUp ? { mfaStepUpAt: nowMs } : {}),
       mfaVerified: true,
       mfaMethod: isValidEmailOtp ? "EMAIL_OTP" : user.mfaMethod,
       iat: nowMs,

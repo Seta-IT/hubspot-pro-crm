@@ -48,6 +48,8 @@ export interface StiHubSignedSessionClaims {
   erpRole?: string;
   /** Hotfix 29/10/2026: alcada de admin IAM efetiva no login (assinada), usada pelo middleware. */
   canManageUsersRbac?: boolean;
+  /** Reverificacao MFA (step-up) concluida com a sessao ja autenticada (epoch ms). */
+  mfaStepUpAt?: number;
   mfaVerified: boolean;
   mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
   iat: number;
@@ -553,33 +555,31 @@ export function generateTotpCodeSync(
   secretBase32?: string,
   timestampMs: number = Date.now()
 ): string {
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  return computeRfc6238Totp(effectiveSecret, timestampMs, 0).code;
+  // Revisao 7706b4a: sem fallback. Sem segredo valido nao ha codigo (antes caia no segredo
+  // legado do Marcéllo, derivado so do e-mail com salt publico).
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) return '';
+  return computeRfc6238Totp(secretBase32, timestampMs, 0).code;
 }
 
 export function computeCurrentTotpCode(windowOffset = 0, secretBase32?: string): {
   code: string;
   secondsRemaining: number;
 } {
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  const res = computeRfc6238Totp(effectiveSecret, Date.now(), windowOffset);
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) {
+    return { code: '', secondsRemaining: 30 - (nowSec % 30) };
+  }
+  const res = computeRfc6238Totp(secretBase32, Date.now(), windowOffset);
   return { code: res.code, secondsRemaining: res.secondsRemaining };
 }
 
 export function verifyMfaCode(inputCode: string, secretBase32?: string): boolean {
   const clean = String(inputCode || '').replace(/\D+/g, '');
   if (clean.length !== 6) return false;
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  return verifyRfc6238Totp(effectiveSecret, clean, Date.now(), 0);
+  // Revisao 7706b4a: falha fechada. Sem segredo valido NAO cai no segredo legado
+  // (derivado so do e-mail com salt publico, calculavel por qualquer cliente).
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) return false;
+  return verifyRfc6238Totp(secretBase32, clean, Date.now(), 0);
 }
 
 // ============================================================================

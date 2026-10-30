@@ -10,6 +10,7 @@ import {
   buildOtpAuthUri,
   buildTotpQrCodeSvgDataUrl,
   generateTotpCodeSync,
+  signMfaChallengeToken,
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
 import type { ErpFinancialEntry } from "../db/types";
@@ -414,6 +415,23 @@ export function computeRealtimeTicketsAndKpis(
       avgCsat,
     },
   };
+}
+
+/**
+ * Revisao 7706b4a: o servidor nunca aceita nem grava segredo TOTP vindo do cliente.
+ * Remove do corpo (antes de qualquer upsert) todo campo de segredo/estado interno do TOTP.
+ * Pareamento (totpConfigured/totpEpoch) continua sendo decidido pelas regras do repositorio.
+ */
+/** Prefixo dos desafios de reverificacao (step-up); nao valem como desafio de login. */
+export const STEP_UP_CID_PREFIX = 'STEPUP-';
+/** Janela em que a reverificacao MFA libera ver/regenerar o pareamento do proprio usuario. */
+export const STEP_UP_FRESH_MS = 10 * 60 * 1000;
+export const CLIENT_FORBIDDEN_TOTP_FIELDS = ['totpSecret', 'totpSecretFormatted', 'lastUsedTotpTimeStep'] as const;
+export function stripClientTotpSecretFields(body: unknown): Record<string, unknown> {
+  const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = { ...src };
+  for (const k of CLIENT_FORBIDDEN_TOTP_FIELDS) delete out[k];
+  return out;
 }
 
 export class CrmApiRouter {
@@ -824,6 +842,9 @@ export class CrmApiRouter {
     return { status: raw.status, body: projected };
   }
 
+  // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
+  private readonly stepUpStartLimiter = new SlidingWindowRateLimiter(5, 10 * 60 * 1000);
+  private readonly stepUpVerifyLimiter = new SlidingWindowRateLimiter(10, 10 * 60 * 1000);
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
@@ -5035,8 +5056,9 @@ export class CrmApiRouter {
         const target = String(
           body.email || body.userId || query.email || query.userId || 'marcelo.mira@setatelecom.com.br'
         ).trim();
-        const regenerate = Boolean(body.regenerate || query.regenerate === '1');
-        const explicitSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        const regenerateRequested = Boolean(body.regenerate || query.regenerate === '1');
+        // Revisao 7706b4a: body.totpSecret NAO e lido. O segredo e sempre derivado no servidor
+        // (segredo do servidor + epoca + e-mail); o cliente nunca escolhe nem grava segredo TOTP.
 
         // Security: If user already has TOTP configured, block unauthenticated HTTP requests to /api/auth/setup-totp
         const targetUser = this.repo.getEffectiveUserAndRole(target).user;
@@ -5071,8 +5093,15 @@ export class CrmApiRouter {
             (callerSession.user.id === targetUser.id ||
               callerSession.user.email.toLowerCase() === targetUser.email.toLowerCase())
         );
+        // Revisao 7706b4a: quem JA pareou so ve QR/segredo (ou regenera) com reverificacao
+        // MFA recente (step-up <= 10 min) na propria sessao. Etapa 1 (so senha) nunca, se pareado.
+        const callerClaims = callerSessionToken ? verifyStiHubSessionToken(callerSessionToken).claims : null;
+        const stepUpFresh = Boolean(
+          callerClaims?.mfaStepUpAt && Date.now() - Number(callerClaims.mfaStepUpAt) <= STEP_UP_FRESH_MS
+        );
         const isCallerAuthenticated = Boolean(
-          callerIsTargetSelf || (hasValidStep1Challenge && !targetUser?.totpConfigured)
+          (callerIsTargetSelf && (!isAlreadyEnrolled || stepUpFresh)) ||
+            (hasValidStep1Challenge && !isAlreadyEnrolled)
         );
 
         if (isAlreadyEnrolled && !isCallerAuthenticated && query._fromHttpBridge === '1') {
@@ -5095,7 +5124,11 @@ export class CrmApiRouter {
           };
         }
 
-        const setup = this.repo.setupUserTotp(target, regenerate, explicitSecret);
+        // "regenerate" (desfaz o pareamento) so para o PROPRIO usuario com sessao MFA valida;
+        // o desafio da etapa 1 (so senha) apenas mostra o QR de quem ainda nao pareou.
+        const regenerate =
+          regenerateRequested && ((callerIsTargetSelf && stepUpFresh) || query._fromHttpBridge !== '1');
+        const setup = this.repo.setupUserTotp(target, regenerate);
         if (!setup.ok) {
           return {
             status: 404,
@@ -5110,6 +5143,135 @@ export class CrmApiRouter {
         };
       }
 
+      // ======================================================================
+      // STEP-UP MFA (reverificacao com a sessao JA autenticada) - Minha Conta
+      // O desafio e ligado ao userId da SESSAO (nunca a id do corpo); rate limit por usuario;
+      // a resposta nunca traz codigo OTP nem segredo TOTP.
+      // ======================================================================
+      if ((cleanPath === '/api/auth/step-up/start' || cleanPath === '/api/auth/step-up/verify') && method === 'POST') {
+        const suTok =
+          query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+        const suSess = suTok && verifyStiHubSessionToken(suTok).valid ? this.repo.resolveSessionFromToken(suTok) : null;
+        if (!suTok || !suSess?.authenticated || !suSess.mfaVerified || this.isSessionOlderThanPasswordChange(suTok)) {
+          return {
+            status: 401,
+            body: { error: 'Sessão MFA válida obrigatória para reverificar.', code: 'MFA_SESSION_REQUIRED' },
+          };
+        }
+        const suUser = suSess.user;
+        const bodyWho = String(body.userId || body.email || '').trim().toLowerCase();
+        if (bodyWho && bodyWho !== suUser.id.toLowerCase() && bodyWho !== suUser.email.toLowerCase()) {
+          return {
+            status: 403,
+            body: { error: 'A reverificação vale só para o próprio usuário da sessão.', code: 'STEP_UP_TARGET_MISMATCH' },
+          };
+        }
+        const suKey = suUser.id.toLowerCase();
+
+        if (cleanPath === '/api/auth/step-up/start') {
+          if (!this.stepUpStartLimiter.hit(suKey)) {
+            return { status: 429, body: { error: 'Muitas solicitações de reverificação. Aguarde alguns minutos.', code: 'STEP_UP_RATE_LIMITED' } };
+          }
+          const suMethod = body.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
+          if (suMethod === 'EMAIL_OTP') {
+            const otp = this.repo.createEmailOtpChallenge(suUser.email);
+            if (!otp.ok || !otp.otpCode || !otp.email || !otp.challengeId) {
+              return { status: 429, body: { error: otp.error || 'Não foi possível gerar o código por e-mail.', code: 'STEP_UP_RATE_LIMITED' } };
+            }
+            const delivery = await this.dispatchEmailOtpMessage({
+              toEmail: otp.email,
+              userName: otp.userName || otp.email,
+              otpCode: otp.otpCode,
+              expiresAt: otp.expiresAt!,
+            });
+            return {
+              status: delivery.delivered ? 200 : 503,
+              body: {
+                ...(delivery.delivered
+                  ? {}
+                  : { error: delivery.providerError || 'Não foi possível entregar o código por e-mail. Use o aplicativo autenticador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' }),
+                data: {
+                  challengeId: delivery.delivered ? otp.challengeId : undefined,
+                  mfaMethod: 'EMAIL_OTP',
+                  email: otp.email,
+                  expiresAt: otp.expiresAt,
+                  delivered: delivery.delivered,
+                  deliveryMode: delivery.deliveryMode,
+                },
+              },
+            };
+          }
+          const nowSu = Date.now();
+          const challengeId = signMfaChallengeToken({
+            cid: `${STEP_UP_CID_PREFIX}${suUser.id}-${nowSu.toString(36).toUpperCase()}`,
+            uid: suUser.id,
+            email: suUser.email,
+            mfaMethod: 'TOTP_AUTHENTICATOR',
+            totpSecret: '',
+            iat: nowSu,
+            exp: nowSu + 5 * 60 * 1000,
+          });
+          this.repo.appendSecurityAuditLog({
+            actorEmail: suUser.email,
+            actorName: suUser.name,
+            actorRole: suSess.role.id,
+            action: 'MFA_STEP_UP_CHALLENGE_CREATED',
+            module: 'AUTH_MFA',
+            resource: '/api/auth/step-up/start',
+            status: 'SUCCESS',
+            details: `Desafio de reverificação MFA (${suMethod}) criado para ${suUser.email}.`,
+          });
+          return {
+            status: 200,
+            body: { data: { challengeId, mfaMethod: suMethod, expiresAt: new Date(nowSu + 5 * 60 * 1000).toISOString() } },
+          };
+        }
+
+        // /api/auth/step-up/verify
+        if (!this.stepUpVerifyLimiter.hit(suKey)) {
+          return { status: 429, body: { error: 'Muitas tentativas de reverificação. Aguarde alguns minutos.', code: 'STEP_UP_RATE_LIMITED' } };
+        }
+        const suChallengeId = typeof body.challengeId === 'string' ? body.challengeId : '';
+        const suCh = verifyMfaChallengeToken(suChallengeId);
+        const suCid = String(suCh?.cid || '');
+        if (
+          !suCh ||
+          suCh.uid.toLowerCase() !== suKey ||
+          !(suCid.startsWith(STEP_UP_CID_PREFIX) || suCid.startsWith('OTP-MAIL-'))
+        ) {
+          return {
+            status: 401,
+            body: { error: 'Desafio de reverificação ausente, expirado ou de outro usuário.', code: 'STEP_UP_CHALLENGE_REQUIRED' },
+          };
+        }
+        const suVerified = this.repo.verifyMfaAndCreateSession({
+          userId: suUser.id,
+          code: String(body.code || '').trim(),
+          mfaMethod: suCid.startsWith('OTP-MAIL-') ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR',
+          challengeId: suChallengeId,
+          stepUp: true,
+        });
+        if (!suVerified.ok || !suVerified.sessionToken) {
+          return { status: 401, body: { error: suVerified.error || 'Código inválido.', code: 'STEP_UP_FAILED' } };
+        }
+        const suSecure = process.env.VERCEL === '1' ? '; Secure' : '';
+        return {
+          status: 200,
+          headers: {
+            'Set-Cookie': `stihub_session=${suVerified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${suSecure}`,
+          },
+          body: {
+            data: {
+              stepUpVerified: true,
+              verifiedVia: suVerified.verifiedVia,
+              stepUpValidForSeconds: Math.floor(STEP_UP_FRESH_MS / 1000),
+              sessionToken: suVerified.sessionToken,
+              user: suVerified.user,
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/auth/verify-mfa' && method === 'POST') {
         const code = String(body.code || body.totpCode || '').trim();
         const email = body.email ? String(body.email) : undefined;
@@ -5118,14 +5280,19 @@ export class CrmApiRouter {
           body.mfaMethod === 'EMAIL_OTP' || body.mfaMethod === 'TOTP_AUTHENTICATOR'
             ? body.mfaMethod
             : undefined;
-        const totpSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        // Revisao 7706b4a: body.totpSecret NAO e lido nem repassado (segredo so do servidor).
         const challengeId = typeof body.challengeId === 'string' ? body.challengeId : undefined;
         // Contencao 29/10/2026: via HTTP o codigo 2FA so vale com o desafio da etapa 1 (senha validada)
         // do MESMO usuario. Sem isso, o codigo TOTP sozinho permitia login sem senha.
         if (query._fromHttpBridge === '1') {
           const ch = verifyMfaChallengeToken(challengeId);
           const who = String(email || userId || '').trim().toLowerCase();
-          if (!ch || !who || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+          if (
+            !ch ||
+            !who ||
+            String(ch.cid || '').startsWith(STEP_UP_CID_PREFIX) ||
+            (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)
+          ) {
             return {
               status: 401,
               body: {
@@ -5140,7 +5307,6 @@ export class CrmApiRouter {
           userId,
           code,
           mfaMethod,
-          totpSecret,
           challengeId,
         });
         if (!verified.ok || !verified.sessionToken) {
@@ -5338,8 +5504,9 @@ export class CrmApiRouter {
               passwordSaved: true,
               mfaRequired: true,
               challengeId: accepted.challengeId,
-              totpConfigured: false,
-              totpPairing: accepted.totpPairing,
+              // Revisao 7706b4a: reflete o estado real (quem ja pareou nao recebe QR nem segredo).
+              totpConfigured: Boolean((accepted as { totpConfigured?: boolean }).totpConfigured),
+              totpPairing: (accepted as { totpConfigured?: boolean }).totpConfigured ? undefined : accepted.totpPairing,
               user: accepted.user,
               role: accepted.role,
               message: 'Senha cadastrada com sucesso! Agora cadastre o código do seu Aplicativo Autenticador para concluir seu primeiro acesso.',
@@ -5729,7 +5896,7 @@ export class CrmApiRouter {
             body: { error: 'Informe ao menos "name" ou "email" do colaborador.' },
           };
         }
-        const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
+        const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(body));
         const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
@@ -5802,7 +5969,7 @@ export class CrmApiRouter {
       if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const userId = decodeURIComponent(adminUserIdMatch[1]);
         const saved = this.repo.upsertRbacUser({
-          ...(body as Record<string, unknown>),
+          ...stripClientTotpSecretFields(body),
           id: userId,
         });
         const otpauthUri = buildOtpAuthUri({

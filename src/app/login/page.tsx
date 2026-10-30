@@ -210,8 +210,10 @@ export default function StiHubLoginPage() {
         return;
       }
 
-      // First login after setting password: open Authenticator QR Code pairing automatically!
-      setChallengeData(d);
+      // First login after setting password: QR only if the server says not paired yet.
+      setChallengeData(
+        d?.totpConfigured === false ? d : { ...d, totpPairing: undefined }
+      );
       setActiveMfaChannel('TOTP_AUTHENTICATOR');
       setMfaCode('');
       setInfoMsg(
@@ -255,7 +257,9 @@ export default function StiHubLoginPage() {
         return;
       }
 
-      setChallengeData(d);
+      setChallengeData(
+        d?.totpConfigured === false ? d : { ...d, totpPairing: undefined }
+      );
       setMfaCode('');
 
       // If it is the user's first login (totpConfigured === false) or email OTP failed because no SMTP is configured,
@@ -283,7 +287,11 @@ export default function StiHubLoginPage() {
   };
 
   const handleLoadFirstTimeTotpQrIfNeeded = async () => {
-    if (challengeData?.totpPairing || challengeData?.totpConfigured === true) return;
+    // Revisao 7706b4a: o pareamento so e pedido na etapa 2FA (senha ja validada, com o desafio
+    // da etapa 1) e SOMENTE quando o servidor disse explicitamente totpConfigured === false.
+    // Quem ja pareou (true) ou estado desconhecido (undefined) nunca pede QR/segredo.
+    if (step !== 'MFA_2FA' || !challengeData?.challengeId) return;
+    if (challengeData.totpConfigured !== false || challengeData.totpPairing) return;
     try {
       const targetEmail = challengeData?.user?.email || email.trim();
       const res = await fetch('/api/auth/setup-totp', {
@@ -402,10 +410,7 @@ export default function StiHubLoginPage() {
           userId: challengeData?.user?.id,
           code: cleanCode,
           mfaMethod: activeMfaChannel,
-          totpSecret:
-            challengeData?.totpConfigured === false
-              ? challengeData?.totpPairing?.totpSecret
-              : undefined,
+          // Revisao 7706b4a: o segredo TOTP nunca sai do navegador (o servidor usa o seu).
           challengeId: challengeData?.challengeId,
           iamUsersOverride: loadClientIamUsersOverride(),
           iamDeletedUsersOverride: loadClientDeletedUsersOverride(),
@@ -434,8 +439,15 @@ export default function StiHubLoginPage() {
     }
   };
 
-  const isTotpAlreadyConfigured =
-    challengeData?.totpConfigured !== false && !challengeData?.totpPairing;
+  // QR/segredo so aparecem na etapa 2FA, depois da senha validada, para quem o servidor
+  // marcou explicitamente como nao pareado (totpConfigured === false) e devolveu o pareamento.
+  const shouldShowTotpPairing = Boolean(
+    step === 'MFA_2FA' &&
+      challengeData?.challengeId &&
+      challengeData?.totpConfigured === false &&
+      challengeData?.totpPairing
+  );
+  const isTotpAlreadyConfigured = !shouldShowTotpPairing;
 
   return (
     <div className="min-h-screen bg-[#0d2b4e] flex flex-col items-center justify-center p-4 sm:p-6 text-slate-800">
@@ -661,7 +673,7 @@ export default function StiHubLoginPage() {
                       Abra o <strong>Google Authenticator</strong> no seu celular e digite o código atual de 6 dígitos (válido por 30s).
                     </div>
                   ) : (
-                    challengeData?.totpPairing && (
+                    shouldShowTotpPairing && challengeData?.totpPairing && (
                       <div className="p-3 rounded-lg bg-white border border-slate-200 flex flex-col items-center text-center space-y-2.5">
                         <div className="font-semibold text-[#0d2b4e] flex items-center gap-1.5">
                           <QrCode className="w-4 h-4" />
