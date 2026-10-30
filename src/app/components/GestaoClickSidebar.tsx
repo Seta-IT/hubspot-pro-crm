@@ -117,6 +117,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'VENDAS_TODAS', label: 'Todas as vendas' },
       { id: 'VENDAS_PRODUTOS', label: 'Produtos' },
       { id: 'VENDAS_SERVICOS', label: 'Serviços' },
+      { id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' },
       { id: 'VENDAS_DEVOLUCOES', label: 'Devoluções' },
       { id: 'VENDAS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],

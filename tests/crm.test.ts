@@ -2122,7 +2122,11 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(marceloSetup.totpSecretFormatted?.includes(" "), "Deve retornar segredo Base32 formatado em blocos de 4 caracteres");
 
     const sidebarSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/GestaoClickSidebar.tsx"), "utf8");
-    assert.equal(sidebarSrc.includes("VENDAS_BALCAO"), false, "Item Balcão (PDV) deve estar removido da sidebar do ERP");
+    assert.ok(sidebarSrc.includes("{ id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' }"), "Item Balcão (PDV) (Pilar 9 oficial) deve estar na sidebar SETA | IT");
+    const pillarsSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/SetaErpTenPillarsAndPdv.tsx"), "utf8");
+    assert.ok(/num: 9,\s*title: 'PDV \(Frente de Caixa\)'[\s\S]*?subId: 'VENDAS_BALCAO'/.test(pillarsSrc), "Pilar 9 oficial deve ser o PDV Frente de Caixa");
+    const erpTabSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/ErpGestaoClickTab.tsx"), "utf8");
+    assert.ok(erpTabSrc.includes("activeSubId === 'VENDAS_BALCAO' ? (") && erpTabSrc.includes("<SetaErpPdvPosView"), "Sub-aba VENDAS_BALCAO deve renderizar o PDV");
   });
   it('valida matematicamente CNPJ (14 dígitos Mod-11) e CPF (11 dígitos Mod-11), aplica máscara dinâmica PJ/PF e bloqueia CNPJ/CPF inválido na API (400)', async () => {
     // 1. Validação e autoformatação de CNPJ (PJ)

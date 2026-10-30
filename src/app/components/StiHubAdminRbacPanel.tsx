@@ -2500,7 +2500,7 @@ export default function StiHubAdminRbacPanel({
                         {
                           id: 'ERP' as const,
                           title: 'Módulo 2: ERP (GestãoClick)',
-                          desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal & Estoque',
+                          desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal, Estoque & PDV',
                         },
                         {
                           id: 'CHAMADOS' as const,

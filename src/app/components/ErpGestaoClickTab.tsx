@@ -5984,6 +5984,7 @@ export default function ErpGestaoClickTab({
                         { id: 'VENDAS_PRODUTOS', label: `Vendas de Produtos (${salesOrders.filter((v) => !isReturnOrder(v) && !isServiceSale(v)).length})` },
                         { id: 'VENDAS_SERVICOS', label: `Vendas de Serviços (${salesOrders.filter((v) => !isReturnOrder(v) && isServiceSale(v)).length})` },
                         { id: 'VENDAS_DEVOLUCOES', label: `Devoluções & Trocas (${salesOrders.filter((v) => isReturnOrder(v)).length})` },
+                        { id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' },
                       ].map((tb) => {
                         const isAct =
                           tb.id === 'VENDAS_TODAS'
