@@ -113,6 +113,9 @@ import {
   verifyMfaChallengeToken,
   verifyUserInviteToken,
   verifyRfc6238Totp,
+  MFA_CHALLENGE_CID_PREFIX,
+  mfaChallengeFlowOf,
+  type MfaChallengeFlow,
   verifyStiHubSessionToken,
 } from '../app/lib/auth';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
@@ -7827,7 +7830,8 @@ export class CrmRepository {
 
   createEmailOtpChallenge(
     userOrEmail: string,
-    ipAddress = "189.112.44.18"
+    ipAddress = "189.112.44.18",
+    purpose: MfaChallengeFlow = "LOGIN"
   ): {
     ok: boolean;
     error?: string;
@@ -7852,7 +7856,8 @@ export class CrmRepository {
     }
 
     const nowMs = Date.now();
-    const key = found.email.toLowerCase();
+    // Pacote A: desafios de e-mail separados por fluxo (login x step-up).
+    const key = `${purpose}:${found.email.toLowerCase()}`;
     const prev = this.emailOtpChallenges.get(key);
     const recentSends = (prev?.sendHistoryMs || []).filter((ts) => nowMs - ts < 10 * 60 * 1000);
     if (recentSends.length >= 6) {
@@ -7877,7 +7882,7 @@ export class CrmRepository {
     const ttlMs = 10 * 60 * 1000; // 10 minutes
     const expiresAtMs = nowMs + ttlMs;
     const challengeId = signMfaChallengeToken({
-      cid: `OTP-MAIL-${found.id}-${nowMs.toString(36).toUpperCase()}`,
+      cid: `${purpose === "STEPUP" ? MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL : MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL}${found.id}-${nowMs.toString(36).toUpperCase()}`,
       uid: found.id,
       email: found.email,
       mfaMethod: "EMAIL_OTP",
@@ -8168,6 +8173,8 @@ export class CrmRepository {
     const userSecret = generateTotpSecretBase32(user.email);
 
     // If challengeId was provided and is expired or already consumed, reject immediately
+    // Pacote A: fluxo do desafio (login x step-up). Desafio de um fluxo nunca vale no outro.
+    const flow: MfaChallengeFlow = input.stepUp ? "STEPUP" : "LOGIN";
     let statelessChallenge: ReturnType<typeof verifyMfaChallengeToken> = null;
     if (input.challengeId) {
       statelessChallenge = verifyMfaChallengeToken(input.challengeId);
@@ -8176,6 +8183,9 @@ export class CrmRepository {
           ok: false,
           error: "Desafio 2FA expirado. Faça login novamente e digite o código atual de 6 dígitos.",
         };
+      }
+      if (mfaChallengeFlowOf(statelessChallenge.cid) !== flow) {
+        return { ok: false, error: "Desafio 2FA de outro fluxo. Solicite um novo código." };
       }
       if (this.consumedChallengeIds.has(statelessChallenge.cid)) {
         return {
@@ -8263,7 +8273,8 @@ export class CrmRepository {
     const isValidTotp = Boolean(matchedTotpSecret);
 
     let isValidEmailOtp = false;
-    const emailChallenge = this.emailOtpChallenges.get(emailKey);
+    const emailMapKey = `${flow}:${emailKey}`;
+    const emailChallenge = this.emailOtpChallenges.get(emailMapKey);
     if (emailChallenge) {
       if (emailChallenge.consumed) {
         if (sha256Hex(rawCode) === emailChallenge.codeHash) {
@@ -8273,13 +8284,13 @@ export class CrmRepository {
           };
         }
       } else if (nowMs > emailChallenge.expiresAtMs) {
-        this.emailOtpChallenges.delete(emailKey);
+        this.emailOtpChallenges.delete(emailMapKey);
         return {
           ok: false,
           error: "Código OTP por e-mail expirado. Solicite um novo código.",
         };
       } else if (emailChallenge.attempts >= emailChallenge.maxAttempts) {
-        this.emailOtpChallenges.delete(emailKey);
+        this.emailOtpChallenges.delete(emailMapKey);
         return {
           ok: false,
           error: "Limite de tentativas do código OTP excedido. Solicite um novo código.",

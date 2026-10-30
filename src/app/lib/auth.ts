@@ -780,6 +780,30 @@ export function signMfaChallengeToken(
   return `MFA-${payloadB64}.${sigB64}`;
 }
 
+/**
+ * Pacote A (29/10): prefixos de cid por FLUXO. Cada desafio so vale no seu fluxo:
+ *  - LOGIN: MFA- (senha validada) e OTP-MAIL-LOGIN- (e-mail do login)
+ *  - STEPUP: STEPUP- (TOTP da sessao) e OTP-MAIL-STEPUP- (e-mail da reverificacao)
+ * O antigo OTP-MAIL- (sem fluxo) nao vale em nenhum dos dois.
+ */
+export const MFA_CHALLENGE_CID_PREFIX = {
+  LOGIN_PASSWORD: 'MFA-',
+  LOGIN_EMAIL: 'OTP-MAIL-LOGIN-',
+  STEPUP_TOTP: 'STEPUP-',
+  STEPUP_EMAIL: 'OTP-MAIL-STEPUP-',
+} as const;
+export type MfaChallengeFlow = 'LOGIN' | 'STEPUP';
+export function mfaChallengeFlowOf(cid: string | null | undefined): MfaChallengeFlow | null {
+  const c = String(cid || '');
+  if (c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_TOTP)) return 'STEPUP';
+  if (c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_PASSWORD)) return 'LOGIN';
+  return null;
+}
+export function isEmailOtpChallengeCid(cid: string | null | undefined): boolean {
+  const c = String(cid || '');
+  return c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL);
+}
+
 export function verifyMfaChallengeToken(
   token: string | null | undefined,
   secretInput?: string

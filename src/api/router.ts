@@ -10,6 +10,8 @@ import {
   buildOtpAuthUri,
   buildTotpQrCodeSvgDataUrl,
   generateTotpCodeSync,
+  isEmailOtpChallengeCid,
+  mfaChallengeFlowOf,
   signMfaChallengeToken,
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
@@ -270,11 +272,33 @@ export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; e
 </td></tr></table></td></tr></table></body></html>`;
 }
 
+/**
+ * Contexto interno CONFIAVEL (codigo do proprio servidor: jobs, seeds, testes). E um Symbol:
+ * nao pode vir de JSON, query, header ou corpo, logo o cliente nao consegue injeta-lo.
+ * Sem ele, toda chamada (HTTP ou interna) cai nas regras de autorizacao IAM.
+ */
+export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInternalContext');
+
+/** Chaves internas que so o bridge (ou o proprio router) pode definir; nunca do cliente. */
+export const BRIDGE_RESERVED_KEYS = [
+  '_fromHttpBridge',
+  '_cronAuthorized',
+  '_sessionToken',
+  '_svcBearer',
+  '_svcTokenSha256',
+  '_clientIp',
+  '_origin',
+  '_enrolledUsers',
+  '_trustedInternal',
+] as const;
+
 export interface ApiRequest {
   method: string;
   path: string;
   query?: Record<string, string | undefined>;
   body?: unknown;
+  /** So codigo do servidor passa TRUSTED_INTERNAL_CONTEXT (libera rotas IAM sem sessao). */
+  context?: typeof TRUSTED_INTERNAL_CONTEXT;
 }
 
 export interface ApiResponse<T = unknown> {
@@ -642,9 +666,12 @@ export class CrmApiRouter {
     if (queryString) {
       const searchParams = new URLSearchParams(queryString);
       searchParams.forEach((v, k) => {
+        // Chaves internas (_*) nunca vem da query string do caminho.
+        if (k.startsWith("_")) return;
         if (query[k] === undefined) query[k] = v;
       });
     }
+    const trustedInternal = req.context === TRUSTED_INTERNAL_CONTEXT;
 
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
       string,
@@ -688,7 +715,7 @@ export class CrmApiRouter {
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body);
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -817,7 +844,7 @@ export class CrmApiRouter {
       if (typeof v === 'string' && v.length <= 120) internalQuery[k] = v;
     }
 
-    const raw = await this.handleRoute(method, cleanPath, internalQuery, body);
+    const raw = await this.handleRoute(method, cleanPath, internalQuery, body, { trustedInternal: false });
     const sanitized = sanitizeApiResponseBody(raw.body, { path: cleanPath });
     const projected = projectSalesAgentResponse(route.resource, sanitized, query);
     this.auditSalesAgent(
@@ -1071,7 +1098,8 @@ export class CrmApiRouter {
     method: string,
     cleanPath: string,
     query: Record<string, string | undefined>,
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -1092,7 +1120,9 @@ export class CrmApiRouter {
       // /api/admin/*, /api/rbac/*, /api/iam/* (e aliases como /api/auth/send-invite), em
       // qualquer metodo (inclusive GET de listagem), exigem sessao MFA valida + canManageUsersRbac.
       // Roda ANTES do override IAM e da checagem de rota publica (send-invite estava em /api/auth).
-      if (query._fromHttpBridge === "1" && isIamAdminRoute(cleanPath)) {
+      // Pacote A (29/10): vale para TODA chamada (HTTP ou interna). So o contexto interno
+      // confiavel (Symbol, nao injetavel) dispensa a sessao.
+      if (!ctx.trustedInternal && isIamAdminRoute(cleanPath)) {
         const iamTok =
           query._sessionToken || (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
         if (!iamTok || !verifyStiHubSessionToken(iamTok).valid) {
@@ -4908,7 +4938,8 @@ export class CrmApiRouter {
                 mfaRequired: false,
                 authenticated: true,
                 mfaVerified: true,
-                sessionToken: challenge.sessionToken,
+                // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+                sessionCookieIssued: true,
                 user: challenge.user,
                 role: challenge.role,
                 effectiveActionGuards: challenge.effectiveActionGuards,
@@ -4989,7 +5020,7 @@ export class CrmApiRouter {
         if (query._fromHttpBridge === '1') {
           const ch = verifyMfaChallengeToken(typeof body.challengeId === 'string' ? body.challengeId : undefined);
           const who = target.toLowerCase();
-          if (!ch || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+          if (!ch || mfaChallengeFlowOf(ch.cid) !== 'LOGIN' || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
             return {
               status: 401,
               body: {
@@ -4999,7 +5030,7 @@ export class CrmApiRouter {
             };
           }
         }
-        const otpChallenge = this.repo.createEmailOtpChallenge(target);
+        const otpChallenge = this.repo.createEmailOtpChallenge(target, undefined, 'LOGIN');
         if (!otpChallenge.ok || !otpChallenge.otpCode || !otpChallenge.email) {
           return {
             status: 429,
@@ -5081,6 +5112,7 @@ export class CrmApiRouter {
         const verifiedStep1Challenge = verifyMfaChallengeToken(challengeToken);
         const hasValidStep1Challenge = Boolean(
           verifiedStep1Challenge &&
+            mfaChallengeFlowOf(verifiedStep1Challenge.cid) === 'LOGIN' &&
             (verifiedStep1Challenge.email.toLowerCase() === target.toLowerCase() ||
               verifiedStep1Challenge.uid.toLowerCase() === target.toLowerCase())
         );
@@ -5174,7 +5206,7 @@ export class CrmApiRouter {
           }
           const suMethod = body.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
           if (suMethod === 'EMAIL_OTP') {
-            const otp = this.repo.createEmailOtpChallenge(suUser.email);
+            const otp = this.repo.createEmailOtpChallenge(suUser.email, undefined, 'STEPUP');
             if (!otp.ok || !otp.otpCode || !otp.email || !otp.challengeId) {
               return { status: 429, body: { error: otp.error || 'Não foi possível gerar o código por e-mail.', code: 'STEP_UP_RATE_LIMITED' } };
             }
@@ -5237,7 +5269,7 @@ export class CrmApiRouter {
         if (
           !suCh ||
           suCh.uid.toLowerCase() !== suKey ||
-          !(suCid.startsWith(STEP_UP_CID_PREFIX) || suCid.startsWith('OTP-MAIL-'))
+          mfaChallengeFlowOf(suCid) !== 'STEPUP'
         ) {
           return {
             status: 401,
@@ -5247,7 +5279,7 @@ export class CrmApiRouter {
         const suVerified = this.repo.verifyMfaAndCreateSession({
           userId: suUser.id,
           code: String(body.code || '').trim(),
-          mfaMethod: suCid.startsWith('OTP-MAIL-') ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR',
+          mfaMethod: isEmailOtpChallengeCid(suCid) ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR',
           challengeId: suChallengeId,
           stepUp: true,
         });
@@ -5265,7 +5297,8 @@ export class CrmApiRouter {
               stepUpVerified: true,
               verifiedVia: suVerified.verifiedVia,
               stepUpValidForSeconds: Math.floor(STEP_UP_FRESH_MS / 1000),
-              sessionToken: suVerified.sessionToken,
+              // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+              sessionCookieIssued: true,
               user: suVerified.user,
             },
           },
@@ -5290,7 +5323,7 @@ export class CrmApiRouter {
           if (
             !ch ||
             !who ||
-            String(ch.cid || '').startsWith(STEP_UP_CID_PREFIX) ||
+            mfaChallengeFlowOf(ch.cid) !== 'LOGIN' ||
             (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)
           ) {
             return {
@@ -5327,7 +5360,8 @@ export class CrmApiRouter {
               authenticated: true,
               mfaVerified: true,
               verifiedVia: verified.verifiedVia,
-              sessionToken: verified.sessionToken,
+              // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+              sessionCookieIssued: true,
               user: verified.user,
               role: verified.role,
               effectiveActionGuards: verified.effectiveActionGuards,
@@ -5484,7 +5518,8 @@ export class CrmApiRouter {
                 mfaVerified: true,
                 mfaRequired: false,
                 passwordSaved: true,
-                sessionToken: accepted.sessionToken,
+                // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+                sessionCookieIssued: true,
                 user: accepted.user,
                 role: accepted.role,
                 effectiveActionGuards: accepted.effectiveActionGuards,

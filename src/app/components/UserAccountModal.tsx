@@ -129,11 +129,7 @@ export default function UserAccountModal({
     });
     const json = await res.json().catch(() => null);
     if (res.ok) {
-      const token = json?.data?.sessionToken || '';
-      if (typeof window !== 'undefined' && token) {
-        document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
-        document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
-      }
+      // Pacote A: o novo cookie HttpOnly (com mfaStepUpAt) ja veio no Set-Cookie da resposta.
       setStepUpVerified(true);
       setStepUpChallengeId(null);
     }

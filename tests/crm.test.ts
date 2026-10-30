@@ -19,6 +19,13 @@ import path from 'node:path';
 // ============================================================================
 
 import { describe, it } from 'node:test';
+import { TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
+/** Pacote A: o token de sessao so vem no cookie HttpOnly (Set-Cookie), nunca no JSON. */
+function sessionFromCookie(res: { headers?: Record<string, string> }): string {
+  const m = String(res.headers?.['Set-Cookie'] || '').match(/stihub_session=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 import assert from 'node:assert/strict';
 
 import {
@@ -1490,7 +1497,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const rbacRes = await router.dispatch({ method: 'GET', path: '/api/admin/rbac' });
+    const rbacRes = await router.dispatch({ method: 'GET', path: '/api/admin/rbac', context: TRUSTED_INTERNAL_CONTEXT });
     assert.equal(rbacRes.status, 200);
     const rbacData = (rbacRes.body as {
       data: {
@@ -1517,6 +1524,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     const updUserRes = await router.dispatch({
       method: 'PUT',
       path: '/api/admin/users/usr-seta-03',
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: {
         roleId: 'GERENTE_COMERCIAL',
         scope: 'EQUIPE',
@@ -1590,7 +1598,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     const sessRes = await router.dispatch({
       method: 'GET',
       path: '/api/auth/session',
-      query: { token: mfaSession.sessionToken },
+      query: { token: sessionFromCookie(okMfaRes) },
     });
     assert.equal(sessRes.status, 200);
     const sessData = (sessRes.body as {
@@ -1975,7 +1983,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       data: { sessionToken: string; verifiedVia: string };
     }).data;
     assert.equal(totpSession.verifiedVia, 'RFC6238_TOTP');
-    assert.ok(totpSession.sessionToken.includes('.'), 'Token deve conter assinatura HMAC-SHA256 separada por ponto');
+    assert.ok(sessionFromCookie(mfaTotpRes).includes('.'), 'Token deve conter assinatura HMAC-SHA256 separada por ponto');
 
     // 3. Disparo e validação de Código OTP por E-mail (uso único)
     const sendOtpRes = await router.dispatch({
@@ -2035,7 +2043,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       },
     });
     assert.equal(nocLogin.status, 200);
-    const nocToken = (nocLogin.body as { data: { sessionToken: string; enabledModules: string[] } }).data.sessionToken;
+    const nocToken = sessionFromCookie(nocLogin);
 
     // Acesso permitido a Chamados (/api/tickets)
     const ticketsOk = await router.dispatch({
@@ -2071,7 +2079,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
         code: mktSetup.currentTotpCode,
       },
     });
-    const mktToken = (mktLogin.body as { data: { sessionToken: string } }).data.sessionToken;
+    const mktToken = sessionFromCookie(mktLogin);
 
     const crmAllowed = await router.dispatch({
       method: 'GET',
@@ -2091,6 +2099,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const badEmitterCnpj = await router.dispatch({
       method: 'PUT',
       path: '/api/admin/settings',
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: {
         companyEmitter: {
           cnpj: '07.228.550/0001-19',
@@ -2102,6 +2111,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const auditRes = await router.dispatch({
       method: 'GET',
       path: '/api/admin/audit-logs',
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
     });
     assert.equal(auditRes.status, 200);
     const auditData = (auditRes.body as {
@@ -2955,6 +2965,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const createUserRes = await router.dispatch({
       method: 'POST',
       path: '/api/rbac/users',
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: {
         name: 'Leandro Almeida (Gerente de Estoque)',
         email: 'leandro.estoque@setatelecom.com.br',
@@ -3125,7 +3136,8 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       },
     });
     assert.equal(verifyRes.status, 200);
-    const sessionToken = (verifyRes.body as { data: { sessionToken: string; verifiedVia: string } }).data.sessionToken;
+    const sessionToken = sessionFromCookie(verifyRes);
+    assert.equal(JSON.stringify(verifyRes.body).includes("sessionToken"), false, "token nunca no JSON");
     assert.ok(sessionToken.includes("."));
 
     // Etapa 3: Simula o Edge Middleware rodando em um V8 isolate separado (limpando cache globalThis)
@@ -4017,6 +4029,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     const createRes = await router.dispatch({
       method: "POST",
       path: "/api/admin/users",
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: {
         name: "Fernanda Costa (Convidada)",
         email: "fernanda.costa@setatelecom.com.br",
@@ -4122,6 +4135,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     const disableMfaRes = await router.dispatch({
       method: "POST",
       path: `/api/admin/users/${created.id}/reset-mfa`,
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: { mode: "DISABLE_2FA" },
     });
     assert.equal(disableMfaRes.status, 200);
@@ -4147,6 +4161,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     const resetQrRes = await router.dispatch({
       method: "POST",
       path: `/api/admin/users/${created.id}/reset-mfa`,
+      context: TRUSTED_INTERNAL_CONTEXT, // chamada interna confiável (teste de servidor)
       body: { mode: "RESET_QR" },
     });
     assert.equal(resetQrRes.status, 200);

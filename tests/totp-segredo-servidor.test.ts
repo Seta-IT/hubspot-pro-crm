@@ -25,6 +25,12 @@ import { forwardToCrmRouter } from '../src/app/api/_bridge';
 const EMAIL = 'marcelo.mira@setatelecom.com.br';
 const PASSWORD = 'SenhaPropria#2026';
 const HTTP = { _fromHttpBridge: '1' };
+/** Pacote A: o token de sessao so vem no cookie HttpOnly (Set-Cookie), nunca no JSON. */
+function sessionFromCookie(res: { headers?: Record<string, string> }): string {
+  const m = String(res.headers?.['Set-Cookie'] || '').match(/stihub_session=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 const ROOT = process.cwd();
 const src = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
@@ -341,7 +347,8 @@ describe('Revisao 7706b4a: step-up MFA da sessao (Minha Conta)', () => {
     const ok = await router.dispatch({ method: 'POST', path: '/api/auth/step-up/verify', query: q, body: { challengeId: cid, code: computeRfc6238Totp(deriveServerTotpSecret(EMAIL)).code } });
     assert.equal(ok.status, 200);
     assert.equal(NO_SECRETS.test(JSON.stringify(ok.body)), false);
-    const newTok = (ok.body as { data: { sessionToken: string } }).data.sessionToken;
+    const newTok = sessionFromCookie(ok);
+    assert.equal(JSON.stringify(ok.body).includes('sessionToken'), false, 'token so no cookie HttpOnly');
     assert.ok(Number(verifyStiHubSessionToken(newTok).claims?.mfaStepUpAt) > 0);
     assert.match(String(ok.headers?.['Set-Cookie'] || ''), /stihub_session=.*HttpOnly/);
 
@@ -366,7 +373,7 @@ describe('Revisao 7706b4a: step-up MFA da sessao (Minha Conta)', () => {
     await safeWindow();
     const ok = await router.dispatch({ method: 'POST', path: '/api/auth/step-up/verify', query: q, body: { challengeId: (st.body as { data: { challengeId: string } }).data.challengeId, code: computeRfc6238Totp(deriveServerTotpSecret(EMAIL)).code } });
     assert.equal(ok.status, 200);
-    const fresh = (ok.body as { data: { sessionToken: string } }).data.sessionToken;
+    const fresh = sessionFromCookie(ok);
     const yes = await router.dispatch({ method: 'POST', path: '/api/auth/setup-totp', query: { ...HTTP, _sessionToken: fresh }, body: { email: EMAIL } });
     assert.equal(yes.status, 200);
   });

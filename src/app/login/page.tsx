@@ -81,7 +81,8 @@ export default function StiHubLoginPage() {
 
   const completeAuthenticatedRedirect = (data: Record<string, unknown>, fallbackEmail: string) => {
     if (typeof window === 'undefined') return;
-    const token = String(data?.sessionToken || '');
+    // Pacote A: o token da sessao chega SO no cookie HttpOnly definido pelo servidor (Set-Cookie);
+    // o JS nao le nem grava stihub_session.
     const userObj = (data?.user || {}) as Record<string, unknown>;
     const verifiedEmail = String(userObj?.email || fallbackEmail || '')
       .trim()
@@ -96,7 +97,6 @@ export default function StiHubLoginPage() {
         authenticated: true,
         mfaVerified: true,
         verifiedVia: data?.verifiedVia || 'DIRECT_LOGIN',
-        sessionToken: token,
         user: data?.user,
         role: data?.role,
         effectiveActionGuards: data?.effectiveActionGuards,
@@ -108,7 +108,6 @@ export default function StiHubLoginPage() {
       })
     );
     document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
-    document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
     if (verifiedEmail && userObj?.totpConfigured !== false) {
       document.cookie = `stihub_totp_enrolled_r1=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
     }
@@ -205,7 +204,7 @@ export default function StiHubLoginPage() {
       setPassword(newPassword.trim());
 
       // If 2FA is disabled for this user, enter the system immediately
-      if (d?.mfaRequired === false && d?.sessionToken) {
+      if (d?.mfaRequired === false && d?.authenticated === true) {
         completeAuthenticatedRedirect(d, inviteUser?.email || email);
         return;
       }
@@ -252,7 +251,7 @@ export default function StiHubLoginPage() {
       const d = json.data;
 
       // If 2FA is disabled for this user (mfaRequired === false), log straight in!
-      if (d?.mfaRequired === false && d?.sessionToken) {
+      if (d?.mfaRequired === false && d?.authenticated === true) {
         completeAuthenticatedRedirect(d, email.trim());
         return;
       }

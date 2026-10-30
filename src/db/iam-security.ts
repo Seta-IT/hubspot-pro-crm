@@ -140,6 +140,8 @@ export const ALWAYS_STRIPPED_RESPONSE_KEYS = [
   'devOtpPreview',
   'emailOtpHash',
   'otpCode',
+  // Pacote A: o token de sessao so trafega no cookie HttpOnly.
+  'sessionToken',
 ];
 
 /** Material de pareamento TOTP: so pode sair nas rotas de pareamento /api/auth/*. */

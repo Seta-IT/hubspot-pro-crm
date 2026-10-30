@@ -58,7 +58,8 @@ export default function RedefinirSenhaPage() {
       } catch {
         // ignore
       }
-      document.cookie = 'stihub_session=; Path=/; Max-Age=0; SameSite=Lax';
+      // O cookie de sessao e HttpOnly: so o servidor consegue apaga-lo.
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
       setToken(null);
       setPassword('');
       setConfirm('');
