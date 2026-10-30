@@ -8,6 +8,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
+import {
+  portalActionErrorMessage,
+  PORTAL_UI_RATE_LIMIT_MESSAGE,
+} from '../src/app/portal/portal-feedback';
 import { SETADESK_MIGRATIONS, SETADESK_TICKET_KEY_PREFIX } from '../src/db/setadesk-schema';
 import {
   buildBaseline,
@@ -164,6 +168,40 @@ describe('SetaDesk - portal do cliente continua com DTO minimo', () => {
     const { key, email } = enrichWithSetaDeskFields(repo);
     await assertPortalDtoMinimal(router, key, email);
   });
+
+  it('POST /api/portal/tickets grava requester_email normalizado e nao o devolve', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const r = await router.dispatch({
+      method: 'POST', path: '/api/portal/tickets', query: { ...PORTAL_HTTP, _clientIp: portalIp() },
+      body: { subject: 'Sem sinal', email: '  Solicitante.Portal@Exemplo.COM ', name: 'Cliente Portal' },
+    });
+    assert.equal(r.status, 201);
+    const data = (r.body as { data: { key: string } }).data;
+    assert.deepEqual(Object.keys(data).sort(), PORTAL_DTO_KEYS);
+    assert.ok(!JSON.stringify(r.body).toLowerCase().includes('solicitante.portal@exemplo.com'));
+    assert.equal(repo.getServiceTicketById(data.key)!.requesterEmail, 'solicitante.portal@exemplo.com');
+    const g = await router.dispatch({
+      method: 'GET', path: '/api/portal/tickets',
+      query: { ...PORTAL_HTTP, _clientIp: portalIp(), key: data.key, email: 'solicitante.portal@exemplo.com' }, body: {},
+    });
+    assert.equal(g.status, 200);
+    assert.ok(!('requesterEmail' in (g.body as { data: object }).data));
+  });
+
+  it('mensagens de erro do portal: 429 especifico; demais genericos, sem detalhe tecnico', () => {
+    assert.equal(PORTAL_UI_RATE_LIMIT_MESSAGE, 'Muitas tentativas. Aguarde alguns minutos e tente novamente.');
+    assert.equal(portalActionErrorMessage(429, 'REPLY'), PORTAL_UI_RATE_LIMIT_MESSAGE);
+    assert.equal(portalActionErrorMessage(429, 'CSAT'), PORTAL_UI_RATE_LIMIT_MESSAGE);
+    for (const st of [400, 404, 500, 503, null]) {
+      for (const kind of ['REPLY', 'CSAT'] as const) {
+        const m = portalActionErrorMessage(st, kind);
+        assert.notEqual(m, PORTAL_UI_RATE_LIMIT_MESSAGE);
+        assert.doesNotMatch(m, /\d{3}|erro interno|stack|exception|null/i);
+        assert.doesNotMatch(m, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+      }
+    }
+  });
 });
 
 const TEST_DB = process.env.SETADESK_TEST_DATABASE_URL;
@@ -283,6 +321,22 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.notEqual(saved.key, 'SD-7');
     assert.equal(reread.tickets.filter((x) => x.key === 'SD-7').length, 1);
   });
+  it('chamado aberto pelo portal persiste requester_email no Postgres', async () => {
+    const base = (await store.loadSetaDeskTickets([]))!;
+    const repo = createInMemoryRepository();
+    repo.replaceServiceTickets(base.tickets);
+    const router = new CrmApiRouter(repo);
+    const r = await router.dispatch({
+      method: 'POST', path: '/api/portal/tickets', query: { ...PORTAL_HTTP, _clientIp: portalIp() },
+      body: { subject: 'Portal -> Postgres', email: ' Pg.Portal@Exemplo.com', name: 'Cliente PG' },
+    });
+    assert.equal(r.status, 201);
+    const key = (r.body as { data: { key: string } }).data.key;
+    await store.syncSetaDeskTickets(repo.getState().serviceTickets, base.baseline);
+    const row = await pg.getPostgresPool()!.query(`SELECT requester_email FROM setadesk_tickets WHERE key = $1`, [key]);
+    assert.equal(row.rows[0].requester_email, 'pg.portal@exemplo.com');
+  });
+
   it('portal le do store Postgres e devolve so o DTO minimo', async () => {
     const seedRepo = createInMemoryRepository();
     const { key, email } = enrichWithSetaDeskFields(seedRepo);

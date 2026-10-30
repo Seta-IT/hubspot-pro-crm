@@ -3604,6 +3604,8 @@ export class CrmApiRouter {
             contactId: contact?.id || null,
             companyId,
             equipmentSerial,
+            // SetaDesk: e-mail ja normalizado e validado acima; vai so para requester_email (fora do DTO publico).
+            requesterEmail: email,
             comments: [
               {
                 id: `cmt-portal-${Date.now()}`,
