@@ -1901,7 +1901,7 @@ export default function HubSpotProCrmApp() {
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
                 >
-                  {erpData?.gestaoClickConfig?.liveTotals?.contratos ?? 344} Contratos de Locação
+                  Contratos de Locação
                 </button>
 
                 <button
