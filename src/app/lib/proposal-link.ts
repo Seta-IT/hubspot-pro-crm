@@ -27,15 +27,11 @@ const GLOBAL_DEV_SECRET_KEY = '__stihubProposalLinkDevSecret';
 /** Corpo do 404 generico: identico para id inexistente, sem token, token invalido etc. */
 export const PROPOSAL_NOT_FOUND_BODY = Object.freeze({ error: 'Proposta comercial não encontrada.' });
 
-/** Headers de toda resposta das rotas publicas de proposta (e do emissor de link). */
-export const PROPOSAL_PUBLIC_RESPONSE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
-  'Referrer-Policy': 'no-referrer',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-  'X-Robots-Tag': 'noindex, nofollow',
-});
+// B8 (pacote G): Referrer-Policy/Cache-Control/X-Robots-Tag de /proposta/* e /api/erp/proposals/*
+// vem do middleware e do bridge (src/app/lib/sensitive-paths.ts); nada duplicado aqui.
 
-export function proposalNotFoundResponse(): { status: 404; body: { error: string }; headers: Record<string, string> } {
-  return { status: 404, body: { ...PROPOSAL_NOT_FOUND_BODY }, headers: { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS } };
+export function proposalNotFoundResponse(): { status: 404; body: { error: string } } {
+  return { status: 404, body: { ...PROPOSAL_NOT_FOUND_BODY } };
 }
 
 function isProductionRuntime(): boolean {

@@ -95,7 +95,6 @@ import {
   isProposalPublicApproveEnabled,
   normalizeIdempotencyKey,
   proposalNotFoundResponse,
-  PROPOSAL_PUBLIC_RESPONSE_HEADERS,
   PROPOSAL_TOO_MANY_BODY,
   ProposalPublicRateLimiters,
   publicProposalApproveSchema,
@@ -1974,7 +1973,7 @@ export class CrmApiRouter {
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
-      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS } };
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
     const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
     if (!v.valid) return proposalNotFoundResponse();
@@ -1984,7 +1983,6 @@ export class CrmApiRouter {
     return {
       status: 200,
       body: { data: toPublicProposalDto(found) },
-      headers: { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS },
     };
   }
 
@@ -2010,8 +2008,7 @@ export class CrmApiRouter {
   ): Promise<ApiResponse> {
     const trusted = ctx.trustedInternal === true;
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-    const H = { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS };
-    const tooMany: ApiResponse = { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: H };
+    const tooMany: ApiResponse = { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     let jti: string | undefined;
     let tokenVersion: number | null = null;
 
@@ -2039,7 +2036,6 @@ export class CrmApiRouter {
             error: 'O aceite por este link está desativado. Fale com o seu consultor Seta Telecom para concluir a aprovação.',
             code: 'PROPOSAL_PUBLIC_APPROVE_DISABLED',
           },
-          headers: H,
         };
       }
     }
@@ -2062,7 +2058,6 @@ export class CrmApiRouter {
           code: 'INVALID_APPROVAL_INPUT',
           fields,
         },
-        headers: H,
       };
     }
     const idem = normalizeIdempotencyKey(query.proposalIdempotencyKey);
@@ -2070,7 +2065,6 @@ export class CrmApiRouter {
       return {
         status: 400,
         body: { error: 'Idempotency-Key inválida (8 a 128 caracteres: letras, números, ".", "_", ":" ou "-").', code: 'INVALID_IDEMPOTENCY_KEY' },
-        headers: H,
       };
     }
 
@@ -2106,7 +2100,6 @@ export class CrmApiRouter {
           data: this.publicApprovalResult(existing, contract?.contractNumber || null, invoice?.documentNumber || null),
           idempotentReplay: true,
         },
-        headers: H,
       };
     }
 
@@ -2116,7 +2109,6 @@ export class CrmApiRouter {
       return {
         status: 409,
         body: { error: 'Esta proposta ainda não foi liberada para aceite. Fale com o seu consultor Seta Telecom.', code: 'PROPOSAL_NOT_SENT' },
-        headers: H,
       };
     }
     const approval = validateProposalApprovalInput(parsed.data, existing.status, existing.convertedContractId || null);
@@ -2125,7 +2117,6 @@ export class CrmApiRouter {
       return {
         status: approval.status,
         body: { error: approval.error, code: approval.code, fields: approval.fields },
-        headers: H,
       };
     }
     // M3: antes de converter, rele a proposta (memoria e, se houver, o estado persistido no
@@ -2148,7 +2139,6 @@ export class CrmApiRouter {
       return {
         status: 409,
         body: { error: 'Esta proposta já foi aprovada e convertida em contrato.', code: 'PROPOSAL_ALREADY_CONVERTED' },
-        headers: H,
       };
     }
     const res = this.repo.approveProposalAndConvertToContract(existing.id, {
@@ -2170,7 +2160,6 @@ export class CrmApiRouter {
     return {
       status: 200,
       body: { data: this.publicApprovalResult(res.proposal, res.contract.contractNumber || null, res.invoice?.documentNumber || null) },
-      headers: H,
     };
   }
 
@@ -2184,7 +2173,6 @@ export class CrmApiRouter {
     query: Record<string, string | undefined>,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean }
   ): ApiResponse {
-    const H = { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS };
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     const token = ctx.serviceAccount ? null : query._sessionToken || null;
     const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
@@ -2192,7 +2180,6 @@ export class CrmApiRouter {
       return {
         status: 401,
         body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
-        headers: H,
       };
     }
     // M1: modulo ERP + acesso a propostas != NONE (mesma regra do GET completo).
@@ -2212,19 +2199,18 @@ export class CrmApiRouter {
         error: 'Seu perfil não tem permissão para gerar o link desta proposta para o cliente.',
         code: 'PROPOSAL_LINK_FORBIDDEN',
       },
-      headers: H,
     };
     if (!isAdmin && !canEdit) {
       this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, pathId, `perfil sem alcada (${erpRole}/${proposalsAccess})`, actor);
       return forbidden;
     }
     if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
-      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: H };
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
     const found = this.repo
       .listProposals()
       .find((p) => p.id === pathId || String(p.code || '').toLowerCase() === pathId.toLowerCase());
-    if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' }, headers: H };
+    if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
     // M2: dono por sellerUserId (servidor) ou e-mail do vendedor; nunca pelo nome. EQUIPE = PROPRIOS.
     if (!isAdmin && CrmApiRouter.isRestrictedProposalScope(String(sess.user.scope || 'PROPRIOS'))) {
       if (!CrmApiRouter.isProposalOwnedBy(found, { id: String(sess.user.id || ''), email: String(sess.user.email || '') })) {
@@ -2240,7 +2226,6 @@ export class CrmApiRouter {
           error: 'O link para o cliente está temporariamente indisponível (configuração de segurança pendente). Avise o administrador.',
           code: 'PROPOSAL_LINK_SECRET_MISSING',
         },
-        headers: H,
       };
     }
     const version = Math.max(1, Number(found.version || 1));
@@ -2254,7 +2239,6 @@ export class CrmApiRouter {
         return {
           status: 409,
           body: { error: 'A validade desta proposta já venceu. Atualize a data de validade antes de gerar o link para o cliente.', code: 'PROPOSAL_EXPIRED' },
-          headers: H,
         };
       }
       throw err;
@@ -2279,7 +2263,6 @@ export class CrmApiRouter {
           publicApproveEnabled: isProposalPublicApproveEnabled(),
         },
       },
-      headers: H,
     };
   }
 
