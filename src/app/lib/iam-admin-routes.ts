@@ -74,3 +74,9 @@ export function claimsMayManageIam(
   if (typeof claims.canManageUsersRbac === 'boolean') return claims.canManageUsersRbac;
   return (IAM_ADMIN_DEFAULT_ROLE_IDS as readonly string[]).includes(String(claims.roleId || '').toUpperCase());
 }
+
+/** PATCH/GET /api/auth/me (Minha Conta): nunca publica, mesmo sob o prefixo /api/auth (qualquer caixa/%2F/barra). */
+export const SELF_PROFILE_PATH = '/api/auth/me';
+export function isSelfProfileRoute(rawPath: string | null | undefined): boolean {
+  return normalizeApiPathForAuthz(rawPath) === SELF_PROFILE_PATH;
+}

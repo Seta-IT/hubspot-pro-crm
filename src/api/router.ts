@@ -57,8 +57,15 @@ import {
   PROPOSAL_EDITOR_ERP_ROLES,
   resolveErpAccountRoleFromClaims,
 } from '../middleware';
-import { verifyStiHubSessionToken } from '../app/lib/auth';
-import { isIamAdminRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
+import { signStiHubSessionToken, verifyStiHubSessionToken } from '../app/lib/auth';
+import {
+  rejectedSelfProfileKeys,
+  SELF_PROFILE_STEP_UP_FIELDS,
+  SELF_TARGET_KEYS,
+  selfProfileDto,
+  selfProfilePatchSchema,
+} from './self-profile';
+import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -98,7 +105,7 @@ import {
   INITIAL_SYNC_LOGS,
   MigrationChecklistModuleItem,
 } from '../modules/erp/daily-sync-service';
-import { StiHubRoleId } from '../db/types';
+import { StiHubRoleId, StiHubUserRecord } from '../db/types';
 import {
   LifecycleStage,
   ServiceTicket,
@@ -757,6 +764,10 @@ export class CrmApiRouter {
   // ==========================================================================
   // CONTA DE SERVICO "ASSISTENTE DE VENDAS" (Bearer stihub_svc_...)
   // ==========================================================================
+  // PATCH /api/auth/me (Minha Conta): 10/min e 50/dia por usuario; troca de senha 5/hora.
+  private readonly selfProfileMinuteLimiter = new SlidingWindowRateLimiter(10, 60 * 1000);
+  private readonly selfProfileDayLimiter = new SlidingWindowRateLimiter(50, 24 * 3600 * 1000);
+  private readonly selfPasswordChangeLimiter = new SlidingWindowRateLimiter(5, 3600 * 1000);
   private readonly svcMinuteLimiter = new SlidingWindowRateLimiter(SERVICE_RATE_PER_MINUTE, 60 * 1000);
   private readonly svcDailyCreateLimiter = new SlidingWindowRateLimiter(SERVICE_CREATES_PER_DAY, 24 * 3600 * 1000);
   /** Limita a auditoria de tentativas NAO autenticadas por IP (evita inundar a trilha). */
@@ -876,6 +887,164 @@ export class CrmApiRouter {
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
   private readonly consumedPasswordResetNonces = new Set<string>();
+
+  /** GET/PATCH /api/auth/me — ver spec self-profile-patch-auth-me.md. */
+  private handleSelfProfile(
+    method: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>
+  ): ApiResponse {
+    const noStore = { 'Cache-Control': 'no-store' };
+    const token = query._sessionToken || null;
+    const session = token ? this.repo.resolveSessionFromToken(token) : null;
+    const claims = token ? verifyStiHubSessionToken(token).claims : null;
+    if (!token || !session || !session.authenticated || !session.mfaVerified || !claims || this.isSessionOlderThanPasswordChange(token)) {
+      return { status: 401, headers: noStore, body: { error: 'Sessão corporativa STI-hub com MFA obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+    }
+    const actor = session.user;
+    if (isServiceAccountIdentity(actor.id, actor.email)) {
+      return { status: 403, headers: noStore, body: { error: 'Contas de serviço não têm perfil de usuário.', code: 'SERVICE_ACCOUNT_NOT_HUMAN' } };
+    }
+    const rec = this.repo.findRbacUserRecord(actor.id, '') as (StiHubUserRecord & { passwordHash?: string }) | undefined;
+    if (!rec || rec.id !== actor.id || rec.active === false) {
+      return { status: 401, headers: noStore, body: { error: 'Sessão corporativa STI-hub com MFA obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+    }
+    const actorName = rec.name; // identidade do ator no inicio da requisicao (nunca o valor novo)
+    const audit = (action: string, status: 'SUCCESS' | 'BLOCKED', details: string) =>
+      this.repo.appendSecurityAuditLog({
+        actorEmail: rec.email,
+        actorName,
+        actorRole: session.role.id,
+        action,
+        module: 'IAM_RBAC',
+        resource: `${method} /api/auth/me`,
+        status,
+        ipAddress: query._clientIp,
+        details,
+      });
+
+    if (method === 'GET' || method === 'POST') {
+      // POST mantido por compatibilidade (leitura da sessao). Nunca devolve perfil sem sessao.
+      return { status: 200, headers: noStore, body: { data: { ...session, profile: selfProfileDto(rec) } } };
+    }
+    if (method !== 'PATCH') {
+      return { status: 405, headers: noStore, body: { error: 'Método não permitido.', code: 'METHOD_NOT_ALLOWED' } };
+    }
+
+    // 1) Alvo: so o da sessao. id/userId/email no corpo ou na URL => 400 (nada e aplicado).
+    const raw = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+    const targetKeys = (SELF_TARGET_KEYS as readonly string[]).filter(
+      (k) => Object.prototype.hasOwnProperty.call(raw, k) || query[k] !== undefined
+    );
+    if (targetKeys.length > 0) {
+      audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Tentativa de escolher o alvo em Minha Conta (campos: ${targetKeys.join(', ')}).`);
+      return { status: 400, headers: noStore, body: { error: 'Minha Conta altera somente o próprio usuário da sessão.', code: 'SELF_TARGET_ONLY', rejectedKeys: targetKeys } };
+    }
+
+    // 2) Rate limit por usuario (toda tentativa conta).
+    const rlKey = rec.id.toLowerCase();
+    const minuteOk = this.selfProfileMinuteLimiter.hit(rlKey);
+    const dayOk = minuteOk ? this.selfProfileDayLimiter.hit(rlKey) : true;
+    if (!minuteOk || !dayOk) {
+      return { status: 429, headers: noStore, body: { error: 'Muitas alterações de perfil. Aguarde e tente novamente.', code: 'PROFILE_RATE_LIMITED' } };
+    }
+
+    // 3) Allowlist estrita (denylist explicita + qualquer "_*" + chave desconhecida).
+    const rejected = rejectedSelfProfileKeys(raw);
+    if (rejected.length > 0) {
+      audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Campos não permitidos em Minha Conta: ${rejected.join(', ')}.`);
+      return { status: 400, headers: noStore, body: { error: 'Campos não permitidos em Minha Conta.', code: 'SELF_PROFILE_FORBIDDEN_FIELD', rejectedKeys: rejected } };
+    }
+    const parsed = selfProfilePatchSchema.safeParse(raw);
+    if (!parsed.success) {
+      const unknownKeys = parsed.error.issues.flatMap((i) => (i.code === 'unrecognized_keys' ? i.keys : []));
+      if (unknownKeys.length > 0) {
+        audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Campos não permitidos em Minha Conta: ${unknownKeys.slice(0, 30).join(', ')}.`);
+        return { status: 400, headers: noStore, body: { error: 'Campos não permitidos em Minha Conta.', code: 'SELF_PROFILE_FORBIDDEN_FIELD', rejectedKeys: unknownKeys.slice(0, 30) } };
+      }
+      const fields = Array.from(new Set(parsed.error.issues.map((i) => i.path.join('.')))).slice(0, 10);
+      return {
+        status: 400,
+        headers: noStore,
+        body: { error: parsed.error.issues[0]?.message || 'Dados inválidos.', code: 'SELF_PROFILE_INVALID', fields },
+      };
+    }
+    const patch = parsed.data;
+    const fieldNames = Object.keys(patch);
+    if (fieldNames.length === 0) {
+      return { status: 400, headers: noStore, body: { error: 'Nenhum campo para alterar.', code: 'SELF_PROFILE_EMPTY' } };
+    }
+    const wantsPassword = patch.newPassword !== undefined || patch.currentPassword !== undefined;
+    if (wantsPassword && (patch.newPassword === undefined || patch.currentPassword === undefined)) {
+      return { status: 400, headers: noStore, body: { error: 'Para trocar a senha, informe a senha atual e a nova senha.', code: 'SELF_PASSWORD_FIELDS_REQUIRED' } };
+    }
+
+    // 4) Step-up (mfaMethod/senha): PATCH atomico — sem step-up recente, NADA e aplicado.
+    const needsStepUp = fieldNames.some((k) => (SELF_PROFILE_STEP_UP_FIELDS as readonly string[]).includes(k));
+    if (needsStepUp) {
+      const at = Number(claims.mfaStepUpAt || 0);
+      const fresh = at > 0 && Date.now() - at <= STEP_UP_FRESH_MS && at <= Date.now() + 60_000;
+      if (!fresh) {
+        audit('SELF_PROFILE_STEP_UP_REQUIRED', 'BLOCKED', `Alteração exige reverificação MFA (campos: ${fieldNames.join(', ')}).`);
+        return { status: 403, headers: noStore, body: { error: 'Confirme sua identidade (reverificação MFA) para alterar senha ou método 2FA.', code: 'STEP_UP_REQUIRED' } };
+      }
+    }
+
+    // 5) Validacoes que dependem do registro.
+    let homeScreen: string | null | undefined;
+    if (patch.preferences) {
+      const v = validateHomeScreenPatch({ homeScreen: patch.preferences.homeScreen }, moduleAccessFromUser(rec));
+      if (!v.ok) return { status: 400, headers: noStore, body: { error: v.error, code: v.code } };
+      homeScreen = v.screenId;
+    }
+    if (patch.mfaMethod === 'TOTP_AUTHENTICATOR' && rec.totpConfigured !== true) {
+      return { status: 400, headers: noStore, body: { error: 'Pareie o aplicativo autenticador antes de escolhê-lo como método 2FA.', code: 'TOTP_NOT_PAIRED' } };
+    }
+    if (wantsPassword) {
+      if (!this.selfPasswordChangeLimiter.hit(rlKey)) {
+        return { status: 429, headers: noStore, body: { error: 'Muitas trocas de senha. Tente novamente mais tarde.', code: 'PROFILE_RATE_LIMITED' } };
+      }
+      const cur = this.repo.verifyOwnCurrentPassword(rec.id, patch.currentPassword!);
+      if (!cur.ok) {
+        audit('SELF_PROFILE_CURRENT_PASSWORD_INVALID', 'BLOCKED', `Senha atual incorreta em Minha Conta (falha #${cur.failedAttempts || 0}${cur.locked ? ', conta bloqueada por 15 min' : ''}).`);
+        return cur.locked
+          ? { status: 429, headers: noStore, body: { error: 'Muitas tentativas com a senha atual incorreta. Conta bloqueada temporariamente.', code: 'SELF_PASSWORD_LOCKED' } }
+          : { status: 401, headers: noStore, body: { error: 'Senha atual incorreta.', code: 'SELF_CURRENT_PASSWORD_INVALID' } };
+      }
+      if (patch.newPassword!.trim() === patch.currentPassword!.trim()) {
+        return { status: 400, headers: noStore, body: { error: 'A nova senha deve ser diferente da atual.', code: 'SELF_PASSWORD_UNCHANGED' } };
+      }
+    }
+
+    // 6) Persistencia (merge so dos campos permitidos) + auditoria (so nomes de campos).
+    const res = this.repo.updateOwnProfile(rec.id, {
+      name: patch.name,
+      phone: patch.phone,
+      homeScreen,
+      avatarUrl: patch.avatarUrl,
+      mfaMethod: patch.mfaMethod,
+      newPassword: wantsPassword ? patch.newPassword!.trim() : undefined,
+    });
+    if (!res.ok || !res.user) {
+      return { status: 404, headers: noStore, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };
+    }
+    const nonSecret = res.changed.filter((f) => f !== 'password' && f !== 'mfaMethod');
+    if (nonSecret.length > 0) audit('SELF_PROFILE_UPDATED', 'SUCCESS', `Campos alterados: ${nonSecret.join(', ')}.`);
+    if (res.changed.includes('mfaMethod')) audit('SELF_MFA_METHOD_CHANGED', 'SUCCESS', 'Método 2FA preferido alterado pelo próprio usuário.');
+    const headers: Record<string, string> = { ...noStore };
+    if (res.changed.includes('password')) {
+      audit('SELF_PASSWORD_CHANGED', 'SUCCESS', 'Senha alterada pelo próprio usuário; sessões anteriores invalidadas.');
+      // Cookie novo (iat >= passwordChangedAt): as outras sessoes ficam invalidas; esta continua.
+      const newToken = signStiHubSessionToken({ ...claims, iat: Math.max(Date.now(), Date.parse(res.passwordChangedAt || '') || 0) });
+      const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
+      headers['Set-Cookie'] = `stihub_session=${newToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+    }
+    return {
+      status: 200,
+      headers,
+      body: { data: { user: selfProfileDto(res.user), changed: res.changed, sessionRotated: res.changed.includes('password') } },
+    };
+  }
 
   /** Sessao emitida antes da ultima troca/redefinicao de senha do usuario => invalida. */
   private isSessionOlderThanPasswordChange(token: string): boolean {
@@ -5833,7 +6002,15 @@ export class CrmApiRouter {
         };
       }
 
-      if ((cleanPath === '/api/auth/session' || cleanPath === '/api/auth/me') && (method === 'GET' || method === 'POST')) {
+      // ======================================================================
+      // MINHA CONTA (self-service): GET/PATCH /api/auth/me. Alvo SEMPRE = usuario da sessao.
+      // Spec /workspace/specs/self-profile-patch-auth-me.md; department/jobTitle fora do schema.
+      // ======================================================================
+      if (isSelfProfileRoute(cleanPath)) {
+        return this.handleSelfProfile(method, query, body);
+      }
+
+      if (cleanPath === '/api/auth/session' && (method === 'GET' || method === 'POST')) {
         const token = query.token || query._sessionToken || null;
         const session = this.repo.resolveSessionFromToken(token);
         return {

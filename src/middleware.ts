@@ -6,7 +6,7 @@ import {
 } from './app/lib/auth';
 import type { StiHubMacroModule } from './db/types';
 import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
-import { claimsMayManageIam, isIamAdminRoute } from './app/lib/iam-admin-routes';
+import { claimsMayManageIam, isIamAdminRoute, isSelfProfileRoute } from './app/lib/iam-admin-routes';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -24,6 +24,8 @@ const PUBLIC_PATH_PREFIXES = [
 
 export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  // Minha Conta (/api/auth/me, qualquer metodo/caixa/%2F): exige sessao MFA, apesar do prefixo /api/auth.
+  if (isSelfProfileRoute(pathname)) return false;
   if (
     PUBLIC_PATH_PREFIXES.some(
       (prefix) => clean === prefix || clean.startsWith(`${prefix}/`)

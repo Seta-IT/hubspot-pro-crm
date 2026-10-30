@@ -16,6 +16,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
+import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 
 interface UserAccountModalProps {
   user: StiHubUserRecord;
@@ -35,13 +36,18 @@ export default function UserAccountModal({
   onShowToast,
 }: UserAccountModalProps) {
   const [name, setName] = useState(user.name);
-  const [phone, setPhone] = useState(user.phone || '(11) 3958-4929');
-  const [department, setDepartment] = useState(user.department || '');
-  const [jobTitle, setJobTitle] = useState(user.jobTitle || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  // Departamento e cargo: somente leitura (so o admin IAM edita, ate decisao do Marcello).
+  const department = user.department || '';
+  const jobTitle = user.jobTitle || '';
   const [mfaMethod, setMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>(
     user.mfaMethod || 'TOTP_AUTHENTICATOR'
   );
   const [newPassword, setNewPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  // PATCH /api/auth/me pendente de reverificacao MFA (403 STEP_UP_REQUIRED).
+  const [pendingPatch, setPendingPatch] = useState<Record<string, unknown> | null>(null);
+  const [stepUpCode, setStepUpCode] = useState('');
   const [totpPairing, setTotpPairing] = useState<{
     totpSecret: string;
     totpSecretFormatted: string;
@@ -184,42 +190,113 @@ export default function UserAccountModal({
     }
   };
 
+  /** So os campos alterados; nunca papel, permissoes, mfaEnabled, departamento ou cargo. */
+  const buildSelfPatch = (): Record<string, unknown> => {
+    const patch: Record<string, unknown> = {};
+    if (name.trim() !== (user.name || '').trim()) patch.name = name.trim();
+    if (phone.trim() && phone.trim() !== (user.phone || '').trim()) patch.phone = phone.trim();
+    if (mfaMethod !== (user.mfaMethod || 'TOTP_AUTHENTICATOR')) patch.mfaMethod = mfaMethod;
+    if (newPassword.trim()) {
+      patch.newPassword = newPassword.trim();
+      patch.currentPassword = currentPassword;
+    }
+    return patch;
+  };
+
+  const submitSelfPatch = async (patch: Record<string, unknown>): Promise<void> => {
+    const res = await fetch('/api/auth/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok) {
+      const dto = (json?.data?.user || {}) as Record<string, unknown>;
+      if (dto.iamSeal) saveClientIamUserOverrideIfNewer(dto);
+      onUserUpdated({
+        ...user,
+        name: String(dto.name ?? user.name),
+        phone: String(dto.phone ?? user.phone ?? ''),
+        mfaMethod: (dto.mfaMethod as StiHubUserRecord['mfaMethod']) || user.mfaMethod,
+      });
+      setPendingPatch(null);
+      setStepUpCode('');
+      setNewPassword('');
+      setCurrentPassword('');
+      onShowToast(
+        json?.data?.sessionRotated
+          ? 'Senha alterada. As outras sessões foram encerradas.'
+          : 'Configurações da conta salvas com sucesso!'
+      );
+      onClose();
+      return;
+    }
+    if (res.status === 403 && json?.code === 'STEP_UP_REQUIRED') {
+      // Reverificacao MFA da propria sessao; o PATCH so e reenviado depois do codigo.
+      const method = user.totpConfigured === false ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
+      const started = await startStepUp(method);
+      setPendingPatch(patch);
+      onShowToast(
+        started.ok
+          ? method === 'EMAIL_OTP'
+            ? 'Para alterar senha ou método 2FA, digite o código enviado ao seu e-mail.'
+            : 'Para alterar senha ou método 2FA, digite o código atual do seu app autenticador.'
+          : started.json?.error || 'Não foi possível iniciar a reverificação. Entre novamente.'
+      );
+      return;
+    }
+    onShowToast(
+      json?.error ||
+        (res.status === 401
+          ? 'Sua sessão expirou. Entre novamente.'
+          : 'Não foi possível salvar as configurações da conta.')
+    );
+  };
+
   const handleSaveAccount = async (e: React.FormEvent) => {
     e.preventDefault();
+    const patch = buildSelfPatch();
+    if (Object.keys(patch).length === 0) {
+      onShowToast('Nenhuma alteração para salvar.');
+      return;
+    }
+    if (patch.newPassword !== undefined && !currentPassword) {
+      onShowToast('Informe a senha atual para definir uma nova senha.');
+      return;
+    }
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = {
-        name: name.trim(),
-        phone: phone.trim(),
-        department: department.trim(),
-        jobTitle: jobTitle.trim(),
-        mfaMethod,
-        mfaEnabled: true,
-      };
-      if (newPassword.trim().length >= 6) {
-        payload.password = newPassword.trim();
+      await submitSelfPatch(patch);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConfirmStepUpAndSave = async () => {
+    const clean = stepUpCode.replace(/\D+/g, '');
+    if (clean.length !== 6 || !pendingPatch) {
+      onShowToast('Digite o código de 6 dígitos.');
+      return;
+    }
+    setSaving(true);
+    try {
+      let cid = stepUpChallengeId;
+      if (!cid) {
+        const started = await startStepUp('TOTP_AUTHENTICATOR');
+        cid = started.challengeId;
       }
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.data) {
-          onUserUpdated(json.data);
-        }
-        onShowToast('Configurações da conta e método 2FA salvos com sucesso!');
-        onClose();
-      } else {
-        const errJson = await res.json().catch(() => null);
-        onShowToast(
-          errJson?.error ||
-            (res.status === 403
-              ? 'Seu perfil não tem permissão para alterar este cadastro. Peça a um administrador IAM.'
-              : 'Não foi possível salvar as configurações da conta.')
-        );
+      if (!cid) {
+        onShowToast('Não foi possível iniciar a reverificação. Entre novamente.');
+        return;
       }
+      const verified = await confirmStepUp(clean, cid);
+      setStepUpCode('');
+      if (!verified.ok) {
+        onShowToast(verified.json?.error || 'Código inválido.');
+        return;
+      }
+      await submitSelfPatch(pendingPatch);
     } finally {
       setSaving(false);
     }
@@ -331,12 +408,14 @@ export default function UserAccountModal({
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Departamento</label>
+              <label className="block font-semibold text-slate-700 mb-1">Departamento / Cargo</label>
               <input
                 type="text"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
+                readOnly
+                aria-readonly="true"
+                value={[department, jobTitle].filter(Boolean).join(' • ') || '—'}
+                title="Somente o administrador IAM altera departamento e cargo."
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed"
               />
             </div>
             <div>
@@ -348,9 +427,52 @@ export default function UserAccountModal({
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Manter senha atual (mín. 6 caracteres)"
+                autoComplete="new-password"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
               />
             </div>
+            {newPassword.trim() && (
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  <KeyRound className="w-3.5 h-3.5 inline mr-1" /> Senha Atual
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
+                />
+              </div>
+            )}
+            {pendingPatch && (
+              <div className="sm:col-span-2 p-3 rounded-xl border border-amber-300 bg-amber-50 space-y-2">
+                <div className="font-semibold text-amber-900">
+                  Confirme sua identidade (reverificação MFA) para alterar senha ou método 2FA.
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={stepUpCode}
+                    onChange={(e) => setStepUpCode(e.target.value)}
+                    placeholder="Código de 6 dígitos"
+                    autoComplete="one-time-code"
+                    className="px-3 py-2 rounded-lg border border-slate-300 font-mono tracking-widest w-40"
+                  />
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleConfirmStepUpAndSave}
+                    className="px-3 py-2 rounded-lg bg-[#0d2b4e] text-white font-semibold cursor-pointer disabled:opacity-60"
+                  >
+                    Confirmar e salvar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2FA Configuration: Google Authenticator (Real ISO 18004 QR Code) vs Email OTP */}

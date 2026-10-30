@@ -7382,6 +7382,86 @@ export class CrmRepository {
     return { ok: true, user: found, previous };
   }
 
+  /**
+   * PATCH /api/auth/me: merge SO dos campos de self-service no registro do proprio usuario.
+   * Nao usa upsertRbacUser (que aceita papel/permissoes). O chamador ja validou tudo.
+   */
+  updateOwnProfile(
+    userId: string,
+    patch: {
+      name?: string;
+      phone?: string;
+      homeScreen?: string | null;
+      avatarUrl?: string;
+      mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+      newPassword?: string;
+    }
+  ): { ok: boolean; user?: StiHubUserRecord; changed: string[]; passwordChangedAt?: string } {
+    const rbac = this.ensureRbacState();
+    const q = String(userId || "").trim().toLowerCase();
+    const found = rbac.users.find((u) => u.id.toLowerCase() === q);
+    if (!found) return { ok: false, changed: [] };
+    const rec = found as StiHubUserRecord & { avatarUrl?: string; passwordChangedAt?: string };
+    const changed: string[] = [];
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    if (patch.name !== undefined && patch.name !== rec.name) { rec.name = patch.name; changed.push("name"); }
+    if (patch.phone !== undefined && patch.phone !== rec.phone) { rec.phone = patch.phone; changed.push("phone"); }
+    if (patch.avatarUrl !== undefined && patch.avatarUrl !== rec.avatarUrl) { rec.avatarUrl = patch.avatarUrl; changed.push("avatarUrl"); }
+    if (patch.homeScreen !== undefined && (patch.homeScreen ?? null) !== (rec.homeScreen ?? null)) {
+      if (patch.homeScreen) rec.homeScreen = patch.homeScreen;
+      else delete rec.homeScreen;
+      const prevVersion = Date.parse(String(rec.homeScreenUpdatedAt || "")) || 0;
+      rec.homeScreenUpdatedAt = new Date(Math.max(nowMs, prevVersion + 1)).toISOString();
+      changed.push("preferences.homeScreen");
+    }
+    if (patch.mfaMethod !== undefined && patch.mfaMethod !== rec.mfaMethod) { rec.mfaMethod = patch.mfaMethod; changed.push("mfaMethod"); }
+    let passwordChangedAt: string | undefined;
+    if (patch.newPassword !== undefined) {
+      rec.passwordHash = hashCorporatePassword(patch.newPassword);
+      // Sessoes emitidas antes disto ficam invalidas (isSessionOlderThanPasswordChange).
+      passwordChangedAt = new Date(nowMs).toISOString();
+      rec.passwordChangedAt = passwordChangedAt;
+      changed.push("password");
+    }
+    if (changed.length > 0) {
+      rec.updatedAt = nowIso;
+      this.markLocalIamChange(rec.id);
+      this.save();
+    }
+    return { ok: true, user: rec, changed, passwordChangedAt };
+  }
+
+  /**
+   * Confere a senha atual do proprio usuario (tempo constante). 5 erros em 15 min => bloqueio de
+   * 15 min no MESMO loginAttemptTracker do login (sessao roubada nao vira forca bruta de senha).
+   */
+  verifyOwnCurrentPassword(userId: string, password: string): { ok: boolean; locked?: boolean; failedAttempts?: number } {
+    const rbac = this.ensureRbacState();
+    const q = String(userId || "").trim().toLowerCase();
+    const found = rbac.users.find((u) => u.id.toLowerCase() === q);
+    if (!found) return { ok: false };
+    const key = found.email.toLowerCase();
+    const nowMs = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const t = this.loginAttemptTracker.get(key);
+    if (t && t.lockedUntilMs > nowMs) return { ok: false, locked: true, failedAttempts: t.failedAttempts };
+    if (verifyCorporatePassword(password, found.passwordHash)) return { ok: true };
+    const fresh = !t || nowMs - t.firstAttemptMs > windowMs;
+    const fails = (fresh ? 0 : t!.failedAttempts) + 1;
+    this.loginAttemptTracker.set(key, {
+      failedAttempts: fails,
+      firstAttemptMs: fresh ? nowMs : t!.firstAttemptMs,
+      lockedUntilMs: fails >= 5 ? nowMs + windowMs : 0,
+    });
+    return { ok: false, locked: fails >= 5, failedAttempts: fails };
+  }
+
+  /** Leitura do contador de falhas de senha (testes/diagnostico; sem dados sensiveis). */
+  getFailedPasswordAttempts(email: string): number {
+    return this.loginAttemptTracker.get(String(email || "").trim().toLowerCase())?.failedAttempts || 0;
+  }
+
   deleteRbacUser(
     userOrEmail: string,
     actorEmail?: string
