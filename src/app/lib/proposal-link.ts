@@ -93,6 +93,9 @@ function safeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(sha256(a), sha256(b));
 }
 
+/** B3: assinatura = HMAC-SHA256 (32 bytes) em base64url sem padding. */
+export const PROPOSAL_LINK_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
 export interface ProposalLinkClaims {
   v: 1;
   pid: string;
@@ -109,11 +112,32 @@ export class ProposalLinkSecretMissingError extends Error {
   }
 }
 
+export class ProposalLinkExpiredProposalError extends Error {
+  constructor() {
+    super('Proposta com validade vencida: nao ha link a emitir.');
+    this.name = 'ProposalLinkExpiredProposalError';
+  }
+}
+
+/**
+ * B1: fim do dia de validUntil (YYYY-MM-DD) no fuso de Brasilia (23:59:59.999 -03:00).
+ * Valor ausente/invalido => null (vale so o TTL).
+ */
+export function proposalValidUntilEndMs(validUntil: unknown): number | null {
+  const s = String(validUntil || '').trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!m) return null;
+  const ms = Date.parse(`${m[1]}T23:59:59.999-03:00`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function signProposalLinkToken(input: {
   proposalId: string;
   version: number;
   ttlDays?: number;
   nowMs?: number;
+  /** B1: teto absoluto (ex.: fim do dia de validUntil). exp = min(TTL, notAfterMs). */
+  notAfterMs?: number | null;
 }): { token: string; claims: ProposalLinkClaims } {
   const secret = resolveProposalLinkSecret();
   if (!secret) throw new ProposalLinkSecretMissingError();
@@ -122,7 +146,10 @@ export function signProposalLinkToken(input: {
   const ver = Math.max(1, Math.floor(Number(input.version) || 1));
   const now = input.nowMs ?? Date.now();
   const days = Math.min(PROPOSAL_LINK_MAX_TTL_DAYS, Math.max(1, Math.floor(input.ttlDays ?? resolveProposalLinkTtlDays())));
-  const claims: ProposalLinkClaims = { v: 1, pid, ver, iat: now, exp: now + days * DAY_MS, jti: randomBytes(9).toString('hex') };
+  let exp = now + days * DAY_MS;
+  if (typeof input.notAfterMs === 'number' && Number.isFinite(input.notAfterMs)) exp = Math.min(exp, input.notAfterMs);
+  if (exp <= now) throw new ProposalLinkExpiredProposalError();
+  const claims: ProposalLinkClaims = { v: 1, pid, ver, iat: now, exp, jti: randomBytes(9).toString('hex') };
   const payload = b64url(JSON.stringify(claims));
   const sig = b64url(createHmac('sha256', signingKey(secret)).update(payload, 'utf8').digest());
   return { token: `${payload}.${sig}`, claims };
@@ -145,6 +172,8 @@ export function verifyProposalLinkToken(
     if (!raw || raw.length > 1024) return { valid: false };
     const parts = raw.split('.');
     if (parts.length !== 2 || !parts[0] || !parts[1]) return { valid: false };
+    // B3: payload base64url e assinatura HMAC-SHA256 em base64url sem padding (43 chars).
+    if (!/^[A-Za-z0-9_-]+$/.test(parts[0]) || !PROPOSAL_LINK_SIGNATURE_PATTERN.test(parts[1])) return { valid: false };
     const want = createHmac('sha256', signingKey(secret)).update(parts[0], 'utf8').digest();
     const got = fromB64url(parts[1]);
     const sigOk = got.length === want.length && timingSafeEqual(got, want);
@@ -164,6 +193,26 @@ export function verifyProposalLinkToken(
   }
 }
 
+/**
+ * A1: so para a metadata gravada — extrai do texto o primeiro token de link assinado VALIDO
+ * e devolve apenas { jti, exp } (nunca o token). Token invalido/ausente => null.
+ */
+export function describeProposalLinkInText(text: unknown): { jti: string; exp: string; proposalId: string } | null {
+  const s = typeof text === 'string' ? text : '';
+  const m = s.match(/#t=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)/);
+  if (!m) return null;
+  try {
+    const c = JSON.parse(fromB64url(m[1].split('.')[0]).toString('utf8')) as ProposalLinkClaims;
+    const v = verifyProposalLinkToken(m[1], { proposalId: String(c?.pid || '') });
+    if (!v.valid) return null;
+    return { jti: v.claims.jti, exp: new Date(v.claims.exp).toISOString(), proposalId: v.claims.pid };
+  } catch {
+    return null;
+  }
+}
+
+export { redactProposalLinkTokens, deepRedactProposalLinkTokens, PROPOSAL_LINK_TOKEN_REDACTED } from './proposal-link-redact';
+
 /** URL para o cliente: o token vai no FRAGMENTO (#t=), que nao e enviado ao servidor nem ao Referer. */
 export function buildSignedProposalUrl(origin: string, proposalId: string, token: string): string {
   const base = String(origin || '').replace(/\/+$/, '');
@@ -181,7 +230,6 @@ export const publicProposalApproveSchema = z
     signerEmail: z.string().max(200).nullable().optional(),
     modality: z.enum(['ICP_BRASIL_A1', 'ICP_BRASIL_A3', 'GOV_BR_OURO']),
     acceptedTerms: z.literal(true),
-    statusObservation: z.string().max(500).optional(),
   })
   .strict();
 
