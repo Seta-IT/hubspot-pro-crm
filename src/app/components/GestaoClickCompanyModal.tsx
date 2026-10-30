@@ -396,7 +396,7 @@ export default function GestaoClickCompanyModal({
           annualRevenue: Number(shareCapital) || 0,
           city: city.trim() || 'São Paulo',
           state: uf.trim() || 'SP',
-          ownerName: ownerName.trim() || 'Marcelo Lopes Mira',
+          ownerName: ownerName.trim() || undefined, // Pacote G: sem responsavel padrao fixo
           customProperties: {
             ...cp,
             customerType: personType,
@@ -412,7 +412,7 @@ export default function GestaoClickCompanyModal({
             cnaeDescription,
             openingDate,
             shareCapital: Number(shareCapital) || 0,
-            sellerName: ownerName.trim() || 'Marcelo Lopes Mira',
+            sellerName: ownerName.trim() || '',
             cep,
             street,
             number,

@@ -10,7 +10,7 @@ import {
 // HubSpot Pro CRM - Transactional Repository Layer (File-Persisted & In-Memory)
 // ============================================================================
 
-import { hashPasswordScrypt, verifyStoredPassword } from './password-hash';
+import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -8161,22 +8161,13 @@ export class CrmRepository {
       };
     }
 
+    // Pacote G (5a): resposta e tempo IDENTICOS para e-mail inexistente, senha errada e conta
+    // inativa (nao confirma se a conta existe). Sempre ~1 scrypt por tentativa; o bloqueio por
+    // tentativas vale tambem para e-mail inexistente (senao o 429/lock revelaria a conta).
     const found = rbac.users.find((u) => u.email.toLowerCase() === emailClean);
-    if (!found) {
-      return {
-        ok: false,
-        error: `Usuário "${emailClean}" não localizado na matriz RBAC da Seta Telecom.`,
-      };
-    }
-    if (!found.active) {
-      return {
-        ok: false,
-        error: `A conta de "${found.name}" está inativa no GestãoClick / STI-hub. Contate o Super Admin.`,
-      };
-    }
-
-    const pwCheck = verifyStoredPassword(password, found.passwordHash);
-    if (!pwCheck.ok) {
+    const pwCheck = found ? verifyStoredPassword(password, found.passwordHash) : { ok: false, needsRehash: false };
+    if (!found || !isScryptPasswordHash(found.passwordHash)) burnPasswordVerification(password);
+    if (!pwCheck.ok || !found || !found.active) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
       this.loginAttemptTracker.set(emailClean, {
@@ -8184,18 +8175,23 @@ export class CrmRepository {
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
       });
+      if (this.loginAttemptTracker.size > 5000) {
+        const oldest = this.loginAttemptTracker.keys().next().value;
+        if (oldest !== undefined) this.loginAttemptTracker.delete(oldest);
+      }
+      const reason = !found ? "e-mail inexistente" : !pwCheck.ok ? "senha invalida" : "conta inativa";
       this.appendSecurityAuditLog({
-        actorEmail: found.email,
-        actorName: found.name,
-        actorRole: found.roleId,
-        action: "AUTH_LOGIN_FAILED_PASSWORD",
+        actorEmail: found?.email || emailClean.slice(0, 120),
+        actorName: found?.name || "(desconhecido)",
+        actorRole: found?.roleId || "ANON",
+        action: found && pwCheck.ok ? "AUTH_LOGIN_BLOCKED_INACTIVE" : "AUTH_LOGIN_FAILED_PASSWORD",
         module: "AUTH_MFA",
         resource: "/api/auth/login",
         status: "BLOCKED",
         ipAddress,
-        details: `Tentativa de login com senha inválida para ${found.email} (falha #${fails}).`,
+        details: `Tentativa de login recusada (${reason}; falha #${fails}).`,
       });
-      return { ok: false, error: "Senha corporativa inválida." };
+      return { ok: false, error: LOGIN_GENERIC_ERROR };
     }
 
     // Pacote E: hash legado (SHA-256 sal fixo) conferiu => regrava em scrypt com sal por usuario.

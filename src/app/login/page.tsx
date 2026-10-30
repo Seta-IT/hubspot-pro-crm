@@ -17,6 +17,7 @@ import {
   loadClientDeletedUsersOverride,
   loadClientIamUsersOverride,
   migrateClientIamStorage,
+  toActiveSessionDisplayUser,
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
@@ -99,7 +100,7 @@ export default function StiHubLoginPage() {
         authenticated: true,
         mfaVerified: true,
         verifiedVia: data?.verifiedVia || 'DIRECT_LOGIN',
-        user: data?.user,
+        user: toActiveSessionDisplayUser(data?.user), // Pacote G (5d): so exibicao
         role: data?.role,
         effectiveActionGuards: data?.effectiveActionGuards,
         enabledModules: data?.enabledModules,

@@ -64,3 +64,16 @@ export function verifyStoredPassword(
   const ok = verifyCorporatePassword(clean, String(stored));
   return { ok, needsRehash: ok };
 }
+
+/**
+ * Pacote G (5a): custo de verificacao equivalente a um scrypt real, para e-mail inexistente,
+ * usuario sem senha ou hash legado (SHA-256 e rapido). Iguala o tempo das respostas do login.
+ */
+let dummyScryptHash: string | null = null;
+export function burnPasswordVerification(password: string | undefined): void {
+  if (!dummyScryptHash) dummyScryptHash = hashPasswordScrypt(randomBytes(18).toString('base64url'));
+  verifyStoredPassword(password, dummyScryptHash);
+}
+
+/** Pacote G (5a): mensagem UNICA para e-mail inexistente, senha errada ou conta inativa. */
+export const LOGIN_GENERIC_ERROR = 'E-mail ou senha inválidos.';

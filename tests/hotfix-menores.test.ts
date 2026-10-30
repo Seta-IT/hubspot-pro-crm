@@ -33,7 +33,7 @@ describe('Menor (a): senha definida pelo admin no IAM — so senhas NOVAS >= 12'
     assert.match(JSON.stringify(r.body), /12 caracteres/);
   });
 
-  it('editar: nova senha 11 => 400; 12+ => ok; senha existente curta reenviada => ignorada (nada invalidado)', async () => {
+  it('editar: nova senha 11 => 400; 12+ => ok; senha curta (mesmo a atual) => 400 sem alterar nada', async () => {
     const { repo, router } = fresh();
     const email = 'legado.iam@setatelecom.com.br';
     repo.upsertRbacUser({ email, name: 'Legado', roleId: 'VENDEDOR_SALES', password: 'Antiga#8' } as Parameters<typeof repo.upsertRbacUser>[0]);
@@ -41,8 +41,13 @@ describe('Menor (a): senha definida pelo admin no IAM — so senhas NOVAS >= 12'
     const hashBefore = rec.passwordHash;
     const put = (body: Record<string, unknown>) =>
       router.dispatch({ method: 'PUT', path: `/api/admin/users/${rec.id}`, query: { ...HTTP, _sessionToken: adminTok() }, body });
+    // Pacote G (5b): tamanho validado ANTES de comparar com a atual => a senha curta existente
+    // reenviada recebe o MESMO 400 de qualquer senha curta (sem oraculo) e nada e alterado.
     const same = await put({ jobTitle: 'Analista', password: 'Antiga#8' });
-    assert.ok(same.status < 300, JSON.stringify(same.body));
+    assert.equal(same.status, 400);
+    assert.equal(repo.findRbacUserRecord(rec.id, '')!.passwordHash, hashBefore);
+    const noPw = await put({ jobTitle: 'Analista' });
+    assert.ok(noPw.status < 300, JSON.stringify(noPw.body));
     assert.equal(repo.findRbacUserRecord(rec.id, '')!.passwordHash, hashBefore);
     const short = await put({ password: 'Curta#2026A' });
     assert.equal(short.status, 400);

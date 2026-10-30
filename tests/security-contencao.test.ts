@@ -168,9 +168,19 @@ describe('Contencao: override IAM do cliente', () => {
     assert.equal(repo.findRbacUserRecord('usr-hacker2', 'hacker2@evil.com'), undefined);
 
     const admin = token();
-    await router.dispatch({
+    // Pacote G: segredo TOTP aninhado no override em rota IAM admin => 400 e nada aplicado.
+    const nested = await router.dispatch({
       method: 'PUT',
       path: '/api/admin/users/usr-seta-01',
+      query: { ...HTTP, _sessionToken: admin },
+      body: { iamUsersOverride: [{ id: 'usr-novo-1', email: 'novo1@setatelecom.com.br', name: 'Novo', roleId: 'VENDEDOR_SALES', totpSecret: 'JBSWY3DPEHPK3PXP', totpConfigured: true }] },
+    });
+    assert.equal(nested.status, 400);
+    assert.equal(repo.findRbacUserRecord('usr-novo-1', 'novo1@setatelecom.com.br'), undefined);
+    // Em rota nao-IAM o override cru do admin segue aplicado, com os campos de 2FA descartados.
+    await router.dispatch({
+      method: 'GET',
+      path: '/api/contacts',
       query: { ...HTTP, _sessionToken: admin },
       body: { iamUsersOverride: [{ id: 'usr-novo-1', email: 'novo1@setatelecom.com.br', name: 'Novo', roleId: 'VENDEDOR_SALES', totpSecret: 'JBSWY3DPEHPK3PXP', totpConfigured: true }] },
     });

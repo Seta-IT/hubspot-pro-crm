@@ -500,7 +500,7 @@ export default function ErpGestaoClickTab({
   const [propCustomContactName, setPropCustomContactName] = useState("");
   const [propContactId] = useState("");
   const [propDealId, setPropDealId] = useState("");
-  const [propSeller, setPropSeller] = useState("Marcelo Lopes Mira");
+  const [propSeller, setPropSeller] = useState(activeUser?.name || ""); // Pacote G
   const [propMonths, setPropMonths] = useState("24");
   const [propReadjustmentIndex, setPropReadjustmentIndex] = useState<"IPCA" | "IGP-M" | "FIXO" | "IST_ANATEL" | "IST_ANATEL">("IPCA");
   const [propModality, setPropModality] = useState<"RENTAL" | "SERVICE" | "HYBRID">("RENTAL");
@@ -879,7 +879,7 @@ export default function ErpGestaoClickTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targetVersion,
-          restoredBy: activeUser?.name || 'Marcelo Mira',
+          restoredBy: activeUser?.name || 'Sistema STI-hub',
         }),
       });
       if (res.ok) {
@@ -1203,7 +1203,7 @@ export default function ErpGestaoClickTab({
           statusObservation:
             obs ||
             `Situação alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}`,
-          updatedBy: activeUser?.name || prop.sellerName || "Marcelo Lopes Mira",
+          updatedBy: activeUser?.name || "Sistema STI-hub",
         }),
       });
       if (res.ok) {
@@ -1281,7 +1281,7 @@ export default function ErpGestaoClickTab({
         code: `PV-${prop.code}`,
         customerName: prop.companyName,
         customerCnpj: prop.companyCnpj,
-        sellerName: prop.sellerName || "Marcelo Lopes Mira",
+        sellerName: prop.sellerName || activeUser?.name || "",
         status: "FATURADO",
         saleType: "PRODUTO",
         paymentMethod: prop.paymentCondition || "Boleto / PIX",
@@ -1649,7 +1649,7 @@ export default function ErpGestaoClickTab({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetVersion: entry.version,
-            restoredBy: activeUser?.name || prop.sellerName || "Marcelo Lopes Mira",
+            restoredBy: activeUser?.name || "Sistema STI-hub",
           }),
         }
       ).catch(() => null);
@@ -1919,8 +1919,8 @@ export default function ErpGestaoClickTab({
       contactName: '',
       contactEmail: undefined,
       dealId: null,
-      sellerName: activeUser?.name || 'Marcelo Lopes Mira',
-      sellerEmail: activeUser?.email || 'marcelo.mira@setatelecom.com.br',
+      sellerName: activeUser?.name || '',
+      sellerEmail: activeUser?.email || '',
       sellerPhone: activeUser?.phone || '(11) 99999-4929',
       status: 'RASCUNHO',
       modality: inferredType === 'SERVICOS' ? 'SERVICE' : inferredType === 'CONJUNTO' ? 'HYBRID' : 'RENTAL',
@@ -7431,7 +7431,7 @@ export default function ErpGestaoClickTab({
                           notes: "Orçamento cadastrado",
                           status: statusModalProposal.status,
                           statusLabel: getGestaoClickSituationSpec(statusModalProposal.status).label,
-                          employeeName: statusModalProposal.sellerName || "Marcelo Lopes Mira",
+                          employeeName: statusModalProposal.sellerName || activeUser?.name || "Sistema STI-hub",
                         },
                       ];
                 return (
@@ -7514,7 +7514,7 @@ export default function ErpGestaoClickTab({
                             statusModalProposal.updatedAt ||
                             statusModalProposal.createdAt ||
                             new Date().toISOString(),
-                          savedBy: statusModalProposal.sellerName || "Marcelo Lopes Mira",
+                          savedBy: activeUser?.name || "Sistema STI-hub",
                           changedFields: ["Versão Atual"],
                           changeSummary: "Versão atual da proposta comercial",
                           snapshot: buildSnapshotFromProposal(statusModalProposal),

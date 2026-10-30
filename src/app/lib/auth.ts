@@ -7,7 +7,7 @@
 // ============================================================================
 
 import QRCode from 'qrcode';
-import { INITIAL_STIHUB_USERS, StiHubRole, StiHubUserAccount } from './rbac';
+import { INITIAL_STIHUB_USERS, StiHubRole } from './rbac';
 import type {
   StiHubCrmPermissions,
   StiHubErpPermissions,
@@ -950,7 +950,10 @@ export function setClientSessionCookie(session: StiHubSessionPayload): void {
   document.cookie = `${STIHUB_SESSION_COOKIE}=${encodeURIComponent(encoded)}; path=/; max-age=86400; SameSite=Lax${secureFlag}`;
   document.cookie = `stihub_logged_out=; path=/; max-age=0; SameSite=Lax`;
   try {
-    window.localStorage.setItem(STIHUB_SESSION_STORAGE_KEY, JSON.stringify(session));
+    window.localStorage.setItem(
+      STIHUB_SESSION_STORAGE_KEY,
+      JSON.stringify(sanitizeActiveSessionForStorage(session as unknown as Record<string, unknown>))
+    );
   } catch {
     // ignore
   }
@@ -989,12 +992,39 @@ export function getClientSession(): StiHubSessionPayload | null {
   return null;
 }
 
-export function findStiHubUserByEmail(email: string): StiHubUserAccount | null {
-  const clean = String(email || '').trim().toLowerCase();
-  return (
-    INITIAL_STIHUB_USERS.find((u) => u.email.toLowerCase() === clean) ||
-    (clean.includes('marcelo') ? INITIAL_STIHUB_USERS[0] : null)
-  );
+
+/**
+ * Pacote G (5d): stihub_active_session_v1 guarda so dados de EXIBICAO do usuario. Nada de
+ * credencial (senha/hash), nem 2FA (segredo, pareamento, epoca, metodo por usuario), nem selo.
+ * A autoridade da sessao e sempre o cookie HttpOnly assinado pelo servidor.
+ */
+export const ACTIVE_SESSION_USER_DISPLAY_KEYS = [
+  'id',
+  'email',
+  'name',
+  'roleId',
+  'department',
+  'jobTitle',
+  'avatarUrl',
+  'homeScreen',
+] as const;
+
+export function toActiveSessionDisplayUser(u: unknown): Record<string, unknown> | undefined {
+  if (!u || typeof u !== 'object' || Array.isArray(u)) return undefined;
+  const src = u as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ACTIVE_SESSION_USER_DISPLAY_KEYS) {
+    const v = src[k];
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = v;
+  }
+  return out;
+}
+
+/** Copia do registro de sessao ativa pronta para o localStorage (user so com campos de exibicao). */
+export function sanitizeActiveSessionForStorage<T extends Record<string, unknown>>(session: T): T {
+  const top = scrubClientIamCredentialFields(session as Record<string, unknown>).clean as Record<string, unknown>;
+  if ('user' in top) top.user = toActiveSessionDisplayUser(top.user);
+  return top as T;
 }
 
 export const STIHUB_IAM_USERS_STORAGE_KEY = "stihub_iam_users_override_v1";
@@ -1085,9 +1115,10 @@ export function migrateClientIamStorage(): number {
         const out = top.clean as Record<string, unknown>;
         changed = top.changed;
         if (out.user && typeof out.user === "object") {
-          const u = scrubClientIamCredentialFields(out.user as Record<string, unknown>);
-          if (u.changed) {
-            out.user = u.clean;
+          // Pacote G (5d): user da sessao ativa so com campos de exibicao.
+          const display = toActiveSessionDisplayUser(out.user);
+          if (JSON.stringify(display) !== JSON.stringify(out.user)) {
+            out.user = display;
             changed = true;
           }
         }
