@@ -84,6 +84,21 @@ import {
 } from '../app/lib/service-account';
 import { isServiceAccountIdentity } from '../db/repository';
 import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
+import {
+  buildSignedProposalUrl,
+  hashIdempotencyKey,
+  isProposalLinkConfigured,
+  isProposalPublicApproveEnabled,
+  normalizeIdempotencyKey,
+  proposalNotFoundResponse,
+  PROPOSAL_PUBLIC_RESPONSE_HEADERS,
+  PROPOSAL_TOO_MANY_BODY,
+  ProposalPublicRateLimiters,
+  publicProposalApproveSchema,
+  signProposalLinkToken,
+  verifyProposalLinkToken,
+} from '../app/lib/proposal-link';
+import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
@@ -93,6 +108,7 @@ import {
   RawImportItemDraft,
 } from '../modules/erp/sebrae-nfe-import-engine';
 import { ErpImportDeclarationInfo } from '../db/types';
+import type { ErpCommercialProposal } from '../db/types';
 import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
   GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
@@ -1125,6 +1141,36 @@ export class CrmApiRouter {
   /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
   private readonly portalLimiters = new PortalRateLimiters();
 
+  /** Link assinado de proposta (29/10): rate-limit por IP e por proposta (por instancia). */
+  private readonly proposalLinkLimiters = new ProposalPublicRateLimiters();
+
+  /** Auditoria das rotas publicas/emissao de link de proposta. NUNCA recebe o token (so o jti). */
+  private proposalLinkAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    proposalRef: string,
+    outcome: string,
+    actor?: { email?: string; name?: string; role?: string },
+    jti?: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor?.email || 'anonimo@link-proposta',
+        actorName: actor?.name || 'Cliente (link assinado de proposta)',
+        actorRole: actor?.role || 'PROPOSAL_PUBLIC_LINK',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalRef || '').slice(0, 80)}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Link de proposta: ${outcome}.${jti ? ` jti=${String(jti).slice(0, 32)}.` : ''}`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
   /** Auditoria de TODA consulta/acao do portal (sucesso ou negada); e-mail mascarado. */
   private portalAudit(
     action: string,
@@ -1531,6 +1577,305 @@ export class CrmApiRouter {
     }
 
     return { delivered: false, deliveryMode: "INVITE_LINK_READY", protocol };
+  }
+
+  // ==========================================================================
+  // LINK ASSINADO DE PROPOSTA (29/10/2026)
+  // ==========================================================================
+
+  /** Sessao MFA valida (cookie via bridge), contexto interno confiavel ou conta de servico. */
+  private hasFullProposalAccess(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal || ctx.serviceAccount) return true;
+    const token = query._sessionToken;
+    if (!token || !verifyStiHubSessionToken(token).valid) return false;
+    const sess = this.repo.resolveSessionFromToken(token);
+    return Boolean(sess.authenticated && sess.mfaVerified && !this.isSessionOlderThanPasswordChange(token));
+  }
+
+  private findProposalExact(id: string): ErpCommercialProposal | undefined {
+    return this.repo.listProposals().find((p) => p.id === id);
+  }
+
+  /** GET publico: so com token valido para ESTE id e a versao ATUAL. Qualquer falha => 404 generico. */
+  private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS } };
+    }
+    const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.findProposalExact(pathId);
+    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
+    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    return {
+      status: 200,
+      body: { data: toPublicProposalDto(found) },
+      headers: { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS },
+    };
+  }
+
+  private publicApprovalResult(
+    proposal: ErpCommercialProposal,
+    contractNumber: string | null,
+    invoiceNumber: string | null
+  ): Record<string, unknown> {
+    // Confirmacao para o cliente: DTO publico + numeros dos documentos gerados (sem ids internos).
+    return { proposal: toPublicProposalDto(proposal), contractNumber, invoiceNumber };
+  }
+
+  /**
+   * POST /approve: exige o mesmo token do link (exceto contexto interno confiavel), corpo zod
+   * .strict(), rate-limit por IP e por proposta, idempotente (Idempotency-Key opcional) e
+   * NUNCA cria proposta (o upsert antigo por payload do cliente foi removido).
+   */
+  private approveProposalViaLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const trusted = ctx.trustedInternal === true;
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const H = { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS };
+    const tooMany: ApiResponse = { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: H };
+    let jti: string | undefined;
+    let tokenVersion: number | null = null;
+
+    if (!trusted) {
+      if (!this.proposalLinkLimiters.approveIp.hit(`ip:${ip}`)) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
+        return tooMany;
+      }
+      const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
+      if (!v.valid) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'token ausente ou invalido (404 generico)');
+        return proposalNotFoundResponse();
+      }
+      jti = v.claims.jti;
+      tokenVersion = v.claims.ver;
+      if (!this.proposalLinkLimiters.approveProposal.hit(`p:${pathId}`)) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por proposta (429)', undefined, jti);
+        return tooMany;
+      }
+      if (!isProposalPublicApproveEnabled()) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'aceite pelo link desativado (403)', undefined, jti);
+        return {
+          status: 403,
+          body: {
+            error: 'O aceite por este link está desativado. Fale com o seu consultor Seta Telecom para concluir a aprovação.',
+            code: 'PROPOSAL_PUBLIC_APPROVE_DISABLED',
+          },
+          headers: H,
+        };
+      }
+    }
+
+    const parsed = publicProposalApproveSchema.safeParse(body || {});
+    if (!parsed.success) {
+      const fields = Array.from(
+        new Set(
+          parsed.error.issues.flatMap((i) =>
+            i.code === 'unrecognized_keys' ? (i as { keys?: string[] }).keys || [] : [String(i.path[0] ?? '')]
+          )
+        )
+      ).filter(Boolean);
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'corpo invalido (400)', undefined, jti);
+      return {
+        status: 400,
+        body: {
+          error:
+            'Dados do aceite inválidos. Informe nome completo, CPF válido, cargo do signatário, modalidade de assinatura e confirme a aceitação dos termos.',
+          code: 'INVALID_APPROVAL_INPUT',
+          fields,
+        },
+        headers: H,
+      };
+    }
+    const idem = normalizeIdempotencyKey(query.proposalIdempotencyKey);
+    if (!idem.ok) {
+      return {
+        status: 400,
+        body: { error: 'Idempotency-Key inválida (8 a 128 caracteres: letras, números, ".", "_", ":" ou "-").', code: 'INVALID_IDEMPOTENCY_KEY' },
+        headers: H,
+      };
+    }
+
+    const existing = trusted
+      ? this.repo
+          .listProposals()
+          .find(
+            (p) =>
+              p.id === pathId ||
+              p.id.toLowerCase() === pathId.toLowerCase() ||
+              p.code === pathId ||
+              String(p.code || '').toLowerCase() === pathId.toLowerCase()
+          )
+      : this.findProposalExact(pathId);
+    if (!existing || (tokenVersion !== null && Math.max(1, Number(existing.version || 1)) !== tokenVersion)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou versao diferente (404, nada criado)', undefined, jti);
+      return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
+    }
+
+    // Repeticao com a MESMA Idempotency-Key: devolve o mesmo resultado, sem novo efeito.
+    if (
+      idem.key &&
+      existing.approvalIdempotencyKeySha256 &&
+      existing.approvalIdempotencyKeySha256 === hashIdempotencyKey(idem.key) &&
+      (existing.status === 'CONVERTIDA_CONTRATO' || existing.convertedContractId)
+    ) {
+      const contract = this.repo.listRentalContracts().find((c) => c.id === existing.convertedContractId);
+      const invoice = this.repo.listInvoices().find((i) => i.id === existing.convertedInvoiceId);
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'SUCCESS', ip, existing.id, 'repeticao idempotente (mesma Idempotency-Key, sem novo efeito)', undefined, jti);
+      return {
+        status: 200,
+        body: {
+          data: this.publicApprovalResult(existing, contract?.contractNumber || null, invoice?.documentNumber || null),
+          idempotentReplay: true,
+        },
+        headers: H,
+      };
+    }
+
+    const approval = validateProposalApprovalInput(parsed.data, existing.status, existing.convertedContractId || null);
+    if (!approval.ok) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, `${approval.code} (${approval.status})`, undefined, jti);
+      return {
+        status: approval.status,
+        body: { error: approval.error, code: approval.code, fields: approval.fields },
+        headers: H,
+      };
+    }
+    const res = this.repo.approveProposalAndConvertToContract(existing.id, {
+      ...approval.data,
+      ipAddress: query._clientIp || undefined,
+    } as Record<string, unknown>);
+    if (!res) return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
+    if (idem.key) res.proposal.approvalIdempotencyKeySha256 = hashIdempotencyKey(idem.key);
+    this.proposalLinkAudit(
+      'PROPOSAL_PUBLIC_APPROVE',
+      'SUCCESS',
+      ip,
+      res.proposal.id,
+      `aceite registrado (${approval.data.modality}); contrato ${res.contract.contractNumber}`,
+      trusted ? { name: 'Sistema STI-hub (interno)', role: 'SYSTEM', email: 'sistema@sti-hub' } : undefined,
+      jti
+    );
+    if (trusted) return { status: 200, body: { data: res } };
+    return {
+      status: 200,
+      body: { data: this.publicApprovalResult(res.proposal, res.contract.contractNumber || null, res.invoice?.documentNumber || null) },
+      headers: H,
+    };
+  }
+
+  /**
+   * POST /api/erp/proposals/:id/public-link (sessao MFA): gera o link assinado para o cliente.
+   * Admin (IAM/Diretoria/ERP_ADMIN) para qualquer proposta; perfil ERP Comercial com acesso
+   * EDIT/FULL a propostas para as que pode ver (escopo PROPRIOS => so as proprias).
+   */
+  private issueProposalPublicLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const H = { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS };
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+      return {
+        status: 401,
+        body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+        headers: H,
+      };
+    }
+    const claims = verifyStiHubSessionToken(token).claims;
+    const erpRole = resolveErpAccountRoleFromClaims(
+      claims ? { ...claims, erpRole: claims.erpRole || sess.user.erpRole } : null
+    );
+    const roleId = String(sess.user.roleId || '');
+    const isAdmin =
+      Boolean(sess.effectiveActionGuards?.canManageUsersRbac) ||
+      roleId === 'SUPER_ADMIN' ||
+      roleId === 'DIRETORIA' ||
+      erpRole === 'ERP_ADMIN';
+    const proposalsAccess = String(sess.erpPermissions?.proposalsQuotesAccess || 'NONE');
+    const canEdit =
+      (PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole) &&
+      (proposalsAccess === 'FULL' || proposalsAccess === 'EDIT');
+    const actor = { email: sess.user.email, name: sess.user.name, role: roleId };
+    const forbidden: ApiResponse = {
+      status: 403,
+      body: {
+        error: 'Seu perfil não tem permissão para gerar o link desta proposta para o cliente.',
+        code: 'PROPOSAL_LINK_FORBIDDEN',
+      },
+      headers: H,
+    };
+    if (!isAdmin && !canEdit) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, pathId, `perfil sem alcada (${erpRole}/${proposalsAccess})`, actor);
+      return forbidden;
+    }
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY }, headers: H };
+    }
+    const found = this.repo
+      .listProposals()
+      .find((p) => p.id === pathId || String(p.code || '').toLowerCase() === pathId.toLowerCase());
+    if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' }, headers: H };
+    if (!isAdmin && String(sess.user.scope || 'PROPRIOS') === 'PROPRIOS') {
+      const norm = (v: unknown) =>
+        String(v || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+      const owner =
+        (norm(found.sellerName) !== '' && norm(found.sellerName) === norm(sess.user.name)) ||
+        (norm(found.sellerEmail) !== '' && norm(found.sellerEmail) === norm(sess.user.email));
+      if (!owner) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'proposta de outro vendedor (escopo PROPRIOS)', actor);
+        return forbidden;
+      }
+    }
+    if (!isProposalLinkConfigured()) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'STI_HUB_PROPOSAL_LINK_SECRET ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: {
+          error: 'O link para o cliente está temporariamente indisponível (configuração de segurança pendente). Avise o administrador.',
+          code: 'PROPOSAL_LINK_SECRET_MISSING',
+        },
+        headers: H,
+      };
+    }
+    const version = Math.max(1, Number(found.version || 1));
+    const signed = signProposalLinkToken({ proposalId: found.id, version });
+    const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
+    this.proposalLinkAudit(
+      'PROPOSAL_LINK_ISSUE',
+      'SUCCESS',
+      ip,
+      found.id,
+      `link emitido (versao ${version}, expira ${new Date(signed.claims.exp).toISOString()})`,
+      actor,
+      signed.claims.jti
+    );
+    return {
+      status: 200,
+      body: {
+        data: {
+          url: buildSignedProposalUrl(origin, found.id, signed.token),
+          version,
+          expiresAt: new Date(signed.claims.exp).toISOString(),
+          publicApproveEnabled: isProposalPublicApproveEnabled(),
+        },
+      },
+      headers: H,
+    };
   }
 
   private async handleRoute(
@@ -4173,50 +4518,21 @@ export class CrmApiRouter {
         }
       }
 
+      // ======================================================================
+      // LINK ASSINADO DE PROPOSTA (29/10/2026) — src/app/lib/proposal-link.ts
+      // Publico (sem sessao) somente com X-Proposal-Token valido (HMAC, escopo id+versao+exp).
+      // Sem token valido => 404 generico identico ao de id inexistente. O token chega do
+      // header via src/app/api/erp/proposals/[id]/* em query.proposalLinkToken (nunca na URL
+      // do cliente: a rota descarta o parametro vindo da URL) e nunca e logado.
+      // ======================================================================
+      const proposalLinkIssueMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/public-link$/);
+      if (proposalLinkIssueMatch && method === 'POST') {
+        return this.issueProposalPublicLink(decodeURIComponent(proposalLinkIssueMatch[1]).trim(), query, ctx);
+      }
+
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        // Aceite publico do cliente: dados da assinatura e do aceite chegam no corpo do POST.
-        // Nenhum PATCH previo e necessario. Validacao de campos obrigatorios e status permitido.
-        const approveId = decodeURIComponent(approvePropMatch[1]).trim();
-        const existingProp = this.repo
-          .listProposals()
-          .find(
-            (p) =>
-              p.id === approveId ||
-              p.id.toLowerCase() === approveId.toLowerCase() ||
-              p.code === approveId ||
-              String(p.code || '').toLowerCase() === approveId.toLowerCase()
-          );
-        const incomingProp =
-          !existingProp && body.proposal && typeof body.proposal === 'object'
-            ? (body.proposal as Record<string, unknown>)
-            : null;
-        const approval = validateProposalApprovalInput(
-          body,
-          existingProp ? existingProp.status : incomingProp ? String(incomingProp.status || '') : null,
-          existingProp
-            ? existingProp.convertedContractId || null
-            : incomingProp && typeof incomingProp.convertedContractId === 'string'
-              ? incomingProp.convertedContractId
-              : null
-        );
-        if (!approval.ok) {
-          return {
-            status: approval.status,
-            body: { error: approval.error, code: approval.code, fields: approval.fields },
-          };
-        }
-        const res = this.repo.approveProposalAndConvertToContract(approveId, {
-          ...approval.data,
-          ipAddress: query._clientIp || undefined,
-          // O payload completo da proposta so e usado quando ela ainda nao existe nesta instancia
-          // (link compartilhado ?d=); uma proposta existente no servidor nunca e sobrescrita.
-          ...(incomingProp ? { proposal: incomingProp } : {}),
-        } as Record<string, unknown>);
-        if (!res) {
-          return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
-        }
-        return { status: 200, body: { data: res } };
+        return this.approveProposalViaLink(decodeURIComponent(approvePropMatch[1]).trim(), query, body, ctx);
       }
 
       const restorePropVerMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/restore-version$/);
@@ -4291,6 +4607,11 @@ export class CrmApiRouter {
       if (proposalIdMatch) {
         const propId = decodeURIComponent(proposalIdMatch[1]);
         if (method === 'GET') {
+          // Sessao MFA valida (vendedor/admin), contexto interno ou conta de servico: proposta
+          // completa (comportamento anterior). Qualquer outro chamador: so com link assinado.
+          if (!this.hasFullProposalAccess(query, ctx)) {
+            return this.viewProposalViaLink(propId.trim(), query);
+          }
           const found = this.repo
             .listProposals()
             .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());

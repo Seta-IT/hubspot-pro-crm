@@ -988,6 +988,8 @@ export interface ErpCommercialProposal {
   convertedContractId?: string | null;
   convertedInvoiceId?: string | null;
   digitalSignature?: ErpProposalDigitalSignature | null;
+  /** SHA-256 da Idempotency-Key do aceite pelo link (repeticao devolve o mesmo resultado). */
+  approvalIdempotencyKeySha256?: string;
   version?: number;
   versionHistory?: ErpProposalVersionEntry[];
   statusHistory?: ErpProposalStatusHistoryEntry[];

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Printer,
@@ -26,9 +26,9 @@ import {
 } from 'lucide-react';
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL } from '../../components/ui-helpers';
+import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
 import {
   appendClientProposalVersion,
-  buildPublicProposalUrl,
   buildProposalVersionShortUrl,
   buildSnapshotFromProposal,
   proposalFromVersionSnapshot,
@@ -52,8 +52,33 @@ import {
   resolveProposalDocumentHeadings,
   resolveProposalLayoutKind,
 } from '../../lib/proposal-share';
-import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
+import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
+
+/**
+ * Token do link assinado: lido do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs nem ao
+ * Referer. Compatibilidade: se vier em ?t=, e movido para o fragmento com history.replaceState.
+ * O token so e enviado no header X-Proposal-Token (nunca na URL da API).
+ */
+function readProposalLinkTokenFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const fromHash = new URLSearchParams(hash).get('t');
+    if (fromHash && fromHash.trim()) return fromHash.trim();
+    const url = new URL(window.location.href);
+    const fromQuery = url.searchParams.get('t');
+    if (fromQuery && fromQuery.trim()) {
+      url.searchParams.delete('t');
+      url.hash = `t=${fromQuery.trim()}`;
+      window.history.replaceState(window.history.state, '', url.toString());
+      return fromQuery.trim();
+    }
+  } catch {
+    // sem token
+  }
+  return null;
+}
 
 function PublicProposalPrintContent() {
   const params = useParams<{ id: string; n?: string }>();
@@ -64,15 +89,21 @@ function PublicProposalPrintContent() {
   const versionParam = searchParams?.get("v") || (params?.n ? String(params.n) : null);
   const autoPrint = searchParams?.get("print") === "1";
 
-  const [proposal, setProposal] = useState<ErpCommercialProposal | null>(() =>
-    decodeProposalFromQueryParam(encodedData)
-  );
+  // Link assinado (29/10): o payload ?d= so vale para usuario interno logado; o cliente ve
+  // somente o DTO publico do servidor, obtido com o token do link.
+  const [proposal, setProposal] = useState<ErpCommercialProposal | null>(null);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkChecked, setLinkChecked] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [publicLinkInvalid, setPublicLinkInvalid] = useState(false);
+  const approveIdempotencyKeyRef = useRef<string | null>(null);
+  const isPublicLinkMode = Boolean(linkToken);
   const [viewingVersionNum, setViewingVersionNum] = useState<number | null>(() =>
     versionParam ? Number(versionParam) || null : null
   );
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const [restoredBannerMsg, setRestoredBannerMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(!proposal);
+  const [loading, setLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState(false);
 
   // Full In-Page Editor State
@@ -100,8 +131,56 @@ function PublicProposalPrintContent() {
   >("ICP_BRASIL_A1");
 
   useEffect(() => {
+    setLinkToken(readProposalLinkTokenFromLocation());
+    setLinkChecked(true);
+  }, []);
+
+  useEffect(() => {
+    if (!linkChecked || !sessionChecked) return;
     const requestedVer = versionParam ? Number(versionParam) || null : null;
     setViewingVersionNum(requestedVer);
+
+    if (linkToken) {
+      // Cliente com link assinado: so o DTO publico (sem ?d=, sem armazenamento local).
+      let activePublic = true;
+      setLoading(true);
+      fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`, {
+        cache: 'no-store',
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+        headers: { 'X-Proposal-Token': linkToken },
+      })
+        .then(async (r) => ({ ok: r.ok, json: await r.json().catch(() => null) }))
+        .then(({ ok, json }) => {
+          if (!activePublic) return;
+          const dto = ok && json?.data && !Array.isArray(json.data) ? (json.data as PublicProposalDto) : null;
+          if (dto) {
+            setProposal(publicDtoToRenderableProposal(dto, rawId));
+            setPublicLinkInvalid(false);
+          } else {
+            setProposal(null);
+            setPublicLinkInvalid(true);
+          }
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!activePublic) return;
+          setProposal(null);
+          setPublicLinkInvalid(true);
+          setLoading(false);
+        });
+      return () => {
+        activePublic = false;
+      };
+    }
+
+    if (!isInternalUser) {
+      // Sem link assinado e sem sessao: links antigos (?d= ou /proposta/<id>) nao abrem mais.
+      setProposal(null);
+      setPublicLinkInvalid(true);
+      setLoading(false);
+      return;
+    }
 
     const journal = loadDurableJournal();
     const localFound = (journal.upsertedProposals || []).find(
@@ -227,7 +306,7 @@ function PublicProposalPrintContent() {
     return () => {
       active = false;
     };
-  }, [rawId, encodedData, versionParam]);
+  }, [rawId, encodedData, versionParam, linkChecked, sessionChecked, linkToken, isInternalUser]);
 
   useEffect(() => {
     let active = true;
@@ -238,13 +317,17 @@ function PublicProposalPrintContent() {
         const data = json?.data;
         const ok = Boolean(data && data.authenticated === true && data.mfaVerified === true);
         setIsInternalUser(ok);
+        setSessionChecked(true);
         if (!ok) {
           setIsEditing(false);
           setShowInternalVersionsModal(false);
         }
       })
       .catch(() => {
-        if (active) setIsInternalUser(false);
+        if (active) {
+          setIsInternalUser(false);
+          setSessionChecked(true);
+        }
       });
     return () => {
       active = false;
@@ -512,17 +595,31 @@ function PublicProposalPrintContent() {
     try {
       // Aceite do cliente sem login: todos os dados da assinatura seguem no proprio POST /approve.
       // Nenhuma edicao (PATCH) da proposta e feita pelo cliente.
+      // Link assinado: o token do link vai no header X-Proposal-Token (nunca na URL) e uma
+      // Idempotency-Key estavel por pagina evita aceite duplicado em reenvio/clique duplo.
+      if (!approveIdempotencyKeyRef.current) {
+        approveIdempotencyKeyRef.current =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `idem-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      const approveHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': approveIdempotencyKeyRef.current,
+      };
+      if (linkToken) approveHeaders['X-Proposal-Token'] = linkToken;
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: approveHeaders,
+        credentials: linkToken ? 'omit' : 'same-origin',
+        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           signerName: signerName.trim(),
           signerCpf: signerCpf.trim(),
           signerRole: signerRole.trim(),
-          signerEmail: proposal.contactEmail || undefined,
+          ...(proposal.contactEmail ? { signerEmail: proposal.contactEmail } : {}),
           modality: signatureModality,
           acceptedTerms: true,
-          proposal,
         }),
       }).catch(() => null);
       if (!res) {
@@ -536,7 +633,9 @@ function PublicProposalPrintContent() {
             "Não foi possível registrar o aceite neste momento. Atualize a página e tente novamente; se o problema continuar, fale com o seu consultor Seta Telecom."
           );
         } else if (res.status === 404) {
-          setApprovalError("Proposta não localizada. Solicite um novo link ao seu consultor Seta Telecom.");
+          setApprovalError("Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom.");
+        } else if (res.status === 429) {
+          setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
         } else {
           setApprovalError(
             (typeof errJson?.error === "string" && errJson.error) ||
@@ -547,28 +646,16 @@ function PublicProposalPrintContent() {
       }
       if (res.ok) {
         const json = await res.json();
-        const sig: ErpProposalDigitalSignature | undefined =
-          json?.data?.digitalSignature || json?.data?.proposal?.digitalSignature;
-        const nextProp: ErpCommercialProposal = json?.data?.proposal || {
-          ...proposal,
-          status: 'CONVERTIDA_CONTRATO',
-          convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
-          digitalSignature: sig || null,
-        };
-        if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
-        if (json?.data?.contract) recordUpsertedContract(json.data.contract);
-        if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
+        // Resposta publica: { proposal: DTO publico, contractNumber, invoiceNumber } (sem ids internos).
+        const dto = json?.data?.proposal as PublicProposalDto | undefined;
+        const nextProp: ErpCommercialProposal = dto
+          ? publicDtoToRenderableProposal(dto, proposal.id)
+          : { ...proposal, status: 'CONVERTIDA_CONTRATO' };
+        const sig: ErpProposalDigitalSignature | undefined = nextProp.digitalSignature || undefined;
         setProposal(nextProp);
-        if (typeof window !== "undefined") {
-          const newEncoded = encodeProposalToQueryParam(nextProp);
-          const url = new URL(window.location.href);
-          if (newEncoded) url.searchParams.set("d", newEncoded);
-          window.history.replaceState({}, "", url.toString());
-        }
         setConvertedContractInfo({
-          contractNumber:
-            json?.data?.contract?.contractNumber || nextProp.convertedContractId || 'LOC-2026',
-          invoiceNumber: json?.data?.invoice?.documentNumber || 'FAT-LOC-2026',
+          contractNumber: json?.data?.contractNumber || 'LOC-2026',
+          invoiceNumber: json?.data?.invoiceNumber || 'FAT-LOC-2026',
         });
         setSignatureVerifiedBanner(
           `Assinatura Digital (${sig?.modality || signatureModality}) validada com sucesso! Protocolo ${sig?.timestampToken || "ACT-ITI"} • Hash SHA-256 registrado.`
@@ -580,39 +667,52 @@ function PublicProposalPrintContent() {
     }
   };
 
+  const [copyLinkBusy, setCopyLinkBusy] = useState(false);
+  /**
+   * "Copiar link para o cliente": pede ao servidor (sessao MFA) o link ASSINADO da versao atual
+   * (POST /api/erp/proposals/:id/public-link). Links antigos (?d= ou /proposta/<id>) nao abrem
+   * mais para o cliente. Se a proposta ainda nao estiver no servidor, sincroniza (PATCH) antes.
+   */
   const handleCopyPublicLink = async () => {
-    if (!proposal) return;
-    const fullUrl = buildPublicProposalUrl(proposal);
-    const currentVer = Number(viewingVersionNum || proposal.version || 1);
-    let url = fullUrl;
-    // Short link quando o servidor ja tem a versao; senao sincroniza (PATCH) e confere de novo.
-    const serverHasVersion = async (): Promise<boolean> => {
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, { cache: "no-store" }).catch(() => null);
-      if (!res || !res.ok) return false;
-      const json = await res.json().catch(() => null);
-      const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
-      return Boolean(
-        apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.some((v) => Number(v.version) === currentVer)
-      );
-    };
+    if (!proposal || !isInternalUser || copyLinkBusy) return;
+    setCopyLinkBusy(true);
     try {
-      let ok = await serverHasVersion();
-      if (!ok && isInternalUser && !viewingVersionNum) {
+      const issue = () =>
+        fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/public-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: "{}",
+        }).catch(() => null);
+      let res = await issue();
+      if (res && res.status === 404 && !viewingVersionNum) {
         await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify(proposal),
         }).catch(() => null);
-        ok = await serverHasVersion();
+        res = await issue();
       }
-      if (ok) url = buildProposalVersionShortUrl(proposal.id, currentVer);
-    } catch {
-      url = fullUrl;
+      const json = res ? await res.json().catch(() => null) : null;
+      const url = res && res.ok && typeof json?.data?.url === "string" ? (json.data.url as string) : null;
+      if (!url) {
+        if (!reportProtectedFailure(res)) {
+          setAuthNotice(
+            (typeof json?.error === "string" && json.error) ||
+              "Não foi possível gerar o link para o cliente. Tente novamente em instantes."
+          );
+          setTimeout(() => setAuthNotice(null), 7000);
+        }
+        return;
+      }
+      await navigator.clipboard?.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } finally {
+      setCopyLinkBusy(false);
     }
-    navigator.clipboard?.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
   };
 
   if (loading) {
@@ -637,7 +737,9 @@ function PublicProposalPrintContent() {
             Proposta Comercial #{rawId || 'Não identificada'} não localizada
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong> e nenhum payload compartilhado (<code>?d=</code>) foi informado na URL. Volte ao painel da Seta Telecom para abrir ou gerar o link público da proposta desejada.
+            {publicLinkInvalid
+              ? "Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom."
+              : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
           <a
             href="/"
@@ -913,12 +1015,12 @@ function PublicProposalPrintContent() {
             {copied ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                Link Atualizado Copiado!
+                Link assinado copiado!
               </>
             ) : (
               <>
                 <Copy className="w-4 h-4" />
-                Copiar Link p/ Cliente
+                {copyLinkBusy ? "Gerando link..." : "Copiar link para o cliente"}
               </>
             )}
           </button>
@@ -1333,7 +1435,7 @@ function PublicProposalPrintContent() {
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{" "}
+                  {proposal.companyCnpj ? <>CNPJ: <strong>{proposal.companyCnpj}</strong> • </> : null}Valor Mensal:{" "}
                   <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
                   <strong>{proposal.contractMonths} meses</strong>
                 </div>
@@ -1626,13 +1728,17 @@ function PublicProposalPrintContent() {
                 DADOS DA EMPRESA:
               </div>
               <div className="text-sm sm:text-base font-semibold text-slate-900">{proposal.companyName}</div>
-              <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
-              </div>
-              <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
-                {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
-              </div>
+              {!isPublicLinkMode && (
+                <div className="text-xs text-slate-600">
+                  <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
+                </div>
+              )}
+              {(proposal.careOf || proposal.contactName) && (
+                <div className="text-xs text-slate-600">
+                  <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
+                  {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
+                </div>
+              )}
               {proposal.deliveryAddress && (
                 <div className="text-xs text-slate-600">
                   <strong className="text-slate-800">Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
@@ -2085,7 +2191,7 @@ function PublicProposalPrintContent() {
                   <div className="border-t border-slate-300 pt-2 text-center">
                     <div className="text-xs font-semibold text-slate-900">{proposal.companyName}</div>
                     <div className="text-[11px] text-slate-500">
-                      CNPJ {proposal.companyCnpj} •{" "}
+                      {proposal.companyCnpj ? <>CNPJ {proposal.companyCnpj} •{" "}</> : null}
                       {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}
                       ({proposal.digitalSignature?.signerRole || "Assinatura / Carimbo"})
                     </div>
