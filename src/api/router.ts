@@ -130,7 +130,8 @@ import {
   SlidingWindowRateLimiter,
   verifyPasswordResetToken,
 } from './password-reset';
-import { hashCorporatePassword } from '../app/lib/auth';
+import { hashCorporatePassword, verifyCorporatePassword } from '../app/lib/auth';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
   PORTAL_MISSING_FILTER_MESSAGE,
@@ -539,6 +540,31 @@ export function stripClientTotpSecretFields(body: unknown): Record<string, unkno
 }
 
 
+/**
+ * HOTFIX 29/10 (menor a): senha definida pelo admin no IAM. Vale so para senha NOVA:
+ * - ausente/vazia => sem mudanca de senha;
+ * - igual a senha atual do usuario (ex.: formulario reenvia o registro) => campo ignorado;
+ * - nova e com menos de 12 caracteres => 400. Senhas existentes nunca sao invalidadas.
+ */
+function checkAdminNewPassword(
+  body: Record<string, unknown>,
+  existing: { passwordHash?: string } | undefined
+): { ok: true; body: Record<string, unknown> } | { ok: false; error: string } {
+  if (body.password === undefined || body.password === null) return { ok: true, body };
+  const pw = String(body.password).trim();
+  if (!pw) {
+    const { password: _drop, ...rest } = body;
+    void _drop;
+    return { ok: true, body: rest };
+  }
+  if (existing?.passwordHash && verifyCorporatePassword(pw, existing.passwordHash)) {
+    const { password: _same, ...rest } = body;
+    void _same;
+    return { ok: true, body: rest };
+  }
+  if (pw.length < NEW_PASSWORD_MIN_LENGTH) return { ok: false, error: NEW_PASSWORD_MIN_MESSAGE };
+  return { ok: true, body };
+}
 
 export class CrmApiRouter {
   private repo: CrmRepository;
@@ -6165,7 +6191,14 @@ export class CrmApiRouter {
             body: { error: 'Informe ao menos "name" ou "email" do colaborador.' },
           };
         }
-        const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(body));
+        const pwCheckCreate = checkAdminNewPassword(
+          body,
+          this.repo.findRbacUserRecord(String(body.id || ''), String(body.email || '').trim().toLowerCase())
+        );
+        if (!pwCheckCreate.ok) {
+          return { status: 400, body: { error: pwCheckCreate.error, code: 'PASSWORD_TOO_SHORT' } };
+        }
+        const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(pwCheckCreate.body));
         const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
@@ -6237,8 +6270,12 @@ export class CrmApiRouter {
       }
       if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const userId = decodeURIComponent(adminUserIdMatch[1]);
+        const pwCheckUpdate = checkAdminNewPassword(body, this.repo.findRbacUserRecord(userId, ''));
+        if (!pwCheckUpdate.ok) {
+          return { status: 400, body: { error: pwCheckUpdate.error, code: 'PASSWORD_TOO_SHORT' } };
+        }
         const saved = this.repo.upsertRbacUser({
-          ...stripClientTotpSecretFields(body),
+          ...stripClientTotpSecretFields(pwCheckUpdate.body),
           id: userId,
         });
         const otpauthUri = buildOtpAuthUri({

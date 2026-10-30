@@ -201,6 +201,14 @@ export function evaluateStiHubRouteProtection(input: {
     };
   }
 
+  // LIMITACAO DOCUMENTADA (HOTFIX 29/10, menor c): a denylist de tokens revogados no logout
+  // (router.ts, revokedSessionTokenHashes) vive na MEMORIA de cada instancia Node das funcoes
+  // /api. O middleware roda no Edge, em isolate separado, sem acesso a essa memoria e sem
+  // armazenamento duravel configurado (KV/Edge Config/Redis). Logo, aqui so validamos assinatura
+  // e expiracao: um token revogado AINDA abre as PAGINAS (casca HTML, sem dados) ate expirar.
+  // Os dados vem das /api, onde o router trata o token revogado como "sem sessao" (401) — mas
+  // tambem por instancia (best-effort): outra instancia fria pode aceita-lo ate o exp do token.
+  // O logout apaga o cookie do navegador. Fechar o gap exige armazenamento duravel compartilhado.
   const verified = verifyStiHubSessionToken(input.sessionToken);
   const isApi = input.pathname.startsWith('/api/');
   const requiredModule = classifyRouteRequiredModule(input.pathname);

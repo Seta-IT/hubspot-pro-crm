@@ -1,5 +1,6 @@
 'use client';
 
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
 import React, { useState, useEffect } from 'react';
 import {
   buildDefaultCrmItemPermissions,
@@ -479,6 +480,9 @@ export default function StiHubAdminRbacPanel({
       }
       onShowToast(`Usuário ${user.name} atualizado na matriz RBAC!`);
       await onRefresh();
+    } else {
+      const err = await res.json().catch(() => null);
+      onShowToast(err?.error || 'Não foi possível atualizar o usuário.');
     }
   };
 
@@ -750,6 +754,10 @@ export default function StiHubAdminRbacPanel({
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim() || !newUserEmail.trim()) return;
+    if (newUserPassword.trim() && newUserPassword.trim().length < NEW_PASSWORD_MIN_LENGTH) {
+      onShowToast(NEW_PASSWORD_MIN_MESSAGE);
+      return;
+    }
     const effectiveMods: StiHubMacroModule[] =
       newUserModules.length > 0 ? newUserModules : ['CRM'];
     const res = await fetch('/api/admin/users', {
@@ -783,7 +791,7 @@ export default function StiHubAdminRbacPanel({
         mfaEnabled: newUserMfaEnabled,
         mfaMethod: newUserMfaMethod,
         totpConfigured: false,
-        password: newUserPassword.trim().length >= 6 ? newUserPassword.trim() : undefined,
+        password: newUserPassword.trim().length >= NEW_PASSWORD_MIN_LENGTH ? newUserPassword.trim() : undefined,
         origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app',
       }),
     });
@@ -795,7 +803,7 @@ export default function StiHubAdminRbacPanel({
           ...created,
           totpConfigured: false,
           totpConfiguredAt: null,
-          ...(newUserPassword.trim().length >= 6 ? { password: newUserPassword.trim() } : {}),
+          ...(newUserPassword.trim().length >= NEW_PASSWORD_MIN_LENGTH ? { password: newUserPassword.trim() } : {}),
         });
         if (created.inviteUrl) {
           try {
@@ -3428,7 +3436,8 @@ export default function StiHubAdminRbacPanel({
                     type="password"
                     value={newUserPassword}
                     onChange={(e) => setNewUserPassword(e.target.value)}
-                    placeholder="Deixe em branco para definir via convite"
+                    placeholder={`Em branco = via convite • ${NEW_PASSWORD_PLACEHOLDER}`}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                   />
                 </div>

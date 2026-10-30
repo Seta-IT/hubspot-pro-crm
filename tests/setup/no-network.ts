@@ -8,6 +8,8 @@
 // ============================================================================
 import fs from 'node:fs';
 
+export const CNPJ_HOSTS = ['brasilapi.com.br', 'receitaws.com.br', 'publica.cnpj.ws'];
+export const CNPJ_ATTEMPTS_FILE = process.env.STI_HUB_TEST_CNPJ_LOG || '/tmp/stihub-test-cnpj-mocked.log';
 export const RESEND_ATTEMPTS_FILE = process.env.STI_HUB_TEST_RESEND_LOG || '/tmp/stihub-test-resend-attempts.log';
 
 (process.env as Record<string, string>).NODE_ENV = 'test';
@@ -33,6 +35,19 @@ const guardedFetch = (async (input: unknown, init?: unknown) => {
     }
     return new Response(JSON.stringify({ message: 'Bloqueado no ambiente de testes (sem rede real).', name: 'test_network_blocked' }), {
       status: 503,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  // HOTFIX 29/10 (menor b): APIs publicas de CNPJ (cnpj-lookup-service.ts) NUNCA vao a rede
+  // nos testes. Mock deterministico 404 => o servico cai no cadastro local/fallback.
+  if (CNPJ_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) {
+    try {
+      fs.appendFileSync(CNPJ_ATTEMPTS_FILE, `${new Date().toISOString()} ${process.argv[1] || ''} ${host}\n`);
+    } catch {
+      // registro opcional
+    }
+    return new Response(JSON.stringify({ message: 'CNPJ mockado no ambiente de testes (sem rede real).', name: 'test_network_mocked' }), {
+      status: 404,
       headers: { 'content-type': 'application/json' },
     });
   }

@@ -12,7 +12,7 @@
     "db:migrate": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js",
     "db:seed": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js --seed",
     "prisma:push": "npx prisma db push",
-    "test": "tsc -p tsconfig.build.json && rm -f /tmp/stihub-test-resend-attempts.log && NODE_ENV=test NODE_OPTIONS=--import=./dist/tests/setup/no-network.js node --test dist/tests/*.test.js && node dist/tests/setup/assert-no-resend.js"
+    "test": "tsc -p tsconfig.build.json && rm -f /tmp/stihub-test-resend-attempts.log /tmp/stihub-test-cnpj-mocked.log && NODE_ENV=test NODE_OPTIONS=--import=./dist/tests/setup/no-network.js node --test dist/tests/*.test.js && node dist/tests/setup/assert-no-resend.js"
   },
   "keywords": [
     "crm",
