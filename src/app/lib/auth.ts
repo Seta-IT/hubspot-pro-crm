@@ -46,6 +46,8 @@ export interface StiHubSignedSessionClaims {
   erpPermissions?: StiHubErpPermissions;
   /** Tipo de conta ERP efetivo (ERP_ADMIN, ERP_COMMERCIAL, ...), usado pelo middleware. */
   erpRole?: string;
+  /** Hotfix 29/10/2026: alcada de admin IAM efetiva no login (assinada), usada pelo middleware. */
+  canManageUsersRbac?: boolean;
   mfaVerified: boolean;
   mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
   iat: number;

@@ -55,6 +55,7 @@ import {
   resolveErpAccountRoleFromClaims,
 } from '../middleware';
 import { verifyStiHubSessionToken } from '../app/lib/auth';
+import { isIamAdminRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -1066,6 +1067,56 @@ export class CrmApiRouter {
         };
       }
 
+      // HOTFIX 29/10/2026 (escalada de privilegio): autorizacao IAM por colecao NORMALIZADA.
+      // /api/admin/*, /api/rbac/*, /api/iam/* (e aliases como /api/auth/send-invite), em
+      // qualquer metodo (inclusive GET de listagem), exigem sessao MFA valida + canManageUsersRbac.
+      // Roda ANTES do override IAM e da checagem de rota publica (send-invite estava em /api/auth).
+      if (query._fromHttpBridge === "1" && isIamAdminRoute(cleanPath)) {
+        const iamTok =
+          query._sessionToken || (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+        if (!iamTok || !verifyStiHubSessionToken(iamTok).valid) {
+          return {
+            status: 401,
+            body: {
+              error: "Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.",
+              code: "MFA_AUTH_REQUIRED",
+            },
+          };
+        }
+        const iamSess = this.repo.resolveSessionFromToken(iamTok);
+        if (
+          !iamSess.authenticated ||
+          !iamSess.mfaVerified ||
+          this.isSessionOlderThanPasswordChange(iamTok)
+        ) {
+          return {
+            status: 401,
+            body: { error: "Sessão corporativa STI-hub inválida ou expirada.", code: "MFA_SESSION_INVALID" },
+          };
+        }
+        if (!iamSess.effectiveActionGuards.canManageUsersRbac) {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: iamSess.user.email,
+            actorName: iamSess.user.name,
+            actorRole: iamSess.role.id,
+            action: /^\/api\/iam\/users\/[^/]+\/home-screen$/.test(normalizeApiPathForAuthz(cleanPath))
+              ? "IAM_USER_HOME_SCREEN_FORBIDDEN"
+              : "IAM_ADMIN_ROUTE_FORBIDDEN",
+            module: "IAM_RBAC",
+            resource: `${method} ${normalizeApiPathForAuthz(cleanPath)}`,
+            status: "BLOCKED",
+            details: `Acesso a rota administrativa de IAM negado para ${iamSess.user.email} (sem canManageUsersRbac).`,
+          });
+          return {
+            status: 403,
+            body: {
+              error: "Permissão negada: seu perfil não possui alçada para consultar ou alterar usuários, papéis ou políticas IAM/RBAC.",
+              code: "IAM_ADMIN_FORBIDDEN",
+            },
+          };
+        }
+      }
+
       // Contencao 29/10/2026: antes da autenticacao so sao aceitos registros IAM SELADOS
       // pelo servidor (iamSeal). Override "cru" do cliente so depois da sessao MFA e com
       // permissao canManageUsersRbac (ver abaixo).
@@ -1188,7 +1239,8 @@ export class CrmApiRouter {
         }
 
         // Granular Panel 1 (CRM) & Panel 2 (ERP) Action Enforcement
-        if (cleanPath.startsWith("/api/admin/") && method !== "GET") {
+        // (mantido como cinto-e-suspensorio; a regra central esta no topo de handleRoute)
+        if (isIamAdminRoute(cleanPath) && !resolvedSession.effectiveActionGuards.canManageUsersRbac) {
           if (!resolvedSession.effectiveActionGuards.canManageUsersRbac) {
             return {
               status: 403,

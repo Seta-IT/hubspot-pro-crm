@@ -6,6 +6,7 @@ import {
 } from './app/lib/auth';
 import type { StiHubMacroModule } from './db/types';
 import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
+import { claimsMayManageIam, isIamAdminRoute } from './app/lib/iam-admin-routes';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -312,6 +313,36 @@ export function middleware(req: NextRequest) {
       );
     }
     return applySecurityHeaders(NextResponse.next(), 'service-account-bearer');
+  }
+
+  // HOTFIX 29/10/2026: rotas administrativas de IAM (/api/admin|rbac|iam/*, aliases,
+  // qualquer caixa/barra/%2F) exigem sessao MFA + alcada IAM, em qualquer metodo. Avaliado
+  // antes das rotas publicas porque /api/auth/send-invite ficava sob o prefixo publico /api/auth.
+  if (isIamAdminRoute(pathname)) {
+    const iamSessionToken =
+      req.cookies.get('stihub_session')?.value || req.headers.get('x-stihub-session') || null;
+    const v = verifyStiHubSessionToken(iamSessionToken);
+    if (!v.valid || !v.claims || !v.claims.mfaVerified) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+          { status: 401 }
+        ),
+        'IAM_ADMIN_AUTH_REQUIRED'
+      );
+    }
+    if (!claimsMayManageIam(v.claims)) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          {
+            error: 'Permissão negada: seu perfil não possui alçada para consultar ou alterar usuários, papéis ou políticas IAM/RBAC.',
+            code: 'IAM_ADMIN_FORBIDDEN',
+          },
+          { status: 403 }
+        ),
+        'IAM_ADMIN_FORBIDDEN'
+      );
+    }
   }
 
   if (isPublicStiHubPath(pathname, req.method)) {
