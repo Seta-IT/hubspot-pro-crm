@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatBRL } from './ui-helpers';
 import { recordTimelineEvent } from '../lib/durable-storage';
+import { redactProposalLinkTokens } from '../lib/proposal-link-redact';
 
 export type StiHubEmailDocType =
   | 'PROPOSAL'
@@ -298,7 +299,8 @@ export default function ClientEmailComposerModal({
       recordTimelineEvent({
         id: `evt-mail-${Date.now()}`,
         type: 'EMAIL',
-        title: `E-mail enviado [${DOC_TYPE_META[docType].badge}]: ${subject}`,
+        // A1: o historico local (journal) nunca guarda o token do link assinado.
+        title: redactProposalLinkTokens(`E-mail enviado [${DOC_TYPE_META[docType].badge}]: ${subject}`),
         body: `Para: ${toEmail} (CC: ${ccEmail}) • Protocolo: ${protocol}`,
         metadata: { docType, toEmail, protocol },
         contactId: payload.contactId || null,
