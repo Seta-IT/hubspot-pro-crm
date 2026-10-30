@@ -97,7 +97,11 @@ import {
   publicProposalApproveSchema,
   signProposalLinkToken,
   verifyProposalLinkToken,
+  describeProposalLinkInText,
+  proposalValidUntilEndMs,
+  ProposalLinkExpiredProposalError,
 } from '../app/lib/proposal-link';
+import { deepRedactProposalLinkTokens, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -916,7 +920,10 @@ export class CrmApiRouter {
       typeof body._reconcileJournal === "object" &&
       body._reconcileJournal !== null
     ) {
-      const rec = this.repo.reconcileClientState(body._reconcileJournal as ClientDurableJournal);
+      // A1: journal do navegador reconciliado sem token de link assinado.
+      const rec = this.repo.reconcileClientState(
+        deepRedactProposalLinkTokens(body._reconcileJournal) as ClientDurableJournal
+      );
       if (rec.reconciled) journalReconciled = true;
     }
 
@@ -1583,16 +1590,80 @@ export class CrmApiRouter {
   // LINK ASSINADO DE PROPOSTA (29/10/2026)
   // ==========================================================================
 
-  /** Sessao MFA valida (cookie via bridge), contexto interno confiavel ou conta de servico. */
+  /**
+   * Sessao MFA valida do STI-hub para propostas (M1, parecer CISO 30/10): exige modulo ERP
+   * liberado e proposalsQuotesAccess != NONE. Devolve null se nao atende (=> caminho do link).
+   */
+  private resolveProposalSessionAccess(query: Record<string, string | undefined>): {
+    user: { id: string; email: string; name: string; scope: string; roleId: string };
+    isAdmin: boolean;
+    erpRole: string;
+    proposalsAccess: string;
+  } | null {
+    const token = query._sessionToken;
+    if (!token) return null;
+    const verified = verifyStiHubSessionToken(token);
+    if (!verified.valid) return null;
+    const sess = this.repo.resolveSessionFromToken(token);
+    if (!sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) return null;
+    const moduleAccess = (sess.user as { moduleAccess?: { erp?: boolean } }).moduleAccess;
+    if (!moduleAccess || moduleAccess.erp !== true) return null;
+    const proposalsAccess = String(sess.erpPermissions?.proposalsQuotesAccess || 'NONE');
+    if (proposalsAccess === 'NONE') return null;
+    const claims = verified.claims;
+    const erpRole = resolveErpAccountRoleFromClaims(
+      claims ? { ...claims, erpRole: claims.erpRole || sess.user.erpRole } : null
+    );
+    const roleId = String(sess.user.roleId || '');
+    const isAdmin =
+      Boolean(sess.effectiveActionGuards?.canManageUsersRbac) ||
+      roleId === 'SUPER_ADMIN' ||
+      roleId === 'DIRETORIA' ||
+      erpRole === 'ERP_ADMIN';
+    return {
+      user: {
+        id: String(sess.user.id || ''),
+        email: String(sess.user.email || ''),
+        name: String(sess.user.name || ''),
+        scope: String(sess.user.scope || 'PROPRIOS'),
+        roleId,
+      },
+      isAdmin,
+      erpRole,
+      proposalsAccess,
+    };
+  }
+
+  /** Escopo restrito: PROPRIOS e EQUIPE valem como "so as proprias" (M2). */
+  private static isRestrictedProposalScope(scope: string): boolean {
+    return scope !== 'TODOS';
+  }
+
+  /**
+   * M2: dono da proposta SEM usar sellerName (editavel/homonimo). Vale o sellerUserId gravado
+   * pelo servidor na criacao (imutavel); sem ele, o e-mail do vendedor da proposta.
+   */
+  private static isProposalOwnedBy(p: ErpCommercialProposal, user: { id: string; email: string }): boolean {
+    const norm = (v: unknown) => String(v || '').trim().toLowerCase();
+    if (p.sellerUserId) return norm(p.sellerUserId) !== '' && norm(p.sellerUserId) === norm(user.id);
+    return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(user.email);
+  }
+
+  /**
+   * Acesso completo a uma proposta: contexto interno/conta de servico, ou sessao que passa em
+   * resolveProposalSessionAccess e, no escopo restrito, e dona da proposta. Senao => link.
+   */
   private hasFullProposalAccess(
     query: Record<string, string | undefined>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    proposal?: ErpCommercialProposal
   ): boolean {
     if (ctx.trustedInternal || ctx.serviceAccount) return true;
-    const token = query._sessionToken;
-    if (!token || !verifyStiHubSessionToken(token).valid) return false;
-    const sess = this.repo.resolveSessionFromToken(token);
-    return Boolean(sess.authenticated && sess.mfaVerified && !this.isSessionOlderThanPasswordChange(token));
+    const access = this.resolveProposalSessionAccess(query);
+    if (!access) return false;
+    if (access.isAdmin || !CrmApiRouter.isRestrictedProposalScope(access.user.scope)) return true;
+    if (!proposal) return true;
+    return CrmApiRouter.isProposalOwnedBy(proposal, access.user);
   }
 
   private findProposalExact(id: string): ErpCommercialProposal | undefined {
@@ -1631,12 +1702,12 @@ export class CrmApiRouter {
    * .strict(), rate-limit por IP e por proposta, idempotente (Idempotency-Key opcional) e
    * NUNCA cria proposta (o upsert antigo por payload do cliente foi removido).
    */
-  private approveProposalViaLink(
+  private async approveProposalViaLink(
     pathId: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean }
-  ): ApiResponse {
+  ): Promise<ApiResponse> {
     const trusted = ctx.trustedInternal === true;
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     const H = { ...PROPOSAL_PUBLIC_RESPONSE_HEADERS };
@@ -1739,12 +1810,44 @@ export class CrmApiRouter {
       };
     }
 
+    // B1: aceite publico nunca aprova RASCUNHO (proposta ainda nao enviada ao cliente).
+    if (!trusted && String(existing.status || '') === 'RASCUNHO') {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'proposta em RASCUNHO (409)', undefined, jti);
+      return {
+        status: 409,
+        body: { error: 'Esta proposta ainda não foi liberada para aceite. Fale com o seu consultor Seta Telecom.', code: 'PROPOSAL_NOT_SENT' },
+        headers: H,
+      };
+    }
     const approval = validateProposalApprovalInput(parsed.data, existing.status, existing.convertedContractId || null);
     if (!approval.ok) {
       this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, `${approval.code} (${approval.status})`, undefined, jti);
       return {
         status: approval.status,
         body: { error: approval.error, code: approval.code, fields: approval.fields },
+        headers: H,
+      };
+    }
+    // M3: antes de converter, rele a proposta (memoria e, se houver, o estado persistido no
+    // PostgreSQL) e confere de novo convertedContractId. Reduz, mas NAO elimina, a corrida entre
+    // instancias serverless (sem lock/transacao no crm_kv_store): duas instancias que passem por
+    // aqui no mesmo instante ainda podem converter em paralelo. Ver relatorio (pendencia).
+    const alreadyConverted = (p: ErpCommercialProposal | undefined) =>
+      Boolean(p && (p.convertedContractId || p.status === 'CONVERTIDA_CONTRATO'));
+    let reloadedConverted = alreadyConverted(this.findProposalExact(existing.id));
+    if (!reloadedConverted && this.isSingletonRepo && isPostgresEnabled()) {
+      try {
+        const fresh = await loadStateFromPostgres();
+        reloadedConverted = alreadyConverted(fresh?.erp?.proposals?.find((p) => p.id === existing.id));
+      } catch {
+        // PostgreSQL indisponivel: segue com a checagem em memoria ja feita.
+      }
+    }
+    if (reloadedConverted) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'ja convertida na releitura (409)', undefined, jti);
+      return {
+        status: 409,
+        body: { error: 'Esta proposta já foi aprovada e convertida em contrato.', code: 'PROPOSAL_ALREADY_CONVERTED' },
         headers: H,
       };
     }
@@ -1792,18 +1895,14 @@ export class CrmApiRouter {
         headers: H,
       };
     }
-    const claims = verifyStiHubSessionToken(token).claims;
-    const erpRole = resolveErpAccountRoleFromClaims(
-      claims ? { ...claims, erpRole: claims.erpRole || sess.user.erpRole } : null
-    );
+    // M1: modulo ERP + acesso a propostas != NONE (mesma regra do GET completo).
+    const access = this.resolveProposalSessionAccess(query);
     const roleId = String(sess.user.roleId || '');
-    const isAdmin =
-      Boolean(sess.effectiveActionGuards?.canManageUsersRbac) ||
-      roleId === 'SUPER_ADMIN' ||
-      roleId === 'DIRETORIA' ||
-      erpRole === 'ERP_ADMIN';
-    const proposalsAccess = String(sess.erpPermissions?.proposalsQuotesAccess || 'NONE');
+    const erpRole = access?.erpRole || 'ERP_NONE';
+    const isAdmin = Boolean(access?.isAdmin);
+    const proposalsAccess = access?.proposalsAccess || 'NONE';
     const canEdit =
+      Boolean(access) &&
       (PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole) &&
       (proposalsAccess === 'FULL' || proposalsAccess === 'EDIT');
     const actor = { email: sess.user.email, name: sess.user.name, role: roleId };
@@ -1826,18 +1925,10 @@ export class CrmApiRouter {
       .listProposals()
       .find((p) => p.id === pathId || String(p.code || '').toLowerCase() === pathId.toLowerCase());
     if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' }, headers: H };
-    if (!isAdmin && String(sess.user.scope || 'PROPRIOS') === 'PROPRIOS') {
-      const norm = (v: unknown) =>
-        String(v || '')
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .trim()
-          .toLowerCase();
-      const owner =
-        (norm(found.sellerName) !== '' && norm(found.sellerName) === norm(sess.user.name)) ||
-        (norm(found.sellerEmail) !== '' && norm(found.sellerEmail) === norm(sess.user.email));
-      if (!owner) {
-        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'proposta de outro vendedor (escopo PROPRIOS)', actor);
+    // M2: dono por sellerUserId (servidor) ou e-mail do vendedor; nunca pelo nome. EQUIPE = PROPRIOS.
+    if (!isAdmin && CrmApiRouter.isRestrictedProposalScope(String(sess.user.scope || 'PROPRIOS'))) {
+      if (!CrmApiRouter.isProposalOwnedBy(found, { id: String(sess.user.id || ''), email: String(sess.user.email || '') })) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `proposta de outro vendedor (escopo ${String(sess.user.scope || 'PROPRIOS')})`, actor);
         return forbidden;
       }
     }
@@ -1853,7 +1944,21 @@ export class CrmApiRouter {
       };
     }
     const version = Math.max(1, Number(found.version || 1));
-    const signed = signProposalLinkToken({ proposalId: found.id, version });
+    // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link.
+    let signed: ReturnType<typeof signProposalLinkToken>;
+    try {
+      signed = signProposalLinkToken({ proposalId: found.id, version, notAfterMs: proposalValidUntilEndMs(found.validUntil) });
+    } catch (err) {
+      if (err instanceof ProposalLinkExpiredProposalError) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'validade da proposta vencida (409)', actor);
+        return {
+          status: 409,
+          body: { error: 'A validade desta proposta já venceu. Atualize a data de validade antes de gerar o link para o cliente.', code: 'PROPOSAL_EXPIRED' },
+          headers: H,
+        };
+      }
+      throw err;
+    }
     const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
     this.proposalLinkAudit(
       'PROPOSAL_LINK_ISSUE',
@@ -2203,7 +2308,7 @@ export class CrmApiRouter {
         let reconciliation = { reconciled: false, appliedCount: 0 };
         if (method === "POST" && body.reconcileJournal) {
           reconciliation = this.repo.reconcileClientState(
-            body.reconcileJournal as ClientDurableJournal
+            deepRedactProposalLinkTokens(body.reconcileJournal) as ClientDurableJournal
           );
         }
         const question =
@@ -2221,7 +2326,7 @@ export class CrmApiRouter {
 
       if (cleanPath === "/api/state/reconcile" && method === "POST") {
         const journal = (body.journal || body.reconcileJournal || body) as ClientDurableJournal;
-        const reconciliation = this.repo.reconcileClientState(journal);
+        const reconciliation = this.repo.reconcileClientState(deepRedactProposalLinkTokens(journal));
         return {
           status: 200,
           body: {
@@ -2712,7 +2817,8 @@ export class CrmApiRouter {
             };
           }
           // Pacote G: autor SEMPRE da sessao; id/createdAt/actor/author/ownerName do cliente ignorados.
-          const tb = body as Record<string, unknown>;
+          // A1: nada gravado na timeline leva o token do link assinado.
+          const tb = deepRedactProposalLinkTokens(body) as Record<string, unknown>;
           const event = this.repo.createTimelineEvent({
             type: tb.type as 'NOTE',
             title: String(tb.title),
@@ -4511,8 +4617,15 @@ export class CrmApiRouter {
           if (!body.title) {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
+          // M2: sellerUserId so pelo servidor (vendedor de escopo restrito que cria a propria proposta).
+          const { sellerUserId: _ignoredSellerUserId, ...createInput } = body as Record<string, unknown>;
+          void _ignoredSellerUserId;
+          const creator = ctx.trustedInternal ? null : this.resolveProposalSessionAccess(query);
           const created = this.repo.createProposal(
-            body as { title: string; [k: string]: unknown }
+            createInput as { title: string; [k: string]: unknown },
+            creator && !creator.isAdmin && CrmApiRouter.isRestrictedProposalScope(creator.user.scope)
+              ? { sellerUserId: creator.user.id }
+              : undefined
           );
           return { status: 201, body: { data: created } };
         }
@@ -4609,6 +4722,7 @@ export class CrmApiRouter {
         if (method === 'GET') {
           // Sessao MFA valida (vendedor/admin), contexto interno ou conta de servico: proposta
           // completa (comportamento anterior). Qualquer outro chamador: so com link assinado.
+          // M1: sessao sem ERP / sem acesso a propostas / fora do escopo PROPRIOS-EQUIPE => link.
           if (!this.hasFullProposalAccess(query, ctx)) {
             return this.viewProposalViaLink(propId.trim(), query);
           }
@@ -4616,10 +4730,22 @@ export class CrmApiRouter {
             .listProposals()
             .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
           if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          if (!this.hasFullProposalAccess(query, ctx, found)) {
+            return this.viewProposalViaLink(propId.trim(), query);
+          }
           return { status: 200, body: { data: found } };
         }
         if (method === 'PATCH' || method === 'PUT') {
-          const updated = this.repo.updateProposal(propId, body);
+          // M2: no upsert (proposta so existia no navegador), o servidor grava o sellerUserId do
+          // vendedor de escopo restrito que salvou; em proposta existente o campo e preservado.
+          const editor = ctx.trustedInternal ? null : this.resolveProposalSessionAccess(query);
+          const updated = this.repo.updateProposal(
+            propId,
+            body,
+            editor && !editor.isAdmin && CrmApiRouter.isRestrictedProposalScope(editor.user.scope)
+              ? { sellerUserId: editor.user.id }
+              : undefined
+          );
           if (!updated) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           return { status: 200, body: { data: updated } };
         }
@@ -5409,11 +5535,21 @@ export class CrmApiRouter {
           }
         }
 
+        // A1 (parecer CISO 30/10): o e-mail entregue (acima) leva o link completo; o que e
+        // GRAVADO (timeline, metadata, comentario de chamado) leva #t=[REDACTED]. Na metadata,
+        // do link assinado ficam so jti e exp.
+        const linkInfo =
+          describeProposalLinkInText(typeof body.publicPdfUrl === 'string' ? body.publicPdfUrl : '') ||
+          describeProposalLinkInText(emailBody);
+        const storedEmailBody = redactProposalLinkTokens(emailBody);
+        const storedSubject = redactProposalLinkTokens(subject);
+        const storedPublicPdfUrl = body.publicPdfUrl ? redactProposalLinkTokens(String(body.publicPdfUrl)) : null;
+
         // Record in CRM Timeline
         const evt = this.repo.createTimelineEvent({
           type: 'EMAIL',
-          title: `[${docType}] ${subject}`,
-          body: `Para: ${to}${body.cc ? ` | CC: ${String(body.cc)}` : ''} • Protocolo: ${protocol}\n\n${emailBody.slice(0, 600)}`,
+          title: `[${docType}] ${storedSubject}`,
+          body: `Para: ${to}${body.cc ? ` | CC: ${String(body.cc)}` : ''} • Protocolo: ${protocol}\n\n${storedEmailBody.slice(0, 600)}`,
           contactId: body.contactId ? String(body.contactId) : null,
           companyId: body.companyId ? String(body.companyId) : null,
           dealId: body.dealId ? String(body.dealId) : null,
@@ -5424,7 +5560,8 @@ export class CrmApiRouter {
             to,
             cc: body.cc || null,
             documentCode: body.documentCode || null,
-            publicPdfUrl: body.publicPdfUrl || null,
+            publicPdfUrl: storedPublicPdfUrl,
+            proposalLink: linkInfo ? { jti: linkInfo.jti, exp: linkInfo.exp } : null,
             externalRelay,
           },
         });
@@ -5435,7 +5572,7 @@ export class CrmApiRouter {
             author: `${this.sessionActorName(query)} (E-mail STI-hub)`, // Pacote G
             authorRole: 'AGENT',
             isInternal: false,
-            body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
+            body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${storedEmailBody}`,
           });
         }
 
@@ -5449,8 +5586,8 @@ export class CrmApiRouter {
           followUpTask = this.repo.createTask({
             title:
               typeof body.followUpTitle === 'string' && body.followUpTitle.trim()
-                ? body.followUpTitle.trim()
-                : `Follow-up sobre [${docType}] ${subject}`,
+                ? redactProposalLinkTokens(body.followUpTitle.trim())
+                : `Follow-up sobre [${docType}] ${storedSubject}`,
             notes: `Follow-up agendado automaticamente após envio de e-mail (${protocol}) para ${to}.`,
             type: (body.followUpType as 'EMAIL' | 'CALL' | 'TODO') || 'EMAIL',
             priority: (body.followUpPriority as 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE') || 'HIGH',
@@ -5476,7 +5613,7 @@ export class CrmApiRouter {
               sentAt: nowIso,
               to,
               cc: body.cc || null,
-              subject,
+              subject: storedSubject,
               docType,
               externalRelay,
               timelineEventId: evt.id,

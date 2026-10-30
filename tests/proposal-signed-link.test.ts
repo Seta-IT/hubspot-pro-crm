@@ -18,6 +18,7 @@ import {
   verifyProposalLinkToken,
 } from '../src/app/lib/proposal-link';
 import { PUBLIC_PROPOSAL_DTO_KEYS } from '../src/app/lib/proposal-public-dto';
+import { redactProposalLinkTokens, deepRedactProposalLinkTokens } from '../src/app/lib/proposal-link-redact';
 import { withProposalLinkParams } from '../src/app/lib/proposal-link-request';
 import { evaluateStiHubRouteProtection, isPublicStiHubPath } from '../src/middleware';
 
@@ -30,7 +31,7 @@ const SIGNER = {
   modality: 'ICP_BRASIL_A3',
   acceptedTerms: true,
 };
-const FORBIDDEN_DTO = /cnpj|sellerEmail|sellerPhone|contactEmail|contactName|contactId|companyId|dealId|"id"|internalNotes|versionHistory|statusHistory|convertedContractId|convertedInvoiceId|ipAddress|"sku"|ncmOrServiceCode|careOf|deliveryAddress|approvalIdempotencyKeySha256|@setatelecom/i;
+const FORBIDDEN_DTO = /cnpj|sellerEmail|sellerPhone|contactEmail|contactName|contactId|companyId|dealId|"id"|internalNotes|versionHistory|statusHistory|convertedContractId|convertedInvoiceId|ipAddress|"sku"|ncmOrServiceCode|careOf|deliveryAddress|approvalIdempotencyKeySha256|sellerUserId|@setatelecom/i;
 
 let ipSeq = 1;
 const nextIp = () => `198.51.100.${(ipSeq++ % 250) + 1}`;
@@ -209,9 +210,15 @@ describe('Link assinado de proposta: GET publico', () => {
 
   it('sessao MFA (vendedor/admin) e contexto interno continuam vendo a proposta completa', async () => {
     const { repo, router } = fresh();
-    const r = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') } });
+    // Vendedora PROPRIOS: completo so na propria (M1); admin ve qualquer uma.
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const own = repo.createProposal({ title: 'Da Maria', companyName: 'C', sellerEmail: maria.email, items: [] } as never);
+    const r = await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${own.id}`, query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') } });
     assert.equal(r.status, 200);
-    assert.equal((r.body as { data: { id: string } }).data.id, 'prop-seta-001');
+    assert.equal((r.body as { data: { id: string } }).data.id, own.id);
+    const a = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') } });
+    assert.equal(a.status, 200);
+    assert.equal((a.body as { data: { id: string } }).data.id, 'prop-seta-001');
     const i = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/erp/proposals/prop-seta-001' });
     assert.equal(i.status, 200);
   });
@@ -363,7 +370,16 @@ describe('Link assinado de proposta: emissao (POST /api/erp/proposals/:id/public
     assert.equal(fin.status, 403);
 
     const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
-    const own = repo.createProposal({ title: 'Proposta da Maria', companyName: 'Cliente da Maria', sellerName: seller.name, items: [] } as unknown as { title: string });
+    // M2: a vendedora cria a propria proposta pela API => o servidor grava sellerUserId.
+    const createdOwn = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') },
+      body: { title: 'Proposta da Maria', companyName: 'Cliente da Maria', sellerName: seller.name, sellerUserId: 'usr-seta-01', items: [] },
+    });
+    assert.equal(createdOwn.status, 201);
+    const own = repo.listProposals().find((x) => x.id === (createdOwn.body as { data: { id: string } }).data.id)!;
+    assert.equal(own.sellerUserId, 'usr-seta-03', 'sellerUserId vem da sessao, nao do corpo');
     await new Promise((r) => setTimeout(r, 5)); // ids de proposta derivam de Date.now()
     const other = repo.createProposal({ title: 'Proposta de outro', companyName: 'Outro Cliente', sellerName: 'Outro Vendedor', items: [] } as unknown as { title: string });
     const sellerTok = sessionFor(repo, 'usr-seta-03');
@@ -409,5 +425,200 @@ describe('Link assinado de proposta: transporte do token', () => {
       })
     );
     assert.deepEqual(await post.json(), { a: 1 });
+  });
+});
+
+describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
+  it('A1: redactProposalLinkTokens troca #t=<payload>.<assinatura> por #t=[REDACTED]', () => {
+    const t = linkFor('prop-seta-001', 2);
+    const url = `https://sti-hub.vercel.app/proposta/prop-seta-001#t=${t}`;
+    assert.equal(redactProposalLinkTokens(`Veja ${url} e ${url}.`), 'Veja https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED] e https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED].');
+    assert.equal(redactProposalLinkTokens('#t=abc'), '#t=[REDACTED]');
+    assert.equal(redactProposalLinkTokens('sem link'), 'sem link');
+    const deep = deepRedactProposalLinkTokens({ a: [url, { b: url }], n: 1, z: null });
+    assert.equal(JSON.stringify(deep).includes(t), false);
+    assert.equal((deep as { n: number }).n, 1);
+  });
+
+  it('A1: depois do send-email, nenhum registro legivel contem o token; o Resend recebe o link completo; metadata so com jti e exp', async () => {
+    const { repo, router } = fresh();
+    const ver = repo.listProposals().find((x) => x.id === 'prop-seta-001')!.version || 1;
+    const signed = signProposalLinkToken({ proposalId: 'prop-seta-001', version: ver });
+    const t = signed.token;
+    const url = `https://sti-hub.vercel.app/proposta/prop-seta-001#t=${t}`;
+    const ticket = repo.listServiceTickets()[0];
+    assert.ok(ticket, 'chamado seed');
+    const realFetch = globalThis.fetch;
+    const prevKey = process.env.RESEND_API_KEY;
+    const sent: string[] = [];
+    process.env.RESEND_API_KEY = 're_test_proposal_link_fake';
+    globalThis.fetch = (async (input: unknown, init?: { body?: unknown }) => {
+      assert.match(String(input), /^https:\/\/api\.resend\.com\//);
+      sent.push(String(init?.body || ''));
+      return new Response(JSON.stringify({ id: 'fake' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const r = await router.dispatch({
+        context: TRUSTED_INTERNAL_CONTEXT,
+        method: 'POST',
+        path: '/api/communications/send-email',
+        body: {
+          to: 'cliente@exemplo.invalid',
+          subject: `Proposta ${url}`,
+          body: `Olá! Acesse a proposta: ${url}\nObrigado.`,
+          docType: 'PROPOSAL',
+          publicPdfUrl: url,
+          ticketId: ticket.id,
+          createFollowUpTask: true,
+          followUpTitle: `Retornar sobre ${url}`,
+        },
+      });
+      assert.equal(r.status, 200);
+      assert.equal(JSON.stringify(r.body).includes(t), false);
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prevKey;
+    }
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].includes(t), true, 'e-mail entregue leva o link completo');
+    const state = JSON.stringify(repo.getState());
+    assert.equal(state.includes(t), false, 'estado gravado sem o token');
+    assert.equal(state.includes(t.split('.')[1]), false, 'nem a assinatura');
+    assert.equal(state.includes(t.split('.')[0]), false, 'nem o payload');
+    assert.match(state, /#t=\[REDACTED\]/);
+    const evt = repo.listTimelineEvents({ type: 'EMAIL' }).find((e) => String(e.title).includes('[REDACTED]'))!;
+    assert.ok(evt);
+    const meta = evt.metadata as Record<string, unknown>;
+    assert.deepEqual(meta.proposalLink, { jti: signed.claims.jti, exp: new Date(signed.claims.exp).toISOString() });
+    assert.equal(meta.publicPdfUrl, 'https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED]');
+    const comments = JSON.stringify(repo.listServiceTickets().find((x) => x.id === ticket.id));
+    assert.match(comments, /#t=\[REDACTED\]/);
+  });
+
+  it('A1: POST /api/timeline e journal reconciliado gravam #t=[REDACTED]', async () => {
+    const { repo, router } = fresh();
+    const t = linkFor('prop-seta-001', 2);
+    const url = `https://x.invalid/proposta/prop-seta-001#t=${t}`;
+    const tl = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/timeline', body: { type: 'NOTE', title: `Nota ${url}`, body: url, metadata: { link: url } } });
+    assert.equal(tl.status, 201);
+    const journal = {
+      timelineEvents: [{ id: 'evt-journal-link-1', type: 'EMAIL', title: `E-mail ${url}`, body: url, metadata: { publicPdfUrl: url }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+    };
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/state/reconcile', body: { journal } });
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/health', body: { _reconcileJournal: { timelineEvents: [{ ...journal.timelineEvents[0], id: 'evt-journal-link-2' }] } } });
+    const state = JSON.stringify(repo.getState());
+    assert.equal(state.includes(t), false);
+    assert.equal(state.includes(t.split('.')[1]), false);
+  });
+
+  it('M1: sessao MFA so com Chamados (ou sem acesso a propostas) => 404 do link; nao emite link', async () => {
+    const { repo, router } = fresh();
+    const onlyTickets = sessionFor(repo, 'usr-seta-02', { enabledModules: ['CHAMADOS'], moduleAccess: { crm: false, erp: false, chamados: true } });
+    const g = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: onlyTickets } });
+    assert.equal(g.status, 404);
+    assert.deepEqual(g.body, (await getPublic(router, 'prop-nao-existe')).body);
+    const iss = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/public-link', query: { ...HTTP, _sessionToken: onlyTickets }, body: {} });
+    assert.equal(iss.status, 403);
+    const noProposals = sessionFor(repo, 'usr-seta-05');
+    const g2 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: noProposals } });
+    assert.equal(g2.status, 404);
+    // Com o token do link, o mesmo usuario ve apenas o DTO publico.
+    const ver = repo.listProposals().find((x) => x.id === 'prop-seta-001')!.version || 1;
+    const g3 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _clientIp: nextIp(), _sessionToken: onlyTickets, proposalLinkToken: linkFor('prop-seta-001', ver) } });
+    assert.equal(g3.status, 200);
+    assert.doesNotMatch(JSON.stringify(g3.body), FORBIDDEN_DTO);
+  });
+
+  it('M1: vendedor PROPRIOS ve completo so as proprias; de colega => 404 (link)', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const evelyn = repo.findRbacUserRecord('usr-seta-02', '')!;
+    const mine = repo.createProposal({ title: 'Da Maria', companyName: 'C1', sellerName: maria.name, sellerEmail: maria.email, items: [] } as never);
+    await new Promise((r) => setTimeout(r, 5));
+    const colleague = repo.createProposal({ title: 'Da Evelyn', companyName: 'C2', sellerName: evelyn.name, sellerEmail: evelyn.email, items: [] } as never);
+    const tok = sessionFor(repo, 'usr-seta-03');
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${mine.id}`, query: { ...HTTP, _sessionToken: tok } })).status, 200);
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: tok } })).status, 404);
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') } })).status, 200);
+  });
+
+  it('M2: vendedor que se renomeia para o nome de um colega => 403 (dono por e-mail/sellerUserId, nunca nome); EQUIPE = PROPRIOS; sellerUserId nao vem do cliente', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const evelyn = repo.findRbacUserRecord('usr-seta-02', '')!;
+    const colleague = repo.createProposal({ title: 'Da Evelyn', companyName: 'C2', sellerName: evelyn.name, sellerEmail: evelyn.email, items: [] } as never);
+    const issue = (id: string, session: string) =>
+      router.dispatch({ method: 'POST', path: `/api/erp/proposals/${id}/public-link`, query: { ...HTTP, _sessionToken: session }, body: {} });
+    // Renomeia a vendedora para o nome da colega (registro e sessao).
+    repo.upsertRbacUser({ id: maria.id, email: maria.email, name: evelyn.name });
+    assert.equal(repo.findRbacUserRecord(maria.id, '')!.name, evelyn.name);
+    const renamed = sessionFor(repo, 'usr-seta-03', { name: evelyn.name });
+    assert.equal((await issue(colleague.id, renamed)).status, 403);
+    // Proposta com sellerName = nome dela mas sem e-mail/sellerUserId dela => 403.
+    const byNameOnly = repo.createProposal({ title: 'So nome', companyName: 'C3', sellerName: evelyn.name, items: [] } as never);
+    assert.equal((await issue(byNameOnly.id, renamed)).status, 403);
+    // PATCH nao troca o sellerUserId; POST com sellerUserId no corpo e ignorado.
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: `/api/erp/proposals/${colleague.id}`, body: { sellerUserId: maria.id } });
+    assert.equal(repo.listProposals().find((x) => x.id === colleague.id)!.sellerUserId, undefined);
+    assert.equal((await issue(colleague.id, renamed)).status, 403);
+    // Journal do navegador tambem nao define sellerUserId.
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/state/reconcile', body: { journal: { upsertedProposals: [{ ...colleague, sellerUserId: maria.id, updatedAt: new Date(Date.now() + 60_000).toISOString() }] } } });
+    assert.equal(repo.listProposals().find((x) => x.id === colleague.id)!.sellerUserId, undefined);
+    // Escopo EQUIPE vale como PROPRIOS.
+    repo.upsertRbacUser({ id: maria.id, email: maria.email, name: maria.name, scope: 'EQUIPE' } as never);
+    assert.equal(repo.findRbacUserRecord(maria.id, '')!.scope, 'EQUIPE');
+    const equipe = sessionFor(repo, 'usr-seta-03', { scope: 'EQUIPE' });
+    assert.equal((await issue(colleague.id, equipe)).status, 403);
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: equipe } })).status, 404);
+    const mineByEmail = repo.createProposal({ title: 'Da Maria', companyName: 'C4', sellerEmail: maria.email, items: [] } as never);
+    assert.equal((await issue(mineByEmail.id, equipe)).status, 200);
+  });
+
+  it('B1: exp = min(TTL, fim do dia de validUntil); validade vencida => 409; aceite publico recusa RASCUNHO', async () => {
+    const { repo, router } = fresh();
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    const p = repo.createProposal({ title: 'Validade curta', companyName: 'C', validUntil: soon, items: [] } as never);
+    const r = await router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/public-link`, query: { ...HTTP, _sessionToken: admin }, body: {} });
+    assert.equal(r.status, 200);
+    const exp = Date.parse((r.body as { data: { expiresAt: string } }).data.expiresAt);
+    assert.equal(exp, Date.parse(`${soon}T23:59:59.999-03:00`));
+    await new Promise((res) => setTimeout(res, 5));
+    const old = repo.createProposal({ title: 'Vencida', companyName: 'C', validUntil: '2020-01-01', items: [] } as never);
+    const r2 = await router.dispatch({ method: 'POST', path: `/api/erp/proposals/${old.id}/public-link`, query: { ...HTTP, _sessionToken: admin }, body: {} });
+    assert.equal(r2.status, 409);
+    assert.equal((r2.body as { code: string }).code, 'PROPOSAL_EXPIRED');
+    await new Promise((res) => setTimeout(res, 5));
+    const draft = repo.createProposal({ title: 'Rascunho', companyName: 'C', status: 'RASCUNHO', items: [] } as never);
+    const a = await approve(router, draft.id, linkFor(draft.id, draft.version || 1));
+    assert.equal(a.status, 409);
+    assert.equal(repo.listProposals().find((x) => x.id === draft.id)!.status, 'RASCUNHO');
+  });
+
+  it('B2: statusObservation fora do schema publico => 400', async () => {
+    const { repo, router } = fresh();
+    const p = repo.createProposal({ title: 'B2', companyName: 'C', items: [] } as never);
+    const r = await approve(router, p.id, linkFor(p.id, p.version || 1), { ...SIGNER, statusObservation: 'aprovado pelo cliente' });
+    assert.equal(r.status, 400);
+    assert.deepEqual((r.body as { fields: string[] }).fields, ['statusObservation']);
+  });
+
+  it('B3: assinatura precisa ser ^[A-Za-z0-9_-]{43}$', () => {
+    const t = linkFor('prop-seta-001', 2);
+    const [payload, sig] = t.split('.');
+    assert.equal(sig.length, 43);
+    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-seta-001' }).valid, true);
+    for (const bad of [`${payload}.${sig}=`, `${payload}.${sig}A`, `${payload}.${sig.replace(/-/g, '+').replace(/_/g, '/')}+`, `${payload}.${sig.slice(0, 42)}`, `${payload}=.${sig}`]) {
+      assert.equal(verifyProposalLinkToken(bad, { proposalId: 'prop-seta-001' }).valid, false, bad.slice(-6));
+    }
+  });
+
+  it('B5: a pagina nao aceita mais ?t= (so #t=)', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync('src/app/proposta/[id]/page.tsx', 'utf8');
+    const fn = src.slice(src.indexOf('function readProposalLinkTokenFromLocation'), src.indexOf('function PublicProposalPrintContent'));
+    assert.match(fn, /window\.location\.hash/);
+    assert.doesNotMatch(fn, /searchParams|location\.search|replaceState/);
   });
 });
