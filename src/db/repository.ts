@@ -1235,7 +1235,14 @@ export class CrmRepository {
     if (!erp.salesOrders) erp.salesOrders = [];
     if (!erp.serviceOrders) erp.serviceOrders = [];
     if (!erp.purchaseOrders) erp.purchaseOrders = [];
+    // M2: o journal do navegador nao define nem troca sellerUserId (campo do servidor).
+    const serverSellerIds = new Map(erp.proposals.map((p) => [p.id, p.sellerUserId] as const));
     upsertCollection(erp.proposals, journal.upsertedProposals, deletedProposals);
+    for (const p of erp.proposals) {
+      const keep = serverSellerIds.get(p.id);
+      if (keep) p.sellerUserId = keep;
+      else delete p.sellerUserId;
+    }
     upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
     upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
     upsertCollection(erp.catalog, journal.upsertedCatalogItems, deletedCatalog);
@@ -3666,7 +3673,13 @@ export class CrmRepository {
     return [...this.ensureErp().proposals];
   }
 
-  createProposal(input: Partial<ErpCommercialProposal> & { title: string }): ErpCommercialProposal {
+  createProposal(
+    rawInput: Partial<ErpCommercialProposal> & { title: string },
+    serverOptions?: { sellerUserId?: string }
+  ): ErpCommercialProposal {
+    // M2: sellerUserId nunca vem do cliente; so o servidor informa (serverOptions).
+    const { sellerUserId: _clientSellerUserId, ...input } = rawInput as Partial<ErpCommercialProposal> & { title: string };
+    void _clientSellerUserId;
     const erp = this.ensureErp();
     const now = new Date().toISOString();
     const nextNum = erp.proposals.length + 1;
@@ -3849,6 +3862,8 @@ export class CrmRepository {
       updatedAt: now,
     };
 
+    if (serverOptions?.sellerUserId) proposal.sellerUserId = String(serverOptions.sellerUserId);
+    else delete proposal.sellerUserId;
     ensureProposalInitializedWithVersion(proposal);
     erp.proposals.unshift(proposal);
     this.save();
@@ -3857,7 +3872,8 @@ export class CrmRepository {
 
   updateProposal(
     idOrCode: string,
-    patch: Partial<ErpCommercialProposal>
+    patch: Partial<ErpCommercialProposal>,
+    serverOptions?: { sellerUserId?: string }
   ): ErpCommercialProposal | null {
     const erp = this.ensureErp();
     const idx = erp.proposals.findIndex(
@@ -3871,7 +3887,7 @@ export class CrmRepository {
         ...patch,
         id: idOrCode,
         title: patch.title || `Proposta Comercial ${idOrCode}`,
-      });
+      }, serverOptions);
       return created;
     }
 
@@ -3971,6 +3987,9 @@ export class CrmRepository {
       ...current,
       ...patch,
       id: current.id,
+      // M2/idempotencia: campos gravados so pelo servidor nao mudam por PATCH/PUT.
+      sellerUserId: current.sellerUserId,
+      approvalIdempotencyKeySha256: current.approvalIdempotencyKeySha256,
       code: patch.code || current.code,
       title: patch.title !== undefined ? String(patch.title).trim() : current.title,
       companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
