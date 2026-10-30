@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveTrustedClientIp } from '../../api/client-ip';
+import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from '../lib/sensitive-paths';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from '../../api/router';
 import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE } from '../lib/auth';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
@@ -50,8 +52,7 @@ export async function forwardToCrmRouter(
     delete svcQuery._sessionToken;
     svcQuery._svcBearer = '1';
     svcQuery._svcTokenSha256 = svcToken ? hashServiceToken(svcToken) : '';
-    const forwardedForSvc = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
-    svcQuery._clientIp = forwardedForSvc.split(',')[0]?.trim() || undefined;
+    svcQuery._clientIp = resolveTrustedClientIp(req.headers); // Pacote G (5c)
     svcQuery._fromHttpBridge = '1';
     let svcBody: unknown = undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -88,8 +89,7 @@ export async function forwardToCrmRouter(
     query._enrolledUsers = enrolledCookie;
   }
   // IP real do cliente (usado na trilha de auditoria do aceite publico de propostas).
-  const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
-  query._clientIp = forwardedFor.split(',')[0]?.trim() || undefined;
+  query._clientIp = resolveTrustedClientIp(req.headers); // Pacote G (5c): IP confiavel da Vercel
   query._fromHttpBridge = '1';
   query._origin = url.origin;
 
@@ -152,6 +152,8 @@ export async function forwardToCrmRouter(
     'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     ...(res.headers || {}),
+    // Pacote G: API de propostas => no-referrer, no-store, noindex (prevalece sobre o padrao).
+    ...(isSensitiveProposalPath(req.nextUrl.pathname) ? SENSITIVE_PROPOSAL_HEADERS : {}),
   };
 
   return NextResponse.json(res.body, {

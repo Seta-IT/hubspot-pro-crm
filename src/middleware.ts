@@ -7,6 +7,7 @@ import {
 import type { StiHubMacroModule } from './db/types';
 import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
 import { claimsMayManageIam, isIamAdminRoute, isSelfProfileRoute } from './app/lib/iam-admin-routes';
+import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from './app/lib/sensitive-paths';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -285,18 +286,25 @@ export function evaluateStiHubRouteProtection(input: {
   };
 }
 
-function applySecurityHeaders(res: NextResponse, guardReason: string): NextResponse {
+export function applyBaseSecurityHeaders(res: NextResponse, guardReason: string, pathname = ''): NextResponse {
   res.headers.set('x-stihub-auth-guard', guardReason);
   res.headers.set('X-Content-Type-Options', 'nosniff');
   res.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.headers.set('X-XSS-Protection', '1; mode=block');
+  if (isSensitiveProposalPath(pathname)) {
+    // Pacote G: /proposta/* e /api/erp/proposals/* => no-referrer, no-store, noindex.
+    for (const [k, v] of Object.entries(SENSITIVE_PROPOSAL_HEADERS)) res.headers.set(k, v);
+  } else {
+    res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  }
   return res;
 }
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const applySecurityHeaders = (res: NextResponse, guardReason: string) =>
+    applyBaseSecurityHeaders(res, guardReason, pathname);
 
   // Conta de servico (Assistente de Vendas): Bearer stihub_svc_... SEM cookie/header de sessao.
   // Avaliada antes das rotas publicas: com Bearer de servico nada e "publico" (nem /api/auth/*).

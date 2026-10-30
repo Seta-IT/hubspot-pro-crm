@@ -18,14 +18,8 @@ export const ICP_TIER_OPTIONS: Array<{ value: 'TIER_1' | 'TIER_2' | 'TIER_3'; la
   { value: 'TIER_3', label: 'Tier 3 — SMB / Entrada' },
 ];
 
-export const SETA_OWNER_OPTIONS: string[] = [
-  'Marcelo Lopes Mira',
-  'Evelyn Ternero Seta Telecom',
-  'Contato Seta Telecom',
-  'Roberto Carquejo (Inativo)',
-  '(Inside) Gabriel Lopes (Inativo)',
-  'Felipe Seta (Inativo)',
-];
+// Pacote G: lista movida para lib/owner-options (usada tambem pelo servidor).
+export { SETA_OWNER_OPTIONS } from '../lib/owner-options';
 
 export function getBuyingRoleLabel(role: BuyingRoleType | string | null | undefined): string {
   const map: Record<string, string> = {

@@ -356,7 +356,6 @@ export default function HubSpotProCrmApp() {
         body: item.message,
         dealId: item.dealId,
         contactId: item.contactId,
-        actor: 'Marcéllo Mira',
       }),
     });
     if (res.ok) {
@@ -458,7 +457,6 @@ export default function HubSpotProCrmApp() {
         title,
         body,
         dealId,
-        actor: 'Marcéllo Mira',
       }),
     });
     if (res.ok) {
@@ -682,7 +680,6 @@ export default function HubSpotProCrmApp() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...payload,
-        actor: 'Marcéllo Mira',
       }),
     });
     if (res.ok) {

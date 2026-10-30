@@ -67,6 +67,7 @@ import {
   selfProfilePatchSchema,
 } from './self-profile';
 import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
+import { buildKnownOwnerSet, isAssignableOwnerName } from './owner-validation';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -539,21 +540,69 @@ export const IAM_ALWAYS_FORBIDDEN_BODY_FIELDS = [
   'lastUsedTotpTimeStep',
 ] as const;
 
-/** `password` so e aceito no POST de criacao e no PUT/PATCH de edicao do usuario. */
+/**
+ * Pacote G: nome de campo normalizado (minusculas, sem "_" e "-") para comparar variantes
+ * como passwordHash / password_hash / PASSWORD-HASH.
+ */
+export function normalizeCredentialFieldName(k: string): string {
+  return String(k || '').toLowerCase().replace(/[_-]/g, '');
+}
+
+/** Pacote G: nomes normalizados que nunca entram pelas rotas IAM admin, em QUALQUER nivel. */
+const IAM_FORBIDDEN_NORMALIZED = new Set<string>([
+  ...IAM_ALWAYS_FORBIDDEN_BODY_FIELDS.map(normalizeCredentialFieldName),
+  'hashedpassword',
+  'passwordhashed',
+  'pwdhash',
+  'totpsecretbase32',
+  'mfasecret',
+  'otpsecret',
+]);
+/** Transporte do cache IAM do navegador: so e aceito no TOPO do body (nunca aninhado nem na query). */
+const IAM_TRANSPORT_NORMALIZED = new Set<string>(['iamusersoverride', 'iamdeletedusersoverride']);
+
+/**
+ * Pacote G: varredura recursiva de body E query (chaves sem diferenciar maiusculas, com "_" e "-"
+ * normalizados). Recusa:
+ *  - hash de senha / segredo e estado TOTP em qualquer nivel (inclusive dentro do iamUsersOverride);
+ *  - `password` fora do TOPO do POST de criacao e do PUT/PATCH de edicao do usuario
+ *    (aninhado, na query ou em outra rota/metodo);
+ *  - iamUsersOverride/iamDeletedUsersOverride aninhados ou na query (override "cru" fora do transporte).
+ * Devolve o caminho de cada campo recusado (ex.: "body.iamUsersOverride[0].passwordHash").
+ */
 export function findForbiddenIamCredentialFields(
   rawPath: string,
   method: string,
-  body: Record<string, unknown> | null | undefined
+  body: Record<string, unknown> | null | undefined,
+  query?: Record<string, unknown> | null
 ): string[] {
-  const b = body && typeof body === 'object' ? body : {};
-  const out: string[] = IAM_ALWAYS_FORBIDDEN_BODY_FIELDS.filter((k) => b[k] !== undefined);
-  if (b.password !== undefined && b.password !== null && b.password !== '') {
-    const n = normalizeApiPathForAuthz(rawPath);
-    const m = String(method || '').toUpperCase();
-    const isCreate = m === 'POST' && /^\/api\/(?:admin|rbac|iam)\/users$/.test(n);
-    const isUpdate = (m === 'PUT' || m === 'PATCH') && /^\/api\/(?:admin|rbac|iam)\/users\/[^/]+$/.test(n);
-    if (!isCreate && !isUpdate) out.push('password');
-  }
+  const out: string[] = [];
+  const n = normalizeApiPathForAuthz(rawPath);
+  const m = String(method || '').toUpperCase();
+  const isCreate = m === 'POST' && /^\/api\/(?:admin|rbac|iam)\/users$/.test(n);
+  const isUpdate = (m === 'PUT' || m === 'PATCH') && /^\/api\/(?:admin|rbac|iam)\/users\/[^/]+$/.test(n);
+  const topPasswordAllowed = isCreate || isUpdate;
+  const seen = new Set<unknown>();
+  const walk = (val: unknown, path: string, depth: number, isTopOfBody: boolean) => {
+    if (!val || typeof val !== 'object' || depth > 12 || seen.has(val)) return;
+    seen.add(val);
+    if (Array.isArray(val)) {
+      val.forEach((v, i) => walk(v, `${path}[${i}]`, depth + 1, false));
+      return;
+    }
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      const nk = normalizeCredentialFieldName(k);
+      const here = `${path}.${k}`;
+      const present = v !== undefined && v !== null && v !== '';
+      if (IAM_FORBIDDEN_NORMALIZED.has(nk) && v !== undefined) out.push(here);
+      else if (nk === 'password' && present && !(isTopOfBody && topPasswordAllowed && k === 'password')) out.push(here);
+      else if (IAM_TRANSPORT_NORMALIZED.has(nk) && v !== undefined && !isTopOfBody) out.push(here);
+      walk(v, here, depth + 1, false);
+    }
+  };
+  walk(body && typeof body === 'object' ? body : {}, 'body', 0, true);
+  // Query: chaves internas do bridge (_sessionToken, _clientIp...) nao colidem com os nomes acima.
+  walk(query && typeof query === 'object' ? query : {}, 'query', 0, false);
   return out;
 }
 
@@ -569,8 +618,8 @@ export function stripClientTotpSecretFields(body: unknown): Record<string, unkno
 /**
  * HOTFIX 29/10 (menor a): senha definida pelo admin no IAM. Vale so para senha NOVA:
  * - ausente/vazia => sem mudanca de senha;
- * - igual a senha atual do usuario (ex.: formulario reenvia o registro) => campo ignorado;
- * - nova e com menos de 12 caracteres => 400. Senhas existentes nunca sao invalidadas.
+ * - menos de 12 caracteres => 400 (verificado ANTES de comparar com a atual; Pacote G);
+ * - igual a senha atual do usuario (ex.: formulario reenvia o registro) => campo ignorado. Senhas existentes nunca sao invalidadas.
  */
 function checkAdminNewPassword(
   body: Record<string, unknown>,
@@ -583,12 +632,14 @@ function checkAdminNewPassword(
     void _drop;
     return { ok: true, body: rest };
   }
+  // Pacote G (5b): tamanho ANTES de qualquer comparacao com a senha atual (senao um valor curto
+  // igual a atual voltaria 200 e um diferente 400 => oraculo da senha atual).
+  if (pw.length < NEW_PASSWORD_MIN_LENGTH) return { ok: false, error: NEW_PASSWORD_MIN_MESSAGE };
   if (existing?.passwordHash && verifyStoredPassword(pw, existing.passwordHash).ok) {
     const { password: _same, ...rest } = body;
     void _same;
     return { ok: true, body: rest };
   }
-  if (pw.length < NEW_PASSWORD_MIN_LENGTH) return { ok: false, error: NEW_PASSWORD_MIN_MESSAGE };
   return { ok: true, body };
 }
 
@@ -1025,6 +1076,50 @@ export class CrmApiRouter {
       if (sess.authenticated && sess.user?.name) return sess.user.name;
     }
     return 'Sistema STI-hub';
+  }
+
+  /**
+   * Pacote G: ownerName (responsavel atribuido) so aceita responsavel conhecido quando MUDA.
+   * Ver src/api/owner-validation.ts. Contexto interno confiavel (sync/cron) nao e validado.
+   */
+  private checkOwnerNameAssignment(
+    method: string,
+    cleanPath: string,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean }
+  ): { status: number; body: unknown } | null {
+    if (ctx.trustedInternal || !body || body.ownerName === undefined) return null;
+    const m = method.toUpperCase();
+    const col = cleanPath.match(/^\/api\/(contacts|companies|deals|marketing\/campaigns)(?:\/([^/]+))?$/);
+    if (!col) return null;
+    const [, kind, id] = col;
+    const isCreate = m === 'POST' && !id;
+    const isUpdate = (m === 'PUT' || m === 'PATCH') && Boolean(id) && kind !== 'marketing/campaigns';
+    if (!isCreate && !isUpdate) return null;
+    let current: string | undefined;
+    if (isUpdate && id) {
+      const rid = decodeURIComponent(id);
+      const rec =
+        kind === 'contacts' ? this.repo.getContactById(rid) : kind === 'companies' ? this.repo.getCompanyById(rid) : this.repo.getDealById(rid);
+      current = (rec as { ownerName?: string } | undefined)?.ownerName;
+    }
+    const st = this.repo.getState();
+    const known = buildKnownOwnerSet({
+      users: (this.repo.findRbacUserRecord('', ''), (st.rbac?.users || []) as Array<{ name?: string; email?: string }>),
+      existingOwnerNames: [
+        ...st.contacts.map((c) => c.ownerName),
+        ...st.companies.map((c) => c.ownerName),
+        ...st.deals.map((d) => d.ownerName),
+      ],
+    });
+    if (isAssignableOwnerName(body.ownerName, current, known)) return null;
+    return {
+      status: 400,
+      body: {
+        error: 'Responsável (ownerName) desconhecido: escolha um usuário do STI-hub ou um responsável da lista oficial.',
+        code: 'OWNER_NOT_FOUND',
+      },
+    };
   }
 
   /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
@@ -1515,7 +1610,12 @@ export class CrmApiRouter {
       // Pacote E (29/10): rotas IAM admin nunca recebem hash, segredo TOTP ou senha fora do
       // POST/PUT de definicao de senha do usuario. Campo proibido => 400 (nada e aplicado).
       if (isIamAdminRoute(cleanPath)) {
-        const forbidden = findForbiddenIamCredentialFields(cleanPath, method, body as Record<string, unknown>);
+        const forbidden = findForbiddenIamCredentialFields(
+          cleanPath,
+          method,
+          body as Record<string, unknown>,
+          query as Record<string, unknown>
+        );
         if (forbidden.length > 0) {
           return {
             status: 400,
@@ -1786,6 +1886,12 @@ export class CrmApiRouter {
         };
       }
 
+      // Pacote G: responsavel atribuido (ownerName) validado contra responsaveis conhecidos.
+      {
+        const ownerErr = this.checkOwnerNameAssignment(method, cleanPath, body as Record<string, unknown>, ctx);
+        if (ownerErr) return ownerErr;
+      }
+
       // ======================================================================
       // SYSTEM & DATABASE HEALTH (/api/health)
       // ======================================================================
@@ -1932,7 +2038,7 @@ export class CrmApiRouter {
               body: `Dados cadastrais revisados (Etapa: ${updated.lifecycleStage}, Status: ${updated.leadStatus}, Cargo: ${updated.jobTitle || '—'}).`,
               contactId: updated.id,
               companyId: updated.companyId,
-              actor: typeof body.ownerName === 'string' && body.ownerName.trim() ? body.ownerName : this.sessionActorName(query),
+              actor: this.sessionActorName(query), // Pacote G: autor = sessao (ownerName e o responsavel, nao o autor)
             });
           }
           if (updated && updated.leadScore >= 80 && before.leadScore < 80) {
@@ -2260,9 +2366,18 @@ export class CrmApiRouter {
               body: { error: 'Os campos "type" e "title" são obrigatórios.' },
             };
           }
-          const event = this.repo.createTimelineEvent(
-            body as { type: 'NOTE'; title: string; [k: string]: unknown }
-          );
+          // Pacote G: autor SEMPRE da sessao; id/createdAt/actor/author/ownerName do cliente ignorados.
+          const tb = body as Record<string, unknown>;
+          const event = this.repo.createTimelineEvent({
+            type: tb.type as 'NOTE',
+            title: String(tb.title),
+            body: tb.body === undefined || tb.body === null ? null : String(tb.body),
+            metadata: tb.metadata && typeof tb.metadata === 'object' && !Array.isArray(tb.metadata) ? (tb.metadata as Record<string, unknown>) : {},
+            contactId: tb.contactId ? String(tb.contactId) : null,
+            companyId: tb.companyId ? String(tb.companyId) : null,
+            dealId: tb.dealId ? String(tb.dealId) : null,
+            actor: ctx.trustedInternal && tb.actor ? String(tb.actor) : this.sessionActorName(query),
+          });
           return { status: 201, body: { data: event } };
         }
       }
@@ -2869,7 +2984,7 @@ export class CrmApiRouter {
               body.sendingProvider === 'OUTLOOK_M365' ? 'OUTLOOK_M365' : 'MARKETING_ESP',
             utmCampaign: body.utmCampaign ? String(body.utmCampaign) : undefined,
             budgetBrl: body.budgetBrl !== undefined ? Number(body.budgetBrl) : 15000,
-            ownerName: body.ownerName ? String(body.ownerName) : 'Marcelo Lopes Mira',
+            ownerName: body.ownerName ? String(body.ownerName) : this.sessionActorName(query), // Pacote G
           });
           return { status: 201, body: { data: created } };
         }
@@ -3434,7 +3549,7 @@ export class CrmApiRouter {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
         }
         const updated = this.repo.addTicketComment(idOrKey, {
-          author: body.author ? String(body.author) : this.sessionActorName(query),
+          author: ctx.trustedInternal && body.author ? String(body.author) : this.sessionActorName(query), // Pacote G
           authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
           isInternal: Boolean(body.isInternal),
           body: String(body.body),
@@ -3488,7 +3603,7 @@ export class CrmApiRouter {
         if (method === 'PATCH' || method === 'PUT') {
           if (body.action === 'ADD_COMMENT' && body.body) {
             const withComment = this.repo.addTicketComment(idOrKey, {
-              author: body.author ? String(body.author) : this.sessionActorName(query),
+              author: ctx.trustedInternal && body.author ? String(body.author) : this.sessionActorName(query), // Pacote G
               authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
               isInternal: Boolean(body.isInternal),
               body: String(body.body),
@@ -3597,17 +3712,10 @@ export class CrmApiRouter {
           }
 
           let contact = this.repo.listContacts().find((c) => c.email.toLowerCase() === email);
-          let companyId = contact?.companyId || null;
+          const companyId = contact?.companyId || null;
 
-          if (companyName && !companyId) {
-            let comp = this.repo
-              .listCompanies()
-              .find((c) => c.name.toLowerCase() === companyName.toLowerCase());
-            if (!comp) {
-              comp = this.repo.createCompany({ name: companyName });
-            }
-            companyId = comp.id;
-          }
+          // Pacote G: o nome de empresa DIGITADO no portal anonimo nao vincula o chamado a uma
+          // empresa existente (nem cria empresa); fica so numa nota interna para triagem.
 
           if (!contact) {
             const parts = name.split(' ');
@@ -3640,6 +3748,18 @@ export class CrmApiRouter {
                 body: description,
                 createdAt: new Date().toISOString(),
               },
+              ...(companyName
+                ? [
+                    {
+                      id: `cmt-portal-org-${Date.now()}`,
+                      author: 'Sistema STI-hub',
+                      authorRole: 'AGENT' as const,
+                      isInternal: true,
+                      body: `Empresa informada no portal (nao vinculada automaticamente): ${companyName}`,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ]
+                : []),
             ],
           });
           const sla = computeRealtimeTicketSla(created);
@@ -3671,8 +3791,8 @@ export class CrmApiRouter {
             this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'chave/e-mail nao conferem (404 generico)');
             return denied;
           }
-          const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
-          const contactName = contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Cliente (Portal Web)';
+          // Pacote G: autor = nome do FORMULARIO ou "Cliente" (nunca o nome do contato do CRM).
+          const contactName = String(body.name || body.firstName || '').trim().slice(0, 120) || 'Cliente';
 
           if (portalActionMatch[2] === 'reply') {
             const messageBody = String(body.body || body.message || '').trim().slice(0, 10000);
@@ -4106,7 +4226,8 @@ export class CrmApiRouter {
         const restored = this.repo.restoreProposalVersion(
           propId,
           targetVersion,
-          typeof body.restoredBy === 'string' ? body.restoredBy : undefined
+          // Pacote G: autor da restauracao = sessao (body.restoredBy so de contexto interno confiavel)
+          ctx.trustedInternal && typeof body.restoredBy === 'string' ? body.restoredBy : this.sessionActorName(query)
         );
         if (!restored) {
           return {
@@ -4252,7 +4373,8 @@ export class CrmApiRouter {
         const restored = this.repo.restoreRentalContractVersion(
           ctrId,
           targetVer,
-          typeof body.restoredBy === 'string' ? body.restoredBy : undefined
+          // Pacote G: autor da restauracao = sessao (body.restoredBy so de contexto interno confiavel)
+          ctx.trustedInternal && typeof body.restoredBy === 'string' ? body.restoredBy : this.sessionActorName(query)
         );
         if (!restored) {
           return {
@@ -4974,7 +5096,7 @@ export class CrmApiRouter {
           contactId: body.contactId ? String(body.contactId) : null,
           companyId: body.companyId ? String(body.companyId) : null,
           dealId: body.dealId ? String(body.dealId) : null,
-          actor: 'Marcelo Lopes Mira (STI-hub Mailer)',
+          actor: `${this.sessionActorName(query)} (STI-hub Mailer)`, // Pacote G: autor = sessao
           metadata: {
             protocol,
             docType,
@@ -4989,7 +5111,7 @@ export class CrmApiRouter {
         // If linked to a ticket, also append comment to ticket
         if (body.ticketId) {
           this.repo.addTicketComment(String(body.ticketId), {
-            author: 'Marcelo Lopes Mira (E-mail STI-hub)',
+            author: `${this.sessionActorName(query)} (E-mail STI-hub)`, // Pacote G
             authorRole: 'AGENT',
             isInternal: false,
             body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
@@ -5016,7 +5138,7 @@ export class CrmApiRouter {
             dueDate,
             dueTime: typeof body.followUpDueTime === 'string' ? body.followUpDueTime : '09:30',
             reminderMinutesBefore: 15,
-            assignedTo: typeof body.followUpAssignedTo === 'string' ? body.followUpAssignedTo : 'Marcelo Lopes Mira',
+            assignedTo: typeof body.followUpAssignedTo === 'string' ? body.followUpAssignedTo : this.sessionActorName(query), // Pacote G
             contactId: body.contactId ? String(body.contactId) : null,
             companyId: body.companyId ? String(body.companyId) : null,
             dealId: body.dealId ? String(body.dealId) : null,
@@ -5185,7 +5307,8 @@ export class CrmApiRouter {
           bcc: body.bcc as string | string[] | undefined,
           subject,
           body: emailBody,
-          senderName: body.senderName ? String(body.senderName) : 'Marcelo Lopes Mira',
+          // Pacote G: remetente exibido = usuario da sessao (senderName do cliente so em contexto interno)
+          senderName: ctx.trustedInternal && body.senderName ? String(body.senderName) : this.sessionActorName(query),
           senderEmail: body.senderEmail ? String(body.senderEmail) : 'comercial@setatelecom.com.br',
           contactId: body.contactId ? String(body.contactId) : null,
           companyId: body.companyId ? String(body.companyId) : null,
