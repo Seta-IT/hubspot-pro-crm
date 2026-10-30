@@ -137,14 +137,14 @@ const SETADESK_SECRETS = ['cc.oculto@exemplo.com', 'STT-777', 'tecnico.oculto@se
 function enrichWithSetaDeskFields(repo: ReturnType<typeof createInMemoryRepository>) {
   const t = repo.listServiceTickets().find((x) => x.contactId && repo.getContactById(x.contactId)?.email)!;
   const email = repo.getContactById(t.contactId!)!.email;
-  repo.updateServiceTicket(t.id, {
+  repo.setServiceTicketSystemFields(t.id, {
     requesterEmail: 'solicitante.oculto@exemplo.com',
     ccEmails: ['cc.oculto@exemplo.com'],
     jiraKey: 'STT-777',
     jiraId: '99999',
-    assigneeAgent: 'tecnico.oculto@setatelecom.com.br',
     source: 'EMAIL',
   });
+  repo.updateServiceTicket(t.id, { assigneeAgent: 'tecnico.oculto@setatelecom.com.br' });
   return { key: repo.getServiceTicketById(t.id)!.key, email };
 }
 
@@ -201,6 +201,119 @@ describe('SetaDesk - portal do cliente continua com DTO minimo', () => {
         assert.doesNotMatch(m, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
       }
     }
+  });
+});
+
+describe('SetaDesk - updateServiceTicket com allowlist (defesa no repository)', () => {
+  function setup() {
+    const repo = createInMemoryRepository();
+    const t = repo.listServiceTickets().find((x) => x.contactId)!;
+    repo.addTicketComment(t.id, { author: 'Agente', authorRole: 'AGENT', isInternal: true, body: 'SEGREDO INTERNO' });
+    const before = JSON.parse(JSON.stringify(repo.getServiceTicketById(t.id)!));
+    return { repo, id: t.id as string, before };
+  }
+
+  it('ignora comments: nao troca o array nem forja comentario de cliente retroativo', () => {
+    const { repo, id, before } = setup();
+    const forged = [{ id: 'forjado', author: 'Cliente', authorRole: 'CUSTOMER', isInternal: false, body: 'forjado', createdAt: '2020-01-01T00:00:00.000Z' }];
+    const out = repo.updateServiceTicket(id, { comments: forged } as never)!;
+    assert.deepEqual(out.comments, before.comments);
+    assert.ok(!out.comments.some((c) => c.id === 'forjado'));
+  });
+
+  it('notas internas nao viram publicas via update', () => {
+    const { repo, id, before } = setup();
+    const flipped = before.comments.map((c: Record<string, unknown>) => ({ ...c, isInternal: false }));
+    repo.updateServiceTicket(id, { comments: flipped, status: 'IN_PROGRESS' } as never);
+    const after = repo.getServiceTicketById(id)!;
+    const secret = after.comments.find((c) => c.body === 'SEGREDO INTERNO')!;
+    assert.equal(secret.isInternal, true);
+    assert.equal(after.status, 'IN_PROGRESS', 'campo permitido no mesmo patch continua aplicado');
+  });
+
+  const blocked: Array<[string, unknown]> = [
+    ['csatScore', 1],
+    ['firstRespondedAt', '2020-01-01T00:00:00.000Z'],
+    ['contactId', 'contato-de-outro-cliente'],
+    ['slaFirstResponseDueAt', '2099-01-01T00:00:00.000Z'],
+    ['slaResolutionDueAt', '2099-01-01T00:00:00.000Z'],
+    ['slaPausedAt', '2020-01-01T00:00:00.000Z'],
+    ['totalPausedMinutes', 99999],
+    ['slaStatus', 'ON_TRACK'],
+    ['resolvedAt', '2020-01-01T00:00:00.000Z'],
+    ['closedAt', '2020-01-01T00:00:00.000Z'],
+    ['createdAt', '2020-01-01T00:00:00.000Z'],
+    ['channel', 'EMAIL'],
+    ['requesterEmail', 'invasor@exemplo.com'],
+    ['ccEmails', ['invasor@exemplo.com']],
+    ['jiraKey', 'STT-1'],
+    ['source', 'JIRA'],
+    ['serviceOrderId', 'os-falsa'],
+  ];
+  for (const [field, value] of blocked) {
+    it(`campo bloqueado no patch: ${field}`, () => {
+      const { repo, id, before } = setup();
+      // junto com outro campo, para nao cair no caminho transitorio do CSAT do portal
+      repo.updateServiceTicket(id, { [field]: value, tags: ['triagem'] } as never);
+      const after = repo.getServiceTicketById(id)! as unknown as Record<string, unknown>;
+      assert.notDeepEqual(after[field], value, `${field} nao pode assumir o valor do patch`);
+      if (field !== 'totalPausedMinutes') assert.deepEqual(after[field] ?? null, before[field] ?? null, `${field} nao pode mudar via update`);
+      else assert.equal(after[field] ?? 0, before[field] ?? 0);
+      assert.deepEqual(after.tags, ['triagem']);
+    });
+  }
+
+  it('id e key nao mudam via update', () => {
+    const { repo, id, before } = setup();
+    const out = repo.updateServiceTicket(id, { id: 'x', key: 'SD-999999', subject: 'Novo assunto' } as never)!;
+    assert.equal(out.id, before.id);
+    assert.equal(out.key, before.key);
+    assert.equal(out.subject, 'Novo assunto');
+  });
+
+  it('campos editaveis continuam funcionando (status, prioridade com SLA recalculado, fila, agente)', () => {
+    const { repo, id, before } = setup();
+    const out = repo.updateServiceTicket(id, {
+      status: 'WAITING_CUSTOMER', priority: before.priority === 'LOW' ? 'CRITICAL' : 'LOW',
+      assignee: 'N2', queue: 'N2', assigneeAgent: 'agente@setatelecom.com.br', description: 'desc',
+    })!;
+    assert.equal(out.status, 'WAITING_CUSTOMER');
+    assert.ok(out.slaPausedAt, 'pausa de SLA calculada pelo servidor');
+    assert.notEqual(out.slaResolutionDueAt, before.slaResolutionDueAt);
+    assert.equal(out.assignee, 'N2');
+    assert.equal(out.assigneeAgent, 'agente@setatelecom.com.br');
+  });
+
+  it('CSAT: recordTicketCsat valida 1..5; patch so com csatScore e o caminho transitorio do portal', () => {
+    const { repo, id } = setup();
+    assert.equal(repo.recordTicketCsat(id, 0), null);
+    assert.equal(repo.recordTicketCsat(id, 6), null);
+    assert.equal(repo.recordTicketCsat(id, 4)!.csatScore, 4);
+    assert.equal(repo.updateServiceTicket(id, { csatScore: 9 })!, null);
+    assert.equal(repo.getServiceTicketById(id)!.csatScore, 4);
+    assert.equal(repo.updateServiceTicket(id, { csatScore: 5 })!.csatScore, 5);
+  });
+
+  it('addTicketComment: papel fora de AGENT/CUSTOMER vira AGENT', () => {
+    const { repo, id } = setup();
+    const out = repo.addTicketComment(id, { author: 'X', authorRole: 'SYSTEM_ADMIN' as never, body: 'ROLE LIVRE' })!;
+    assert.equal(out.comments.at(-1)!.authorRole, 'AGENT');
+  });
+
+  it('PATCH /api/tickets/:id pelo router tambem passa pela allowlist', async () => {
+    const { repo, id, before } = setup();
+    const router = new CrmApiRouter(repo);
+    const flipped = before.comments.map((c: Record<string, unknown>) => ({ ...c, isInternal: false }));
+    const r = await router.dispatch({
+      method: 'PATCH', path: `/api/tickets/${before.key}`, query: {}, context: TRUSTED_INTERNAL_CONTEXT,
+      body: { comments: flipped, contactId: 'outro', firstRespondedAt: '2020-01-01T00:00:00.000Z', priority: 'HIGH' },
+    });
+    assert.equal(r.status, 200);
+    const after = repo.getServiceTicketById(id)!;
+    assert.equal(after.contactId, before.contactId);
+    assert.equal(after.firstRespondedAt ?? null, before.firstRespondedAt ?? null);
+    assert.equal(after.comments.find((c) => c.body === 'SEGREDO INTERNO')!.isInternal, true);
+    assert.equal(after.priority, 'HIGH');
   });
 });
 
@@ -344,10 +457,11 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     const enriched = seedRepo.getServiceTicketById(key)!;
     const stored = base.tickets.find((t) => t.key === key)!;
     seedRepo.replaceServiceTickets(base.tickets);
-    seedRepo.updateServiceTicket(stored.id, {
+    seedRepo.setServiceTicketSystemFields(stored.id, {
       requesterEmail: enriched.requesterEmail, ccEmails: enriched.ccEmails, jiraKey: enriched.jiraKey,
-      jiraId: enriched.jiraId, assigneeAgent: enriched.assigneeAgent, subject: 'Lido do Postgres',
+      jiraId: enriched.jiraId,
     });
+    seedRepo.updateServiceTicket(stored.id, { assigneeAgent: enriched.assigneeAgent, subject: 'Lido do Postgres' });
     await store.syncSetaDeskTickets(seedRepo.getState().serviceTickets, base.baseline);
     const reread = (await store.loadSetaDeskTickets([]))!;
     const fromDb = reread.tickets.find((t) => t.key === key)!;
@@ -357,5 +471,36 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     repo.replaceServiceTickets(reread.tickets);
     const data = await assertPortalDtoMinimal(new CrmApiRouter(repo), key, email);
     assert.equal(data.subject, 'Lido do Postgres');
+  });
+
+  it('comentario gravado e append-only: visibilidade e corpo nao mudam por estado em memoria', async () => {
+    const base = (await store.loadSetaDeskTickets([]))!;
+    const repo = createInMemoryRepository();
+    repo.replaceServiceTickets(base.tickets);
+    const t = base.tickets[0];
+    repo.addTicketComment(t.id, { author: 'Agente', isInternal: true, body: 'NOTA INTERNA PG' });
+    await store.syncSetaDeskTickets(repo.getState().serviceTickets, base.baseline);
+    const mem = repo.getServiceTicketById(t.id)!;
+    const note = mem.comments.find((c) => c.body === 'NOTA INTERNA PG')!;
+    note.isInternal = false; // simula estado adulterado em memoria
+    note.body = 'adulterado';
+    mem.updatedAt = new Date(Date.now() + 1000).toISOString();
+    await store.syncSetaDeskTickets(repo.getState().serviceTickets, base.baseline);
+    const row = await pg.getPostgresPool()!.query(`SELECT is_internal, body FROM setadesk_ticket_comments WHERE id = $1`, [note.id]);
+    assert.equal(row.rows[0].is_internal, true);
+    assert.equal(row.rows[0].body, 'NOTA INTERNA PG');
+  });
+
+  it('mudanca de csatScore e contactId fica no historico', async () => {
+    const base = (await store.loadSetaDeskTickets([]))!;
+    const repo = createInMemoryRepository();
+    repo.replaceServiceTickets(base.tickets);
+    const t = base.tickets[0];
+    repo.recordTicketCsat(t.id, 3);
+    await store.syncSetaDeskTickets(repo.getState().serviceTickets, base.baseline, 'auditoria@setatelecom.com.br');
+    const h = await pg.getPostgresPool()!.query(
+      `SELECT field, new_value, actor FROM setadesk_ticket_history WHERE ticket_id = $1 AND field = 'csatScore' ORDER BY id DESC LIMIT 1`, [t.id]);
+    assert.equal(h.rows[0].new_value, 3);
+    assert.equal(h.rows[0].actor, 'auditoria@setatelecom.com.br');
   });
 });

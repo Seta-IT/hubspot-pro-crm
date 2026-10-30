@@ -722,6 +722,38 @@ export interface StiHubAuthenticatedSession {
   erpPermissions: StiHubErpPermissions;
 }
 
+/**
+ * SetaDesk: campos que um agente pode alterar num chamado via PATCH/PUT.
+ * Tudo fora desta lista e ignorado por updateServiceTicket.
+ */
+export const SERVICE_TICKET_EDITABLE_FIELDS = [
+  'subject',
+  'description',
+  'category',
+  'priority',
+  'status',
+  'assignee',
+  'queue',
+  'assigneeAgent',
+  'tags',
+  'equipmentSerial',
+  'resolution',
+  'companyId',
+  'dealId',
+  'contractId',
+] as const satisfies ReadonlyArray<keyof ServiceTicket>;
+
+export function pickEditableTicketFields(patch: unknown): Partial<ServiceTicket> {
+  const out: Record<string, unknown> = {};
+  if (!patch || typeof patch !== 'object') return out as Partial<ServiceTicket>;
+  const src = patch as Record<string, unknown>;
+  for (const k of SERVICE_TICKET_EDITABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(src, k) && src[k] !== undefined) out[k] = src[k];
+  }
+  if (out.tags !== undefined && !(Array.isArray(out.tags) && out.tags.every((t) => typeof t === 'string'))) delete out.tags;
+  return out as Partial<ServiceTicket>;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -3309,7 +3341,46 @@ export class CrmRepository {
     return ticket;
   }
 
+  /**
+   * SetaDesk (defesa no repository): atualizacao de chamado vinda de PATCH/PUT.
+   * So os campos de SERVICE_TICKET_EDITABLE_FIELDS sao aplicados; comments, csatScore,
+   * firstRespondedAt, contactId, campos de SLA, datas, canal, chaves e campos de sistema
+   * (requesterEmail, ccEmails, jira*, source) sao descartados. Comentarios entram
+   * somente por addTicketComment; CSAT por recordTicketCsat; campos de sistema por
+   * setServiceTicketSystemFields.
+   */
   updateServiceTicket(idOrKey: string, patch: Partial<ServiceTicket>): ServiceTicket | null {
+    // TRANSITORIO ate o pacote H (router, CISO): o CSAT do portal ainda chama
+    // updateServiceTicket({ csatScore }). Aceito SOMENTE quando o patch tem apenas
+    // csatScore, inteiro de 1 a 5. Remover quando o router usar recordTicketCsat.
+    if (patch && typeof patch === 'object') {
+      const keys = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined);
+      if (keys.length === 1 && keys[0] === 'csatScore') return this.recordTicketCsat(idOrKey, Number(patch.csatScore));
+    }
+    return this.applyServiceTicketUpdate(idOrKey, pickEditableTicketFields(patch));
+  }
+
+  /** CSAT do chamado (1 a 5, inteiro). Caminho proprio, fora do PATCH generico. */
+  recordTicketCsat(idOrKey: string, score: number): ServiceTicket | null {
+    const n = Math.round(Number(score));
+    if (!Number.isFinite(n) || n < 1 || n > 5) return null;
+    return this.applyServiceTicketUpdate(idOrKey, { csatScore: n });
+  }
+
+  /** Campos de sistema do SetaDesk (e-mail de entrada, importacao Jira). Nunca exposto a PATCH. */
+  setServiceTicketSystemFields(
+    idOrKey: string,
+    fields: Pick<Partial<ServiceTicket>, 'requesterEmail' | 'requesterName' | 'ccEmails' | 'jiraKey' | 'jiraId' | 'source' | 'legacyKey'>
+  ): ServiceTicket | null {
+    const clean: Partial<ServiceTicket> = {};
+    for (const k of ['requesterEmail', 'requesterName', 'ccEmails', 'jiraKey', 'jiraId', 'source', 'legacyKey'] as const) {
+      if (fields[k] !== undefined) (clean as Record<string, unknown>)[k] = fields[k];
+    }
+    if (typeof clean.requesterEmail === 'string') clean.requesterEmail = clean.requesterEmail.trim().toLowerCase();
+    return this.applyServiceTicketUpdate(idOrKey, clean);
+  }
+
+  private applyServiceTicketUpdate(idOrKey: string, patch: Partial<ServiceTicket>): ServiceTicket | null {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
     const idx = this.state.serviceTickets.findIndex(
       (t) => t.id === idOrKey || t.key.toLowerCase() === idOrKey.toLowerCase()
@@ -3413,7 +3484,8 @@ export class CrmRepository {
     const comment: TicketComment = {
       id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       author: input.author || 'Marcéllo Mira',
-      authorRole: input.authorRole || 'AGENT',
+      // SetaDesk: papel so pode ser AGENT ou CUSTOMER; qualquer outro valor vira AGENT.
+      authorRole: input.authorRole === 'CUSTOMER' ? 'CUSTOMER' : 'AGENT',
       isInternal: Boolean(input.isInternal),
       body: input.body.trim(),
       createdAt: nowIso,

@@ -226,6 +226,8 @@ INSERT INTO setadesk_ticket_comments
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT DO NOTHING`;
 
+// Comentarios sao append-only no Postgres: ON CONFLICT DO NOTHING impede que um estado
+// em memoria altere corpo, autor, papel ou visibilidade (isInternal) de comentario ja gravado.
 async function insertComments(client: PoolClient, ticketId: string, comments: TicketComment[]) {
   for (const c of comments) {
     await client.query(INSERT_COMMENT_SQL, [
@@ -364,6 +366,9 @@ const HISTORY_FIELDS: Array<{ field: string; col: string; get: (t: ServiceTicket
   { field: 'queue', col: 'queue', get: (t) => t.assignee || t.queue || null },
   { field: 'assigneeAgent', col: 'assignee_agent', get: (t) => t.assigneeAgent ?? null },
   { field: 'slaStatus', col: 'sla_status', get: (t) => t.slaStatus },
+  // Defesa/auditoria: campos sensiveis que so mudam por caminhos proprios (CSAT do portal, triagem).
+  { field: 'csatScore', col: 'csat_score', get: (t) => t.csatScore ?? null },
+  { field: 'contactId', col: 'contact_id', get: (t) => t.contactId ?? null },
 ];
 
 /** Grava chamados novos/alterados e remove os apagados, numa unica transacao. */
