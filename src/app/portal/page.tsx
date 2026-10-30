@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Radio,
@@ -11,68 +11,38 @@ import {
   Send,
   Star,
   Plus,
-  Building2,
-  Cpu,
-  Wrench,
-  FileSignature,
   ArrowLeft,
   ShieldCheck,
   MessageSquare,
   Phone,
   RefreshCw,
+  Mail,
 } from 'lucide-react';
-import {
-  TicketCategory,
-  TicketComment,
-  TicketPriority,
-  TicketSlaStatus,
-  TicketStatus,
-} from '../../db/types';
+import { TicketCategory, TicketPriority, TicketStatus } from '../../db/types';
 import { formatDateTimeBR } from '../components/ui-helpers';
 
+/**
+ * Contrato publico do portal (HOTFIX 29/10/2026): o servidor so devolve o chamado quando a
+ * chave E o e-mail do contato conferem, e so com estes campos (sem CNPJ, contrato, O.S., CC,
+ * e-mails de terceiros ou notas internas).
+ */
 interface PortalTicket {
-  id: string;
   key: string;
   subject: string;
-  description: string;
-  category: TicketCategory;
-  priority: TicketPriority;
   status: TicketStatus;
-  assignee: string;
-  equipmentSerial?: string | null;
-  slaFirstResponseDueAt: string;
-  slaResolutionDueAt: string;
-  firstRespondedAt: string | null;
-  resolvedAt: string | null;
-  slaStatus: TicketSlaStatus;
-  remainingResolutionMinutes?: number;
-  csatScore: number | null;
-  comments: TicketComment[];
   createdAt: string;
   updatedAt: string;
-  contact?: {
-    id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-  } | null;
-  company?: {
-    id: string;
-    name: string;
-    cnpj: string | null;
-  } | null;
-  contract?: {
-    id: string;
-    contractNumber: string;
-    title: string;
-  } | null;
-  serviceOrder?: {
-    id: string;
-    code: string;
-    status: string;
-    technicianName: string;
-  } | null;
+  resolvedAt: string | null;
+  comments: Array<{ author: string; authorRole: 'AGENT' | 'CUSTOMER'; body: string; createdAt: string }>;
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  OPEN: 'Aberto',
+  IN_PROGRESS: 'Em atendimento',
+  WAITING_CUSTOMER: 'Aguardando cliente',
+  RESOLVED: 'Resolvido',
+  CLOSED: 'Encerrado',
+};
 
 const PROGRESS_STEPS: Array<{ id: TicketStatus; label: string; desc: string }> = [
   { id: 'OPEN', label: '1. Chamado Aberto', desc: 'Protocolo registrado na fila NOC' },
@@ -81,34 +51,21 @@ const PROGRESS_STEPS: Array<{ id: TicketStatus; label: string; desc: string }> =
   { id: 'RESOLVED', label: '4. Resolvido & Normalizado', desc: 'Operação restabelecida com SLA' },
 ];
 
-function formatCountdown(mins?: number, status?: TicketStatus, slaStatus?: TicketSlaStatus) {
-  if (status === 'RESOLVED' || status === 'CLOSED') {
-    return slaStatus === 'BREACHED' ? 'Concluído (Fora da janela SLA)' : 'Concluído dentro do SLA';
-  }
-  const val = typeof mins === 'number' ? mins : 120;
-  const abs = Math.abs(Math.round(val));
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  const dur = h > 0 ? `${h}h ${m}m` : `${m}m`;
-  if (val < 0 || slaStatus === 'BREACHED') {
-    return `Prazo excedido há ${dur}`;
-  }
-  return `${dur} restantes para meta de resolução`;
-}
-
 function CustomerPortalContent() {
   const searchParams = useSearchParams();
-  const initialTicketQuery = searchParams?.get('ticket') || '';
+  const initialTicketQuery = (searchParams?.get('ticket') || '').trim().toUpperCase();
 
   const [activeTab, setActiveTab] = useState<'TRACK' | 'NEW_TICKET'>('TRACK');
-  const [tickets, setTickets] = useState<PortalTicket[]>([]);
-  const [selectedKey, setSelectedKey] = useState<string>(initialTicketQuery || 'JSM-101');
-  const [searchInput, setSearchInput] = useState<string>(initialTicketQuery || '');
-  const [loading, setLoading] = useState<boolean>(true);
+  const [ticket, setTicket] = useState<PortalTicket | null>(null);
+  const [lookupKey, setLookupKey] = useState<string>(initialTicketQuery);
+  const [lookupEmail, setLookupEmail] = useState<string>('');
+  // Credenciais da ultima consulta bem-sucedida (usadas em resposta/CSAT/atualizar).
+  const [authed, setAuthed] = useState<{ key: string; email: string } | null>(null);
+  const [lookupError, setLookupError] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
 
   // Reply state
   const [replyText, setReplyText] = useState('');
-  const [replyAuthor, setReplyAuthor] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
 
   // CSAT state
@@ -130,65 +87,57 @@ function CustomerPortalContent() {
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [createdProtocol, setCreatedProtocol] = useState<PortalTicket | null>(null);
 
-  const loadPortalTickets = useCallback(async (search?: string) => {
+  const lookupTicket = useCallback(async (key: string, email: string) => {
+    const k = key.trim().toUpperCase();
+    const e = email.trim().toLowerCase();
+    if (!k || !e) {
+      setLookupError('Informe a chave do chamado e o e-mail do contato.');
+      return;
+    }
     setLoading(true);
+    setLookupError('');
     try {
-      const qs = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
-      const res = await fetch(`/api/portal/tickets${qs}`);
-      if (res.ok) {
-        const json = await res.json();
-        const list: PortalTicket[] = json.data || [];
-        setTickets(list);
-        if (list.length > 0) {
-          setSelectedKey((prev) => {
-            const match = list.find(
-              (t) => t.key.toLowerCase() === prev.toLowerCase() || t.id === prev
-            );
-            return match ? match.key : list[0].key;
-          });
-        }
+      const res = await fetch(
+        `/api/portal/tickets?key=${encodeURIComponent(k)}&email=${encodeURIComponent(e)}`,
+        { cache: 'no-store' }
+      );
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.data) {
+        setTicket(json.data as PortalTicket);
+        setAuthed({ key: k, email: e });
+      } else {
+        setTicket(null);
+        setAuthed(null);
+        setLookupError(
+          json?.error || 'Não foi possível localizar um chamado com a chave e o e-mail informados.'
+        );
       }
+    } catch {
+      setLookupError('Falha de conexão. Tente novamente.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadPortalTickets(initialTicketQuery || undefined);
-  }, [initialTicketQuery, loadPortalTickets]);
-
-  const activeTicket =
-    tickets.find(
-      (t) => t.key.toLowerCase() === selectedKey.toLowerCase() || t.id === selectedKey
-    ) ||
-    tickets[0] ||
-    null;
-
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await loadPortalTickets(searchInput);
+    await lookupTicket(lookupKey, lookupEmail);
   };
 
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeTicket || !replyText.trim()) return;
+    if (!ticket || !authed || !replyText.trim()) return;
     setSendingReply(true);
     try {
-      const res = await fetch(`/api/portal/tickets/${activeTicket.key}/reply`, {
+      const res = await fetch(`/api/portal/tickets/${encodeURIComponent(authed.key)}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          author:
-            replyAuthor.trim() ||
-            (activeTicket.contact
-              ? `${activeTicket.contact.firstName} ${activeTicket.contact.lastName}`
-              : 'Cliente Seta Telecom'),
-          body: replyText.trim(),
-        }),
+        body: JSON.stringify({ email: authed.email, body: replyText.trim() }),
       });
-      if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.data) {
         setReplyText('');
-        await loadPortalTickets(searchInput || undefined);
+        setTicket(json.data as PortalTicket);
       }
     } finally {
       setSendingReply(false);
@@ -196,22 +145,20 @@ function CustomerPortalContent() {
   };
 
   const handleSubmitCsat = async (score: number) => {
-    if (!activeTicket) return;
+    if (!ticket || !authed) return;
     setCsatRating(score);
     setSubmittingCsat(true);
     try {
-      const res = await fetch(`/api/portal/tickets/${activeTicket.key}/csat`, {
+      const res = await fetch(`/api/portal/tickets/${encodeURIComponent(authed.key)}/csat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          score,
-          feedback: csatFeedback.trim() || undefined,
-        }),
+        body: JSON.stringify({ email: authed.email, score, feedback: csatFeedback.trim() || undefined }),
       });
-      if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.data) {
+        setTicket(json.data as PortalTicket);
         setCsatSubmittedNotice(true);
         setCsatFeedback('');
-        await loadPortalTickets(searchInput || undefined);
         setTimeout(() => setCsatSubmittedNotice(false), 3500);
       }
     } finally {
@@ -243,12 +190,16 @@ function CustomerPortalContent() {
       if (res.ok) {
         const json = await res.json();
         if (json.data) {
-          setCreatedProtocol(json.data);
-          setSelectedKey(json.data.key);
+          const created = json.data as PortalTicket;
+          const email = newEmail.trim().toLowerCase();
+          setCreatedProtocol(created);
+          setTicket(created);
+          setAuthed({ key: created.key, email });
+          setLookupKey(created.key);
+          setLookupEmail(email);
           setNewSubject('');
           setNewDescription('');
           setNewSerial('');
-          await loadPortalTickets();
         }
       }
     } finally {
@@ -262,6 +213,8 @@ function CustomerPortalContent() {
     if (status === 'WAITING_CUSTOMER') return 2;
     return 3;
   };
+
+  const activeTicket = ticket;
 
   return (
     <div className="min-h-screen bg-[#f5f8fa] text-slate-800 flex flex-col">
@@ -316,7 +269,7 @@ function CustomerPortalContent() {
               }`}
             >
               <Radio className="w-4 h-4 text-[#ff7a59]" />
-              Consultar Protocolo / Meus Chamados ({tickets.length})
+              Consultar Protocolo
             </button>
 
             <button
@@ -346,373 +299,212 @@ function CustomerPortalContent() {
 
         {activeTab === 'TRACK' ? (
           <div className="space-y-6">
-            {/* SEARCH BAR + QUICK DEMO PROTOCOL PILLS */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            {/* CONSULTA: chave do chamado + e-mail do contato (ambos obrigatorios) */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
               <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-2.5">
-                <div className="relative flex-1 min-w-[240px]">
+                <div className="relative flex-1 min-w-[180px]">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Digite o número do protocolo (ex: JSM-101), e-mail corporativo, empresa ou Serial Number..."
+                    required
+                    value={lookupKey}
+                    onChange={(e) => setLookupKey(e.target.value.toUpperCase())}
+                    placeholder="Chave do chamado (ex: SD-123)"
+                    autoComplete="off"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-[#0d2b4e] font-mono"
+                  />
+                </div>
+                <div className="relative flex-1 min-w-[220px]">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    required
+                    value={lookupEmail}
+                    onChange={(e) => setLookupEmail(e.target.value)}
+                    placeholder="E-mail do contato cadastrado no chamado"
+                    autoComplete="email"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-semibold transition cursor-pointer"
+                  disabled={loading}
+                  className="px-5 py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-semibold transition cursor-pointer disabled:opacity-50"
                 >
                   Consultar Protocolo
                 </button>
-                {searchInput && (
+                {authed && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSearchInput('');
-                      loadPortalTickets();
-                    }}
-                    className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    onClick={() => lookupTicket(authed.key, authed.email)}
+                    className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    title="Atualizar status"
                   >
-                    Limpar Filtro
+                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => loadPortalTickets(searchInput || undefined)}
-                  className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer"
-                  title="Atualizar status em tempo real"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
               </form>
-
-              {/* Quick 1-click protocol selector */}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  Acesso Rápido aos Protocolos Ativos:
-                </span>
-                {tickets.map((t) => {
-                  const isSel = activeTicket?.key === t.key;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setSelectedKey(t.key)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                        isSel
-                          ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="font-mono">{t.key}</span>
-                      <span className="text-[10px] opacity-85 truncate max-w-[140px]">
-                        • {t.company?.name || t.subject}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="text-[11px] text-slate-500">
+                Por segurança, o chamado só é exibido quando a chave e o e-mail do contato conferem.
+              </p>
+              {lookupError && (
+                <div className="text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" /> {lookupError}
+                </div>
+              )}
             </div>
 
-            {/* PROTOCOL DETAIL VIEW */}
             {activeTicket ? (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* LEFT COLUMN: LIST OF PROTOCOLS */}
-                <div className="lg:col-span-4 space-y-3">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">
-                    Protocolos Encontrados ({tickets.length})
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 bg-[#0d2b4e] text-white space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="px-3 py-1 rounded-lg bg-[#f26522] text-white font-mono text-sm font-semibold">
+                      Protocolo {activeTicket.key}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/20">
+                      {activeTicket.status === 'RESOLVED' || activeTicket.status === 'CLOSED' ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5" />
+                      )}
+                      {STATUS_LABEL[activeTicket.status] || activeTicket.status}
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-semibold leading-snug">{activeTicket.subject}</h2>
+                  <div className="pt-3 border-t border-white/15 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="bg-white/5 rounded-xl p-2.5">
+                      <span className="text-[10px] uppercase text-slate-400 block font-semibold">Aberto em</span>
+                      <strong>{formatDateTimeBR(activeTicket.createdAt)}</strong>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-2.5">
+                      <span className="text-[10px] uppercase text-slate-400 block font-semibold">Última atualização</span>
+                      <strong>{formatDateTimeBR(activeTicket.updatedAt)}</strong>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-2.5">
+                      <span className="text-[10px] uppercase text-slate-400 block font-semibold">Resolvido em</span>
+                      <strong>{activeTicket.resolvedAt ? formatDateTimeBR(activeTicket.resolvedAt) : '—'}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Progress Stepper */}
+                <div className="p-5 bg-slate-50 border-b border-slate-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    {PROGRESS_STEPS.map((step, idx) => {
+                      const done = idx <= getStepStatusIndex(activeTicket.status);
+                      return (
+                        <div
+                          key={step.id}
+                          className={`p-3 rounded-xl border text-xs ${
+                            done ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' : 'bg-white border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          <div className="font-semibold flex items-center justify-between">
+                            <span>{step.label}</span>
+                            {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                          </div>
+                          <div className="text-[10px] mt-0.5 opacity-80">{step.desc}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {(activeTicket.status === 'RESOLVED' || activeTicket.status === 'CLOSED') && (
+                  <div className="p-5 bg-amber-50/70 border-b border-amber-200 space-y-3">
+                    <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                      <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
+                      Avalie o Atendimento do NOC Seta Telecom (Pesquisa CSAT)
+                    </h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          disabled={submittingCsat}
+                          onClick={() => handleSubmitCsat(star)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                            csatRating >= star
+                              ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs'
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {star}
+                        </button>
+                      ))}
+                      <input
+                        type="text"
+                        value={csatFeedback}
+                        onChange={(e) => setCsatFeedback(e.target.value)}
+                        placeholder="Comentário opcional de elogio ou melhoria..."
+                        className="flex-1 min-w-[200px] px-3 py-1.5 rounded-xl border border-amber-300 bg-white text-xs"
+                      />
+                    </div>
+                    {csatSubmittedNotice && (
+                      <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4" /> Obrigado! Sua avaliação CSAT foi gravada com sucesso.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-6 space-y-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    Histórico de Interações Públicas ({activeTicket.comments.length})
                   </h3>
-                  {tickets.map((t) => {
-                    const isSel = activeTicket.id === t.id;
-                    return (
+                  <div className="space-y-3">
+                    {activeTicket.comments.map((c, idx) => (
                       <div
-                        key={t.id}
-                        onClick={() => setSelectedKey(t.key)}
-                        className={`p-4 rounded-2xl border cursor-pointer transition space-y-2 ${
-                          isSel
-                            ? 'bg-white border-[#ff7a59] ring-2 ring-[#ff7a59]/20 shadow-sm'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        key={`${c.createdAt}-${idx}`}
+                        className={`p-4 rounded-2xl border text-xs space-y-1.5 ${
+                          c.authorRole === 'CUSTOMER'
+                            ? 'bg-slate-50 border-slate-200 text-slate-900'
+                            : 'bg-indigo-50/70 border-indigo-200 text-slate-900'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded">
-                            {t.key}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                              t.slaStatus === 'BREACHED'
-                                ? 'bg-rose-100 text-rose-700'
-                                : t.slaStatus === 'AT_RISK'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-emerald-50 text-emerald-700'
-                            }`}
-                          >
-                            {t.slaStatus === 'BREACHED'
-                              ? 'SLA Violado'
-                              : t.slaStatus === 'AT_RISK'
-                                ? 'SLA em Risco'
-                                : 'No Prazo SLA'}
-                          </span>
-                        </div>
-
-                        <h4 className="text-xs font-semibold text-slate-900 leading-snug">
-                          {t.subject}
-                        </h4>
-
-                        <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                          <span>{t.company?.name || 'Cliente Seta Telecom'}</span>
-                          <span className="font-semibold text-slate-700">{t.status}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* RIGHT COLUMN: FULL PROTOCOL TRACKING & CUSTOMER CONVERSATION */}
-                <div className="lg:col-span-8 space-y-5">
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    {/* Protocol Header */}
-                    <div className="p-6 bg-[#0d2b4e] text-white space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <span className="px-3 py-1 rounded-lg bg-[#f26522] text-white font-mono text-sm font-semibold">
-                            Protocolo {activeTicket.key}
-                          </span>
-                          <span className="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-semibold">
-                            Prioridade {activeTicket.priority}
-                          </span>
-                        </div>
-
-                        <div
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                            activeTicket.slaStatus === 'BREACHED'
-                              ? 'bg-rose-500/20 text-rose-200 border border-rose-400/40'
-                              : activeTicket.slaStatus === 'AT_RISK'
-                                ? 'bg-amber-500/20 text-amber-200 border border-amber-400/40'
-                                : 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/40'
-                          }`}
-                        >
-                          {activeTicket.slaStatus === 'BREACHED' ? (
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                          ) : activeTicket.slaStatus === 'AT_RISK' ? (
-                            <Clock className="w-3.5 h-3.5" />
-                          ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                          )}
-                          {formatCountdown(
-                            activeTicket.remainingResolutionMinutes,
-                            activeTicket.status,
-                            activeTicket.slaStatus
-                          )}
-                        </div>
-                      </div>
-
-                      <h2 className="text-lg font-semibold leading-snug">{activeTicket.subject}</h2>
-
-                      <p className="text-xs text-slate-200 leading-relaxed">
-                        {activeTicket.description}
-                      </p>
-
-                      {/* Metadata chips */}
-                      <div className="pt-3 border-t border-white/15 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                        <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-semibold">
-                            Fila Especialista NOC
-                          </span>
-                          <strong className="text-white">{activeTicket.assignee}</strong>
-                        </div>
-
-                        <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-semibold">
-                            Equipamento / Circuito
-                          </span>
-                          <strong className="font-mono text-emerald-300">
-                            {activeTicket.equipmentSerial || 'N/A — Serviço Geral'}
-                          </strong>
-                        </div>
-
-                        <div className="bg-white/5 rounded-xl p-2.5">
-                          <span className="text-[10px] uppercase text-slate-400 block font-semibold">
-                            Contrato / Ordem de Serviço
-                          </span>
-                          <strong className="text-amber-300">
-                            {activeTicket.serviceOrder
-                              ? `O.S. #${activeTicket.serviceOrder.code} (${activeTicket.serviceOrder.status})`
-                              : activeTicket.contract
-                                ? activeTicket.contract.contractNumber
-                                : 'Atendimento Avulso / SLA'}
-                          </strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Visual Progress Stepper */}
-                    <div className="p-5 bg-slate-50 border-b border-slate-200">
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        {PROGRESS_STEPS.map((step, idx) => {
-                          const currentIdx = getStepStatusIndex(activeTicket.status);
-                          const done = idx <= currentIdx;
-                          return (
-                            <div
-                              key={step.id}
-                              className={`p-3 rounded-xl border text-xs ${
-                                done
-                                  ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
-                                  : 'bg-white border-slate-200 text-slate-400'
+                          <span className="font-semibold flex items-center gap-2">
+                            {c.author}
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                c.authorRole === 'CUSTOMER' ? 'bg-slate-200 text-slate-700' : 'bg-[#0d2b4e] text-white'
                               }`}
                             >
-                              <div className="font-semibold flex items-center justify-between">
-                                <span>{step.label}</span>
-                                {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
-                              </div>
-                              <div className="text-[10px] mt-0.5 opacity-80">{step.desc}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* CSAT RATING WIDGET (Visible when ticket is RESOLVED or CLOSED, or allows immediate evaluation) */}
-                    {(activeTicket.status === 'RESOLVED' || activeTicket.status === 'CLOSED') && (
-                      <div className="p-5 bg-amber-50/70 border-b border-amber-200 space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <h4 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
-                              <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
-                              Avalie o Atendimento do NOC Seta Telecom (Pesquisa CSAT)
-                            </h4>
-                            <p className="text-[11px] text-slate-600">
-                              Sua nota impacta diretamente os indicadores de qualidade da nossa engenharia.
-                            </p>
-                          </div>
-                          {activeTicket.csatScore && (
-                            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
-                              Nota Registrada: {activeTicket.csatScore} / 5
+                              {c.authorRole === 'CUSTOMER' ? 'Cliente' : 'Engenharia NOC Seta'}
                             </span>
-                          )}
+                          </span>
+                          <span className="text-[11px] text-slate-500">{formatDateTimeBR(c.createdAt)}</span>
                         </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <button
-                              key={star}
-                              type="button"
-                              disabled={submittingCsat}
-                              onClick={() => handleSubmitCsat(star)}
-                              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                                (activeTicket.csatScore || csatRating) >= star
-                                  ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}
-                            >
-                              {star}
-                            </button>
-                          ))}
-                          <input
-                            type="text"
-                            value={csatFeedback}
-                            onChange={(e) => setCsatFeedback(e.target.value)}
-                            placeholder="Comentário opcional de elogio ou melhoria..."
-                            className="flex-1 min-w-[200px] px-3 py-1.5 rounded-xl border border-amber-300 bg-white text-xs"
-                          />
-                        </div>
-
-                        {csatSubmittedNotice && (
-                          <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
-                            <CheckCircle2 className="w-4 h-4" /> Obrigado! Sua avaliação CSAT foi gravada com sucesso.
-                          </div>
-                        )}
+                        <p className="leading-relaxed whitespace-pre-wrap">{c.body}</p>
                       </div>
-                    )}
-
-                    {/* PUBLIC CONVERSATION HISTORY */}
-                    <div className="p-6 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                          <MessageSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
-                          Histórico de Interações Públicas ({activeTicket.comments.length})
-                        </h3>
-                        <span className="text-[11px] text-slate-400">
-                          Meta SLA: {formatDateTimeBR(activeTicket.slaResolutionDueAt)}
-                        </span>
-                      </div>
-
-                      <div className="space-y-3">
-                        {activeTicket.comments.map((c) => (
-                          <div
-                            key={c.id}
-                            className={`p-4 rounded-2xl border text-xs space-y-1.5 ${
-                              c.authorRole === 'CUSTOMER'
-                                ? 'bg-slate-50 border-slate-200 text-slate-900'
-                                : 'bg-indigo-50/70 border-indigo-200 text-slate-900'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold flex items-center gap-2">
-                                {c.author}
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                    c.authorRole === 'CUSTOMER'
-                                      ? 'bg-slate-200 text-slate-700'
-                                      : 'bg-[#0d2b4e] text-white'
-                                  }`}
-                                >
-                                  {c.authorRole === 'CUSTOMER' ? 'Cliente' : 'Engenharia NOC Seta'}
-                                </span>
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {formatDateTimeBR(c.createdAt)}
-                              </span>
-                            </div>
-                            <p className="leading-relaxed">{c.body}</p>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Reply Composer */}
-                      <form
-                        onSubmit={handleSendReply}
-                        className="pt-4 border-t border-slate-200 space-y-3"
-                      >
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            value={replyAuthor}
-                            onChange={(e) => setReplyAuthor(e.target.value)}
-                            placeholder={
-                              activeTicket.contact
-                                ? `Seu nome (${activeTicket.contact.firstName} ${activeTicket.contact.lastName})`
-                                : 'Seu nome / cargo'
-                            }
-                            className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs"
-                          />
-                        </div>
-                        <textarea
-                          rows={3}
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          placeholder="Envie uma nova informação, log ou confirme a normalização do serviço para a equipe NOC..."
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#0d2b4e]"
-                        />
-                        <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            disabled={sendingReply || !replyText.trim()}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition disabled:opacity-40 cursor-pointer"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            {sendingReply ? 'Enviando...' : 'Enviar Mensagem ao NOC'}
-                          </button>
-                        </div>
-                      </form>
-                    </div>
+                    ))}
                   </div>
+
+                  <form onSubmit={handleSendReply} className="pt-4 border-t border-slate-200 space-y-3">
+                    <textarea
+                      rows={3}
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Envie uma nova informação, log ou confirme a normalização do serviço para a equipe NOC..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#0d2b4e]"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={sendingReply || !replyText.trim()}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition disabled:opacity-40 cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {sendingReply ? 'Enviando...' : 'Enviar Mensagem ao NOC'}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-sm text-slate-500">
-                Nenhum protocolo encontrado para o filtro informado.
+                Informe a chave do chamado e o e-mail do contato para acompanhar o atendimento.
               </div>
             )}
           </div>
@@ -740,18 +532,14 @@ function CustomerPortalContent() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedKey(createdProtocol.key);
-                      setActiveTab('TRACK');
-                    }}
+                    onClick={() => setActiveTab('TRACK')}
                     className="px-3 py-1 rounded-lg bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
                   >
                     Acompanhar Protocolo Agora →
                   </button>
                 </div>
                 <p className="text-xs text-emerald-800">
-                  Fila designada: <strong>{createdProtocol.assignee}</strong> • Meta de Resolução SLA:{' '}
-                  <strong>{formatDateTimeBR(createdProtocol.slaResolutionDueAt)}</strong>
+                  Guarde a chave <strong className="font-mono">{createdProtocol.key}</strong>: para consultar, informe-a junto com o e-mail usado na abertura.
                 </p>
               </div>
             )}

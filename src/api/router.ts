@@ -131,6 +131,17 @@ import {
   verifyPasswordResetToken,
 } from './password-reset';
 import { hashCorporatePassword } from '../app/lib/auth';
+import {
+  PORTAL_GENERIC_DENIED_MESSAGE,
+  PORTAL_MISSING_FILTER_MESSAGE,
+  PORTAL_RATE_LIMIT_MESSAGE,
+  PortalRateLimiters,
+  findPortalTicketByKeyAndEmail,
+  maskEmailForAudit,
+  normalizePortalEmail,
+  normalizePortalKey,
+  toPortalPublicTicketDto,
+} from './portal-access';
 
 /** Normaliza uma chave Resend (remove aspas, "Bearer ", espacos) e valida o formato re_... */
 export function normalizeResendApiKey(raw: unknown): string {
@@ -526,6 +537,8 @@ export function stripClientTotpSecretFields(body: unknown): Record<string, unkno
   for (const k of CLIENT_FORBIDDEN_TOTP_FIELDS) delete out[k];
   return out;
 }
+
+
 
 export class CrmApiRouter {
   private repo: CrmRepository;
@@ -949,6 +962,35 @@ export class CrmApiRouter {
   }
 
   // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
+  /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
+  private readonly portalLimiters = new PortalRateLimiters();
+
+  /** Auditoria de TODA consulta/acao do portal (sucesso ou negada); e-mail mascarado. */
+  private portalAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    key: string,
+    email: string,
+    outcome: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: email ? maskEmailForAudit(email) : 'anonimo@portal',
+        actorName: 'Portal do Cliente (anônimo)',
+        actorRole: 'PORTAL_PUBLIC',
+        action,
+        module: 'CHAMADOS',
+        resource: `/api/portal/tickets${key ? `/${key.slice(0, 64)}` : ''}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Portal: ${outcome}. Chave: ${key ? key.slice(0, 64) : '(vazia)'}; e-mail: ${maskEmailForAudit(email)}.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
   private readonly stepUpStartLimiter = new SlidingWindowRateLimiter(5, 10 * 60 * 1000);
   private readonly stepUpVerifyLimiter = new SlidingWindowRateLimiter(10, 10 * 60 * 1000);
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
@@ -3399,111 +3441,71 @@ export class CrmApiRouter {
       }
 
       // ======================================================================
-      // PORTAL EXTERNO DO CLIENTE SETA TELECOM (/api/portal/tickets)
+      // PORTAL EXTERNO DO CLIENTE SETA TELECOM (/api/portal/*) — HOTFIX 29/10/2026
+      // Contrato em src/api/portal-access.ts: nunca lista; chave + e-mail do contato (tempo
+      // constante); erro generico; rate-limit por IP e por chave; DTO publico minimo; auditoria.
       // ======================================================================
-      if (cleanPath === '/api/portal/tickets') {
-        if (method === 'GET') {
-          const contactsMap = new Map(this.repo.listContacts().map((c) => [c.id, c]));
-          const companiesMap = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
-          const erpState = this.repo.getErpOverview();
-          const contractsMap = new Map((erpState.rentalContracts || []).map((c) => [c.id, c]));
-          const serviceOrdersMap = new Map((erpState.serviceOrders || []).map((os) => [os.id, os]));
+      if (cleanPath === '/api/portal' || cleanPath.startsWith('/api/portal/')) {
+        const portalIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        const denied = { status: 404, body: { error: PORTAL_GENERIC_DENIED_MESSAGE, code: 'PORTAL_NOT_FOUND' } };
+        const tooMany = { status: 429, body: { error: PORTAL_RATE_LIMIT_MESSAGE, code: 'PORTAL_RATE_LIMITED' } };
+        const contactEmailOf = (t: ServiceTicket) =>
+          t.contactId ? this.repo.getContactById(t.contactId)?.email || null : null;
+        const locate = (key: string, email: string) =>
+          findPortalTicketByKeyAndEmail(this.repo.listServiceTickets(), contactEmailOf, key, email);
 
-          const { tickets: allEvaluated } = computeRealtimeTicketsAndKpis(
-            this.repo.listServiceTickets()
-          );
-
-          const qKey = (query.key || query.ticket || "").trim().toLowerCase();
-          const qEmail = (query.email || "").trim().toLowerCase();
-          const qSearch = (query.search || "").trim().toLowerCase();
-
-          const filtered = allEvaluated.filter((t) => {
-            const contact = t.contactId ? contactsMap.get(t.contactId) : undefined;
-            const company = t.companyId ? companiesMap.get(t.companyId) : undefined;
-            if (qKey) {
-              return t.key.toLowerCase() === qKey || t.id.toLowerCase() === qKey;
-            }
-            if (qEmail) {
-              return (contact?.email || "").toLowerCase().includes(qEmail);
-            }
-            if (qSearch) {
-              const hay = `${t.key} ${t.subject} ${contact?.email || ""} ${contact?.firstName || ""} ${company?.name || ""} ${company?.cnpj || ""} ${t.equipmentSerial || ""}`.toLowerCase();
-              return hay.includes(qSearch);
-            }
-            return true;
-          });
-
-          const sanitized = filtered.map((t) => {
-            const contact = t.contactId ? contactsMap.get(t.contactId) || null : null;
-            const company = t.companyId ? companiesMap.get(t.companyId) || null : null;
-            const contract = t.contractId ? contractsMap.get(t.contractId) || null : null;
-            const serviceOrder = t.serviceOrderId ? serviceOrdersMap.get(t.serviceOrderId) || null : null;
-            return {
-              ...t,
-              // CRITICAL SECURITY RULE: Never expose internal NOC/SRE notes in the public customer portal
-              comments: (t.comments || []).filter((c) => !c.isInternal),
-              contact: contact
-                ? {
-                    id: contact.id,
-                    firstName: contact.firstName,
-                    lastName: contact.lastName,
-                    email: contact.email,
-                  }
-                : null,
-              company: company
-                ? {
-                    id: company.id,
-                    name: company.name,
-                    cnpj: company.cnpj,
-                  }
-                : null,
-              contract: contract
-                ? {
-                    id: contract.id,
-                    contractNumber: contract.contractNumber,
-                    title: contract.title,
-                  }
-                : null,
-              serviceOrder: serviceOrder
-                ? {
-                    id: serviceOrder.id,
-                    code: serviceOrder.code,
-                    status: serviceOrder.status,
-                    technicianName: serviceOrder.technicianName,
-                  }
-                : null,
-            };
-          });
-
-          return {
-            status: 200,
-            body: {
-              data: sanitized,
-              total: sanitized.length,
-            },
-          };
+        if (cleanPath === '/api/portal/tickets' && method === 'GET') {
+          const key = normalizePortalKey(query.key || query.ticket);
+          const email = normalizePortalEmail(query.email);
+          if (!key || !email) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'sem filtro completo (400)');
+            return { status: 400, body: { error: PORTAL_MISSING_FILTER_MESSAGE, code: 'PORTAL_FILTER_REQUIRED' } };
+          }
+          if (!this.portalLimiters.allow(portalIp, key)) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'rate-limit (429)');
+            return tooMany;
+          }
+          const ticket = locate(key, email);
+          if (!ticket) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'chave/e-mail nao conferem (404 generico)');
+            return denied;
+          }
+          this.portalAudit('PORTAL_TICKET_LOOKUP', 'SUCCESS', portalIp, ticket.key, email, 'consulta autorizada');
+          return { status: 200, body: { data: toPortalPublicTicketDto(ticket) } };
         }
 
-        if (method === 'POST') {
-          const subject = String(body.subject || "").trim();
-          const email = String(body.email || "").trim().toLowerCase();
-          const name = String(body.name || body.firstName || "Cliente Seta Telecom").trim();
-          const companyName = String(body.companyName || body.company || "").trim();
-          const phone = body.phone ? String(body.phone).trim() : null;
+        if (cleanPath === '/api/portal/tickets' && method === 'POST') {
+          const subject = String(body.subject || '').trim().slice(0, 300);
+          const email = normalizePortalEmail(body.email);
+          const name = String(body.name || body.firstName || 'Cliente Seta Telecom').trim().slice(0, 120);
+          const companyName = String(body.companyName || body.company || '').trim().slice(0, 200);
+          const phone = body.phone ? String(body.phone).trim().slice(0, 40) : null;
           const description = String(
-            body.description || "Chamado técnico aberto via Portal do Cliente Seta Telecom."
-          ).trim();
-          const category = (body.category as TicketCategory) || "INCIDENT";
-          const priority = (body.priority as TicketPriority) || "HIGH";
-          const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim() : null;
+            body.description || 'Chamado técnico aberto via Portal do Cliente Seta Telecom.'
+          ).trim().slice(0, 10000);
+          const allowedCategories: TicketCategory[] = ['INCIDENT', 'SUPPORT', 'BUG', 'BILLING', 'FEATURE_REQUEST'];
+          const allowedPriorities: TicketPriority[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+          const category = allowedCategories.includes(body.category as TicketCategory)
+            ? (body.category as TicketCategory)
+            : 'INCIDENT';
+          const priority = allowedPriorities.includes(body.priority as TicketPriority)
+            ? (body.priority as TicketPriority)
+            : 'HIGH';
+          const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim().slice(0, 120) : null;
 
-          if (!subject) {
-            return { status: 400, body: { error: 'O assunto do chamado ("subject") é obrigatório.' } };
+          if (!this.portalLimiters.createIp.hit(`create:${portalIp}`)) {
+            this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'rate-limit (429)');
+            return tooMany;
+          }
+          if (!subject || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'assunto/e-mail invalidos (400)');
+            return {
+              status: 400,
+              body: { error: 'Informe o assunto do chamado e um e-mail de contato válido.', code: 'PORTAL_CREATE_INVALID' },
+            };
           }
 
-          let contact = email
-            ? this.repo.listContacts().find((c) => c.email.toLowerCase() === email)
-            : undefined;
+          let contact = this.repo.listContacts().find((c) => c.email.toLowerCase() === email);
           let companyId = contact?.companyId || null;
 
           if (companyName && !companyId) {
@@ -3516,15 +3518,15 @@ export class CrmApiRouter {
             companyId = comp.id;
           }
 
-          if (!contact && email) {
-            const parts = name.split(" ");
+          if (!contact) {
+            const parts = name.split(' ');
             contact = this.repo.createContact({
               email,
-              firstName: parts[0] || "Cliente",
-              lastName: parts.slice(1).join(" ") || "Portal",
+              firstName: parts[0] || 'Cliente',
+              lastName: parts.slice(1).join(' ') || 'Portal',
               phone,
               companyId,
-              lifecycleStage: "CUSTOMER",
+              lifecycleStage: 'CUSTOMER',
             });
           }
 
@@ -3533,8 +3535,8 @@ export class CrmApiRouter {
             description,
             category,
             priority,
-            status: "OPEN",
-            channel: "WEB_PORTAL",
+            status: 'OPEN',
+            channel: 'WEB_PORTAL',
             contactId: contact?.id || null,
             companyId,
             equipmentSerial,
@@ -3542,110 +3544,86 @@ export class CrmApiRouter {
               {
                 id: `cmt-portal-${Date.now()}`,
                 author: contact ? `${contact.firstName} ${contact.lastName}`.trim() : name,
-                authorRole: "CUSTOMER",
+                authorRole: 'CUSTOMER',
                 isInternal: false,
                 body: description,
                 createdAt: new Date().toISOString(),
               },
             ],
           });
-
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
-
-          return {
-            status: 201,
-            body: {
-              data: {
-                ...created,
-                ...sla,
-                comments: created.comments.filter((c) => !c.isInternal),
-              },
-            },
-          };
-        }
-      }
-
-      const portalReplyMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/reply$/);
-      if (portalReplyMatch && method === 'POST') {
-        const idOrKey = decodeURIComponent(portalReplyMatch[1]);
-        const messageBody = String(body.body || body.message || "").trim();
-        if (!messageBody) {
-          return { status: 400, body: { error: 'A mensagem de resposta ("body") é obrigatória.' } };
-        }
-        const ticket = this.repo.getServiceTicketById(idOrKey);
-        if (!ticket) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
-        }
-        const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
-        const authorName = body.author
-          ? String(body.author)
-          : contact
-            ? `${contact.firstName} ${contact.lastName}`.trim()
-            : "Cliente (Portal Web)";
-
-        const updated = this.repo.addTicketComment(idOrKey, {
-          author: authorName,
-          authorRole: "CUSTOMER",
-          isInternal: false,
-          body: messageBody,
-          newStatus: ticket.status === "WAITING_CUSTOMER" ? "IN_PROGRESS" : undefined,
-        });
-        if (!updated) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
-        }
-        const sla = computeRealtimeTicketSla(updated);
-        updated.slaStatus = sla.slaStatus;
-        return {
-          status: 201,
-          body: {
-            data: {
-              ...updated,
-              ...sla,
-              comments: updated.comments.filter((c) => !c.isInternal),
-            },
-          },
-        };
-      }
-
-      const portalCsatMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/csat$/);
-      if (portalCsatMatch && method === 'POST') {
-        const idOrKey = decodeURIComponent(portalCsatMatch[1]);
-        const score = Number(body.score ?? body.csatScore);
-        if (!Number.isFinite(score) || score < 1 || score > 5) {
-          return {
-            status: 400,
-            body: { error: 'A nota CSAT ("score") deve ser um número entre 1 e 5.' },
-          };
-        }
-        const ticket = this.repo.getServiceTicketById(idOrKey);
-        if (!ticket) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
+          this.portalAudit('PORTAL_TICKET_CREATE', 'SUCCESS', portalIp, created.key, email, 'chamado aberto pelo portal');
+          return { status: 201, body: { data: toPortalPublicTicketDto(created) } };
         }
 
-        const updated = this.repo.updateServiceTicket(idOrKey, {
-          csatScore: Math.round(score),
-        });
-        if (body.feedback && String(body.feedback).trim()) {
-          this.repo.addTicketComment(idOrKey, {
-            author: body.author ? String(body.author) : "Avaliação CSAT do Cliente",
-            authorRole: "CUSTOMER",
-            isInternal: false,
-            body: `Avaliação CSAT: ${Math.round(score)}/5 — ${String(body.feedback).trim()}`,
-          });
+        const portalActionMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/(reply|csat)$/);
+        if (portalActionMatch && method === 'POST') {
+          const action = portalActionMatch[2] === 'reply' ? 'PORTAL_TICKET_REPLY' : 'PORTAL_TICKET_CSAT';
+          let key = '';
+          try {
+            key = normalizePortalKey(decodeURIComponent(portalActionMatch[1]));
+          } catch {
+            key = '';
+          }
+          const email = normalizePortalEmail(body.email);
+          if (!key || !email) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'sem chave/e-mail (400)');
+            return { status: 400, body: { error: PORTAL_MISSING_FILTER_MESSAGE, code: 'PORTAL_FILTER_REQUIRED' } };
+          }
+          if (!this.portalLimiters.allow(portalIp, key)) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'rate-limit (429)');
+            return tooMany;
+          }
+          const ticket = locate(key, email);
+          if (!ticket) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'chave/e-mail nao conferem (404 generico)');
+            return denied;
+          }
+          const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
+          const contactName = contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Cliente (Portal Web)';
+
+          if (portalActionMatch[2] === 'reply') {
+            const messageBody = String(body.body || body.message || '').trim().slice(0, 10000);
+            if (!messageBody) {
+              this.portalAudit(action, 'BLOCKED', portalIp, ticket.key, email, 'mensagem vazia (400)');
+              return { status: 400, body: { error: 'A mensagem de resposta ("body") é obrigatória.' } };
+            }
+            const updated = this.repo.addTicketComment(ticket.id, {
+              author: contactName,
+              authorRole: 'CUSTOMER',
+              isInternal: false,
+              body: messageBody,
+              newStatus: ticket.status === 'WAITING_CUSTOMER' ? 'IN_PROGRESS' : undefined,
+            });
+            if (!updated) return denied;
+            this.portalAudit(action, 'SUCCESS', portalIp, ticket.key, email, 'resposta publica registrada');
+            return { status: 201, body: { data: toPortalPublicTicketDto(updated) } };
+          }
+
+          const score = Number(body.score ?? body.csatScore);
+          if (!Number.isFinite(score) || score < 1 || score > 5) {
+            this.portalAudit(action, 'BLOCKED', portalIp, ticket.key, email, 'nota invalida (400)');
+            return { status: 400, body: { error: 'A nota CSAT ("score") deve ser um número entre 1 e 5.' } };
+          }
+          this.repo.updateServiceTicket(ticket.id, { csatScore: Math.round(score) });
+          const feedback = body.feedback ? String(body.feedback).trim().slice(0, 2000) : '';
+          if (feedback) {
+            this.repo.addTicketComment(ticket.id, {
+              author: contactName,
+              authorRole: 'CUSTOMER',
+              isInternal: false,
+              body: `Avaliação CSAT: ${Math.round(score)}/5 — ${feedback}`,
+            });
+          }
+          const refreshed = this.repo.getServiceTicketById(ticket.id) || ticket;
+          this.portalAudit(action, 'SUCCESS', portalIp, ticket.key, email, `CSAT ${Math.round(score)}/5 registrado`);
+          return { status: 200, body: { data: toPortalPublicTicketDto(refreshed) } };
         }
-        const refreshed = this.repo.getServiceTicketById(idOrKey) || updated!;
-        const sla = computeRealtimeTicketSla(refreshed);
-        return {
-          status: 200,
-          body: {
-            data: {
-              ...refreshed,
-              ...sla,
-              comments: refreshed.comments.filter((c) => !c.isInternal),
-            },
-          },
-        };
+
+        // Qualquer outra rota/metodo /api/portal/* : nada publico alem do contrato acima.
+        this.portalAudit('PORTAL_UNKNOWN_ROUTE', 'BLOCKED', portalIp, '', '', `${method} ${cleanPath}`.slice(0, 160));
+        return denied;
       }
 
       // ======================================================================
@@ -5324,8 +5302,12 @@ export class CrmApiRouter {
 
       if (cleanPath === '/api/auth/setup-totp' && (method === 'GET' || method === 'POST')) {
         const target = String(
-          body.email || body.userId || query.email || query.userId || 'marcelo.mira@setatelecom.com.br'
+          body.email || body.userId || query.email || query.userId || ''
         ).trim();
+        // HOTFIX 29/10: sem alvo explicito nao ha usuario padrao (antes caia no SUPER_ADMIN).
+        if (!target || !this.repo.findEffectiveUserAndRole(target)) {
+          return { status: 400, body: { error: 'Informe o e-mail corporativo do usuário.', code: 'SETUP_TOTP_TARGET_REQUIRED' } };
+        }
         const regenerateRequested = Boolean(body.regenerate || query.regenerate === '1');
         // Revisao 7706b4a: body.totpSecret NAO e lido. O segredo e sempre derivado no servidor
         // (segredo do servidor + epoca + e-mail); o cliente nunca escolhe nem grava segredo TOTP.

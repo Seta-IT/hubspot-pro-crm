@@ -329,6 +329,7 @@ describe('API homeScreen - transporte nao permite escalada', () => {
     assert.deepEqual(sealed.user.erpPermissions, before.erpPermissions);
     assert.deepEqual((sealed.user as Record<string, unknown>).actionGuardsOverride, before.actionGuardsOverride);
     const session = repo.resolveSessionFromToken(t);
+    assert.ok(session.authenticated);
     assert.equal(session.effectiveActionGuards.canManageUsersRbac, false);
   });
 });

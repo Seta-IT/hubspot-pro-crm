@@ -249,7 +249,20 @@ export default function HubSpotProCrmApp() {
           if (d.emailTemplates) setEmailTemplatesState(d.emailTemplates);
           if (d.rbac) {
             setRbacState(d.rbac);
+            // HOTFIX 29/10: o usuario ativo vem da SESSAO real (cookie HttpOnly), nunca de users[0].
+            let sessionUserId: string | null = null;
+            try {
+              const sr = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+              const sj = sr.ok ? await sr.json() : null;
+              if (sj?.data?.authenticated === true && sj.data.user?.id) sessionUserId = String(sj.data.user.id);
+            } catch {
+              sessionUserId = null;
+            }
             setActiveRbacUser((prev) => {
+              if (sessionUserId) {
+                const own = d.rbac.users.find((u: StiHubUserRecord) => u.id === sessionUserId);
+                if (own) return own;
+              }
               if (prev) {
                 return d.rbac.users.find((u: StiHubUserRecord) => u.id === prev.id) || prev;
               }
@@ -264,7 +277,7 @@ export default function HubSpotProCrmApp() {
                   // ignore
                 }
               }
-              return d.rbac.users[0] || null;
+              return null;
             });
           }
         }
@@ -1643,10 +1656,10 @@ export default function HubSpotProCrmApp() {
                 <div className="absolute right-0 mt-1.5 w-72 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-2xl z-50 overflow-hidden text-xs">
                   <div className="p-3 bg-[#0d2b4e] text-white space-y-1">
                     <div className="font-semibold truncate">
-                      {activeRbacUser?.name || "Marcelo Lopes Mira"}
+                      {activeRbacUser?.name || "—"}
                     </div>
                     <div className="text-[11px] text-slate-300 font-mono truncate">
-                      {activeRbacUser?.email || "marcelo.mira@setatelecom.com.br"}
+                      {activeRbacUser?.email || ""}
                     </div>
                     <div className="flex flex-wrap items-center gap-1 pt-1">
                       {userEnabledModules.map((m) => (

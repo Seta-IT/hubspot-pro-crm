@@ -704,6 +704,24 @@ export function computeCustomDueDateFromRule(params: {
   };
 }
 
+
+/** Sessao anonima: so isto (sem user, role, guards ou permissoes). */
+export interface StiHubAnonymousSession {
+  authenticated: false;
+  mfaVerified: false;
+}
+export interface StiHubAuthenticatedSession {
+  authenticated: true;
+  mfaVerified: boolean;
+  user: StiHubUserRecord;
+  role: StiHubRoleDefinition;
+  effectiveActionGuards: StiHubActionGuards;
+  enabledModules: StiHubMacroModule[];
+  moduleAccess: StiHubUserModuleAccess;
+  crmPermissions: StiHubCrmPermissions;
+  erpPermissions: StiHubErpPermissions;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -6752,10 +6770,10 @@ export class CrmRepository {
       "0000000000000000000000000000000000000000000000000000000000000000";
     const nowIso = new Date().toISOString();
     const id = `AUDIT-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-    const actorEmail = input.actorEmail || "marcelo.mira@setatelecom.com.br";
-    const actorName = input.actorName || "Marcelo Lopes Mira";
-    const actorRole = input.actorRole || "SUPER_ADMIN";
-    const ipAddress = input.ipAddress || "189.112.44.18";
+    const actorEmail = input.actorEmail || "sistema@sti-hub.local"; // HOTFIX 29/10: sem ator => sistema, nunca o admin
+    const actorName = input.actorName || "Sistema STI-hub";
+    const actorRole = input.actorRole || "SYSTEM";
+    const ipAddress = input.ipAddress || "n/d";
     const integrityHashSha256 = sha256Hex(
       `${prevHash}|${id}|${nowIso}|${actorEmail}|${input.action}|${input.module}|${input.resource}|${input.status}|${input.details}`
     );
@@ -7160,6 +7178,18 @@ export class CrmRepository {
     return { ...rbac.securityConfig };
   }
 
+  /**
+   * HOTFIX 29/10 (vazamento anonimo): busca ESTRITA. Sem correspondencia => null (nunca o
+   * primeiro usuario/SUPER_ADMIN). Quem nao tem sessao nao tem usuario.
+   */
+  findEffectiveUserAndRole(userOrEmail?: string | null): ReturnType<CrmRepository["getEffectiveUserAndRole"]> | null {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    if (!q) return null;
+    const hit = rbac.users.find((u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q);
+    return hit ? this.getEffectiveUserAndRole(hit.id) : null;
+  }
+
   getEffectiveUserAndRole(userOrEmail?: string | null): {
     user: StiHubUserRecord;
     role: StiHubRoleDefinition;
@@ -7179,7 +7209,11 @@ export class CrmRepository {
               u.email.toLowerCase() === q ||
               u.name.toLowerCase() === q
           )
-        : null) || rbac.users[0];
+        : null);
+    if (!matchedUser) {
+      // HOTFIX 29/10: sem fallback para rbac.users[0] (SUPER_ADMIN). Chamadores usam id existente.
+      throw new Error("STIHUB_USER_NOT_FOUND");
+    }
 
     const matchedRole =
       rbac.roles.find((r) => r.id === matchedUser.roleId) || rbac.roles[0];
@@ -8213,7 +8247,12 @@ export class CrmRepository {
   } {
     const rbac = this.ensureRbacState();
     const rawCode = String(input.code || "").replace(/\D+/g, "");
-    const identifier = input.userId || input.email || "usr-seta-01";
+    // HOTFIX 29/10: sem identificador ou usuario inexistente => falha (nunca usr-seta-01/users[0]).
+    const resolvedUser =
+      this.findEffectiveUserAndRole(input.userId) || this.findEffectiveUserAndRole(input.email);
+    if (!resolvedUser) {
+      return { ok: false, error: "Código 2FA inválido ou expirado. Faça login novamente." };
+    }
     const {
       user,
       role,
@@ -8222,7 +8261,7 @@ export class CrmRepository {
       moduleAccess,
       crmPermissions,
       erpPermissions,
-    } = this.getEffectiveUserAndRole(identifier);
+    } = resolvedUser;
 
     if (!user.active) {
       return { ok: false, error: "Conta corporativa inativa." };
@@ -8495,17 +8534,7 @@ export class CrmRepository {
     };
   }
 
-  resolveSessionFromToken(token?: string | null): {
-    authenticated: boolean;
-    mfaVerified: boolean;
-    user: StiHubUserRecord;
-    role: StiHubRoleDefinition;
-    effectiveActionGuards: StiHubActionGuards;
-    enabledModules: StiHubMacroModule[];
-    moduleAccess: StiHubUserModuleAccess;
-    crmPermissions: StiHubCrmPermissions;
-    erpPermissions: StiHubErpPermissions;
-  } {
+  resolveSessionFromToken(token?: string | null): StiHubAnonymousSession | StiHubAuthenticatedSession {
     if (token) {
       const verified = verifyStiHubSessionToken(token);
       if (verified.valid && verified.claims) {
@@ -8545,20 +8574,18 @@ export class CrmRepository {
             exists.moduleAccess = c.moduleAccess;
           }
         }
-        const resolved = this.getEffectiveUserAndRole(c.uid || c.email);
-        return {
-          authenticated: true,
-          mfaVerified: Boolean(c.mfaVerified),
-          ...resolved,
-        };
+        const resolved = this.findEffectiveUserAndRole(c.uid) || this.findEffectiveUserAndRole(c.email);
+        if (resolved && resolved.user.active !== false) {
+          return {
+            authenticated: true,
+            mfaVerified: Boolean(c.mfaVerified),
+            ...resolved,
+          };
+        }
       }
     }
-    const fallback = this.getEffectiveUserAndRole("usr-seta-01");
-    return {
-      authenticated: false,
-      mfaVerified: false,
-      ...fallback,
-    };
+    // HOTFIX 29/10 (vazamento anonimo): sem sessao valida NAO ha usuario, papel nem permissoes.
+    return { authenticated: false, mfaVerified: false };
   }
 
   // ==========================================================================

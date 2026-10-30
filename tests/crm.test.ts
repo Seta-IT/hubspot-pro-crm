@@ -1205,29 +1205,36 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
   });
 
   it('opera Portal Externo do Cliente (/api/portal/tickets): oculta notas internas do NOC, abre novo protocolo com SLA, responde e registra avaliação CSAT', async () => {
+    // HOTFIX 29/10: contrato publico = chave + e-mail do contato; DTO minimo (sem CNPJ/contrato/notas internas).
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
+    const emailOf = (key: string) => {
+      const t = repo.getServiceTicketById(key)!;
+      return repo.getContactById(t.contactId!)!.email;
+    };
 
-    // 1. Consultar protocolo JSM-101 no Portal e garantir que notas internas (isInternal: true) NÃO aparecem
-    const getPortalRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+    // 1. Consultar protocolo JSM-101 (chave + e-mail) e garantir que notas internas NAO aparecem
+    const getPortalRes = await router.dispatch({
       method: 'GET',
-      path: '/api/portal/tickets?key=JSM-101',
+      path: '/api/portal/tickets',
+      query: { _fromHttpBridge: '1', _clientIp: '192.0.2.10', key: 'JSM-101', email: emailOf('JSM-101') },
     });
     assert.equal(getPortalRes.status, 200);
-    const portalTickets = (getPortalRes.body as {
-      data: Array<{ key: string; comments: Array<{ isInternal: boolean; body: string }> }>;
+    const portalTicket = (getPortalRes.body as {
+      data: { key: string; comments: Array<{ body: string; isInternal?: boolean }> };
     }).data;
-    assert.equal(portalTickets.length, 1);
-    assert.equal(portalTickets[0].key, 'JSM-101');
+    assert.equal(portalTicket.key, 'JSM-101');
+    const internalBodies = repo.getServiceTicketById('JSM-101')!.comments.filter((c) => c.isInternal).map((c) => c.body);
     assert.ok(
-      portalTickets[0].comments.every((c) => c.isInternal === false),
+      portalTicket.comments.every((c) => c.isInternal === undefined && !internalBodies.includes(c.body)),
       'Portal público nunca deve expor notas internas do NOC'
     );
 
     // 2. Abrir novo chamado técnico pelo Portal do Cliente
-    const createPortalRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+    const createPortalRes = await router.dispatch({
       method: 'POST',
       path: '/api/portal/tickets',
+      query: { _fromHttpBridge: '1', _clientIp: '192.0.2.10' },
       body: {
         name: 'Roberto Mendes',
         email: 'roberto.mendes@bemisa.com.br',
@@ -1241,20 +1248,20 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
       },
     });
     assert.equal(createPortalRes.status, 201);
-    const createdPortalTicket = (createPortalRes.body as {
-      data: { key: string; assignee: string; priority: string; equipmentSerial: string };
-    }).data;
-    assert.ok(createdPortalTicket.key.startsWith('JSM-'));
-    assert.equal(createdPortalTicket.priority, 'CRITICAL');
-    assert.equal(createdPortalTicket.equipmentSerial, 'SN-SETA-PABX-BM01');
-    assert.ok(createdPortalTicket.assignee.includes('NOC N2'));
+    const createdKey = (createPortalRes.body as { data: { key: string } }).data.key;
+    assert.ok(createdKey.startsWith('JSM-'));
+    const createdFull = repo.getServiceTicketById(createdKey)!;
+    assert.equal(createdFull.priority, 'CRITICAL');
+    assert.equal(createdFull.equipmentSerial, 'SN-SETA-PABX-BM01');
+    assert.ok(createdFull.assignee.includes('NOC N2'));
 
     // 3. Cliente responde em chamado que estava WAITING_CUSTOMER (JSM-103) -> volta para IN_PROGRESS
-    const replyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+    const replyRes = await router.dispatch({
       method: 'POST',
       path: '/api/portal/tickets/JSM-103/reply',
+      query: { _fromHttpBridge: '1', _clientIp: '192.0.2.10' },
       body: {
-        author: 'Camila Ferreira (VTEX)',
+        email: emailOf('JSM-103'),
         body: 'Janela de manutenção no Data Center aprovada para hoje às 22h.',
       },
     });
@@ -1262,18 +1269,19 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     const repliedTicket = (replyRes.body as { data: { status: string; comments: unknown[] } }).data;
     assert.equal(repliedTicket.status, 'IN_PROGRESS');
 
-    // 4. Cliente avalia atendimento CSAT (1 a 5 estrelas)
-    const csatRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+    // 4. Cliente avalia atendimento CSAT (1 a 5 estrelas) — com chave + e-mail usado na abertura
+    const csatRes = await router.dispatch({
       method: 'POST',
-      path: `/api/portal/tickets/${createdPortalTicket.key}/csat`,
+      path: `/api/portal/tickets/${createdKey}/csat`,
+      query: { _fromHttpBridge: '1', _clientIp: '192.0.2.10' },
       body: {
+        email: 'roberto.mendes@bemisa.com.br',
         score: 5,
         feedback: 'Atendimento impecável do NOC Seta Telecom, tronco SIP restabelecido em 12 minutos!',
       },
     });
     assert.equal(csatRes.status, 200);
-    const ratedTicket = (csatRes.body as { data: { csatScore: number } }).data;
-    assert.equal(ratedTicket.csatScore, 5);
+    assert.equal(repo.getServiceTicketById(createdKey)!.csatScore, 5);
   });
 });
 

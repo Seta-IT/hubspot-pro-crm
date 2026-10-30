@@ -932,7 +932,8 @@ export function decodeSessionCookie(raw: string | undefined | null): StiHubSessi
     userId: c.uid,
     name: c.name,
     email: c.email,
-    role: (c.roleId as StiHubRole) || 'SUPER_ADMIN',
+    // HOTFIX 29/10: sem papel na sessao => menor privilegio (nunca SUPER_ADMIN por padrao).
+    role: (c.roleId as StiHubRole) || 'SALES_REP',
     department: 'Seta Telecom',
     mfaVerified: c.mfaVerified,
     mfaMethod: c.mfaMethod,
