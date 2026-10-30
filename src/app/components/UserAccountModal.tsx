@@ -108,7 +108,6 @@ export default function UserAccountModal({
         userId: user.id,
         code: clean,
         mfaMethod: 'TOTP_AUTHENTICATOR',
-        totpSecret: totpPairing?.totpSecret,
       }),
     });
     const json = await res.json();
@@ -165,9 +164,6 @@ export default function UserAccountModal({
         mfaMethod,
         mfaEnabled: true,
       };
-      if (totpPairing?.totpSecret) {
-        payload.totpSecret = totpPairing.totpSecret;
-      }
       if (newPassword.trim().length >= 6) {
         payload.password = newPassword.trim();
       }
@@ -183,6 +179,14 @@ export default function UserAccountModal({
         }
         onShowToast('Configurações da conta e método 2FA salvos com sucesso!');
         onClose();
+      } else {
+        const errJson = await res.json().catch(() => null);
+        onShowToast(
+          errJson?.error ||
+            (res.status === 403
+              ? 'Seu perfil não tem permissão para alterar este cadastro. Peça a um administrador IAM.'
+              : 'Não foi possível salvar as configurações da conta.')
+        );
       }
     } finally {
       setSaving(false);
