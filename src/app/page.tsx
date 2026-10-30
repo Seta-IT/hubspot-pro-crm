@@ -45,7 +45,7 @@ import {
   shouldOfferHomeScreenChoice,
   systemHasAccess,
 } from './lib/home-screen';
-import { loadClientIamUsersOverride } from './lib/auth';
+import { loadClientIamUsersOverride, migrateClientIamStorage } from './lib/auth';
 import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
@@ -288,6 +288,8 @@ export default function HubSpotProCrmApp() {
   }, []);
 
   useEffect(() => {
+    // Pacote E: migracao transparente do cache IAM (sem senha/hash em texto no navegador).
+    migrateClientIamStorage();
     fetchAllCrmData();
   }, [fetchAllCrmData]);
 

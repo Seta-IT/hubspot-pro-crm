@@ -182,7 +182,7 @@ describe('Revisao 7706b4a (2): body.totpSecret nunca e lido nem gravado', () => 
     assert.equal(repo.findRbacUserRecord('usr-seta-01', EMAIL)!.totpSecret, deriveServerTotpSecret(EMAIL));
   });
 
-  it('PUT/POST de usuario (admin) com totpSecret no corpo nao altera o segredo', async () => {
+  it('PUT/POST de usuario (admin) com totpSecret no corpo => 400 (Pacote E) e o segredo nao muda', async () => {
     const attacker = 'KRSXG5CTMVRXEZLUKN2XAZLSKNSWG4TF';
     const { repo } = freshRouter();
     const router = new CrmApiRouter(repo);
@@ -193,12 +193,12 @@ describe('Revisao 7706b4a (2): body.totpSecret nunca e lido nem gravado', () => 
       mfaVerified: true, mfaMethod: 'TOTP_AUTHENTICATOR', iat: Date.now(), exp: Date.now() + 60_000,
     });
     const put = await router.dispatch({ method: 'PUT', path: '/api/admin/users/usr-seta-01', query: { ...HTTP, _sessionToken: admin }, body: { totpSecret: attacker, totpSecretFormatted: attacker, lastUsedTotpTimeStep: 1 } });
-    assert.equal(put.status, 200);
+    assert.equal(put.status, 400);
+    assert.equal((put.body as { code?: string }).code, 'IAM_FORBIDDEN_CREDENTIAL_FIELD');
     assert.equal(repo.findRbacUserRecord('usr-seta-01', EMAIL)!.totpSecret, deriveServerTotpSecret(EMAIL));
     const post = await router.dispatch({ method: 'POST', path: '/api/admin/users', query: { ...HTTP, _sessionToken: admin }, body: { email: 'teste.totp@setatelecom.com.br', name: 'Teste', roleId: 'VENDEDOR_SALES', totpSecret: attacker } });
-    assert.equal(post.status, 201);
-    const created = repo.findRbacUserRecord('', 'teste.totp@setatelecom.com.br')!;
-    assert.equal(created.totpSecret, deriveServerTotpSecret('teste.totp@setatelecom.com.br'));
+    assert.equal(post.status, 400);
+    assert.equal(repo.findRbacUserRecord('', 'teste.totp@setatelecom.com.br'), undefined, 'nada e criado');
   });
 });
 

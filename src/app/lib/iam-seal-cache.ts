@@ -13,6 +13,7 @@
 // com o registro consolidado e o cache volta a ter uma entrada por usuario.
 // ============================================================================
 import {
+  CLIENT_IAM_CREDENTIAL_KEYS,
   loadClientIamUsersOverride,
   saveClientIamUserOverride,
   STIHUB_IAM_USERS_STORAGE_KEY,
@@ -20,7 +21,7 @@ import {
 
 type IamCacheEntry = Record<string, unknown>;
 
-const NEVER_CACHED_KEYS = ['password', 'passwordHash', 'totpSecret', 'totpSecretFormatted', 'lastUsedTotpTimeStep'];
+const NEVER_CACHED_KEYS = CLIENT_IAM_CREDENTIAL_KEYS; // Pacote E: lista unica (auth.ts)
 
 export function homeScreenVersionOf(entry: IamCacheEntry | null | undefined): number {
   if (!entry) return 0;
@@ -69,7 +70,7 @@ export function saveClientIamUserOverrideIfNewer(user: IamCacheEntry | null | un
   try {
     const { entries, result } = mergeIamCacheEntries(loadClientIamUsersOverride(), user);
     if (result === 'REPLACED') {
-      saveClientIamUserOverride(user);
+      saveClientIamUserOverride(safeEntry(user));
       return;
     }
     window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(entries));

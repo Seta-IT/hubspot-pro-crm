@@ -1,6 +1,16 @@
 'use client';
 
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
+import { CLIENT_IAM_CREDENTIAL_KEYS } from '../lib/auth';
+
+/** Pacote E: remove hash/segredo TOTP/campos de senha auxiliares; `password` so se nao vazio. */
+function sanitizeIamUserPatch(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...patch };
+  const pw = typeof out.password === 'string' ? out.password.trim() : '';
+  for (const k of CLIENT_IAM_CREDENTIAL_KEYS) delete out[k];
+  if (pw) out.password = pw;
+  return out;
+}
 import React, { useState, useEffect } from 'react';
 import {
   buildDefaultCrmItemPermissions,
@@ -468,15 +478,13 @@ export default function StiHubAdminRbacPanel({
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+      // Pacote E: o PUT nunca leva hash/segredo TOTP; senha so se o admin digitou uma nova.
+      body: JSON.stringify(sanitizeIamUserPatch(patch)),
     });
     if (res.ok) {
       const json = await res.json();
       if (json?.data) {
-        saveClientIamUserOverrideIfNewer({
-          ...json.data,
-          ...(patch.password ? { password: patch.password } : {}),
-        });
+        saveClientIamUserOverrideIfNewer(json.data);
       }
       onShowToast(`Usuário ${user.name} atualizado na matriz RBAC!`);
       await onRefresh();
@@ -772,7 +780,6 @@ export default function StiHubAdminRbacPanel({
         roleId: newUserRole,
         crmRole: newUserCrmRole,
         erpRole: newUserErpRole,
-        totpSecret: newUserTotpSecret,
         crmItemPermissions: crmRolesMatrixState[newUserCrmRole]?.itemPermissions || buildDefaultCrmItemPermissions(newUserCrmRole),
         erpItemPermissions: erpRolesMatrixState[newUserErpRole]?.itemPermissions || buildDefaultErpItemPermissions(newUserErpRole),
         scope: newUserScope,
@@ -803,7 +810,6 @@ export default function StiHubAdminRbacPanel({
           ...created,
           totpConfigured: false,
           totpConfiguredAt: null,
-          ...(newUserPassword.trim().length >= NEW_PASSWORD_MIN_LENGTH ? { password: newUserPassword.trim() } : {}),
         });
         if (created.inviteUrl) {
           try {
@@ -2316,7 +2322,6 @@ export default function StiHubAdminRbacPanel({
                     crmItemPermissions: editingUser.crmItemPermissions,
                     erpItemPermissions: editingUser.erpItemPermissions,
                     itemPermissions: editingUser.itemPermissions,
-                    totpSecret: editingUser.totpSecret,
                     crmPermissions: userCrm,
                     erpPermissions: userErp,
                   });
