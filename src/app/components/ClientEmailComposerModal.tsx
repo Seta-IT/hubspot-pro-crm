@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { requestSignedProposalLink } from '../lib/proposal-link-client';
 import {
   Mail,
   Send,
@@ -93,6 +94,16 @@ function buildDefaultSubject(p: ClientEmailInitialPayload, docType: StiHubEmailD
     case 'FISCAL_INVOICE':
       return `[Seta Telecom • Fiscal] Nota Fiscal Eletrônica #${code} (DANFE / NFS-e) — ${comp}`;
   }
+}
+
+function defaultProposalPdfLink(p: ClientEmailInitialPayload): string {
+  const code = p.documentCode || 'Seta-2026';
+  return (
+    p.publicPdfUrl ||
+    (typeof window !== 'undefined'
+      ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
+      : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`)
+  );
 }
 
 function buildDefaultBody(p: ClientEmailInitialPayload, docType: StiHubEmailDocType): string {
@@ -228,6 +239,24 @@ export default function ClientEmailComposerModal({
   const [sending, setSending] = useState(false);
   const [sentProtocol, setSentProtocol] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [signedProposalUrl, setSignedProposalUrl] = useState<string | null>(null);
+
+  // Link assinado (29/10): proposta para o cliente so abre com o link gerado no servidor.
+  // Se o corpo padrao trouxe o link antigo (sem assinatura), troca pelo link assinado.
+  useEffect(() => {
+    if (payload.docType !== 'PROPOSAL' || !payload.proposalId) return;
+    if (payload.publicPdfUrl && payload.publicPdfUrl.includes('#t=')) return;
+    let active = true;
+    requestSignedProposalLink(payload.proposalId).then((r) => {
+      if (!active || !r.ok) return;
+      setSignedProposalUrl(r.url);
+      const unsigned = defaultProposalPdfLink(payload);
+      setBody((prev) => (unsigned && prev.includes(unsigned) ? prev.split(unsigned).join(r.url) : prev));
+    });
+    return () => {
+      active = false;
+    };
+  }, [payload]);
 
   const handleSwitchDocType = (nextType: StiHubEmailDocType) => {
     setDocType(nextType);
@@ -254,7 +283,7 @@ export default function ClientEmailComposerModal({
           companyName: payload.companyName,
           documentCode: payload.documentCode,
           amountBrl: payload.amountBrl,
-          publicPdfUrl: payload.publicPdfUrl,
+          publicPdfUrl: signedProposalUrl || payload.publicPdfUrl,
           contactId: payload.contactId,
           companyId: payload.companyId,
           dealId: payload.dealId,
