@@ -119,6 +119,7 @@ import {
   verifyStiHubSessionToken,
 } from '../app/lib/auth';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   fetchLiveGestaoClickSnapshot,
   maskSecretToken,
@@ -7761,10 +7762,11 @@ export class CrmRepository {
       };
     }
     const cleanPass = String(input.password || "").trim();
-    if (cleanPass.length < 6) {
+    // Pacote C: senha NOVA do convite segue a politica de 12 caracteres.
+    if (cleanPass.length < NEW_PASSWORD_MIN_LENGTH) {
       return {
         ok: false,
-        error: "A senha deve ter pelo menos 6 caracteres.",
+        error: NEW_PASSWORD_MIN_MESSAGE,
       };
     }
 

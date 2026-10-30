@@ -196,7 +196,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     const router = new CrmApiRouter(repo);
 
     // Cria uma Filial da TOTVS com o mesmo domínio totvs.com.br mas CNPJ filial /0002-03
-    const filialRes = await router.dispatch({
+    const filialRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/companies',
       body: {
@@ -224,7 +224,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     );
 
     // 2. Verifica que tentativa forçada de merge via API retorna 400 Bad Request (Bloqueio Fiscal)
-    const mergeAttempt = await router.dispatch({
+    const mergeAttempt = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/merge',
       body: {
@@ -245,7 +245,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     // Antes do merge, cont-marina-dup tem 1 evento (evt-2) e customProperties.webinarAttended
     const eventsBefore = repo.listTimelineEvents({ contactId: 'cont-marina' }).length;
 
-    const mergeRes = await router.dispatch({
+    const mergeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/merge',
       body: {
@@ -287,7 +287,7 @@ describe('4. Enriquecimento Inteligente por Domínio Corporativo', () => {
     assert.equal(before.companyId, null);
     assert.ok(before.completenessScore < 60);
 
-    const res = await router.dispatch({
+    const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/enrichment/run',
       body: { contactId: 'cont-lucas' },
@@ -316,7 +316,7 @@ describe('5. Motor de Workflows & Sequências de E-mail (com Pausa Automática n
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const createRes = await router.dispatch({
+    const createRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/contacts',
       body: {
@@ -346,7 +346,7 @@ describe('5. Motor de Workflows & Sequências de E-mail (com Pausa Automática n
     const router = new CrmApiRouter(repo);
 
     // 1. Inscrever Marina na cadência outbound
-    const enrollRes = await router.dispatch({
+    const enrollRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/sequences',
       body: {
@@ -361,7 +361,7 @@ describe('5. Motor de Workflows & Sequências de E-mail (com Pausa Automática n
     assert.equal(enrolled.currentStepOrder, 1);
 
     // 2. Avançar para o Passo 2
-    const advRes = await router.dispatch({
+    const advRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/sequences',
       body: {
@@ -375,7 +375,7 @@ describe('5. Motor de Workflows & Sequências de E-mail (com Pausa Automática n
     assert.equal(advanced.sentCount, 2);
 
     // 3. Simular Resposta do Lead -> Deve pausar automaticamente (PAUSED_ON_REPLY)
-    const replyRes = await router.dispatch({
+    const replyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/sequences',
       body: {
@@ -405,7 +405,7 @@ describe('6. IA Analista de Funil e Base (/api/ai-insights) & Saúde Global (/ap
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const aiRes = await router.dispatch({
+    const aiRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/ai-insights',
       body: { question: 'Qual é o maior gargalo do funil e a previsão de receita?' },
@@ -439,13 +439,13 @@ describe('6. IA Analista de Funil e Base (/api/ai-insights) & Saúde Global (/ap
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const summaryBeforeRes = await router.dispatch({
+    const summaryBeforeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/data-health/summary',
     });
     assert.equal(summaryBeforeRes.status, 200);
 
-    const cleanRes = await router.dispatch({
+    const cleanRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/auto-clean',
       body: { minConfidence: 80, autoEnrich: true },
@@ -475,14 +475,14 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     const router = new CrmApiRouter(repo);
 
     // 1. Pipelines Kanban
-    const pipeRes = await router.dispatch({ method: 'GET', path: '/api/pipelines' });
+    const pipeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/pipelines' });
     assert.equal(pipeRes.status, 200);
     const pipes = (pipeRes.body as { data: Array<{ stages: unknown[] }> }).data;
     assert.ok(pipes.length >= 3);
     assert.equal(pipes[0].stages.length, 7);
 
     // 2. Criar Empresa
-    const compRes = await router.dispatch({
+    const compRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/companies',
       body: {
@@ -499,7 +499,7 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     assert.equal(createdComp.completenessScore, 80); // 30 domain + 20 name + 15 industry + 15 size (sem CNPJ)
 
     // 3. Criar Deal e mover de estágio para acionar workflow DEAL_STAGE_CHANGED
-    const dealRes = await router.dispatch({
+    const dealRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/deals',
       body: {
@@ -515,7 +515,7 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     assert.equal(createdDeal.probability, 50);
 
     // Mover para stage-proposal (70% prob) -> deve disparar workflow wf-deal-proposal-followup
-    const moveRes = await router.dispatch({
+    const moveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: `/api/deals/${createdDeal.id}`,
       body: { stageId: 'stage-proposal' },
@@ -540,12 +540,12 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const formsRes = await router.dispatch({ method: 'GET', path: '/api/forms' });
+    const formsRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/forms' });
     assert.equal(formsRes.status, 200);
     const formsBody = formsRes.body as { data: Array<{ id: string }>; summary: { totalForms: number } };
     assert.ok(formsBody.data.length >= 3);
 
-    const submitRes = await router.dispatch({
+    const submitRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/forms/submit',
       body: {
@@ -583,7 +583,7 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
     const router = new CrmApiRouter(repo);
 
     // 1. Listar tickets e KPIs de SLA
-    const listRes = await router.dispatch({ method: 'GET', path: '/api/tickets' });
+    const listRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets' });
     assert.equal(listRes.status, 200);
     const listBody = listRes.body as {
       data: Array<{ id: string; key: string }>;
@@ -593,7 +593,7 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
     assert.ok(listBody.kpis.slaComplianceRate > 0);
 
     // 2. Responder ao cliente no ticket JSM-102 (que ainda não tinha firstRespondedAt)
-    const commentRes = await router.dispatch({
+    const commentRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/tickets/JSM-102/comments',
       body: {
@@ -626,7 +626,7 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const migRes = await router.dispatch({
+    const migRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/migration/hubspot',
       body: {
@@ -662,7 +662,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     const router = new CrmApiRouter(repo);
 
     // 1. Overview ERP
-    const ovRes = await router.dispatch({ method: 'GET', path: '/api/erp/overview' });
+    const ovRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/erp/overview' });
     assert.equal(ovRes.status, 200);
     const ov = (ovRes.body as {
       data: {
@@ -682,7 +682,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação pura de bens móveis não incide ISS (SV 31 STF)');
 
     // 2. Aprovar Proposta PROP-2026-002 -> Gera Contrato de Locação + Fatura de Locação automaticamente
-    const appRes = await router.dispatch({
+    const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/proposals/prop-seta-002/approve',
       body: {
@@ -708,14 +708,14 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(appData.invoice.taxBreakdown.issAmount, 0);
 
     // 3. Emitir NF-e de Remessa de Locação (CFOP 5.908)
-    const remRes = await router.dispatch({
+    const remRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: `/api/erp/rental-contracts/${appData.contract.id}/generate-remessa`,
     });
     assert.equal(remRes.status, 201);
 
     // 4. Reatribuir carteira órfã de ex-vendedores inativos no Data Health
-    const reRes = await router.dispatch({
+    const reRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/reassign-orphans',
       body: { targetOwnerName: 'Marcelo Lopes Mira' },
@@ -730,7 +730,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     const router = new CrmApiRouter(repo);
 
     // 1. Editar Proposta Comercial existente (PATCH /api/erp/proposals/:id)
-    const editPropRes = await router.dispatch({
+    const editPropRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: '/api/erp/proposals/prop-seta-002',
       body: {
@@ -762,7 +762,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(updatedProp.totalContractValue, 5500 * 36);
 
     // 2. Editar Contrato de Locação (PATCH /api/erp/contracts/:id)
-    const editCtrRes = await router.dispatch({
+    const editCtrRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: '/api/erp/contracts/ctr-loc-101',
       body: {
@@ -775,7 +775,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(updatedCtr.monthlyValue, 14500);
 
     // 3. Editar Documento Fiscal / Fatura (PATCH /api/erp/fiscal-documents/:id)
-    const editInvRes = await router.dispatch({
+    const editInvRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: '/api/erp/fiscal-documents/inv-loc-0002',
       body: {
@@ -789,7 +789,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(updatedInv.status, 'PAGA');
 
     // 4. Enviar E-mail via STI-hub Mailer (POST /api/communications/send-email)
-    const mailRes = await router.dispatch({
+    const mailRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/communications/send-email',
       body: {
@@ -809,7 +809,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.ok(mailData.protocol.startsWith('STI-MAIL-'));
 
     // 4. Emitir NF-e de Venda de Produto (CFOP 5.102), NFC-e Consumidor (Mod. 65) e NFS-e com retenções (IRRF 1,5% + CSRF 4,65%)
-    const nfeVendaRes = await router.dispatch({
+    const nfeVendaRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/invoices',
       body: {
@@ -835,7 +835,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(nfeVenda.taxBreakdown.totalWithheld, 0);
     assert.equal(nfeVenda.netAmount, 10000);
 
-    const nfseRes = await router.dispatch({
+    const nfseRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/invoices',
       body: {
@@ -858,7 +858,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(nfse.netAmount, 9385);
 
     // 5. Criar Nota de Compra / Entrada de Ativo Imobilizado (CFOP 1.551) em /api/erp/records/purchaseOrders
-    const poRes = await router.dispatch({
+    const poRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/records/purchaseOrders',
       body: {
@@ -874,7 +874,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(poRes.status, 200);
 
     // 6. Emissor NF-e de Importação 4.01 Sebrae (Simples Nacional CRT=1 / CSOSN 900) + Firewall Fiscal TXT (NE000007)
-    const analyzeRes = await router.dispatch({
+    const analyzeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/nfe-importacao/analyze-txt',
       body: {
@@ -904,7 +904,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.ok(analysis.correctedTxt.includes('|3102|UN|'), 'Deve normalizar UN. -> UN e alinhar CFOP 3102');
     assert.ok(analysis.correctedTxt.includes('N10h|1|900|3|21924.76|0.00|18.00|3946.46||||||'), 'Deve preservar CSOSN 900 e valores fiscais');
 
-    const emitImpRes = await router.dispatch({
+    const emitImpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/nfe-importacao/emit',
       body: {
@@ -977,7 +977,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.ok(emittedImp.importMetadata.sefazXmlContent.includes('<nDI>26/1998012-3</nDI>'));
 
     // 7. Importar arquivo .TXT (Sebrae 4.01) e .XML (SEFAZ 4.00) via POST /api/erp/nfe-importacao/parse-file para preencher todas as abas e emitir
-    const parseTxtRes = await router.dispatch({
+    const parseTxtRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/nfe-importacao/parse-file',
       body: {
@@ -1004,7 +1004,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(parsedTxtDraft.rawItems[0].cfop, '3.551');
     assert.equal(parsedTxtDraft.rawItems[0].uCom, 'UN');
 
-    const parseXmlRes = await router.dispatch({
+    const parseXmlRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/nfe-importacao/parse-file',
       body: {
@@ -1030,7 +1030,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     assert.equal(parsedXmlDraft.rawItems[0].cfop, '3.551');
 
     // Bloqueio de segurança contra XXE (<!DOCTYPE / <!ENTITY)
-    const xxeRes = await router.dispatch({
+    const xxeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/nfe-importacao/parse-file',
       body: {
@@ -1048,7 +1048,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     const router = new CrmApiRouter(repo);
 
     // 1º Contato: Com acento, telefone e nova empresa digitada na hora
-    const res1 = await router.dispatch({
+    const res1 = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/contacts',
       body: {
@@ -1067,7 +1067,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.equal(contact1.company.name, 'Construtora Gonçalves S.A.');
 
     // 2º Contato: Sem e-mail preenchido (apenas nome e WhatsApp)
-    const res2 = await router.dispatch({
+    const res2 = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/contacts',
       body: {
@@ -1083,14 +1083,14 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.ok(contact2.email.includes('@contato.setatelecom.com.br'));
 
     // Verificar que ambos estão no TOPO de GET /api/contacts
-    const listRes = await router.dispatch({ method: 'GET', path: '/api/contacts' });
+    const listRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/contacts' });
     assert.equal(listRes.status, 200);
     const allContacts = (listRes.body as { data: Array<{ id: string }> }).data;
     assert.equal(allContacts[0].id, contact2.id, '2º contato recém-criado deve estar na posição 0');
     assert.equal(allContacts[1].id, contact1.id, '1º contato recém-criado deve estar na posição 1');
 
     // Busca sem acento (?search=joao goncalves)
-    const searchJoao = await router.dispatch({
+    const searchJoao = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/contacts?search=joao goncalves',
     });
@@ -1099,7 +1099,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.equal(foundJoao[0].id, contact1.id);
 
     // Busca sem acento via ?q=claudia mendonca
-    const searchClaudia = await router.dispatch({
+    const searchClaudia = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/contacts?q=claudia mendonca',
     });
@@ -1108,7 +1108,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.equal(foundClaudia[0].id, contact2.id);
 
     // Busca por dígitos do telefone (?search=998765432)
-    const searchPhone = await router.dispatch({
+    const searchPhone = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/contacts?search=998765432',
     });
@@ -1120,7 +1120,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     const coldStartRepo = createInMemoryRepository();
     const coldStartRouter = new CrmApiRouter(coldStartRepo);
 
-    const bootstrapRes = await coldStartRouter.dispatch({
+    const bootstrapRes = await coldStartRouter.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/bootstrap',
       body: {
@@ -1148,7 +1148,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     const router = new CrmApiRouter(repo);
 
     // 1. Verificar KPIs reais (avgFirstResponseMinutes, avgResolutionMinutes) e filas NOC Seta
-    const listRes = await router.dispatch({ method: 'GET', path: '/api/tickets' });
+    const listRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets' });
     assert.equal(listRes.status, 200);
     const listBody = listRes.body as {
       data: Array<{ key: string; assignee: string; slaStatus: string; equipmentSerial?: string }>;
@@ -1165,7 +1165,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     const before102 = repo.getServiceTicketById('JSM-102')!;
     const oldResolveDue = before102.slaResolutionDueAt;
 
-    const patchRes = await router.dispatch({
+    const patchRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: '/api/tickets/JSM-102',
       body: {
@@ -1184,7 +1184,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     assert.notEqual(patched102.slaResolutionDueAt, oldResolveDue, 'Deve recalcular prazo de resolução ao mudar prioridade');
 
     // 3. Gerar Ordem de Serviço (O.S.) no GestãoClick ERP a partir do ticket JSM-102
-    const osRes = await router.dispatch({
+    const osRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/tickets/JSM-102/create-os',
       body: {
@@ -1209,7 +1209,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     const router = new CrmApiRouter(repo);
 
     // 1. Consultar protocolo JSM-101 no Portal e garantir que notas internas (isInternal: true) NÃO aparecem
-    const getPortalRes = await router.dispatch({
+    const getPortalRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/portal/tickets?key=JSM-101',
     });
@@ -1225,7 +1225,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     );
 
     // 2. Abrir novo chamado técnico pelo Portal do Cliente
-    const createPortalRes = await router.dispatch({
+    const createPortalRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/portal/tickets',
       body: {
@@ -1250,7 +1250,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     assert.ok(createdPortalTicket.assignee.includes('NOC N2'));
 
     // 3. Cliente responde em chamado que estava WAITING_CUSTOMER (JSM-103) -> volta para IN_PROGRESS
-    const replyRes = await router.dispatch({
+    const replyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/portal/tickets/JSM-103/reply',
       body: {
@@ -1263,7 +1263,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     assert.equal(repliedTicket.status, 'IN_PROGRESS');
 
     // 4. Cliente avalia atendimento CSAT (1 a 5 estrelas)
-    const csatRes = await router.dispatch({
+    const csatRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: `/api/portal/tickets/${createdPortalTicket.key}/csat`,
       body: {
@@ -1283,7 +1283,7 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     const router = new CrmApiRouter(repo);
 
     // 1. Aprovar prop-seta-003 (que tem readjustmentIndex: IGP-M e S/N pré-alocados)
-    const appRes = await router.dispatch({
+    const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/proposals/prop-seta-003/approve',
       body: {
@@ -1310,7 +1310,7 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     assert.equal(appContract.equipments[0].serialNumber, 'SN-FGT100F-CR8810');
 
     // 2. Renovar vigência de ctr-loc-103 (que estava em RENOVACAO_PROXIMA)
-    const renewRes = await router.dispatch({
+    const renewRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/ctr-loc-103/renew',
       body: { months: 12 },
@@ -1323,7 +1323,7 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     assert.equal(renewedCtr.contractMonths, 24);
 
     // 3. Aplicar reajuste anual de 4.50% (IPCA) ao contrato ctr-loc-101 (mensalidade R$ 12.000 -> R$ 12.540)
-    const readjRes = await router.dispatch({
+    const readjRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/ctr-loc-101/readjust',
       body: { index: 'IPCA', percentage: 4.5, note: 'Reajuste anual IPCA 12m' },
@@ -1350,7 +1350,7 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     const router = new CrmApiRouter(repo);
 
     // 1. Criar Empresa Conta Alvo ABM Tier 1
-    const compRes = await router.dispatch({
+    const compRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/companies',
       body: {
@@ -1373,7 +1373,7 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     assert.equal(createdComp.ownerName, 'Evelyn Ternero Seta Telecom');
 
     // 2. Criar Contato com buyingRole COMPRADOR_ECONOMICO e isUnworked true
-    const contRes = await router.dispatch({
+    const contRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/contacts',
       body: {
@@ -1397,7 +1397,7 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     assert.equal(createdContact.isUnworked, true);
 
     // 3. Atualizar Contato mudando buyingRole para DECISOR e isUnworked para false
-    const patchRes = await router.dispatch({
+    const patchRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: `/api/contacts/${createdContact.id}`,
       body: {
@@ -1418,18 +1418,18 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     const router = new CrmApiRouter(repo);
 
     // 1. Listar Templates e Snippets
-    const tplListRes = await router.dispatch({ method: 'GET', path: '/api/email-templates' });
+    const tplListRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/email-templates' });
     assert.equal(tplListRes.status, 200);
     const templates = (tplListRes.body as { data: Array<{ id: string }> }).data;
     assert.ok(templates.length >= 4);
 
-    const snipListRes = await router.dispatch({ method: 'GET', path: '/api/snippets' });
+    const snipListRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/snippets' });
     assert.equal(snipListRes.status, 200);
     const snippets = (snipListRes.body as { data: Array<{ id: string; shortcut: string }> }).data;
     assert.ok(snippets.length >= 5);
 
     // 2. Disparar e-mail com createFollowUpTask = true para contato vinculado + outro destinatário
-    const sendRes = await router.dispatch({
+    const sendRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/emails/send',
       body: {
@@ -1478,7 +1478,7 @@ describe('12. Segmentação ABM, Buying Role, Composer de E-mail nos Cards (Temp
     assert.equal(sendData.followUpTask.contactId, 'cont-marina');
 
     // 3. Concluir a tarefa de follow-up via POST /api/tasks/:id/complete
-    const completeRes = await router.dispatch({
+    const completeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: `/api/tasks/${sendData.followUpTask.id}/complete`,
     });
@@ -1543,7 +1543,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', password: 'Seta@2026#StiHub' });
 
     // Etapa 1: Credenciais corporativas -> Desafio MFA
-    const loginRes = await router.dispatch({
+    const loginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/login',
       body: {
@@ -1565,7 +1565,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     assert.equal(loginData.user.roleId, 'SUPER_ADMIN');
 
     // Etapa 2a: Rejeita código MFA incorreto (401)
-    const badMfaRes = await router.dispatch({
+    const badMfaRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -1576,7 +1576,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     assert.equal(badMfaRes.status, 401);
 
     // Etapa 2b: Aprova código MFA correto (436906) e emite Set-Cookie HttpOnly
-    const okMfaRes = await router.dispatch({
+    const okMfaRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -1598,7 +1598,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     const sessRes = await router.dispatch({
       method: 'GET',
       path: '/api/auth/session',
-      query: { token: sessionFromCookie(okMfaRes) },
+      query: { _sessionToken: sessionFromCookie(okMfaRes) },
     });
     assert.equal(sessRes.status, 200);
     const sessData = (sessRes.body as {
@@ -1618,7 +1618,7 @@ describe('12. Devolução Parcial com Rateio Proporcional (Pro-Rata Die s/ Pausa
     // 1. Devolução parcial de 2 terminais Yealink (unitMonthlyRent = 240, 15/30 dias) no contrato ctr-loc-101 (mensalidade R$ 12.000)
     // Redução mensal = 2 * 240 = R$ 480 -> Novo MRR recorrente = R$ 11.520
     // Pro-rata dos 2 devolvidos neste ciclo (15 dias) = R$ 240 -> Fatura deste mês com rateio = 11.520 + 240 = R$ 11.760
-    const partialRes = await router.dispatch({
+    const partialRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/ctr-loc-101/partial-return',
       body: {
@@ -1659,7 +1659,7 @@ describe('12. Devolução Parcial com Rateio Proporcional (Pro-Rata Die s/ Pausa
     assert.equal(partialData.proRataInvoice?.taxBreakdown.issAmount, 0);
 
     // 2. Faturamento de Locação em Massa + Envio de E-mails em Massa
-    const batchRes = await router.dispatch({
+    const batchRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/batch-billing',
       body: {
@@ -1691,7 +1691,7 @@ describe('12. Devolução Parcial com Rateio Proporcional (Pro-Rata Die s/ Pausa
     assert.equal(batchData.totalBilledBrl, 11500 + 6600);
 
     // 3. Consulta CNPJ na Receita Federal + Serasa Experian (Digisystem 01.936.069/0001-94)
-    const cnpjRes = await router.dispatch({
+    const cnpjRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/erp/cnpj/01.936.069/0001-94',
     });
@@ -1742,7 +1742,7 @@ DATA:OFXSGML
   </BANKMSGSRSV1>
 </OFX>`;
 
-    const ofxRes = await router.dispatch({
+    const ofxRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/financial/reconcile-ofx',
       body: {
@@ -1770,7 +1770,7 @@ DATA:OFXSGML
     assert.ok(ofxBody.matchedCount >= 1);
 
     // 2. DRE Gerencial Vertical (GET /api/erp/financial/dre)
-    const dreRes = await router.dispatch({
+    const dreRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/erp/financial/dre',
       query: { competenceMonth: '10/2026' },
@@ -1828,7 +1828,7 @@ DATA:OFXSGML
   </NFe>
 </nfeProc>`;
 
-    const xmlRes = await router.dispatch({
+    const xmlRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/purchases/import-xml',
       body: {
@@ -1856,7 +1856,7 @@ DATA:OFXSGML
     assert.ok(xmlData.updatedCatalogItems.length >= 1);
 
     // 4. Assinatura Eletrônica ICP-Brasil / Gov.br na aprovação de proposta (/api/erp/proposals/:id/approve)
-    const approveRes = await router.dispatch({
+    const approveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/proposals/prop-seta-002/approve',
       body: {
@@ -1881,7 +1881,7 @@ DATA:OFXSGML
     assert.ok(approveData.digitalSignature.timestampToken.startsWith('ACT-ITI-'));
 
     // 5. Sincronização Diária Incremental (/api/erp/daily-sync)
-    const syncRes = await router.dispatch({
+    const syncRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/erp/daily-sync',
     });
@@ -1950,7 +1950,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const router = new CrmApiRouter(repo);
 
     // 1. Setup Google Authenticator TOTP RFC 6238
-    const setupRes = await router.dispatch({
+    const setupRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/setup-totp',
       body: { email: 'marcelo.mira@setatelecom.com.br' },
@@ -1970,7 +1970,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(setupData.currentTotpCode.length, 6);
 
     // 2. Verifica TOTP RFC 6238 e emite token assinado HMAC-SHA256
-    const mfaTotpRes = await router.dispatch({
+    const mfaTotpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -1986,7 +1986,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(sessionFromCookie(mfaTotpRes).includes('.'), 'Token deve conter assinatura HMAC-SHA256 separada por ponto');
 
     // 3. Disparo e validação de Código OTP por E-mail (uso único)
-    const sendOtpRes = await router.dispatch({
+    const sendOtpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/send-email-otp',
       body: { email: 'fiscal@setatelecom.com.br' },
@@ -1999,7 +1999,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(otpPayload.protocol.startsWith('STI-OTP-'));
     assert.equal(otpPayload.ttlSeconds, 300);
 
-    const verifyEmailOtpRes = await router.dispatch({
+    const verifyEmailOtpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -2016,7 +2016,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.deepEqual(emailOtpSession.enabledModules, ['ERP']);
 
     // Reutilização do mesmo código OTP de e-mail deve falhar (replay protection)
-    const replayOtpRes = await router.dispatch({
+    const replayOtpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -2034,7 +2034,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
 
     // 1. Usuário exclusivo de Chamados (henrique.noc@setatelecom.com.br -> ['CHAMADOS'])
     const nocSetup = repo.setupUserTotp('henrique.noc@setatelecom.com.br');
-    const nocLogin = await router.dispatch({
+    const nocLogin = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -2071,7 +2071,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
 
     // 2. Usuário exclusivo de CRM (marketing@setatelecom.com.br -> ['CRM'])
     const mktSetup = repo.setupUserTotp('marketing@setatelecom.com.br');
-    const mktLogin = await router.dispatch({
+    const mktLogin = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/auth/verify-mfa',
       body: {
@@ -2171,7 +2171,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    const badCompRes = await router.dispatch({
+    const badCompRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/companies',
       body: {
@@ -2181,7 +2181,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     });
     assert.equal(badCompRes.status, 400);
 
-    const goodCompRes = await router.dispatch({
+    const goodCompRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/companies',
       body: {
@@ -2192,7 +2192,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(goodCompRes.status, 201);
     assert.equal((goodCompRes.body as { data: { cnpj: string } }).data.cnpj, '33.000.167/0001-01');
 
-    const badLookupRes = await router.dispatch({
+    const badLookupRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/erp/cnpj/14.806.925/0001-99',
     });
@@ -2670,7 +2670,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const router = new CrmApiRouter(repo);
 
     // 1. Cria proposta comercial inicial -> deve nascer na v1.0 com snapshot inicial
-    const createRes = await router.dispatch({
+    const createRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/proposals',
       body: {
@@ -2722,7 +2722,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(createdProp.versionHistory[0].snapshot.monthlyRecurringTotal, 2000);
 
     // 2. Edita SLA, Tempo de Contrato (12m -> 24m), Forma de Pagamento, Produtos e Valores -> deve gerar v2.0 preservando v1.0
-    const updateRes = await router.dispatch({
+    const updateRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: `/api/erp/proposals/${encodeURIComponent(createdProp.id)}`,
       body: {
@@ -2778,7 +2778,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(v2Entry.changedFields.some((f) => f.includes('Valores')));
 
     // 3. Restaura a versão 1 via POST /api/erp/proposals/:id/restore-version -> deve gerar v3.0 com os dados da v1.0
-    const restoreRes = await router.dispatch({
+    const restoreRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: `/api/erp/proposals/${encodeURIComponent(createdProp.id)}/restore-version`,
       body: {
@@ -3097,7 +3097,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     repo.upsertRbacUser({ email: 'marcelo.mira@setatelecom.com.br', password: 'Seta@2026#StiHub' });
 
     // Etapa 1: Login inicial -> recebe QR Code e segredo TOTP
-    const loginRes = await router.dispatch({
+    const loginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -3108,7 +3108,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(loginRes.status, 200);
 
     // Etapa 1b: Usuário clica em Sincronizar / Rotacionar QR Code (setup-totp)
-    const refreshRes = await router.dispatch({
+    const refreshRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/setup-totp",
       body: {
@@ -3125,7 +3125,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
 
     // Etapa 2: Usuário digita os 6 dígitos gerados no app Google Authenticator para o segredo pareado e confirma
     const totpCodeFromPhone = generateTotpCodeSync(refreshed.totpSecret);
-    const verifyRes = await router.dispatch({
+    const verifyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3217,7 +3217,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(pageSrc.includes("Valor Mensal"));
 
     // 8. Validação completa do processo de Assinatura Digital (inclusive para proposta compartilhada via ?d=)
-    const approveRes = await router.dispatch({
+    const approveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/erp/proposals/prop-shared-custom-99/approve",
       body: {
@@ -3278,7 +3278,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     const { computeRfc6238Totp, verifyRfc6238Totp } = await import("../src/app/lib/auth");
 
     // 1. Usuário existente com 2FA já configurado (totpConfigured === true): login NÃO pode expor totpPairing nem QR Code
-    const loginConfiguredRes = await router.dispatch({
+    const loginConfiguredRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -3316,7 +3316,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(verifyRfc6238Totp(marceloSecret, expiredCodePrevWindow, nowMs), false, "verifyRfc6238Totp deve rejeitar janela anterior (now - 30s)");
     assert.equal(verifyRfc6238Totp(marceloSecret, validCurrentCode, nowMs), true, "verifyRfc6238Totp deve aceitar janela atual de 30s");
 
-    const expiredVerifyRes = await router.dispatch({
+    const expiredVerifyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3332,7 +3332,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     );
 
     // 4. Código fixo antigo de demonstração (436906 / 118887) não deve mais ser aceito como bypass
-    const demoBypassRes = await router.dispatch({
+    const demoBypassRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3345,7 +3345,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     }
 
     // 5. Primeiro uso do código atual de 30s funciona, e o SEGUNDO uso do mesmo código é bloqueado (Anti-Replay)
-    const firstUseRes = await router.dispatch({
+    const firstUseRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3356,7 +3356,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     });
     assert.equal(firstUseRes.status, 200);
 
-    const replayUseRes = await router.dispatch({
+    const replayUseRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3377,7 +3377,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     });
     assert.equal(newUser.totpConfigured, false);
 
-    const firstLoginRes = await router.dispatch({
+    const firstLoginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -3393,7 +3393,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(firstLoginData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"), "No 1º acesso (totpConfigured=false) deve exibir QR Code");
 
     const firstEnrollCode = computeRfc6238Totp(firstLoginData.totpPairing!.totpSecret).code;
-    const enrollVerifyRes = await router.dispatch({
+    const enrollVerifyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3405,7 +3405,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(enrollVerifyRes.status, 200);
 
     // No login seguinte, totpConfigured agora é true e o QR Code NÃO é mais retornado
-    const secondLoginRes = await router.dispatch({
+    const secondLoginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -3599,7 +3599,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     const routerA = new CrmApiRouter(repoA);
 
     // 1. Instância A gera o código OTP por e-mail e retorna challengeId assinado + devOtpPreview
-    const sendRes = await routerA.dispatch({
+    const sendRes = await routerA.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/send-email-otp",
       body: { email: "marcelo.mira@setatelecom.com.br" },
@@ -3620,7 +3620,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     const repoB = createInMemoryRepository();
     const routerB = new CrmApiRouter(repoB);
 
-    const verifyRes = await routerB.dispatch({
+    const verifyRes = await routerB.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -3833,7 +3833,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     const router = new CrmApiRouter(repo);
 
     // 1. Listar campanhas, funil de engajamento e engajamento por empresa (ABM)
-    const getCmpRes = await router.dispatch({
+    const getCmpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "GET",
       path: "/api/marketing/campaigns",
     });
@@ -3850,7 +3850,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.ok(cmpBody.accountEngagement.some((a) => a.companyId === "comp-nubank" && a.engagedContactsCount >= 2));
 
     // 2. Criar nova campanha, segmento e landing page
-    const createCmpRes = await router.dispatch({
+    const createCmpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/campaigns",
       body: {
@@ -3862,7 +3862,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     });
     assert.equal(createCmpRes.status, 201);
 
-    const createSegRes = await router.dispatch({
+    const createSegRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/segments",
       body: {
@@ -3874,7 +3874,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     });
     assert.equal(createSegRes.status, 201);
 
-    const createLpRes = await router.dispatch({
+    const createLpRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/landing-pages",
       body: {
@@ -3886,7 +3886,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(createLpRes.status, 201);
 
     // 3. Submeter formulário com UTMs e Consentimento LGPD -> Deve atribuir Deal e Receita à campanha!
-    const submitRes = await router.dispatch({
+    const submitRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/forms/submit",
       body: {
@@ -3931,7 +3931,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     const router = new CrmApiRouter(repo);
 
     // 1. Camila está ativa na cadência seq-proposal-followup vinculada ao deal-vtex-automation (stage-proposal)
-    const exitSeqOnlyRes = await router.dispatch({
+    const exitSeqOnlyRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/preferences",
       body: {
@@ -3954,7 +3954,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(repo.canSendMarketingEmailToContact("cont-camila").allowed, true);
 
     // 2. Descadastro de marketing (UNSUBSCRIBE_MARKETING) -> bloqueia disparo de campanha
-    const unsubRes = await router.dispatch({
+    const unsubRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/preferences",
       body: {
@@ -3966,7 +3966,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(unsubRes.status, 200);
     assert.equal(repo.canSendMarketingEmailToContact("cont-camila").allowed, false);
 
-    const dispatchRes = await router.dispatch({
+    const dispatchRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/marketing/campaigns/dispatch",
       body: {
@@ -3988,7 +3988,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(dispData.blockedSuppressedCount, 2);
 
     // 3. Diferencial #1 Seta Telecom: Resposta em cadência vinculada a proposta transfere Deal para negociação
-    const enrollRicardo = await router.dispatch({
+    const enrollRicardo = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/sequences/enroll",
       body: {
@@ -4000,7 +4000,7 @@ describe("Plataforma Enterprise de Email Marketing, Cadências & Sales Engagemen
     assert.equal(enrollRicardo.status, 201);
     const enrId = (enrollRicardo.body as { data: { enrollment: { id: string } } }).data.enrollment.id;
 
-    const replyRicardo = await router.dispatch({
+    const replyRicardo = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/sequences/interaction",
       body: {
@@ -4054,7 +4054,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.ok(created.inviteUrl.includes("/login?invite="));
 
     // 2. Usuário abre link do convite -> GET /api/auth/invite?token=...
-    const inspectRes = await router.dispatch({
+    const inspectRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "GET",
       path: "/api/auth/invite",
       query: { token: created.inviteToken },
@@ -4068,7 +4068,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.equal(inspected.totpPairing, undefined);
 
     // 3. Usuário cadastra sua senha no convite -> POST /api/auth/accept-invite
-    const acceptRes = await router.dispatch({
+    const acceptRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/accept-invite",
       body: {
@@ -4091,7 +4091,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.ok(acceptData.totpPairing?.qrCodeSvgDataUrl.startsWith("data:image/svg+xml"), "No 1º acesso após criar senha, o QR Code do autenticador deve abrir automaticamente");
 
     // Reutilizar o mesmo token de convite deve ser rejeitado (400)
-    const reuseInviteRes = await router.dispatch({
+    const reuseInviteRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/accept-invite",
       body: {
@@ -4103,7 +4103,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
 
     // 4. Usuário confirma o código de 6 dígitos do autenticador no 1º login -> totpConfigured passa a true
     const firstCode = computeRfc6238Totp(acceptData.totpPairing!.totpSecret).code;
-    const verifyFirstRes = await router.dispatch({
+    const verifyFirstRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/verify-mfa",
       body: {
@@ -4115,7 +4115,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.equal(verifyFirstRes.status, 200);
 
     // No 2º login com a nova senha, totpConfigured é true e o QR Code não aparece mais
-    const secondLoginRes = await router.dispatch({
+    const secondLoginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -4141,7 +4141,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     assert.equal(disableMfaRes.status, 200);
 
     // Ao fazer login com 2FA desabilitado, entra direto na Etapa 1 (mfaRequired: false + sessionToken emitido)
-    const directLoginRes = await router.dispatch({
+    const directLoginRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -4166,7 +4166,7 @@ describe("Fluxo de Convite de Usuário (Cadastrar Senha + 1º Login Autenticador
     });
     assert.equal(resetQrRes.status, 200);
 
-    const loginAfterResetRes = await router.dispatch({
+    const loginAfterResetRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/auth/login",
       body: {
@@ -4271,7 +4271,7 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     const router = new CrmApiRouter(repo);
 
     // 1. Atualizar contrato ctr-loc-453 com novos dados GestãoClick -> incrementa versão e grava versionHistory
-    const patchRes = await router.dispatch({
+    const patchRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
       path: '/api/erp/rental-contracts/ctr-loc-453',
       body: {
@@ -4290,7 +4290,7 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.ok(updatedCtr.version >= 2);
 
     // 2. Consultar histórico de versões do contrato
-    const verRes = await router.dispatch({
+    const verRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'GET',
       path: '/api/erp/rental-contracts/ctr-loc-453/versions',
     });
@@ -4299,7 +4299,7 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.ok(versions.length >= 2);
 
     // 3. Restaurar versão v1.0
-    const restoreRes = await router.dispatch({
+    const restoreRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/ctr-loc-453/restore-version',
       body: { targetVersion: 1, restoredBy: 'Marcelo Mira' },
@@ -4307,7 +4307,7 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.equal(restoreRes.status, 200);
 
     // 4. Gerar fatura a partir do contrato propagando PO, Medição, Regra de Vencimento e dados GestãoClick
-    const genInvRes = await router.dispatch({
+    const genInvRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/erp/rental-contracts/ctr-loc-453/generate-invoice',
       body: {
@@ -4373,7 +4373,7 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.ok(!html.includes('34191.79001'));
 
     // Finalizar pelo fluxo existente gera fatura com mesmos valores/vencimento do rascunho
-    const genRes = await router.dispatch({ method: 'POST', path: '/api/erp/rental-contracts/ctr-loc-453/generate-invoice', body: opts });
+    const genRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/rental-contracts/ctr-loc-453/generate-invoice', body: opts });
     assert.equal(genRes.status, 201);
     const finalInv = (genRes.body as { data: { dueDate: string; netAmount: number; grossAmount: number; customerPurchaseOrderNumber: string; documentNumber: string } }).data;
     assert.equal(draftInv.dueDate, finalInv.dueDate);

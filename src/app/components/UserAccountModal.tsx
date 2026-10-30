@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
+import { NEW_PASSWORD_MIN_LENGTH } from '../lib/password-policy';
 
 interface UserAccountModalProps {
   user: StiHubUserRecord;
@@ -261,6 +262,10 @@ export default function UserAccountModal({
       onShowToast('Nenhuma alteração para salvar.');
       return;
     }
+    if (patch.newPassword !== undefined && String(patch.newPassword).length < NEW_PASSWORD_MIN_LENGTH) {
+      onShowToast(`A nova senha deve ter pelo menos ${NEW_PASSWORD_MIN_LENGTH} caracteres.`);
+      return;
+    }
     if (patch.newPassword !== undefined && !currentPassword) {
       onShowToast('Informe a senha atual para definir uma nova senha.');
       return;
@@ -426,7 +431,7 @@ export default function UserAccountModal({
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Manter senha atual (mín. 6 caracteres)"
+                placeholder={`Manter senha atual (mín. ${NEW_PASSWORD_MIN_LENGTH} caracteres)`}
                 autoComplete="new-password"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
               />

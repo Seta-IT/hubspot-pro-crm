@@ -2,6 +2,7 @@
 // Fase 2 (Modulo C) — Cadencias Comerciais Avancadas + Menu Marketing / E-mails de Marketing
 // ============================================================================
 import { describe, it } from 'node:test';
+import { TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -150,7 +151,7 @@ describe('Fase 2 — versionamento e clonagem via /api/sequences', () => {
     const before = repo.getSequenceById(SEQ_21D) as EmailSequence;
     const v0 = before.version || 1;
     const newSteps = before.steps.map((s) => ({ ...s, subject: `${s.subject} (rev)` }));
-    const upd = await router.dispatch({
+    const upd = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/sequences',
       body: { action: 'UPDATE_SEQUENCE', sequenceId: SEQ_21D, updates: { steps: newSteps } },
@@ -162,7 +163,7 @@ describe('Fase 2 — versionamento e clonagem via /api/sequences', () => {
     assert.deepEqual(updated.versionHistory?.[0].changedFields, ['steps']);
     assert.ok(!updated.versionHistory?.[0].steps[0].subject.endsWith('(rev)'));
 
-    const cl = await router.dispatch({
+    const cl = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/sequences',
       body: { action: 'CLONE_SEQUENCE', sequenceId: SEQ_21D, newName: 'Cópia 21 dias' },
@@ -181,12 +182,12 @@ describe('Marketing — 14 e-mails de marketing e menu lateral', () => {
   it('GET /api/marketing/emails retorna os 14 e-mails e CLONE cria rascunho com data atual', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    const list = await router.dispatch({ method: 'GET', path: '/api/marketing/emails' });
+    const list = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/marketing/emails' });
     assert.equal(list.status, 200);
     const emails = (list.body as { data: MarketingEmailBroadcast[] }).data;
     assert.equal(emails.length, 14);
 
-    const cl = await router.dispatch({
+    const cl = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/marketing/emails',
       body: { action: 'CLONE', emailId: emails[0].id },

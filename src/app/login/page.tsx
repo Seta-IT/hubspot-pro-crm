@@ -18,6 +18,7 @@ import {
   loadClientIamUsersOverride,
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
 
 export default function StiHubLoginPage() {
   const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
@@ -167,8 +168,8 @@ export default function StiHubLoginPage() {
     setErrorMsg(null);
     setInfoMsg(null);
     if (!inviteToken) return;
-    if (newPassword.trim().length < 6) {
-      setErrorMsg('A senha deve ter pelo menos 6 caracteres.');
+    if (newPassword.trim().length < NEW_PASSWORD_MIN_LENGTH) {
+      setErrorMsg(NEW_PASSWORD_MIN_MESSAGE);
       return;
     }
     if (newPassword.trim() !== confirmPassword.trim()) {
@@ -522,10 +523,10 @@ export default function StiHubLoginPage() {
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Mínimo de 6 caracteres"
+                    placeholder={NEW_PASSWORD_PLACEHOLDER}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
@@ -540,7 +541,7 @@ export default function StiHubLoginPage() {
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repita a senha criada"

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
@@ -139,13 +140,74 @@ export function normalizeResendApiKey(raw: unknown): string {
   return /^re_[A-Za-z0-9_-]{8,}$/.test(k) ? k : '';
 }
 
+
+// ---------------------------------------------------------------------------
+// Pacote C: cookie de sessao e cookie de remocao com os MESMOS atributos
+// (Path=/; HttpOnly; SameSite=Lax; Secure quando na Vercel).
+// ---------------------------------------------------------------------------
+export const STIHUB_SESSION_COOKIE_NAME = 'stihub_session';
+function sessionCookieSecureAttr(): string {
+  return typeof process !== 'undefined' && process.env.VERCEL === '1' ? '; Secure' : '';
+}
+export function buildSessionCookie(token: string): string {
+  return `${STIHUB_SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${sessionCookieSecureAttr()}`;
+}
+export function buildClearSessionCookie(): string {
+  return `${STIHUB_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${sessionCookieSecureAttr()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Pacote C: revogacao best-effort no logout. Denylist do SHA-256 do token ate o exp,
+// em MEMORIA DA INSTANCIA (processo/lambda). LIMITACAO: sem armazenamento duravel
+// (KV/Postgres), outra instancia da Vercel ou um cold start NAO conhecem a revogacao;
+// o middleware (Edge) tambem nao. O token revogado continua valido ali ate expirar (24 h)
+// ou ate a troca de senha. Mitigacao: o cookie e apagado no navegador no logout.
+// ---------------------------------------------------------------------------
+const REVOKED_SESSION_MAX_ENTRIES = 10_000;
+const revokedSessionTokenHashes = new Map<string, number>();
+function sessionTokenHash(token: string): string {
+  return createHash('sha256').update(String(token)).digest('hex');
+}
+export function revokeSessionTokenBestEffort(token: string | null | undefined, expMs: number): void {
+  if (!token) return;
+  const now = Date.now();
+  for (const [h, exp] of revokedSessionTokenHashes) if (exp <= now) revokedSessionTokenHashes.delete(h);
+  if (revokedSessionTokenHashes.size >= REVOKED_SESSION_MAX_ENTRIES) {
+    const oldest = revokedSessionTokenHashes.keys().next().value;
+    if (oldest) revokedSessionTokenHashes.delete(oldest);
+  }
+  revokedSessionTokenHashes.set(sessionTokenHash(token), Number.isFinite(expMs) && expMs > now ? expMs : now + 24 * 3600 * 1000);
+}
+export function isSessionTokenRevoked(token: string | null | undefined): boolean {
+  if (!token) return false;
+  const h = sessionTokenHash(token);
+  const exp = revokedSessionTokenHashes.get(h);
+  if (exp === undefined) return false;
+  if (exp <= Date.now()) {
+    revokedSessionTokenHashes.delete(h);
+    return false;
+  }
+  return true;
+}
+
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
 /**
  * Chave Resend efetiva: RESEND_API_KEY (env) e, se ausente ou em formato invalido,
  * a chave salva no painel administrativo. Formato invalido e registrado so no log.
  */
+/** NODE_ENV=test, VITEST ou JEST: nunca usar chave Resend real (so dummies "re_test_..." com fetch mockado). */
+export function isTestRuntime(): boolean {
+  if (typeof process === 'undefined' || !process.env) return false;
+  return process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST) || Boolean(process.env.JEST_WORKER_ID);
+}
+
 export function resolveResendApiKey(panelKey?: string | null): string {
+  if (isTestRuntime()) {
+    // Pacote C: em teste, RESEND_API_KEY/RESEND_ADMIN_API_KEY reais sao ignoradas.
+    const dummy = normalizeResendApiKey(process.env.RESEND_API_KEY);
+    return dummy.startsWith('re_test_') ? dummy : '';
+  }
   const envRaw = typeof process !== 'undefined' ? process.env.RESEND_API_KEY : undefined;
   const envKey = normalizeResendApiKey(envRaw);
   if (envRaw && String(envRaw).trim() && !envKey && !resendKeyFormatWarned) {
@@ -679,6 +741,10 @@ export class CrmApiRouter {
       });
     }
     const trustedInternal = req.context === TRUSTED_INTERNAL_CONTEXT;
+    // Pacote C: token revogado no logout (nesta instancia) vale como "sem sessao".
+    if (query._sessionToken && isSessionTokenRevoked(query._sessionToken)) {
+      delete query._sessionToken;
+    }
 
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
       string,
@@ -855,7 +921,9 @@ export class CrmApiRouter {
       if (typeof v === 'string' && v.length <= 120) internalQuery[k] = v;
     }
 
-    const raw = await this.handleRoute(method, cleanPath, internalQuery, body, { trustedInternal: false });
+    // Conta de servico: token e allowlist ja validados acima; satisfaz SO a exigencia geral de
+    // sessao (o gate IAM continua valendo: serviceAccount nao e trustedInternal).
+    const raw = await this.handleRoute(method, cleanPath, internalQuery, body, { trustedInternal: false, serviceAccount: true });
     const sanitized = sanitizeApiResponseBody(raw.body, { path: cleanPath });
     const projected = projectSalesAgentResponse(route.resource, sanitized, query);
     this.auditSalesAgent(
@@ -1037,7 +1105,7 @@ export class CrmApiRouter {
       // Cookie novo (iat >= passwordChangedAt): as outras sessoes ficam invalidas; esta continua.
       const newToken = signStiHubSessionToken({ ...claims, iat: Math.max(Date.now(), Date.parse(res.passwordChangedAt || '') || 0) });
       const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-      headers['Set-Cookie'] = `stihub_session=${newToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+      headers['Set-Cookie'] = buildSessionCookie(newToken);
     }
     return {
       status: 200,
@@ -1268,7 +1336,7 @@ export class CrmApiRouter {
     cleanPath: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean } = { trustedInternal: false }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -1293,7 +1361,7 @@ export class CrmApiRouter {
       // confiavel (Symbol, nao injetavel) dispensa a sessao.
       if (!ctx.trustedInternal && isIamAdminRoute(cleanPath)) {
         const iamTok =
-          query._sessionToken || (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+          query._sessionToken;
         if (!iamTok || !verifyStiHubSessionToken(iamTok).valid) {
           return {
             status: 401,
@@ -1348,16 +1416,19 @@ export class CrmApiRouter {
 
       const isHttpRequest = query._fromHttpBridge === "1";
       const isCronAuthorized =
+        isHttpRequest &&
         query._cronAuthorized === "1" &&
         cleanPath === "/api/erp/daily-sync" &&
         method === "GET";
       const requestSessionToken =
-        query._sessionToken ||
-        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+        query._sessionToken;
 
-      // Defesa em profundidade: toda requisicao HTTP a rota nao publica exige sessao MFA valida,
-      // mesmo que o middleware seja contornado ou mal configurado.
-      if (isHttpRequest && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
+      // Defesa em profundidade: toda chamada (HTTP OU interna) a rota nao publica exige sessao
+      // MFA valida, mesmo que o middleware seja contornado. Pacote C (29/10): excecoes so o
+      // contexto interno confiavel (Symbol nao forjavel), o pipeline da conta de servico (token
+      // ja validado + allowlist) e o cron autenticado pelo bridge. Sessao so via query._sessionToken
+      // (definida pelo bridge a partir do cookie/header); body._sessionToken nunca e lido.
+      if (!ctx.trustedInternal && !ctx.serviceAccount && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
         if (!requestSessionToken || !verifyStiHubSessionToken(requestSessionToken).valid) {
           return {
             status: 401,
@@ -1373,8 +1444,7 @@ export class CrmApiRouter {
       // ZERO-TRUST IAM & MODULE ENFORCEMENT WHEN SESSION TOKEN IS PROVIDED
       // ======================================================================
       const activeSessionToken =
-        query._sessionToken ||
-        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+        query._sessionToken;
 
       if (activeSessionToken && !isPublicStiHubPath(cleanPath, method)) {
         const resolvedSession = this.repo.resolveSessionFromToken(activeSessionToken);
@@ -5096,7 +5166,7 @@ export class CrmApiRouter {
         // Direct login when 2FA is disabled (mfaEnabled === false) for this user
         if (challenge.mfaRequired === false && challenge.sessionToken) {
           const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = `stihub_session=${challenge.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          const cookieHeader = buildSessionCookie(challenge.sessionToken);
           return {
             status: 200,
             headers: {
@@ -5267,8 +5337,7 @@ export class CrmApiRouter {
           Boolean(targetUser?.totpConfigured || targetUser?.totpConfiguredAt) ||
           enrolledCookieRaw.toLowerCase().includes(target.toLowerCase());
         const callerSessionToken =
-          query._sessionToken ||
-          (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+          query._sessionToken;
         const callerSession = callerSessionToken
           ? this.repo.resolveSessionFromToken(callerSessionToken)
           : null;
@@ -5351,7 +5420,7 @@ export class CrmApiRouter {
       // ======================================================================
       if ((cleanPath === '/api/auth/step-up/start' || cleanPath === '/api/auth/step-up/verify') && method === 'POST') {
         const suTok =
-          query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+          query._sessionToken;
         const suSess = suTok && verifyStiHubSessionToken(suTok).valid ? this.repo.resolveSessionFromToken(suTok) : null;
         if (!suTok || !suSess?.authenticated || !suSess.mfaVerified || this.isSessionOlderThanPasswordChange(suTok)) {
           return {
@@ -5459,7 +5528,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           headers: {
-            'Set-Cookie': `stihub_session=${suVerified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${suSecure}`,
+            'Set-Cookie': buildSessionCookie(suVerified.sessionToken),
           },
           body: {
             data: {
@@ -5518,7 +5587,7 @@ export class CrmApiRouter {
           };
         }
         const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-        const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+        const cookieHeader = buildSessionCookie(verified.sessionToken);
         return {
           status: 200,
           headers: {
@@ -5644,7 +5713,7 @@ export class CrmApiRouter {
         const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
         return {
           status: 200,
-          headers: { 'Set-Cookie': `stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}` },
+          headers: { 'Set-Cookie': buildClearSessionCookie() },
           body: {
             data: {
               ok: true,
@@ -5675,7 +5744,7 @@ export class CrmApiRouter {
 
         if (accepted.mfaRequired === false && accepted.sessionToken) {
           const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = `stihub_session=${accepted.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          const cookieHeader = buildSessionCookie(accepted.sessionToken);
           return {
             status: 200,
             headers: {
@@ -5828,7 +5897,7 @@ export class CrmApiRouter {
       const iamHomeScreenMatch = cleanPath.match(/^\/api\/iam\/users\/([^/]+)\/home-screen$/);
       if (cleanPath === '/api/me/preferences' || iamHomeScreenMatch) {
         const prefToken =
-          query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+          query._sessionToken;
         const prefSession = prefToken ? this.repo.resolveSessionFromToken(prefToken) : null;
         if (!prefSession || !prefSession.authenticated || !prefSession.mfaVerified) {
           return {
@@ -6011,7 +6080,8 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/auth/session' && (method === 'GET' || method === 'POST')) {
-        const token = query.token || query._sessionToken || null;
+        // Pacote C: so o cookie (query._sessionToken definido pelo bridge); ?token= nao e aceito.
+        const token = query._sessionToken || null;
         const session = this.repo.resolveSessionFromToken(token);
         return {
           status: 200,
@@ -6022,10 +6092,15 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/auth/logout' && method === 'POST') {
+        // Pacote C: revogacao best-effort (denylist por instancia ate o exp; ver limitacao acima).
+        const logoutToken = query._sessionToken || null;
+        const logoutClaims = logoutToken ? verifyStiHubSessionToken(logoutToken).claims : null;
+        if (logoutToken && logoutClaims) revokeSessionTokenBestEffort(logoutToken, Number(logoutClaims.exp));
         return {
           status: 200,
           headers: {
-            'Set-Cookie': 'stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+            'Set-Cookie': buildClearSessionCookie(),
+            'Cache-Control': 'no-store',
           },
           body: {
             data: {
