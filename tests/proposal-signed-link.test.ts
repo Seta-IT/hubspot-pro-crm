@@ -21,6 +21,7 @@ import { PUBLIC_PROPOSAL_DTO_KEYS } from '../src/app/lib/proposal-public-dto';
 import { redactProposalLinkTokens, deepRedactProposalLinkTokens } from '../src/app/lib/proposal-link-redact';
 import { withProposalLinkParams } from '../src/app/lib/proposal-link-request';
 import { evaluateStiHubRouteProtection, isPublicStiHubPath } from '../src/middleware';
+import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from '../src/app/lib/sensitive-paths';
 
 const HTTP = { _fromHttpBridge: '1' };
 const VALID_CPF = '529.982.247-25';
@@ -169,8 +170,12 @@ describe('Link assinado de proposta: GET publico', () => {
         assert.deepEqual(r.headers, ref.headers, id);
       }
     }
-    assert.equal(ref.headers?.['Referrer-Policy'], 'no-referrer');
-    assert.match(String(ref.headers?.['Cache-Control']), /no-store/);
+    // B8: os headers sensiveis vem do middleware/bridge (pacote G), nao do router.
+    assert.equal(ref.headers, undefined);
+    for (const pth of ['/api/erp/proposals/prop-seta-001', '/api/erp/proposals/x/approve', '/api/erp/proposals/x/public-link', '/proposta/prop-seta-001']) {
+      assert.equal(isSensitiveProposalPath(pth), true, pth);
+    }
+    assert.deepEqual({ ...SENSITIVE_PROPOSAL_HEADERS }, { 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
   });
 
   it('token adulterado, expirado, de outra proposta ou de outra versao => 404', async () => {
@@ -205,7 +210,6 @@ describe('Link assinado de proposta: GET publico', () => {
     if (p.sellerPhone) assert.equal(text.includes(p.sellerPhone), false);
     assert.equal(data.companyName, p.companyName);
     assert.equal(data.sellerName, p.sellerName);
-    assert.equal(r.headers?.['Referrer-Policy'], 'no-referrer');
   });
 
   it('sessao MFA (vendedor/admin) e contexto interno continuam vendo a proposta completa', async () => {
@@ -395,7 +399,6 @@ describe('Link assinado de proposta: emissao (POST /api/erp/proposals/:id/public
     assert.equal(mine.status, 200);
     const url = (mine.body as { data: { url: string } }).data.url;
     assert.match(url, new RegExp(`^https://preview\\.exemplo\\.invalid/proposta/${own.id}#t=`));
-    assert.equal(mine.headers?.['Referrer-Policy'], 'no-referrer');
 
     const admin = await issue(router, other.id, sessionFor(repo, 'usr-seta-01'));
     assert.equal(admin.status, 200);
