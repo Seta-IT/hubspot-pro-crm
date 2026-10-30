@@ -5307,6 +5307,7 @@ export class CrmRepository {
     // Pacote L (1): o aceite NUNCA cria nem altera a proposta a partir do corpo (body.proposal /
     // payload ?d=). So uma proposta que ja existe no estado do servidor pode ser aceita; todo dado
     // comercial (itens, valores, cliente) do contrato e da fatura vem do servidor.
+    // Link assinado (29/10/2026): sem proposta => null (o antigo upsert por `proposal`/`title` foi removido).
     if (!proposal) return null;
     // Pacote L (4): item legado sem ncmOrServiceCode (ou nao-objeto) nao derruba o aceite (500).
     const proposalItems = (Array.isArray(proposal.items) ? proposal.items : []).filter(
