@@ -76,7 +76,7 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
     assert.equal(res.status, 401);
   });
 
-  it('router (defesa em profundidade): requisicao HTTP sem sessao => 401; GET proposta :id => 200', async () => {
+  it('router (defesa em profundidade): requisicao HTTP sem sessao => 401; GET proposta :id sem link assinado => 404', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
     for (const [p, m] of [
       ['/api/admin/users', 'GET'],
@@ -91,8 +91,9 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
     const forged = Buffer.from(JSON.stringify({ email: ADMIN_EMAIL, mfaVerified: true })).toString('base64url');
     const forgedRes = await router.dispatch({ method: 'GET', path: '/api/admin/users', query: { ...HTTP, _sessionToken: forged } });
     assert.equal(forgedRes.status, 401);
+    // Link assinado (29/10/2026): GET anonimo sem token => 404 generico (sem DTO parcial).
     const pub = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP } });
-    assert.equal(pub.status, 200);
+    assert.equal(pub.status, 404);
   });
 
   it('bridge descarta chaves internas _* vindas da URL (_sessionToken, _fromHttpBridge, _origin)', async () => {

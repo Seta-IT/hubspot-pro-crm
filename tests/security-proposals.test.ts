@@ -18,6 +18,7 @@ import {
 import { isValidCpf, validateProposalApprovalInput } from '../src/modules/erp/proposal-approval';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter } from '../src/api/router';
+import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 
 function token(overrides: Partial<StiHubSignedSessionClaims> = {}): string {
   return signStiHubSessionToken({
@@ -206,10 +207,16 @@ describe('Aceite publico da proposta (POST /approve)', () => {
       ],
     } as unknown as { title: string });
     const statusBefore = created.status;
+    // Link assinado (29/10): sem contexto interno, o aceite exige o token do link.
+    const linkQuery = {
+      _clientIp: '198.51.100.10',
+      proposalLinkToken: signProposalLinkToken({ proposalId: created.id, version: created.version || 1 }).token,
+    };
 
     const bad = await router.dispatch({
       method: 'POST',
       path: `/api/erp/proposals/${created.id}/approve`,
+      query: { ...linkQuery },
       body: { signerName: 'X', signerCpf: '000', modality: 'INVALIDA' },
     });
     assert.equal(bad.status, 400);
@@ -220,14 +227,13 @@ describe('Aceite publico da proposta (POST /approve)', () => {
     const ok = await router.dispatch({
       method: 'POST',
       path: `/api/erp/proposals/${created.id}/approve`,
+      query: { ...linkQuery },
       body: {
         signerName: 'Carlos Almeida',
         signerCpf: VALID_CPF,
         signerRole: 'Diretor',
         modality: 'ICP_BRASIL_A3',
         acceptedTerms: true,
-        // payload de proposta enviado pelo cliente NAO pode sobrescrever a proposta existente
-        proposal: { ...created, monthlyRecurringTotal: 1 },
       },
     });
     assert.equal(ok.status, 200);
@@ -240,6 +246,7 @@ describe('Aceite publico da proposta (POST /approve)', () => {
     const again = await router.dispatch({
       method: 'POST',
       path: `/api/erp/proposals/${created.id}/approve`,
+      query: { ...linkQuery },
       body: {
         signerName: 'Carlos Almeida',
         signerCpf: VALID_CPF,

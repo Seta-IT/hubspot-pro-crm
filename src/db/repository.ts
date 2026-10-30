@@ -5041,21 +5041,8 @@ export class CrmRepository {
         p.code === cleanId ||
         p.code.toLowerCase() === cleanId.toLowerCase()
     );
-    if (!proposal && signatureInput && typeof signatureInput === "object") {
-      const incoming = (signatureInput.proposal && typeof signatureInput.proposal === "object"
-        ? signatureInput.proposal
-        : signatureInput.title
-          ? signatureInput
-          : null) as Partial<ErpCommercialProposal> | null;
-      if (incoming) {
-        proposal =
-          this.updateProposal(cleanId, {
-            ...incoming,
-            id: incoming.id || cleanId,
-            title: incoming.title || `Proposta Comercial ${cleanId}`,
-          }) || undefined;
-      }
-    }
+    // Link assinado (29/10/2026): o aceite NUNCA cria nem sobrescreve proposta a partir de
+    // payload do cliente (o antigo upsert por `proposal`/`title` foi removido). Sem proposta => null.
     if (!proposal) return null;
 
     const now = new Date();
