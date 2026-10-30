@@ -113,9 +113,13 @@ import {
   verifyMfaChallengeToken,
   verifyUserInviteToken,
   verifyRfc6238Totp,
+  MFA_CHALLENGE_CID_PREFIX,
+  mfaChallengeFlowOf,
+  type MfaChallengeFlow,
   verifyStiHubSessionToken,
 } from '../app/lib/auth';
 import { calculateBrazilianTaxBreakdown } from '../modules/erp/erp-tax-engine';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   fetchLiveGestaoClickSnapshot,
   maskSecretToken,
@@ -123,7 +127,7 @@ import {
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
 import { SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
-import { deriveServerTotpSecret, unsealIamRecord } from './iam-security';
+import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
 
@@ -699,6 +703,24 @@ export function computeCustomDueDateFromRule(params: {
     weekdayLabelPt,
     ruleLabel,
   };
+}
+
+
+/** Sessao anonima: so isto (sem user, role, guards ou permissoes). */
+export interface StiHubAnonymousSession {
+  authenticated: false;
+  mfaVerified: false;
+}
+export interface StiHubAuthenticatedSession {
+  authenticated: true;
+  mfaVerified: boolean;
+  user: StiHubUserRecord;
+  role: StiHubRoleDefinition;
+  effectiveActionGuards: StiHubActionGuards;
+  enabledModules: StiHubMacroModule[];
+  moduleAccess: StiHubUserModuleAccess;
+  crmPermissions: StiHubCrmPermissions;
+  erpPermissions: StiHubErpPermissions;
 }
 
 export class CrmRepository {
@@ -6743,6 +6765,12 @@ export class CrmRepository {
       } else if (u.totpConfigured === undefined) {
         u.totpConfigured = Boolean(u.totpConfiguredAt || (u.mfaEnabled && u.active));
       }
+      // Pareamento fixado no servidor (env): instancia fria nunca trata como "nao pareado".
+      if (u.mfaEnabled !== false && isTotpPairingPinnedByServer(u.email)) {
+        u.totpConfigured = true;
+        u.totpEpoch = STIHUB_TOTP_ROTATION_EPOCH;
+        u.totpConfiguredAt = u.totpConfiguredAt || u.createdAt || null;
+      }
     }
     return rbac;
   }
@@ -6805,10 +6833,10 @@ export class CrmRepository {
       "0000000000000000000000000000000000000000000000000000000000000000";
     const nowIso = new Date().toISOString();
     const id = `AUDIT-${Date.now().toString(36).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-    const actorEmail = input.actorEmail || "marcelo.mira@setatelecom.com.br";
-    const actorName = input.actorName || "Marcelo Lopes Mira";
-    const actorRole = input.actorRole || "SUPER_ADMIN";
-    const ipAddress = input.ipAddress || "189.112.44.18";
+    const actorEmail = input.actorEmail || "sistema@sti-hub.local"; // HOTFIX 29/10: sem ator => sistema, nunca o admin
+    const actorName = input.actorName || "Sistema STI-hub";
+    const actorRole = input.actorRole || "SYSTEM";
+    const ipAddress = input.ipAddress || "n/d";
     const integrityHashSha256 = sha256Hex(
       `${prevHash}|${id}|${nowIso}|${actorEmail}|${input.action}|${input.module}|${input.resource}|${input.status}|${input.details}`
     );
@@ -7213,6 +7241,18 @@ export class CrmRepository {
     return { ...rbac.securityConfig };
   }
 
+  /**
+   * HOTFIX 29/10 (vazamento anonimo): busca ESTRITA. Sem correspondencia => null (nunca o
+   * primeiro usuario/SUPER_ADMIN). Quem nao tem sessao nao tem usuario.
+   */
+  findEffectiveUserAndRole(userOrEmail?: string | null): ReturnType<CrmRepository["getEffectiveUserAndRole"]> | null {
+    const rbac = this.ensureRbacState();
+    const q = String(userOrEmail || "").trim().toLowerCase();
+    if (!q) return null;
+    const hit = rbac.users.find((u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q);
+    return hit ? this.getEffectiveUserAndRole(hit.id) : null;
+  }
+
   getEffectiveUserAndRole(userOrEmail?: string | null): {
     user: StiHubUserRecord;
     role: StiHubRoleDefinition;
@@ -7232,7 +7272,11 @@ export class CrmRepository {
               u.email.toLowerCase() === q ||
               u.name.toLowerCase() === q
           )
-        : null) || rbac.users[0];
+        : null);
+    if (!matchedUser) {
+      // HOTFIX 29/10: sem fallback para rbac.users[0] (SUPER_ADMIN). Chamadores usam id existente.
+      throw new Error("STIHUB_USER_NOT_FOUND");
+    }
 
     const matchedRole =
       rbac.roles.find((r) => r.id === matchedUser.roleId) || rbac.roles[0];
@@ -7434,6 +7478,86 @@ export class CrmRepository {
     this.markLocalIamChange(found.id);
     this.save();
     return { ok: true, user: found, previous };
+  }
+
+  /**
+   * PATCH /api/auth/me: merge SO dos campos de self-service no registro do proprio usuario.
+   * Nao usa upsertRbacUser (que aceita papel/permissoes). O chamador ja validou tudo.
+   */
+  updateOwnProfile(
+    userId: string,
+    patch: {
+      name?: string;
+      phone?: string;
+      homeScreen?: string | null;
+      avatarUrl?: string;
+      mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
+      newPassword?: string;
+    }
+  ): { ok: boolean; user?: StiHubUserRecord; changed: string[]; passwordChangedAt?: string } {
+    const rbac = this.ensureRbacState();
+    const q = String(userId || "").trim().toLowerCase();
+    const found = rbac.users.find((u) => u.id.toLowerCase() === q);
+    if (!found) return { ok: false, changed: [] };
+    const rec = found as StiHubUserRecord & { avatarUrl?: string; passwordChangedAt?: string };
+    const changed: string[] = [];
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    if (patch.name !== undefined && patch.name !== rec.name) { rec.name = patch.name; changed.push("name"); }
+    if (patch.phone !== undefined && patch.phone !== rec.phone) { rec.phone = patch.phone; changed.push("phone"); }
+    if (patch.avatarUrl !== undefined && patch.avatarUrl !== rec.avatarUrl) { rec.avatarUrl = patch.avatarUrl; changed.push("avatarUrl"); }
+    if (patch.homeScreen !== undefined && (patch.homeScreen ?? null) !== (rec.homeScreen ?? null)) {
+      if (patch.homeScreen) rec.homeScreen = patch.homeScreen;
+      else delete rec.homeScreen;
+      const prevVersion = Date.parse(String(rec.homeScreenUpdatedAt || "")) || 0;
+      rec.homeScreenUpdatedAt = new Date(Math.max(nowMs, prevVersion + 1)).toISOString();
+      changed.push("preferences.homeScreen");
+    }
+    if (patch.mfaMethod !== undefined && patch.mfaMethod !== rec.mfaMethod) { rec.mfaMethod = patch.mfaMethod; changed.push("mfaMethod"); }
+    let passwordChangedAt: string | undefined;
+    if (patch.newPassword !== undefined) {
+      rec.passwordHash = hashCorporatePassword(patch.newPassword);
+      // Sessoes emitidas antes disto ficam invalidas (isSessionOlderThanPasswordChange).
+      passwordChangedAt = new Date(nowMs).toISOString();
+      rec.passwordChangedAt = passwordChangedAt;
+      changed.push("password");
+    }
+    if (changed.length > 0) {
+      rec.updatedAt = nowIso;
+      this.markLocalIamChange(rec.id);
+      this.save();
+    }
+    return { ok: true, user: rec, changed, passwordChangedAt };
+  }
+
+  /**
+   * Confere a senha atual do proprio usuario (tempo constante). 5 erros em 15 min => bloqueio de
+   * 15 min no MESMO loginAttemptTracker do login (sessao roubada nao vira forca bruta de senha).
+   */
+  verifyOwnCurrentPassword(userId: string, password: string): { ok: boolean; locked?: boolean; failedAttempts?: number } {
+    const rbac = this.ensureRbacState();
+    const q = String(userId || "").trim().toLowerCase();
+    const found = rbac.users.find((u) => u.id.toLowerCase() === q);
+    if (!found) return { ok: false };
+    const key = found.email.toLowerCase();
+    const nowMs = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const t = this.loginAttemptTracker.get(key);
+    if (t && t.lockedUntilMs > nowMs) return { ok: false, locked: true, failedAttempts: t.failedAttempts };
+    if (verifyCorporatePassword(password, found.passwordHash)) return { ok: true };
+    const fresh = !t || nowMs - t.firstAttemptMs > windowMs;
+    const fails = (fresh ? 0 : t!.failedAttempts) + 1;
+    this.loginAttemptTracker.set(key, {
+      failedAttempts: fails,
+      firstAttemptMs: fresh ? nowMs : t!.firstAttemptMs,
+      lockedUntilMs: fails >= 5 ? nowMs + windowMs : 0,
+    });
+    return { ok: false, locked: fails >= 5, failedAttempts: fails };
+  }
+
+  /** Leitura do contador de falhas de senha (testes/diagnostico; sem dados sensiveis). */
+  getFailedPasswordAttempts(email: string): number {
+    return this.loginAttemptTracker.get(String(email || "").trim().toLowerCase())?.failedAttempts || 0;
   }
 
   deleteRbacUser(
@@ -7735,10 +7859,11 @@ export class CrmRepository {
       };
     }
     const cleanPass = String(input.password || "").trim();
-    if (cleanPass.length < 6) {
+    // Pacote C: senha NOVA do convite segue a politica de 12 caracteres.
+    if (cleanPass.length < NEW_PASSWORD_MIN_LENGTH) {
       return {
         ok: false,
-        error: "A senha deve ter pelo menos 6 caracteres.",
+        error: NEW_PASSWORD_MIN_MESSAGE,
       };
     }
 
@@ -7775,7 +7900,6 @@ export class CrmRepository {
         userId: updatedUser.id,
         code: rawCode,
         mfaMethod: "TOTP_AUTHENTICATOR",
-        totpSecret: updatedUser.totpSecret,
         ipAddress: input.ipAddress,
       });
       if (!mfaRes.ok) {
@@ -7819,8 +7943,7 @@ export class CrmRepository {
 
   setupUserTotp(
     userOrEmail: string,
-    regenerateSecret = false,
-    explicitSecret?: string
+    regenerateSecret = false
   ): {
     ok: boolean;
     error?: string;
@@ -7842,8 +7965,7 @@ export class CrmRepository {
     if (!found) {
       return { ok: false, error: "Usuário não encontrado na matriz IAM." };
     }
-    // Segredo explicito do cliente e ignorado (contencao 29/10/2026): sempre derivado no servidor.
-    void explicitSecret;
+    // Segredo sempre derivado no servidor (sem parametro de segredo do cliente).
     found.totpSecret = generateTotpSecretBase32(found.email);
     if (regenerateSecret) {
       found.totpConfigured = false;
@@ -7887,7 +8009,8 @@ export class CrmRepository {
 
   createEmailOtpChallenge(
     userOrEmail: string,
-    ipAddress = "189.112.44.18"
+    ipAddress = "189.112.44.18",
+    purpose: MfaChallengeFlow = "LOGIN"
   ): {
     ok: boolean;
     error?: string;
@@ -7912,7 +8035,8 @@ export class CrmRepository {
     }
 
     const nowMs = Date.now();
-    const key = found.email.toLowerCase();
+    // Pacote A: desafios de e-mail separados por fluxo (login x step-up).
+    const key = `${purpose}:${found.email.toLowerCase()}`;
     const prev = this.emailOtpChallenges.get(key);
     const recentSends = (prev?.sendHistoryMs || []).filter((ts) => nowMs - ts < 10 * 60 * 1000);
     if (recentSends.length >= 6) {
@@ -7937,7 +8061,7 @@ export class CrmRepository {
     const ttlMs = 10 * 60 * 1000; // 10 minutes
     const expiresAtMs = nowMs + ttlMs;
     const challengeId = signMfaChallengeToken({
-      cid: `OTP-MAIL-${found.id}-${nowMs.toString(36).toUpperCase()}`,
+      cid: `${purpose === "STEPUP" ? MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL : MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL}${found.id}-${nowMs.toString(36).toUpperCase()}`,
       uid: found.id,
       email: found.email,
       mfaMethod: "EMAIL_OTP",
@@ -8166,9 +8290,11 @@ export class CrmRepository {
     userId?: string;
     code: string;
     mfaMethod?: "TOTP_AUTHENTICATOR" | "EMAIL_OTP";
-    totpSecret?: string;
+    // Revisao 7706b4a: nao existe parametro de segredo TOTP vindo do cliente.
     challengeId?: string;
     ipAddress?: string;
+    /** Reverificacao (step-up) de sessao ja autenticada: marca mfaStepUpAt no novo token. */
+    stepUp?: boolean;
   }): {
     ok: boolean;
     error?: string;
@@ -8184,7 +8310,12 @@ export class CrmRepository {
   } {
     const rbac = this.ensureRbacState();
     const rawCode = String(input.code || "").replace(/\D+/g, "");
-    const identifier = input.userId || input.email || "usr-seta-01";
+    // HOTFIX 29/10: sem identificador ou usuario inexistente => falha (nunca usr-seta-01/users[0]).
+    const resolvedUser =
+      this.findEffectiveUserAndRole(input.userId) || this.findEffectiveUserAndRole(input.email);
+    if (!resolvedUser) {
+      return { ok: false, error: "Código 2FA inválido ou expirado. Faça login novamente." };
+    }
     const {
       user,
       role,
@@ -8193,7 +8324,7 @@ export class CrmRepository {
       moduleAccess,
       crmPermissions,
       erpPermissions,
-    } = this.getEffectiveUserAndRole(identifier);
+    } = resolvedUser;
 
     if (!user.active) {
       return { ok: false, error: "Conta corporativa inativa." };
@@ -8226,6 +8357,8 @@ export class CrmRepository {
     const userSecret = generateTotpSecretBase32(user.email);
 
     // If challengeId was provided and is expired or already consumed, reject immediately
+    // Pacote A: fluxo do desafio (login x step-up). Desafio de um fluxo nunca vale no outro.
+    const flow: MfaChallengeFlow = input.stepUp ? "STEPUP" : "LOGIN";
     let statelessChallenge: ReturnType<typeof verifyMfaChallengeToken> = null;
     if (input.challengeId) {
       statelessChallenge = verifyMfaChallengeToken(input.challengeId);
@@ -8234,6 +8367,9 @@ export class CrmRepository {
           ok: false,
           error: "Desafio 2FA expirado. Faça login novamente e digite o código atual de 6 dígitos.",
         };
+      }
+      if (mfaChallengeFlowOf(statelessChallenge.cid) !== flow) {
+        return { ok: false, error: "Desafio 2FA de outro fluxo. Solicite um novo código." };
       }
       if (this.consumedChallengeIds.has(statelessChallenge.cid)) {
         return {
@@ -8321,7 +8457,8 @@ export class CrmRepository {
     const isValidTotp = Boolean(matchedTotpSecret);
 
     let isValidEmailOtp = false;
-    const emailChallenge = this.emailOtpChallenges.get(emailKey);
+    const emailMapKey = `${flow}:${emailKey}`;
+    const emailChallenge = this.emailOtpChallenges.get(emailMapKey);
     if (emailChallenge) {
       if (emailChallenge.consumed) {
         if (sha256Hex(rawCode) === emailChallenge.codeHash) {
@@ -8331,13 +8468,13 @@ export class CrmRepository {
           };
         }
       } else if (nowMs > emailChallenge.expiresAtMs) {
-        this.emailOtpChallenges.delete(emailKey);
+        this.emailOtpChallenges.delete(emailMapKey);
         return {
           ok: false,
           error: "Código OTP por e-mail expirado. Solicite um novo código.",
         };
       } else if (emailChallenge.attempts >= emailChallenge.maxAttempts) {
-        this.emailOtpChallenges.delete(emailKey);
+        this.emailOtpChallenges.delete(emailMapKey);
         return {
           ok: false,
           error: "Limite de tentativas do código OTP excedido. Solicite um novo código.",
@@ -8426,6 +8563,8 @@ export class CrmRepository {
       crmPermissions,
       erpPermissions,
       erpRole: realUserRecord?.erpRole || (user as { erpRole?: string }).erpRole || undefined,
+      canManageUsersRbac: Boolean(effectiveActionGuards?.canManageUsersRbac),
+      ...(input.stepUp ? { mfaStepUpAt: nowMs } : {}),
       mfaVerified: true,
       mfaMethod: isValidEmailOtp ? "EMAIL_OTP" : user.mfaMethod,
       iat: nowMs,
@@ -8458,17 +8597,7 @@ export class CrmRepository {
     };
   }
 
-  resolveSessionFromToken(token?: string | null): {
-    authenticated: boolean;
-    mfaVerified: boolean;
-    user: StiHubUserRecord;
-    role: StiHubRoleDefinition;
-    effectiveActionGuards: StiHubActionGuards;
-    enabledModules: StiHubMacroModule[];
-    moduleAccess: StiHubUserModuleAccess;
-    crmPermissions: StiHubCrmPermissions;
-    erpPermissions: StiHubErpPermissions;
-  } {
+  resolveSessionFromToken(token?: string | null): StiHubAnonymousSession | StiHubAuthenticatedSession {
     if (token) {
       const verified = verifyStiHubSessionToken(token);
       if (verified.valid && verified.claims) {
@@ -8508,20 +8637,18 @@ export class CrmRepository {
             exists.moduleAccess = c.moduleAccess;
           }
         }
-        const resolved = this.getEffectiveUserAndRole(c.uid || c.email);
-        return {
-          authenticated: true,
-          mfaVerified: Boolean(c.mfaVerified),
-          ...resolved,
-        };
+        const resolved = this.findEffectiveUserAndRole(c.uid) || this.findEffectiveUserAndRole(c.email);
+        if (resolved && resolved.user.active !== false) {
+          return {
+            authenticated: true,
+            mfaVerified: Boolean(c.mfaVerified),
+            ...resolved,
+          };
+        }
       }
     }
-    const fallback = this.getEffectiveUserAndRole("usr-seta-01");
-    return {
-      authenticated: false,
-      mfaVerified: false,
-      ...fallback,
-    };
+    // HOTFIX 29/10 (vazamento anonimo): sem sessao valida NAO ha usuario, papel nem permissoes.
+    return { authenticated: false, mfaVerified: false };
   }
 
   // ==========================================================================

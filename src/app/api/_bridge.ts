@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CrmApiRouter } from '../../api/router';
+import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from '../../api/router';
 import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE } from '../lib/auth';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
 
 const router = new CrmApiRouter();
+
+/** Remove do corpo do cliente toda chave interna reservada ao bridge (_fromHttpBridge, _cronAuthorized, _sessionToken...). */
+export function stripReservedBodyKeys(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const out = { ...(body as Record<string, unknown>) };
+  for (const k of BRIDGE_RESERVED_KEYS) delete out[k];
+  return out;
+}
 
 export async function forwardToCrmRouter(
   req: NextRequest,
@@ -60,7 +68,7 @@ export async function forwardToCrmRouter(
         svcBody = {};
       }
     }
-    const svcRes = await router.dispatch({ method: req.method, path, query: svcQuery, body: svcBody });
+    const svcRes = await router.dispatch({ method: req.method, path, query: svcQuery, body: stripReservedBodyKeys(svcBody) });
     const svcHeaders: Record<string, string> = {
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
       Pragma: 'no-cache',
@@ -126,11 +134,14 @@ export async function forwardToCrmRouter(
     }
   }
 
+  // As chaves internas da query sao SEMPRE definidas aqui (sobrescrevem qualquer valor);
+  // _cronAuthorized so existe se o Bearer CRON_SECRET bateu acima.
+  if (query._cronAuthorized !== '1') delete query._cronAuthorized;
   const res = await router.dispatch({
     method: req.method,
     path,
     query,
-    body,
+    body: stripReservedBodyKeys(body),
   });
 
   const responseHeaders: Record<string, string> = {

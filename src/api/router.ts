@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
@@ -10,6 +11,9 @@ import {
   buildOtpAuthUri,
   buildTotpQrCodeSvgDataUrl,
   generateTotpCodeSync,
+  isEmailOtpChallengeCid,
+  mfaChallengeFlowOf,
+  signMfaChallengeToken,
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
 import type { ErpFinancialEntry } from "../db/types";
@@ -62,7 +66,15 @@ import {
   PROPOSAL_EDITOR_ERP_ROLES,
   resolveErpAccountRoleFromClaims,
 } from '../middleware';
-import { verifyStiHubSessionToken } from '../app/lib/auth';
+import { signStiHubSessionToken, verifyStiHubSessionToken } from '../app/lib/auth';
+import {
+  rejectedSelfProfileKeys,
+  SELF_PROFILE_STEP_UP_FIELDS,
+  SELF_TARGET_KEYS,
+  selfProfileDto,
+  selfProfilePatchSchema,
+} from './self-profile';
+import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -102,7 +114,7 @@ import {
   INITIAL_SYNC_LOGS,
   MigrationChecklistModuleItem,
 } from '../modules/erp/daily-sync-service';
-import { StiHubRoleId } from '../db/types';
+import { StiHubRoleId, StiHubUserRecord } from '../db/types';
 import {
   LifecycleStage,
   ServiceTicket,
@@ -126,7 +138,19 @@ import {
   SlidingWindowRateLimiter,
   verifyPasswordResetToken,
 } from './password-reset';
-import { hashCorporatePassword } from '../app/lib/auth';
+import { hashCorporatePassword, verifyCorporatePassword } from '../app/lib/auth';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
+import {
+  PORTAL_GENERIC_DENIED_MESSAGE,
+  PORTAL_MISSING_FILTER_MESSAGE,
+  PORTAL_RATE_LIMIT_MESSAGE,
+  PortalRateLimiters,
+  findPortalTicketByKeyAndEmail,
+  maskEmailForAudit,
+  normalizePortalEmail,
+  normalizePortalKey,
+  toPortalPublicTicketDto,
+} from './portal-access';
 
 /** Normaliza uma chave Resend (remove aspas, "Bearer ", espacos) e valida o formato re_... */
 export function normalizeResendApiKey(raw: unknown): string {
@@ -136,13 +160,74 @@ export function normalizeResendApiKey(raw: unknown): string {
   return /^re_[A-Za-z0-9_-]{8,}$/.test(k) ? k : '';
 }
 
+
+// ---------------------------------------------------------------------------
+// Pacote C: cookie de sessao e cookie de remocao com os MESMOS atributos
+// (Path=/; HttpOnly; SameSite=Lax; Secure quando na Vercel).
+// ---------------------------------------------------------------------------
+export const STIHUB_SESSION_COOKIE_NAME = 'stihub_session';
+function sessionCookieSecureAttr(): string {
+  return typeof process !== 'undefined' && process.env.VERCEL === '1' ? '; Secure' : '';
+}
+export function buildSessionCookie(token: string): string {
+  return `${STIHUB_SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${sessionCookieSecureAttr()}`;
+}
+export function buildClearSessionCookie(): string {
+  return `${STIHUB_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${sessionCookieSecureAttr()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Pacote C: revogacao best-effort no logout. Denylist do SHA-256 do token ate o exp,
+// em MEMORIA DA INSTANCIA (processo/lambda). LIMITACAO: sem armazenamento duravel
+// (KV/Postgres), outra instancia da Vercel ou um cold start NAO conhecem a revogacao;
+// o middleware (Edge) tambem nao. O token revogado continua valido ali ate expirar (24 h)
+// ou ate a troca de senha. Mitigacao: o cookie e apagado no navegador no logout.
+// ---------------------------------------------------------------------------
+const REVOKED_SESSION_MAX_ENTRIES = 10_000;
+const revokedSessionTokenHashes = new Map<string, number>();
+function sessionTokenHash(token: string): string {
+  return createHash('sha256').update(String(token)).digest('hex');
+}
+export function revokeSessionTokenBestEffort(token: string | null | undefined, expMs: number): void {
+  if (!token) return;
+  const now = Date.now();
+  for (const [h, exp] of revokedSessionTokenHashes) if (exp <= now) revokedSessionTokenHashes.delete(h);
+  if (revokedSessionTokenHashes.size >= REVOKED_SESSION_MAX_ENTRIES) {
+    const oldest = revokedSessionTokenHashes.keys().next().value;
+    if (oldest) revokedSessionTokenHashes.delete(oldest);
+  }
+  revokedSessionTokenHashes.set(sessionTokenHash(token), Number.isFinite(expMs) && expMs > now ? expMs : now + 24 * 3600 * 1000);
+}
+export function isSessionTokenRevoked(token: string | null | undefined): boolean {
+  if (!token) return false;
+  const h = sessionTokenHash(token);
+  const exp = revokedSessionTokenHashes.get(h);
+  if (exp === undefined) return false;
+  if (exp <= Date.now()) {
+    revokedSessionTokenHashes.delete(h);
+    return false;
+  }
+  return true;
+}
+
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
 /**
  * Chave Resend efetiva: RESEND_API_KEY (env) e, se ausente ou em formato invalido,
  * a chave salva no painel administrativo. Formato invalido e registrado so no log.
  */
+/** NODE_ENV=test, VITEST ou JEST: nunca usar chave Resend real (so dummies "re_test_..." com fetch mockado). */
+export function isTestRuntime(): boolean {
+  if (typeof process === 'undefined' || !process.env) return false;
+  return process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST) || Boolean(process.env.JEST_WORKER_ID);
+}
+
 export function resolveResendApiKey(panelKey?: string | null): string {
+  if (isTestRuntime()) {
+    // Pacote C: em teste, RESEND_API_KEY/RESEND_ADMIN_API_KEY reais sao ignoradas.
+    const dummy = normalizeResendApiKey(process.env.RESEND_API_KEY);
+    return dummy.startsWith('re_test_') ? dummy : '';
+  }
   const envRaw = typeof process !== 'undefined' ? process.env.RESEND_API_KEY : undefined;
   const envKey = normalizeResendApiKey(envRaw);
   if (envRaw && String(envRaw).trim() && !envKey && !resendKeyFormatWarned) {
@@ -276,11 +361,33 @@ export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; e
 </td></tr></table></td></tr></table></body></html>`;
 }
 
+/**
+ * Contexto interno CONFIAVEL (codigo do proprio servidor: jobs, seeds, testes). E um Symbol:
+ * nao pode vir de JSON, query, header ou corpo, logo o cliente nao consegue injeta-lo.
+ * Sem ele, toda chamada (HTTP ou interna) cai nas regras de autorizacao IAM.
+ */
+export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInternalContext');
+
+/** Chaves internas que so o bridge (ou o proprio router) pode definir; nunca do cliente. */
+export const BRIDGE_RESERVED_KEYS = [
+  '_fromHttpBridge',
+  '_cronAuthorized',
+  '_sessionToken',
+  '_svcBearer',
+  '_svcTokenSha256',
+  '_clientIp',
+  '_origin',
+  '_enrolledUsers',
+  '_trustedInternal',
+] as const;
+
 export interface ApiRequest {
   method: string;
   path: string;
   query?: Record<string, string | undefined>;
   body?: unknown;
+  /** So codigo do servidor passa TRUSTED_INTERNAL_CONTEXT (libera rotas IAM sem sessao). */
+  context?: typeof TRUSTED_INTERNAL_CONTEXT;
 }
 
 export interface ApiResponse<T = unknown> {
@@ -421,6 +528,50 @@ export function computeRealtimeTicketsAndKpis(
       avgCsat,
     },
   };
+}
+
+/**
+ * Revisao 7706b4a: o servidor nunca aceita nem grava segredo TOTP vindo do cliente.
+ * Remove do corpo (antes de qualquer upsert) todo campo de segredo/estado interno do TOTP.
+ * Pareamento (totpConfigured/totpEpoch) continua sendo decidido pelas regras do repositorio.
+ */
+/** Prefixo dos desafios de reverificacao (step-up); nao valem como desafio de login. */
+export const STEP_UP_CID_PREFIX = 'STEPUP-';
+/** Janela em que a reverificacao MFA libera ver/regenerar o pareamento do proprio usuario. */
+export const STEP_UP_FRESH_MS = 10 * 60 * 1000;
+export const CLIENT_FORBIDDEN_TOTP_FIELDS = ['totpSecret', 'totpSecretFormatted', 'lastUsedTotpTimeStep'] as const;
+export function stripClientTotpSecretFields(body: unknown): Record<string, unknown> {
+  const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = { ...src };
+  for (const k of CLIENT_FORBIDDEN_TOTP_FIELDS) delete out[k];
+  return out;
+}
+
+
+/**
+ * HOTFIX 29/10 (menor a): senha definida pelo admin no IAM. Vale so para senha NOVA:
+ * - ausente/vazia => sem mudanca de senha;
+ * - igual a senha atual do usuario (ex.: formulario reenvia o registro) => campo ignorado;
+ * - nova e com menos de 12 caracteres => 400. Senhas existentes nunca sao invalidadas.
+ */
+function checkAdminNewPassword(
+  body: Record<string, unknown>,
+  existing: { passwordHash?: string } | undefined
+): { ok: true; body: Record<string, unknown> } | { ok: false; error: string } {
+  if (body.password === undefined || body.password === null) return { ok: true, body };
+  const pw = String(body.password).trim();
+  if (!pw) {
+    const { password: _drop, ...rest } = body;
+    void _drop;
+    return { ok: true, body: rest };
+  }
+  if (existing?.passwordHash && verifyCorporatePassword(pw, existing.passwordHash)) {
+    const { password: _same, ...rest } = body;
+    void _same;
+    return { ok: true, body: rest };
+  }
+  if (pw.length < NEW_PASSWORD_MIN_LENGTH) return { ok: false, error: NEW_PASSWORD_MIN_MESSAGE };
+  return { ok: true, body };
 }
 
 export class CrmApiRouter {
@@ -631,8 +782,15 @@ export class CrmApiRouter {
     if (queryString) {
       const searchParams = new URLSearchParams(queryString);
       searchParams.forEach((v, k) => {
+        // Chaves internas (_*) nunca vem da query string do caminho.
+        if (k.startsWith("_")) return;
         if (query[k] === undefined) query[k] = v;
       });
+    }
+    const trustedInternal = req.context === TRUSTED_INTERNAL_CONTEXT;
+    // Pacote C: token revogado no logout (nesta instancia) vale como "sem sessao".
+    if (query._sessionToken && isSessionTokenRevoked(query._sessionToken)) {
+      delete query._sessionToken;
     }
 
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
@@ -695,7 +853,7 @@ export class CrmApiRouter {
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body);
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -749,6 +907,10 @@ export class CrmApiRouter {
   // ==========================================================================
   // CONTA DE SERVICO "ASSISTENTE DE VENDAS" (Bearer stihub_svc_...)
   // ==========================================================================
+  // PATCH /api/auth/me (Minha Conta): 10/min e 50/dia por usuario; troca de senha 5/hora.
+  private readonly selfProfileMinuteLimiter = new SlidingWindowRateLimiter(10, 60 * 1000);
+  private readonly selfProfileDayLimiter = new SlidingWindowRateLimiter(50, 24 * 3600 * 1000);
+  private readonly selfPasswordChangeLimiter = new SlidingWindowRateLimiter(5, 3600 * 1000);
   private readonly svcMinuteLimiter = new SlidingWindowRateLimiter(SERVICE_RATE_PER_MINUTE, 60 * 1000);
   private readonly svcDailyCreateLimiter = new SlidingWindowRateLimiter(SERVICE_CREATES_PER_DAY, 24 * 3600 * 1000);
   /** Limita a auditoria de tentativas NAO autenticadas por IP (evita inundar a trilha). */
@@ -836,7 +998,9 @@ export class CrmApiRouter {
       if (typeof v === 'string' && v.length <= 120) internalQuery[k] = v;
     }
 
-    const raw = await this.handleRoute(method, cleanPath, internalQuery, body);
+    // Conta de servico: token e allowlist ja validados acima; satisfaz SO a exigencia geral de
+    // sessao (o gate IAM continua valendo: serviceAccount nao e trustedInternal).
+    const raw = await this.handleRoute(method, cleanPath, internalQuery, body, { trustedInternal: false, serviceAccount: true });
     const sanitized = sanitizeApiResponseBody(raw.body, { path: cleanPath });
     const projected = projectSalesAgentResponse(route.resource, sanitized, query);
     this.auditSalesAgent(
@@ -861,10 +1025,200 @@ export class CrmApiRouter {
     return { status: raw.status, body: projected };
   }
 
+  // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
+  /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
+  private readonly portalLimiters = new PortalRateLimiters();
+
+  /** Auditoria de TODA consulta/acao do portal (sucesso ou negada); e-mail mascarado. */
+  private portalAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    key: string,
+    email: string,
+    outcome: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: email ? maskEmailForAudit(email) : 'anonimo@portal',
+        actorName: 'Portal do Cliente (anônimo)',
+        actorRole: 'PORTAL_PUBLIC',
+        action,
+        module: 'CHAMADOS',
+        resource: `/api/portal/tickets${key ? `/${key.slice(0, 64)}` : ''}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Portal: ${outcome}. Chave: ${key ? key.slice(0, 64) : '(vazia)'}; e-mail: ${maskEmailForAudit(email)}.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
+  private readonly stepUpStartLimiter = new SlidingWindowRateLimiter(5, 10 * 60 * 1000);
+  private readonly stepUpVerifyLimiter = new SlidingWindowRateLimiter(10, 10 * 60 * 1000);
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
   private readonly consumedPasswordResetNonces = new Set<string>();
+
+  /** GET/PATCH /api/auth/me — ver spec self-profile-patch-auth-me.md. */
+  private handleSelfProfile(
+    method: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>
+  ): ApiResponse {
+    const noStore = { 'Cache-Control': 'no-store' };
+    const token = query._sessionToken || null;
+    const session = token ? this.repo.resolveSessionFromToken(token) : null;
+    const claims = token ? verifyStiHubSessionToken(token).claims : null;
+    if (!token || !session || !session.authenticated || !session.mfaVerified || !claims || this.isSessionOlderThanPasswordChange(token)) {
+      return { status: 401, headers: noStore, body: { error: 'Sessão corporativa STI-hub com MFA obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+    }
+    const actor = session.user;
+    if (isServiceAccountIdentity(actor.id, actor.email)) {
+      return { status: 403, headers: noStore, body: { error: 'Contas de serviço não têm perfil de usuário.', code: 'SERVICE_ACCOUNT_NOT_HUMAN' } };
+    }
+    const rec = this.repo.findRbacUserRecord(actor.id, '') as (StiHubUserRecord & { passwordHash?: string }) | undefined;
+    if (!rec || rec.id !== actor.id || rec.active === false) {
+      return { status: 401, headers: noStore, body: { error: 'Sessão corporativa STI-hub com MFA obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+    }
+    const actorName = rec.name; // identidade do ator no inicio da requisicao (nunca o valor novo)
+    const audit = (action: string, status: 'SUCCESS' | 'BLOCKED', details: string) =>
+      this.repo.appendSecurityAuditLog({
+        actorEmail: rec.email,
+        actorName,
+        actorRole: session.role.id,
+        action,
+        module: 'IAM_RBAC',
+        resource: `${method} /api/auth/me`,
+        status,
+        ipAddress: query._clientIp,
+        details,
+      });
+
+    if (method === 'GET' || method === 'POST') {
+      // POST mantido por compatibilidade (leitura da sessao). Nunca devolve perfil sem sessao.
+      return { status: 200, headers: noStore, body: { data: { ...session, profile: selfProfileDto(rec) } } };
+    }
+    if (method !== 'PATCH') {
+      return { status: 405, headers: noStore, body: { error: 'Método não permitido.', code: 'METHOD_NOT_ALLOWED' } };
+    }
+
+    // 1) Alvo: so o da sessao. id/userId/email no corpo ou na URL => 400 (nada e aplicado).
+    const raw = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+    const targetKeys = (SELF_TARGET_KEYS as readonly string[]).filter(
+      (k) => Object.prototype.hasOwnProperty.call(raw, k) || query[k] !== undefined
+    );
+    if (targetKeys.length > 0) {
+      audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Tentativa de escolher o alvo em Minha Conta (campos: ${targetKeys.join(', ')}).`);
+      return { status: 400, headers: noStore, body: { error: 'Minha Conta altera somente o próprio usuário da sessão.', code: 'SELF_TARGET_ONLY', rejectedKeys: targetKeys } };
+    }
+
+    // 2) Rate limit por usuario (toda tentativa conta).
+    const rlKey = rec.id.toLowerCase();
+    const minuteOk = this.selfProfileMinuteLimiter.hit(rlKey);
+    const dayOk = minuteOk ? this.selfProfileDayLimiter.hit(rlKey) : true;
+    if (!minuteOk || !dayOk) {
+      return { status: 429, headers: noStore, body: { error: 'Muitas alterações de perfil. Aguarde e tente novamente.', code: 'PROFILE_RATE_LIMITED' } };
+    }
+
+    // 3) Allowlist estrita (denylist explicita + qualquer "_*" + chave desconhecida).
+    const rejected = rejectedSelfProfileKeys(raw);
+    if (rejected.length > 0) {
+      audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Campos não permitidos em Minha Conta: ${rejected.join(', ')}.`);
+      return { status: 400, headers: noStore, body: { error: 'Campos não permitidos em Minha Conta.', code: 'SELF_PROFILE_FORBIDDEN_FIELD', rejectedKeys: rejected } };
+    }
+    const parsed = selfProfilePatchSchema.safeParse(raw);
+    if (!parsed.success) {
+      const unknownKeys = parsed.error.issues.flatMap((i) => (i.code === 'unrecognized_keys' ? i.keys : []));
+      if (unknownKeys.length > 0) {
+        audit('SELF_PROFILE_FORBIDDEN_FIELD', 'BLOCKED', `Campos não permitidos em Minha Conta: ${unknownKeys.slice(0, 30).join(', ')}.`);
+        return { status: 400, headers: noStore, body: { error: 'Campos não permitidos em Minha Conta.', code: 'SELF_PROFILE_FORBIDDEN_FIELD', rejectedKeys: unknownKeys.slice(0, 30) } };
+      }
+      const fields = Array.from(new Set(parsed.error.issues.map((i) => i.path.join('.')))).slice(0, 10);
+      return {
+        status: 400,
+        headers: noStore,
+        body: { error: parsed.error.issues[0]?.message || 'Dados inválidos.', code: 'SELF_PROFILE_INVALID', fields },
+      };
+    }
+    const patch = parsed.data;
+    const fieldNames = Object.keys(patch);
+    if (fieldNames.length === 0) {
+      return { status: 400, headers: noStore, body: { error: 'Nenhum campo para alterar.', code: 'SELF_PROFILE_EMPTY' } };
+    }
+    const wantsPassword = patch.newPassword !== undefined || patch.currentPassword !== undefined;
+    if (wantsPassword && (patch.newPassword === undefined || patch.currentPassword === undefined)) {
+      return { status: 400, headers: noStore, body: { error: 'Para trocar a senha, informe a senha atual e a nova senha.', code: 'SELF_PASSWORD_FIELDS_REQUIRED' } };
+    }
+
+    // 4) Step-up (mfaMethod/senha): PATCH atomico — sem step-up recente, NADA e aplicado.
+    const needsStepUp = fieldNames.some((k) => (SELF_PROFILE_STEP_UP_FIELDS as readonly string[]).includes(k));
+    if (needsStepUp) {
+      const at = Number(claims.mfaStepUpAt || 0);
+      const fresh = at > 0 && Date.now() - at <= STEP_UP_FRESH_MS && at <= Date.now() + 60_000;
+      if (!fresh) {
+        audit('SELF_PROFILE_STEP_UP_REQUIRED', 'BLOCKED', `Alteração exige reverificação MFA (campos: ${fieldNames.join(', ')}).`);
+        return { status: 403, headers: noStore, body: { error: 'Confirme sua identidade (reverificação MFA) para alterar senha ou método 2FA.', code: 'STEP_UP_REQUIRED' } };
+      }
+    }
+
+    // 5) Validacoes que dependem do registro.
+    let homeScreen: string | null | undefined;
+    if (patch.preferences) {
+      const v = validateHomeScreenPatch({ homeScreen: patch.preferences.homeScreen }, moduleAccessFromUser(rec));
+      if (!v.ok) return { status: 400, headers: noStore, body: { error: v.error, code: v.code } };
+      homeScreen = v.screenId;
+    }
+    if (patch.mfaMethod === 'TOTP_AUTHENTICATOR' && rec.totpConfigured !== true) {
+      return { status: 400, headers: noStore, body: { error: 'Pareie o aplicativo autenticador antes de escolhê-lo como método 2FA.', code: 'TOTP_NOT_PAIRED' } };
+    }
+    if (wantsPassword) {
+      if (!this.selfPasswordChangeLimiter.hit(rlKey)) {
+        return { status: 429, headers: noStore, body: { error: 'Muitas trocas de senha. Tente novamente mais tarde.', code: 'PROFILE_RATE_LIMITED' } };
+      }
+      const cur = this.repo.verifyOwnCurrentPassword(rec.id, patch.currentPassword!);
+      if (!cur.ok) {
+        audit('SELF_PROFILE_CURRENT_PASSWORD_INVALID', 'BLOCKED', `Senha atual incorreta em Minha Conta (falha #${cur.failedAttempts || 0}${cur.locked ? ', conta bloqueada por 15 min' : ''}).`);
+        return cur.locked
+          ? { status: 429, headers: noStore, body: { error: 'Muitas tentativas com a senha atual incorreta. Conta bloqueada temporariamente.', code: 'SELF_PASSWORD_LOCKED' } }
+          : { status: 401, headers: noStore, body: { error: 'Senha atual incorreta.', code: 'SELF_CURRENT_PASSWORD_INVALID' } };
+      }
+      if (patch.newPassword!.trim() === patch.currentPassword!.trim()) {
+        return { status: 400, headers: noStore, body: { error: 'A nova senha deve ser diferente da atual.', code: 'SELF_PASSWORD_UNCHANGED' } };
+      }
+    }
+
+    // 6) Persistencia (merge so dos campos permitidos) + auditoria (so nomes de campos).
+    const res = this.repo.updateOwnProfile(rec.id, {
+      name: patch.name,
+      phone: patch.phone,
+      homeScreen,
+      avatarUrl: patch.avatarUrl,
+      mfaMethod: patch.mfaMethod,
+      newPassword: wantsPassword ? patch.newPassword!.trim() : undefined,
+    });
+    if (!res.ok || !res.user) {
+      return { status: 404, headers: noStore, body: { error: 'Usuário não encontrado na matriz IAM.', code: 'USER_NOT_FOUND' } };
+    }
+    const nonSecret = res.changed.filter((f) => f !== 'password' && f !== 'mfaMethod');
+    if (nonSecret.length > 0) audit('SELF_PROFILE_UPDATED', 'SUCCESS', `Campos alterados: ${nonSecret.join(', ')}.`);
+    if (res.changed.includes('mfaMethod')) audit('SELF_MFA_METHOD_CHANGED', 'SUCCESS', 'Método 2FA preferido alterado pelo próprio usuário.');
+    const headers: Record<string, string> = { ...noStore };
+    if (res.changed.includes('password')) {
+      audit('SELF_PASSWORD_CHANGED', 'SUCCESS', 'Senha alterada pelo próprio usuário; sessões anteriores invalidadas.');
+      // Cookie novo (iat >= passwordChangedAt): as outras sessoes ficam invalidas; esta continua.
+      const newToken = signStiHubSessionToken({ ...claims, iat: Math.max(Date.now(), Date.parse(res.passwordChangedAt || '') || 0) });
+      const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
+      headers['Set-Cookie'] = buildSessionCookie(newToken);
+    }
+    return {
+      status: 200,
+      headers,
+      body: { data: { user: selfProfileDto(res.user), changed: res.changed, sessionRotated: res.changed.includes('password') } },
+    };
+  }
 
   /** Sessao emitida antes da ultima troca/redefinicao de senha do usuario => invalida. */
   private isSessionOlderThanPasswordChange(token: string): boolean {
@@ -1087,7 +1441,8 @@ export class CrmApiRouter {
     method: string,
     cleanPath: string,
     query: Record<string, string | undefined>,
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -1104,6 +1459,58 @@ export class CrmApiRouter {
         };
       }
 
+      // HOTFIX 29/10/2026 (escalada de privilegio): autorizacao IAM por colecao NORMALIZADA.
+      // /api/admin/*, /api/rbac/*, /api/iam/* (e aliases como /api/auth/send-invite), em
+      // qualquer metodo (inclusive GET de listagem), exigem sessao MFA valida + canManageUsersRbac.
+      // Roda ANTES do override IAM e da checagem de rota publica (send-invite estava em /api/auth).
+      // Pacote A (29/10): vale para TODA chamada (HTTP ou interna). So o contexto interno
+      // confiavel (Symbol, nao injetavel) dispensa a sessao.
+      if (!ctx.trustedInternal && isIamAdminRoute(cleanPath)) {
+        const iamTok =
+          query._sessionToken;
+        if (!iamTok || !verifyStiHubSessionToken(iamTok).valid) {
+          return {
+            status: 401,
+            body: {
+              error: "Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.",
+              code: "MFA_AUTH_REQUIRED",
+            },
+          };
+        }
+        const iamSess = this.repo.resolveSessionFromToken(iamTok);
+        if (
+          !iamSess.authenticated ||
+          !iamSess.mfaVerified ||
+          this.isSessionOlderThanPasswordChange(iamTok)
+        ) {
+          return {
+            status: 401,
+            body: { error: "Sessão corporativa STI-hub inválida ou expirada.", code: "MFA_SESSION_INVALID" },
+          };
+        }
+        if (!iamSess.effectiveActionGuards.canManageUsersRbac) {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: iamSess.user.email,
+            actorName: iamSess.user.name,
+            actorRole: iamSess.role.id,
+            action: /^\/api\/iam\/users\/[^/]+\/home-screen$/.test(normalizeApiPathForAuthz(cleanPath))
+              ? "IAM_USER_HOME_SCREEN_FORBIDDEN"
+              : "IAM_ADMIN_ROUTE_FORBIDDEN",
+            module: "IAM_RBAC",
+            resource: `${method} ${normalizeApiPathForAuthz(cleanPath)}`,
+            status: "BLOCKED",
+            details: `Acesso a rota administrativa de IAM negado para ${iamSess.user.email} (sem canManageUsersRbac).`,
+          });
+          return {
+            status: 403,
+            body: {
+              error: "Permissão negada: seu perfil não possui alçada para consultar ou alterar usuários, papéis ou políticas IAM/RBAC.",
+              code: "IAM_ADMIN_FORBIDDEN",
+            },
+          };
+        }
+      }
+
       // Contencao 29/10/2026: antes da autenticacao so sao aceitos registros IAM SELADOS
       // pelo servidor (iamSeal). Override "cru" do cliente so depois da sessao MFA e com
       // permissao canManageUsersRbac (ver abaixo).
@@ -1115,16 +1522,19 @@ export class CrmApiRouter {
 
       const isHttpRequest = query._fromHttpBridge === "1";
       const isCronAuthorized =
+        isHttpRequest &&
         query._cronAuthorized === "1" &&
         cleanPath === "/api/erp/daily-sync" &&
         method === "GET";
       const requestSessionToken =
-        query._sessionToken ||
-        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+        query._sessionToken;
 
-      // Defesa em profundidade: toda requisicao HTTP a rota nao publica exige sessao MFA valida,
-      // mesmo que o middleware seja contornado ou mal configurado.
-      if (isHttpRequest && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
+      // Defesa em profundidade: toda chamada (HTTP OU interna) a rota nao publica exige sessao
+      // MFA valida, mesmo que o middleware seja contornado. Pacote C (29/10): excecoes so o
+      // contexto interno confiavel (Symbol nao forjavel), o pipeline da conta de servico (token
+      // ja validado + allowlist) e o cron autenticado pelo bridge. Sessao so via query._sessionToken
+      // (definida pelo bridge a partir do cookie/header); body._sessionToken nunca e lido.
+      if (!ctx.trustedInternal && !ctx.serviceAccount && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
         if (!requestSessionToken || !verifyStiHubSessionToken(requestSessionToken).valid) {
           return {
             status: 401,
@@ -1140,8 +1550,7 @@ export class CrmApiRouter {
       // ZERO-TRUST IAM & MODULE ENFORCEMENT WHEN SESSION TOKEN IS PROVIDED
       // ======================================================================
       const activeSessionToken =
-        query._sessionToken ||
-        (typeof body._sessionToken === "string" ? body._sessionToken : undefined);
+        query._sessionToken;
 
       if (activeSessionToken && !isPublicStiHubPath(cleanPath, method)) {
         const resolvedSession = this.repo.resolveSessionFromToken(activeSessionToken);
@@ -1226,7 +1635,8 @@ export class CrmApiRouter {
         }
 
         // Granular Panel 1 (CRM) & Panel 2 (ERP) Action Enforcement
-        if (cleanPath.startsWith("/api/admin/") && method !== "GET") {
+        // (mantido como cinto-e-suspensorio; a regra central esta no topo de handleRoute)
+        if (isIamAdminRoute(cleanPath) && !resolvedSession.effectiveActionGuards.canManageUsersRbac) {
           if (!resolvedSession.effectiveActionGuards.canManageUsersRbac) {
             return {
               status: 403,
@@ -3095,111 +3505,71 @@ export class CrmApiRouter {
       }
 
       // ======================================================================
-      // PORTAL EXTERNO DO CLIENTE SETA TELECOM (/api/portal/tickets)
+      // PORTAL EXTERNO DO CLIENTE SETA TELECOM (/api/portal/*) — HOTFIX 29/10/2026
+      // Contrato em src/api/portal-access.ts: nunca lista; chave + e-mail do contato (tempo
+      // constante); erro generico; rate-limit por IP e por chave; DTO publico minimo; auditoria.
       // ======================================================================
-      if (cleanPath === '/api/portal/tickets') {
-        if (method === 'GET') {
-          const contactsMap = new Map(this.repo.listContacts().map((c) => [c.id, c]));
-          const companiesMap = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
-          const erpState = this.repo.getErpOverview();
-          const contractsMap = new Map((erpState.rentalContracts || []).map((c) => [c.id, c]));
-          const serviceOrdersMap = new Map((erpState.serviceOrders || []).map((os) => [os.id, os]));
+      if (cleanPath === '/api/portal' || cleanPath.startsWith('/api/portal/')) {
+        const portalIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        const denied = { status: 404, body: { error: PORTAL_GENERIC_DENIED_MESSAGE, code: 'PORTAL_NOT_FOUND' } };
+        const tooMany = { status: 429, body: { error: PORTAL_RATE_LIMIT_MESSAGE, code: 'PORTAL_RATE_LIMITED' } };
+        const contactEmailOf = (t: ServiceTicket) =>
+          t.contactId ? this.repo.getContactById(t.contactId)?.email || null : null;
+        const locate = (key: string, email: string) =>
+          findPortalTicketByKeyAndEmail(this.repo.listServiceTickets(), contactEmailOf, key, email);
 
-          const { tickets: allEvaluated } = computeRealtimeTicketsAndKpis(
-            this.repo.listServiceTickets()
-          );
-
-          const qKey = (query.key || query.ticket || "").trim().toLowerCase();
-          const qEmail = (query.email || "").trim().toLowerCase();
-          const qSearch = (query.search || "").trim().toLowerCase();
-
-          const filtered = allEvaluated.filter((t) => {
-            const contact = t.contactId ? contactsMap.get(t.contactId) : undefined;
-            const company = t.companyId ? companiesMap.get(t.companyId) : undefined;
-            if (qKey) {
-              return t.key.toLowerCase() === qKey || t.id.toLowerCase() === qKey;
-            }
-            if (qEmail) {
-              return (contact?.email || "").toLowerCase().includes(qEmail);
-            }
-            if (qSearch) {
-              const hay = `${t.key} ${t.subject} ${contact?.email || ""} ${contact?.firstName || ""} ${company?.name || ""} ${company?.cnpj || ""} ${t.equipmentSerial || ""}`.toLowerCase();
-              return hay.includes(qSearch);
-            }
-            return true;
-          });
-
-          const sanitized = filtered.map((t) => {
-            const contact = t.contactId ? contactsMap.get(t.contactId) || null : null;
-            const company = t.companyId ? companiesMap.get(t.companyId) || null : null;
-            const contract = t.contractId ? contractsMap.get(t.contractId) || null : null;
-            const serviceOrder = t.serviceOrderId ? serviceOrdersMap.get(t.serviceOrderId) || null : null;
-            return {
-              ...t,
-              // CRITICAL SECURITY RULE: Never expose internal NOC/SRE notes in the public customer portal
-              comments: (t.comments || []).filter((c) => !c.isInternal),
-              contact: contact
-                ? {
-                    id: contact.id,
-                    firstName: contact.firstName,
-                    lastName: contact.lastName,
-                    email: contact.email,
-                  }
-                : null,
-              company: company
-                ? {
-                    id: company.id,
-                    name: company.name,
-                    cnpj: company.cnpj,
-                  }
-                : null,
-              contract: contract
-                ? {
-                    id: contract.id,
-                    contractNumber: contract.contractNumber,
-                    title: contract.title,
-                  }
-                : null,
-              serviceOrder: serviceOrder
-                ? {
-                    id: serviceOrder.id,
-                    code: serviceOrder.code,
-                    status: serviceOrder.status,
-                    technicianName: serviceOrder.technicianName,
-                  }
-                : null,
-            };
-          });
-
-          return {
-            status: 200,
-            body: {
-              data: sanitized,
-              total: sanitized.length,
-            },
-          };
+        if (cleanPath === '/api/portal/tickets' && method === 'GET') {
+          const key = normalizePortalKey(query.key || query.ticket);
+          const email = normalizePortalEmail(query.email);
+          if (!key || !email) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'sem filtro completo (400)');
+            return { status: 400, body: { error: PORTAL_MISSING_FILTER_MESSAGE, code: 'PORTAL_FILTER_REQUIRED' } };
+          }
+          if (!this.portalLimiters.allow(portalIp, key)) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'rate-limit (429)');
+            return tooMany;
+          }
+          const ticket = locate(key, email);
+          if (!ticket) {
+            this.portalAudit('PORTAL_TICKET_LOOKUP', 'BLOCKED', portalIp, key, email, 'chave/e-mail nao conferem (404 generico)');
+            return denied;
+          }
+          this.portalAudit('PORTAL_TICKET_LOOKUP', 'SUCCESS', portalIp, ticket.key, email, 'consulta autorizada');
+          return { status: 200, body: { data: toPortalPublicTicketDto(ticket) } };
         }
 
-        if (method === 'POST') {
-          const subject = String(body.subject || "").trim();
-          const email = String(body.email || "").trim().toLowerCase();
-          const name = String(body.name || body.firstName || "Cliente Seta Telecom").trim();
-          const companyName = String(body.companyName || body.company || "").trim();
-          const phone = body.phone ? String(body.phone).trim() : null;
+        if (cleanPath === '/api/portal/tickets' && method === 'POST') {
+          const subject = String(body.subject || '').trim().slice(0, 300);
+          const email = normalizePortalEmail(body.email);
+          const name = String(body.name || body.firstName || 'Cliente Seta Telecom').trim().slice(0, 120);
+          const companyName = String(body.companyName || body.company || '').trim().slice(0, 200);
+          const phone = body.phone ? String(body.phone).trim().slice(0, 40) : null;
           const description = String(
-            body.description || "Chamado técnico aberto via Portal do Cliente Seta Telecom."
-          ).trim();
-          const category = (body.category as TicketCategory) || "INCIDENT";
-          const priority = (body.priority as TicketPriority) || "HIGH";
-          const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim() : null;
+            body.description || 'Chamado técnico aberto via Portal do Cliente Seta Telecom.'
+          ).trim().slice(0, 10000);
+          const allowedCategories: TicketCategory[] = ['INCIDENT', 'SUPPORT', 'BUG', 'BILLING', 'FEATURE_REQUEST'];
+          const allowedPriorities: TicketPriority[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+          const category = allowedCategories.includes(body.category as TicketCategory)
+            ? (body.category as TicketCategory)
+            : 'INCIDENT';
+          const priority = allowedPriorities.includes(body.priority as TicketPriority)
+            ? (body.priority as TicketPriority)
+            : 'HIGH';
+          const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim().slice(0, 120) : null;
 
-          if (!subject) {
-            return { status: 400, body: { error: 'O assunto do chamado ("subject") é obrigatório.' } };
+          if (!this.portalLimiters.createIp.hit(`create:${portalIp}`)) {
+            this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'rate-limit (429)');
+            return tooMany;
+          }
+          if (!subject || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'assunto/e-mail invalidos (400)');
+            return {
+              status: 400,
+              body: { error: 'Informe o assunto do chamado e um e-mail de contato válido.', code: 'PORTAL_CREATE_INVALID' },
+            };
           }
 
-          let contact = email
-            ? this.repo.listContacts().find((c) => c.email.toLowerCase() === email)
-            : undefined;
+          let contact = this.repo.listContacts().find((c) => c.email.toLowerCase() === email);
           let companyId = contact?.companyId || null;
 
           if (companyName && !companyId) {
@@ -3212,15 +3582,15 @@ export class CrmApiRouter {
             companyId = comp.id;
           }
 
-          if (!contact && email) {
-            const parts = name.split(" ");
+          if (!contact) {
+            const parts = name.split(' ');
             contact = this.repo.createContact({
               email,
-              firstName: parts[0] || "Cliente",
-              lastName: parts.slice(1).join(" ") || "Portal",
+              firstName: parts[0] || 'Cliente',
+              lastName: parts.slice(1).join(' ') || 'Portal',
               phone,
               companyId,
-              lifecycleStage: "CUSTOMER",
+              lifecycleStage: 'CUSTOMER',
             });
           }
 
@@ -3229,8 +3599,8 @@ export class CrmApiRouter {
             description,
             category,
             priority,
-            status: "OPEN",
-            channel: "WEB_PORTAL",
+            status: 'OPEN',
+            channel: 'WEB_PORTAL',
             contactId: contact?.id || null,
             companyId,
             equipmentSerial,
@@ -3238,110 +3608,86 @@ export class CrmApiRouter {
               {
                 id: `cmt-portal-${Date.now()}`,
                 author: contact ? `${contact.firstName} ${contact.lastName}`.trim() : name,
-                authorRole: "CUSTOMER",
+                authorRole: 'CUSTOMER',
                 isInternal: false,
                 body: description,
                 createdAt: new Date().toISOString(),
               },
             ],
           });
-
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
-
-          return {
-            status: 201,
-            body: {
-              data: {
-                ...created,
-                ...sla,
-                comments: created.comments.filter((c) => !c.isInternal),
-              },
-            },
-          };
-        }
-      }
-
-      const portalReplyMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/reply$/);
-      if (portalReplyMatch && method === 'POST') {
-        const idOrKey = decodeURIComponent(portalReplyMatch[1]);
-        const messageBody = String(body.body || body.message || "").trim();
-        if (!messageBody) {
-          return { status: 400, body: { error: 'A mensagem de resposta ("body") é obrigatória.' } };
-        }
-        const ticket = this.repo.getServiceTicketById(idOrKey);
-        if (!ticket) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
-        }
-        const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
-        const authorName = body.author
-          ? String(body.author)
-          : contact
-            ? `${contact.firstName} ${contact.lastName}`.trim()
-            : "Cliente (Portal Web)";
-
-        const updated = this.repo.addTicketComment(idOrKey, {
-          author: authorName,
-          authorRole: "CUSTOMER",
-          isInternal: false,
-          body: messageBody,
-          newStatus: ticket.status === "WAITING_CUSTOMER" ? "IN_PROGRESS" : undefined,
-        });
-        if (!updated) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
-        }
-        const sla = computeRealtimeTicketSla(updated);
-        updated.slaStatus = sla.slaStatus;
-        return {
-          status: 201,
-          body: {
-            data: {
-              ...updated,
-              ...sla,
-              comments: updated.comments.filter((c) => !c.isInternal),
-            },
-          },
-        };
-      }
-
-      const portalCsatMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/csat$/);
-      if (portalCsatMatch && method === 'POST') {
-        const idOrKey = decodeURIComponent(portalCsatMatch[1]);
-        const score = Number(body.score ?? body.csatScore);
-        if (!Number.isFinite(score) || score < 1 || score > 5) {
-          return {
-            status: 400,
-            body: { error: 'A nota CSAT ("score") deve ser um número entre 1 e 5.' },
-          };
-        }
-        const ticket = this.repo.getServiceTicketById(idOrKey);
-        if (!ticket) {
-          return { status: 404, body: { error: 'Protocolo não encontrado.' } };
+          this.portalAudit('PORTAL_TICKET_CREATE', 'SUCCESS', portalIp, created.key, email, 'chamado aberto pelo portal');
+          return { status: 201, body: { data: toPortalPublicTicketDto(created) } };
         }
 
-        const updated = this.repo.updateServiceTicket(idOrKey, {
-          csatScore: Math.round(score),
-        });
-        if (body.feedback && String(body.feedback).trim()) {
-          this.repo.addTicketComment(idOrKey, {
-            author: body.author ? String(body.author) : "Avaliação CSAT do Cliente",
-            authorRole: "CUSTOMER",
-            isInternal: false,
-            body: `Avaliação CSAT: ${Math.round(score)}/5 — ${String(body.feedback).trim()}`,
-          });
+        const portalActionMatch = cleanPath.match(/^\/api\/portal\/tickets\/([^/]+)\/(reply|csat)$/);
+        if (portalActionMatch && method === 'POST') {
+          const action = portalActionMatch[2] === 'reply' ? 'PORTAL_TICKET_REPLY' : 'PORTAL_TICKET_CSAT';
+          let key = '';
+          try {
+            key = normalizePortalKey(decodeURIComponent(portalActionMatch[1]));
+          } catch {
+            key = '';
+          }
+          const email = normalizePortalEmail(body.email);
+          if (!key || !email) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'sem chave/e-mail (400)');
+            return { status: 400, body: { error: PORTAL_MISSING_FILTER_MESSAGE, code: 'PORTAL_FILTER_REQUIRED' } };
+          }
+          if (!this.portalLimiters.allow(portalIp, key)) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'rate-limit (429)');
+            return tooMany;
+          }
+          const ticket = locate(key, email);
+          if (!ticket) {
+            this.portalAudit(action, 'BLOCKED', portalIp, key, email, 'chave/e-mail nao conferem (404 generico)');
+            return denied;
+          }
+          const contact = ticket.contactId ? this.repo.getContactById(ticket.contactId) : undefined;
+          const contactName = contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Cliente (Portal Web)';
+
+          if (portalActionMatch[2] === 'reply') {
+            const messageBody = String(body.body || body.message || '').trim().slice(0, 10000);
+            if (!messageBody) {
+              this.portalAudit(action, 'BLOCKED', portalIp, ticket.key, email, 'mensagem vazia (400)');
+              return { status: 400, body: { error: 'A mensagem de resposta ("body") é obrigatória.' } };
+            }
+            const updated = this.repo.addTicketComment(ticket.id, {
+              author: contactName,
+              authorRole: 'CUSTOMER',
+              isInternal: false,
+              body: messageBody,
+              newStatus: ticket.status === 'WAITING_CUSTOMER' ? 'IN_PROGRESS' : undefined,
+            });
+            if (!updated) return denied;
+            this.portalAudit(action, 'SUCCESS', portalIp, ticket.key, email, 'resposta publica registrada');
+            return { status: 201, body: { data: toPortalPublicTicketDto(updated) } };
+          }
+
+          const score = Number(body.score ?? body.csatScore);
+          if (!Number.isFinite(score) || score < 1 || score > 5) {
+            this.portalAudit(action, 'BLOCKED', portalIp, ticket.key, email, 'nota invalida (400)');
+            return { status: 400, body: { error: 'A nota CSAT ("score") deve ser um número entre 1 e 5.' } };
+          }
+          this.repo.updateServiceTicket(ticket.id, { csatScore: Math.round(score) });
+          const feedback = body.feedback ? String(body.feedback).trim().slice(0, 2000) : '';
+          if (feedback) {
+            this.repo.addTicketComment(ticket.id, {
+              author: contactName,
+              authorRole: 'CUSTOMER',
+              isInternal: false,
+              body: `Avaliação CSAT: ${Math.round(score)}/5 — ${feedback}`,
+            });
+          }
+          const refreshed = this.repo.getServiceTicketById(ticket.id) || ticket;
+          this.portalAudit(action, 'SUCCESS', portalIp, ticket.key, email, `CSAT ${Math.round(score)}/5 registrado`);
+          return { status: 200, body: { data: toPortalPublicTicketDto(refreshed) } };
         }
-        const refreshed = this.repo.getServiceTicketById(idOrKey) || updated!;
-        const sla = computeRealtimeTicketSla(refreshed);
-        return {
-          status: 200,
-          body: {
-            data: {
-              ...refreshed,
-              ...sla,
-              comments: refreshed.comments.filter((c) => !c.isInternal),
-            },
-          },
-        };
+
+        // Qualquer outra rota/metodo /api/portal/* : nada publico alem do contrato acima.
+        this.portalAudit('PORTAL_UNKNOWN_ROUTE', 'BLOCKED', portalIp, '', '', `${method} ${cleanPath}`.slice(0, 160));
+        return denied;
       }
 
       // ======================================================================
@@ -4862,7 +5208,7 @@ export class CrmApiRouter {
         // Direct login when 2FA is disabled (mfaEnabled === false) for this user
         if (challenge.mfaRequired === false && challenge.sessionToken) {
           const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = `stihub_session=${challenge.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          const cookieHeader = buildSessionCookie(challenge.sessionToken);
           return {
             status: 200,
             headers: {
@@ -4873,7 +5219,8 @@ export class CrmApiRouter {
                 mfaRequired: false,
                 authenticated: true,
                 mfaVerified: true,
-                sessionToken: challenge.sessionToken,
+                // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+                sessionCookieIssued: true,
                 user: challenge.user,
                 role: challenge.role,
                 effectiveActionGuards: challenge.effectiveActionGuards,
@@ -4954,7 +5301,7 @@ export class CrmApiRouter {
         if (query._fromHttpBridge === '1') {
           const ch = verifyMfaChallengeToken(typeof body.challengeId === 'string' ? body.challengeId : undefined);
           const who = target.toLowerCase();
-          if (!ch || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+          if (!ch || mfaChallengeFlowOf(ch.cid) !== 'LOGIN' || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
             return {
               status: 401,
               body: {
@@ -4964,7 +5311,7 @@ export class CrmApiRouter {
             };
           }
         }
-        const otpChallenge = this.repo.createEmailOtpChallenge(target);
+        const otpChallenge = this.repo.createEmailOtpChallenge(target, undefined, 'LOGIN');
         if (!otpChallenge.ok || !otpChallenge.otpCode || !otpChallenge.email) {
           return {
             status: 429,
@@ -5019,10 +5366,15 @@ export class CrmApiRouter {
 
       if (cleanPath === '/api/auth/setup-totp' && (method === 'GET' || method === 'POST')) {
         const target = String(
-          body.email || body.userId || query.email || query.userId || 'marcelo.mira@setatelecom.com.br'
+          body.email || body.userId || query.email || query.userId || ''
         ).trim();
-        const regenerate = Boolean(body.regenerate || query.regenerate === '1');
-        const explicitSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        // HOTFIX 29/10: sem alvo explicito nao ha usuario padrao (antes caia no SUPER_ADMIN).
+        if (!target || !this.repo.findEffectiveUserAndRole(target)) {
+          return { status: 400, body: { error: 'Informe o e-mail corporativo do usuário.', code: 'SETUP_TOTP_TARGET_REQUIRED' } };
+        }
+        const regenerateRequested = Boolean(body.regenerate || query.regenerate === '1');
+        // Revisao 7706b4a: body.totpSecret NAO e lido. O segredo e sempre derivado no servidor
+        // (segredo do servidor + epoca + e-mail); o cliente nunca escolhe nem grava segredo TOTP.
 
         // Security: If user already has TOTP configured, block unauthenticated HTTP requests to /api/auth/setup-totp
         const targetUser = this.repo.getEffectiveUserAndRole(target).user;
@@ -5031,8 +5383,7 @@ export class CrmApiRouter {
           Boolean(targetUser?.totpConfigured || targetUser?.totpConfiguredAt) ||
           enrolledCookieRaw.toLowerCase().includes(target.toLowerCase());
         const callerSessionToken =
-          query._sessionToken ||
-          (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+          query._sessionToken;
         const callerSession = callerSessionToken
           ? this.repo.resolveSessionFromToken(callerSessionToken)
           : null;
@@ -5045,6 +5396,7 @@ export class CrmApiRouter {
         const verifiedStep1Challenge = verifyMfaChallengeToken(challengeToken);
         const hasValidStep1Challenge = Boolean(
           verifiedStep1Challenge &&
+            mfaChallengeFlowOf(verifiedStep1Challenge.cid) === 'LOGIN' &&
             (verifiedStep1Challenge.email.toLowerCase() === target.toLowerCase() ||
               verifiedStep1Challenge.uid.toLowerCase() === target.toLowerCase())
         );
@@ -5057,8 +5409,15 @@ export class CrmApiRouter {
             (callerSession.user.id === targetUser.id ||
               callerSession.user.email.toLowerCase() === targetUser.email.toLowerCase())
         );
+        // Revisao 7706b4a: quem JA pareou so ve QR/segredo (ou regenera) com reverificacao
+        // MFA recente (step-up <= 10 min) na propria sessao. Etapa 1 (so senha) nunca, se pareado.
+        const callerClaims = callerSessionToken ? verifyStiHubSessionToken(callerSessionToken).claims : null;
+        const stepUpFresh = Boolean(
+          callerClaims?.mfaStepUpAt && Date.now() - Number(callerClaims.mfaStepUpAt) <= STEP_UP_FRESH_MS
+        );
         const isCallerAuthenticated = Boolean(
-          callerIsTargetSelf || (hasValidStep1Challenge && !targetUser?.totpConfigured)
+          (callerIsTargetSelf && (!isAlreadyEnrolled || stepUpFresh)) ||
+            (hasValidStep1Challenge && !isAlreadyEnrolled)
         );
 
         if (isAlreadyEnrolled && !isCallerAuthenticated && query._fromHttpBridge === '1') {
@@ -5081,7 +5440,11 @@ export class CrmApiRouter {
           };
         }
 
-        const setup = this.repo.setupUserTotp(target, regenerate, explicitSecret);
+        // "regenerate" (desfaz o pareamento) so para o PROPRIO usuario com sessao MFA valida;
+        // o desafio da etapa 1 (so senha) apenas mostra o QR de quem ainda nao pareou.
+        const regenerate =
+          regenerateRequested && ((callerIsTargetSelf && stepUpFresh) || query._fromHttpBridge !== '1');
+        const setup = this.repo.setupUserTotp(target, regenerate);
         if (!setup.ok) {
           return {
             status: 404,
@@ -5096,6 +5459,136 @@ export class CrmApiRouter {
         };
       }
 
+      // ======================================================================
+      // STEP-UP MFA (reverificacao com a sessao JA autenticada) - Minha Conta
+      // O desafio e ligado ao userId da SESSAO (nunca a id do corpo); rate limit por usuario;
+      // a resposta nunca traz codigo OTP nem segredo TOTP.
+      // ======================================================================
+      if ((cleanPath === '/api/auth/step-up/start' || cleanPath === '/api/auth/step-up/verify') && method === 'POST') {
+        const suTok =
+          query._sessionToken;
+        const suSess = suTok && verifyStiHubSessionToken(suTok).valid ? this.repo.resolveSessionFromToken(suTok) : null;
+        if (!suTok || !suSess?.authenticated || !suSess.mfaVerified || this.isSessionOlderThanPasswordChange(suTok)) {
+          return {
+            status: 401,
+            body: { error: 'Sessão MFA válida obrigatória para reverificar.', code: 'MFA_SESSION_REQUIRED' },
+          };
+        }
+        const suUser = suSess.user;
+        const bodyWho = String(body.userId || body.email || '').trim().toLowerCase();
+        if (bodyWho && bodyWho !== suUser.id.toLowerCase() && bodyWho !== suUser.email.toLowerCase()) {
+          return {
+            status: 403,
+            body: { error: 'A reverificação vale só para o próprio usuário da sessão.', code: 'STEP_UP_TARGET_MISMATCH' },
+          };
+        }
+        const suKey = suUser.id.toLowerCase();
+
+        if (cleanPath === '/api/auth/step-up/start') {
+          if (!this.stepUpStartLimiter.hit(suKey)) {
+            return { status: 429, body: { error: 'Muitas solicitações de reverificação. Aguarde alguns minutos.', code: 'STEP_UP_RATE_LIMITED' } };
+          }
+          const suMethod = body.mfaMethod === 'EMAIL_OTP' ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR';
+          if (suMethod === 'EMAIL_OTP') {
+            const otp = this.repo.createEmailOtpChallenge(suUser.email, undefined, 'STEPUP');
+            if (!otp.ok || !otp.otpCode || !otp.email || !otp.challengeId) {
+              return { status: 429, body: { error: otp.error || 'Não foi possível gerar o código por e-mail.', code: 'STEP_UP_RATE_LIMITED' } };
+            }
+            const delivery = await this.dispatchEmailOtpMessage({
+              toEmail: otp.email,
+              userName: otp.userName || otp.email,
+              otpCode: otp.otpCode,
+              expiresAt: otp.expiresAt!,
+            });
+            return {
+              status: delivery.delivered ? 200 : 503,
+              body: {
+                ...(delivery.delivered
+                  ? {}
+                  : { error: delivery.providerError || 'Não foi possível entregar o código por e-mail. Use o aplicativo autenticador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' }),
+                data: {
+                  challengeId: delivery.delivered ? otp.challengeId : undefined,
+                  mfaMethod: 'EMAIL_OTP',
+                  email: otp.email,
+                  expiresAt: otp.expiresAt,
+                  delivered: delivery.delivered,
+                  deliveryMode: delivery.deliveryMode,
+                },
+              },
+            };
+          }
+          const nowSu = Date.now();
+          const challengeId = signMfaChallengeToken({
+            cid: `${STEP_UP_CID_PREFIX}${suUser.id}-${nowSu.toString(36).toUpperCase()}`,
+            uid: suUser.id,
+            email: suUser.email,
+            mfaMethod: 'TOTP_AUTHENTICATOR',
+            totpSecret: '',
+            iat: nowSu,
+            exp: nowSu + 5 * 60 * 1000,
+          });
+          this.repo.appendSecurityAuditLog({
+            actorEmail: suUser.email,
+            actorName: suUser.name,
+            actorRole: suSess.role.id,
+            action: 'MFA_STEP_UP_CHALLENGE_CREATED',
+            module: 'AUTH_MFA',
+            resource: '/api/auth/step-up/start',
+            status: 'SUCCESS',
+            details: `Desafio de reverificação MFA (${suMethod}) criado para ${suUser.email}.`,
+          });
+          return {
+            status: 200,
+            body: { data: { challengeId, mfaMethod: suMethod, expiresAt: new Date(nowSu + 5 * 60 * 1000).toISOString() } },
+          };
+        }
+
+        // /api/auth/step-up/verify
+        if (!this.stepUpVerifyLimiter.hit(suKey)) {
+          return { status: 429, body: { error: 'Muitas tentativas de reverificação. Aguarde alguns minutos.', code: 'STEP_UP_RATE_LIMITED' } };
+        }
+        const suChallengeId = typeof body.challengeId === 'string' ? body.challengeId : '';
+        const suCh = verifyMfaChallengeToken(suChallengeId);
+        const suCid = String(suCh?.cid || '');
+        if (
+          !suCh ||
+          suCh.uid.toLowerCase() !== suKey ||
+          mfaChallengeFlowOf(suCid) !== 'STEPUP'
+        ) {
+          return {
+            status: 401,
+            body: { error: 'Desafio de reverificação ausente, expirado ou de outro usuário.', code: 'STEP_UP_CHALLENGE_REQUIRED' },
+          };
+        }
+        const suVerified = this.repo.verifyMfaAndCreateSession({
+          userId: suUser.id,
+          code: String(body.code || '').trim(),
+          mfaMethod: isEmailOtpChallengeCid(suCid) ? 'EMAIL_OTP' : 'TOTP_AUTHENTICATOR',
+          challengeId: suChallengeId,
+          stepUp: true,
+        });
+        if (!suVerified.ok || !suVerified.sessionToken) {
+          return { status: 401, body: { error: suVerified.error || 'Código inválido.', code: 'STEP_UP_FAILED' } };
+        }
+        const suSecure = process.env.VERCEL === '1' ? '; Secure' : '';
+        return {
+          status: 200,
+          headers: {
+            'Set-Cookie': buildSessionCookie(suVerified.sessionToken),
+          },
+          body: {
+            data: {
+              stepUpVerified: true,
+              verifiedVia: suVerified.verifiedVia,
+              stepUpValidForSeconds: Math.floor(STEP_UP_FRESH_MS / 1000),
+              // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+              sessionCookieIssued: true,
+              user: suVerified.user,
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/auth/verify-mfa' && method === 'POST') {
         const code = String(body.code || body.totpCode || '').trim();
         const email = body.email ? String(body.email) : undefined;
@@ -5104,14 +5597,19 @@ export class CrmApiRouter {
           body.mfaMethod === 'EMAIL_OTP' || body.mfaMethod === 'TOTP_AUTHENTICATOR'
             ? body.mfaMethod
             : undefined;
-        const totpSecret = typeof body.totpSecret === 'string' ? body.totpSecret : undefined;
+        // Revisao 7706b4a: body.totpSecret NAO e lido nem repassado (segredo so do servidor).
         const challengeId = typeof body.challengeId === 'string' ? body.challengeId : undefined;
         // Contencao 29/10/2026: via HTTP o codigo 2FA so vale com o desafio da etapa 1 (senha validada)
         // do MESMO usuario. Sem isso, o codigo TOTP sozinho permitia login sem senha.
         if (query._fromHttpBridge === '1') {
           const ch = verifyMfaChallengeToken(challengeId);
           const who = String(email || userId || '').trim().toLowerCase();
-          if (!ch || !who || (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)) {
+          if (
+            !ch ||
+            !who ||
+            mfaChallengeFlowOf(ch.cid) !== 'LOGIN' ||
+            (ch.email.toLowerCase() !== who && ch.uid.toLowerCase() !== who)
+          ) {
             return {
               status: 401,
               body: {
@@ -5126,7 +5624,6 @@ export class CrmApiRouter {
           userId,
           code,
           mfaMethod,
-          totpSecret,
           challengeId,
         });
         if (!verified.ok || !verified.sessionToken) {
@@ -5136,7 +5633,7 @@ export class CrmApiRouter {
           };
         }
         const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-        const cookieHeader = `stihub_session=${verified.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+        const cookieHeader = buildSessionCookie(verified.sessionToken);
         return {
           status: 200,
           headers: {
@@ -5147,7 +5644,8 @@ export class CrmApiRouter {
               authenticated: true,
               mfaVerified: true,
               verifiedVia: verified.verifiedVia,
-              sessionToken: verified.sessionToken,
+              // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+              sessionCookieIssued: true,
               user: verified.user,
               role: verified.role,
               effectiveActionGuards: verified.effectiveActionGuards,
@@ -5261,7 +5759,7 @@ export class CrmApiRouter {
         const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
         return {
           status: 200,
-          headers: { 'Set-Cookie': `stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}` },
+          headers: { 'Set-Cookie': buildClearSessionCookie() },
           body: {
             data: {
               ok: true,
@@ -5292,7 +5790,7 @@ export class CrmApiRouter {
 
         if (accepted.mfaRequired === false && accepted.sessionToken) {
           const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = `stihub_session=${accepted.sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureAttr}`;
+          const cookieHeader = buildSessionCookie(accepted.sessionToken);
           return {
             status: 200,
             headers: {
@@ -5304,7 +5802,8 @@ export class CrmApiRouter {
                 mfaVerified: true,
                 mfaRequired: false,
                 passwordSaved: true,
-                sessionToken: accepted.sessionToken,
+                // Pacote A: o token da sessao vai SO no cookie HttpOnly (nunca no JSON).
+                sessionCookieIssued: true,
                 user: accepted.user,
                 role: accepted.role,
                 effectiveActionGuards: accepted.effectiveActionGuards,
@@ -5324,8 +5823,9 @@ export class CrmApiRouter {
               passwordSaved: true,
               mfaRequired: true,
               challengeId: accepted.challengeId,
-              totpConfigured: false,
-              totpPairing: accepted.totpPairing,
+              // Revisao 7706b4a: reflete o estado real (quem ja pareou nao recebe QR nem segredo).
+              totpConfigured: Boolean((accepted as { totpConfigured?: boolean }).totpConfigured),
+              totpPairing: (accepted as { totpConfigured?: boolean }).totpConfigured ? undefined : accepted.totpPairing,
               user: accepted.user,
               role: accepted.role,
               message: 'Senha cadastrada com sucesso! Agora cadastre o código do seu Aplicativo Autenticador para concluir seu primeiro acesso.',
@@ -5443,7 +5943,7 @@ export class CrmApiRouter {
       const iamHomeScreenMatch = cleanPath.match(/^\/api\/iam\/users\/([^/]+)\/home-screen$/);
       if (cleanPath === '/api/me/preferences' || iamHomeScreenMatch) {
         const prefToken =
-          query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+          query._sessionToken;
         const prefSession = prefToken ? this.repo.resolveSessionFromToken(prefToken) : null;
         if (!prefSession || !prefSession.authenticated || !prefSession.mfaVerified) {
           return {
@@ -5617,8 +6117,17 @@ export class CrmApiRouter {
         };
       }
 
-      if ((cleanPath === '/api/auth/session' || cleanPath === '/api/auth/me') && (method === 'GET' || method === 'POST')) {
-        const token = query.token || query._sessionToken || null;
+      // ======================================================================
+      // MINHA CONTA (self-service): GET/PATCH /api/auth/me. Alvo SEMPRE = usuario da sessao.
+      // Spec /workspace/specs/self-profile-patch-auth-me.md; department/jobTitle fora do schema.
+      // ======================================================================
+      if (isSelfProfileRoute(cleanPath)) {
+        return this.handleSelfProfile(method, query, body);
+      }
+
+      if (cleanPath === '/api/auth/session' && (method === 'GET' || method === 'POST')) {
+        // Pacote C: so o cookie (query._sessionToken definido pelo bridge); ?token= nao e aceito.
+        const token = query._sessionToken || null;
         const session = this.repo.resolveSessionFromToken(token);
         return {
           status: 200,
@@ -5629,10 +6138,15 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/auth/logout' && method === 'POST') {
+        // Pacote C: revogacao best-effort (denylist por instancia ate o exp; ver limitacao acima).
+        const logoutToken = query._sessionToken || null;
+        const logoutClaims = logoutToken ? verifyStiHubSessionToken(logoutToken).claims : null;
+        if (logoutToken && logoutClaims) revokeSessionTokenBestEffort(logoutToken, Number(logoutClaims.exp));
         return {
           status: 200,
           headers: {
-            'Set-Cookie': 'stihub_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+            'Set-Cookie': buildClearSessionCookie(),
+            'Cache-Control': 'no-store',
           },
           body: {
             data: {
@@ -5715,7 +6229,14 @@ export class CrmApiRouter {
             body: { error: 'Informe ao menos "name" ou "email" do colaborador.' },
           };
         }
-        const saved = this.repo.upsertRbacUser(body as Record<string, unknown>);
+        const pwCheckCreate = checkAdminNewPassword(
+          body,
+          this.repo.findRbacUserRecord(String(body.id || ''), String(body.email || '').trim().toLowerCase())
+        );
+        if (!pwCheckCreate.ok) {
+          return { status: 400, body: { error: pwCheckCreate.error, code: 'PASSWORD_TOO_SHORT' } };
+        }
+        const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(pwCheckCreate.body));
         const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
@@ -5787,8 +6308,12 @@ export class CrmApiRouter {
       }
       if (adminUserIdMatch && (method === 'PUT' || method === 'PATCH')) {
         const userId = decodeURIComponent(adminUserIdMatch[1]);
+        const pwCheckUpdate = checkAdminNewPassword(body, this.repo.findRbacUserRecord(userId, ''));
+        if (!pwCheckUpdate.ok) {
+          return { status: 400, body: { error: pwCheckUpdate.error, code: 'PASSWORD_TOO_SHORT' } };
+        }
         const saved = this.repo.upsertRbacUser({
-          ...(body as Record<string, unknown>),
+          ...stripClientTotpSecretFields(pwCheckUpdate.body),
           id: userId,
         });
         const otpauthUri = buildOtpAuthUri({

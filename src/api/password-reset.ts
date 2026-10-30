@@ -8,9 +8,11 @@
 // ============================================================================
 import crypto from 'crypto';
 import { constantTimeEqual, resolveStiHubSigningSecret } from '../app/lib/auth';
+import { NEW_PASSWORD_MIN_LENGTH } from '../app/lib/password-policy';
 
 export const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
-export const PASSWORD_RESET_MIN_LENGTH = 6;
+/** Politica de senha nova (Pacote C): 12 caracteres. Senhas existentes nao sao invalidadas. */
+export const PASSWORD_RESET_MIN_LENGTH = NEW_PASSWORD_MIN_LENGTH;
 const TOKEN_PREFIX = 'PWR1-';
 
 export interface PasswordResetClaims {

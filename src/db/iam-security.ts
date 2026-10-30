@@ -47,6 +47,25 @@ export function deriveServerTotpSecret(email: string): string {
   return out;
 }
 
+/**
+ * Registro de pareamento TOTP mantido no servidor (env STI_HUB_TOTP_PAIRED_EMAILS, lista de
+ * e-mails separada por virgula; nao e segredo). Sem estado compartilhado entre instancias, uma
+ * instancia fria nao sabe que o usuario ja pareou e mostraria o QR para quem so tem a senha.
+ * Quem esta nesta lista e SEMPRE tratado como pareado: login e setup-totp nunca devolvem QR/segredo
+ * (re-pareamento so com a propria sessao MFA). Sem a env, nada muda (inerte).
+ */
+export function isTotpPairingPinnedByServer(email: string | null | undefined): boolean {
+  const raw = typeof process !== 'undefined' ? process.env?.STI_HUB_TOTP_PAIRED_EMAILS : undefined;
+  if (!raw) return false;
+  const norm = String(email || '').trim().toLowerCase();
+  if (!norm) return false;
+  return raw
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(norm);
+}
+
 // ---------------------------------------------------------------------------
 // Selo IAM
 // ---------------------------------------------------------------------------
@@ -121,6 +140,8 @@ export const ALWAYS_STRIPPED_RESPONSE_KEYS = [
   'devOtpPreview',
   'emailOtpHash',
   'otpCode',
+  // Pacote A: o token de sessao so trafega no cookie HttpOnly.
+  'sessionToken',
 ];
 
 /** Material de pareamento TOTP: so pode sair nas rotas de pareamento /api/auth/*. */

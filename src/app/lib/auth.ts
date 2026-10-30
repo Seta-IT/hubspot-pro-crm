@@ -46,6 +46,10 @@ export interface StiHubSignedSessionClaims {
   erpPermissions?: StiHubErpPermissions;
   /** Tipo de conta ERP efetivo (ERP_ADMIN, ERP_COMMERCIAL, ...), usado pelo middleware. */
   erpRole?: string;
+  /** Hotfix 29/10/2026: alcada de admin IAM efetiva no login (assinada), usada pelo middleware. */
+  canManageUsersRbac?: boolean;
+  /** Reverificacao MFA (step-up) concluida com a sessao ja autenticada (epoch ms). */
+  mfaStepUpAt?: number;
   mfaVerified: boolean;
   mfaMethod: 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP';
   iat: number;
@@ -551,33 +555,31 @@ export function generateTotpCodeSync(
   secretBase32?: string,
   timestampMs: number = Date.now()
 ): string {
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  return computeRfc6238Totp(effectiveSecret, timestampMs, 0).code;
+  // Revisao 7706b4a: sem fallback. Sem segredo valido nao ha codigo (antes caia no segredo
+  // legado do Marcéllo, derivado so do e-mail com salt publico).
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) return '';
+  return computeRfc6238Totp(secretBase32, timestampMs, 0).code;
 }
 
 export function computeCurrentTotpCode(windowOffset = 0, secretBase32?: string): {
   code: string;
   secondsRemaining: number;
 } {
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  const res = computeRfc6238Totp(effectiveSecret, Date.now(), windowOffset);
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) {
+    return { code: '', secondsRemaining: 30 - (nowSec % 30) };
+  }
+  const res = computeRfc6238Totp(secretBase32, Date.now(), windowOffset);
   return { code: res.code, secondsRemaining: res.secondsRemaining };
 }
 
 export function verifyMfaCode(inputCode: string, secretBase32?: string): boolean {
   const clean = String(inputCode || '').replace(/\D+/g, '');
   if (clean.length !== 6) return false;
-  const effectiveSecret =
-    secretBase32 && isValidPureBase32Secret(secretBase32)
-      ? secretBase32
-      : generateTotpSecretBase32('marcelo.mira@setatelecom.com.br');
-  return verifyRfc6238Totp(effectiveSecret, clean, Date.now(), 0);
+  // Revisao 7706b4a: falha fechada. Sem segredo valido NAO cai no segredo legado
+  // (derivado so do e-mail com salt publico, calculavel por qualquer cliente).
+  if (!secretBase32 || !isValidPureBase32Secret(secretBase32)) return false;
+  return verifyRfc6238Totp(secretBase32, clean, Date.now(), 0);
 }
 
 // ============================================================================
@@ -778,6 +780,30 @@ export function signMfaChallengeToken(
   return `MFA-${payloadB64}.${sigB64}`;
 }
 
+/**
+ * Pacote A (29/10): prefixos de cid por FLUXO. Cada desafio so vale no seu fluxo:
+ *  - LOGIN: MFA- (senha validada) e OTP-MAIL-LOGIN- (e-mail do login)
+ *  - STEPUP: STEPUP- (TOTP da sessao) e OTP-MAIL-STEPUP- (e-mail da reverificacao)
+ * O antigo OTP-MAIL- (sem fluxo) nao vale em nenhum dos dois.
+ */
+export const MFA_CHALLENGE_CID_PREFIX = {
+  LOGIN_PASSWORD: 'MFA-',
+  LOGIN_EMAIL: 'OTP-MAIL-LOGIN-',
+  STEPUP_TOTP: 'STEPUP-',
+  STEPUP_EMAIL: 'OTP-MAIL-STEPUP-',
+} as const;
+export type MfaChallengeFlow = 'LOGIN' | 'STEPUP';
+export function mfaChallengeFlowOf(cid: string | null | undefined): MfaChallengeFlow | null {
+  const c = String(cid || '');
+  if (c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_TOTP)) return 'STEPUP';
+  if (c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_PASSWORD)) return 'LOGIN';
+  return null;
+}
+export function isEmailOtpChallengeCid(cid: string | null | undefined): boolean {
+  const c = String(cid || '');
+  return c.startsWith(MFA_CHALLENGE_CID_PREFIX.LOGIN_EMAIL) || c.startsWith(MFA_CHALLENGE_CID_PREFIX.STEPUP_EMAIL);
+}
+
 export function verifyMfaChallengeToken(
   token: string | null | undefined,
   secretInput?: string
@@ -906,7 +932,8 @@ export function decodeSessionCookie(raw: string | undefined | null): StiHubSessi
     userId: c.uid,
     name: c.name,
     email: c.email,
-    role: (c.roleId as StiHubRole) || 'SUPER_ADMIN',
+    // HOTFIX 29/10: sem papel na sessao => menor privilegio (nunca SUPER_ADMIN por padrao).
+    role: (c.roleId as StiHubRole) || 'SALES_REP',
     department: 'Seta Telecom',
     mfaVerified: c.mfaVerified,
     mfaMethod: c.mfaMethod,

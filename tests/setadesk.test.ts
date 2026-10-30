@@ -7,7 +7,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
-import { CrmApiRouter } from '../src/api/router';
+import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import { SETADESK_MIGRATIONS, SETADESK_TICKET_KEY_PREFIX } from '../src/db/setadesk-schema';
 import {
   buildBaseline,
@@ -65,11 +65,11 @@ describe('SetaDesk - geracao de chave SD- (fallback sem Postgres)', () => {
 
   it('POST /api/tickets devolve chave SD- e mantem chamados demo JSM- acessiveis', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
-    const res = await router.dispatch({ method: 'POST', path: '/api/tickets', query: {}, body: { subject: 'Teste SD' } });
+    const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tickets', query: {}, body: { subject: 'Teste SD' } });
     assert.equal(res.status, 201);
     const key = (res.body as { data: { key: string } }).data.key;
     assert.match(key, /^SD-\d+$/);
-    const legacy = await router.dispatch({ method: 'GET', path: '/api/tickets/JSM-101', query: {}, body: {} });
+    const legacy = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets/JSM-101', query: {}, body: {} });
     assert.equal(legacy.status, 200);
   });
 });
@@ -120,6 +120,49 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.equal(ticketKeysNeededForRoute('POST', '/api/migration/hubspot', { tickets: [1, 2, 3] }), 3);
     assert.equal(ticketKeysNeededForRoute('GET', '/api/tickets', {}), 0);
     assert.equal(ticketKeysNeededForRoute('POST', '/api/tickets/SD-1/comments', {}), 0);
+  });
+});
+
+
+const PORTAL_HTTP = { _fromHttpBridge: '1' };
+let portalIpSeq = 1;
+const portalIp = () => `203.0.113.${(portalIpSeq++ % 250) + 1}`;
+const PORTAL_DTO_KEYS = ['comments', 'createdAt', 'key', 'resolvedAt', 'status', 'subject', 'updatedAt'];
+const SETADESK_SECRETS = ['cc.oculto@exemplo.com', 'STT-777', 'tecnico.oculto@setatelecom.com.br', 'solicitante.oculto@exemplo.com'];
+
+function enrichWithSetaDeskFields(repo: ReturnType<typeof createInMemoryRepository>) {
+  const t = repo.listServiceTickets().find((x) => x.contactId && repo.getContactById(x.contactId)?.email)!;
+  const email = repo.getContactById(t.contactId!)!.email;
+  repo.updateServiceTicket(t.id, {
+    requesterEmail: 'solicitante.oculto@exemplo.com',
+    ccEmails: ['cc.oculto@exemplo.com'],
+    jiraKey: 'STT-777',
+    jiraId: '99999',
+    assigneeAgent: 'tecnico.oculto@setatelecom.com.br',
+    source: 'EMAIL',
+  });
+  return { key: repo.getServiceTicketById(t.id)!.key, email };
+}
+
+async function assertPortalDtoMinimal(router: CrmApiRouter, key: string, email: string) {
+  const r = await router.dispatch({ method: 'GET', path: '/api/portal/tickets', query: { ...PORTAL_HTTP, _clientIp: portalIp(), key, email }, body: {} });
+  assert.equal(r.status, 200);
+  const data = (r.body as { data: Record<string, unknown> }).data;
+  assert.deepEqual(Object.keys(data).sort(), PORTAL_DTO_KEYS);
+  const raw = JSON.stringify(r.body);
+  for (const secret of SETADESK_SECRETS) assert.ok(!raw.includes(secret), `vazou ${secret}`);
+  for (const c of data.comments as Array<Record<string, unknown>>) {
+    assert.deepEqual(Object.keys(c).sort(), ['author', 'authorRole', 'body', 'createdAt']);
+  }
+  return data;
+}
+
+describe('SetaDesk - portal do cliente continua com DTO minimo', () => {
+  it('campos SetaDesk (solicitante, cc, jira, tecnico) nao aparecem no portal', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { key, email } = enrichWithSetaDeskFields(repo);
+    await assertPortalDtoMinimal(router, key, email);
   });
 });
 
@@ -239,5 +282,26 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.match(saved.key, /^SD-\d+$/);
     assert.notEqual(saved.key, 'SD-7');
     assert.equal(reread.tickets.filter((x) => x.key === 'SD-7').length, 1);
+  });
+  it('portal le do store Postgres e devolve so o DTO minimo', async () => {
+    const seedRepo = createInMemoryRepository();
+    const { key, email } = enrichWithSetaDeskFields(seedRepo);
+    const base = (await store.loadSetaDeskTickets([]))!;
+    const enriched = seedRepo.getServiceTicketById(key)!;
+    const stored = base.tickets.find((t) => t.key === key)!;
+    seedRepo.replaceServiceTickets(base.tickets);
+    seedRepo.updateServiceTicket(stored.id, {
+      requesterEmail: enriched.requesterEmail, ccEmails: enriched.ccEmails, jiraKey: enriched.jiraKey,
+      jiraId: enriched.jiraId, assigneeAgent: enriched.assigneeAgent, subject: 'Lido do Postgres',
+    });
+    await store.syncSetaDeskTickets(seedRepo.getState().serviceTickets, base.baseline);
+    const reread = (await store.loadSetaDeskTickets([]))!;
+    const fromDb = reread.tickets.find((t) => t.key === key)!;
+    assert.equal(fromDb.jiraKey, 'STT-777');
+    assert.deepEqual(fromDb.ccEmails, ['cc.oculto@exemplo.com']);
+    const repo = createInMemoryRepository();
+    repo.replaceServiceTickets(reread.tickets);
+    const data = await assertPortalDtoMinimal(new CrmApiRouter(repo), key, email);
+    assert.equal(data.subject, 'Lido do Postgres');
   });
 });

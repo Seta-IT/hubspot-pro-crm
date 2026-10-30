@@ -6,6 +6,7 @@ import {
 } from './app/lib/auth';
 import type { StiHubMacroModule } from './db/types';
 import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
+import { claimsMayManageIam, isIamAdminRoute, isSelfProfileRoute } from './app/lib/iam-admin-routes';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -23,6 +24,8 @@ const PUBLIC_PATH_PREFIXES = [
 
 export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  // Minha Conta (/api/auth/me, qualquer metodo/caixa/%2F): exige sessao MFA, apesar do prefixo /api/auth.
+  if (isSelfProfileRoute(pathname)) return false;
   if (
     PUBLIC_PATH_PREFIXES.some(
       (prefix) => clean === prefix || clean.startsWith(`${prefix}/`)
@@ -198,6 +201,14 @@ export function evaluateStiHubRouteProtection(input: {
     };
   }
 
+  // LIMITACAO DOCUMENTADA (HOTFIX 29/10, menor c): a denylist de tokens revogados no logout
+  // (router.ts, revokedSessionTokenHashes) vive na MEMORIA de cada instancia Node das funcoes
+  // /api. O middleware roda no Edge, em isolate separado, sem acesso a essa memoria e sem
+  // armazenamento duravel configurado (KV/Edge Config/Redis). Logo, aqui so validamos assinatura
+  // e expiracao: um token revogado AINDA abre as PAGINAS (casca HTML, sem dados) ate expirar.
+  // Os dados vem das /api, onde o router trata o token revogado como "sem sessao" (401) — mas
+  // tambem por instancia (best-effort): outra instancia fria pode aceita-lo ate o exp do token.
+  // O logout apaga o cookie do navegador. Fechar o gap exige armazenamento duravel compartilhado.
   const verified = verifyStiHubSessionToken(input.sessionToken);
   const isApi = input.pathname.startsWith('/api/');
   const requiredModule = classifyRouteRequiredModule(input.pathname);
@@ -312,6 +323,36 @@ export function middleware(req: NextRequest) {
       );
     }
     return applySecurityHeaders(NextResponse.next(), 'service-account-bearer');
+  }
+
+  // HOTFIX 29/10/2026: rotas administrativas de IAM (/api/admin|rbac|iam/*, aliases,
+  // qualquer caixa/barra/%2F) exigem sessao MFA + alcada IAM, em qualquer metodo. Avaliado
+  // antes das rotas publicas porque /api/auth/send-invite ficava sob o prefixo publico /api/auth.
+  if (isIamAdminRoute(pathname)) {
+    const iamSessionToken =
+      req.cookies.get('stihub_session')?.value || req.headers.get('x-stihub-session') || null;
+    const v = verifyStiHubSessionToken(iamSessionToken);
+    if (!v.valid || !v.claims || !v.claims.mfaVerified) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+          { status: 401 }
+        ),
+        'IAM_ADMIN_AUTH_REQUIRED'
+      );
+    }
+    if (!claimsMayManageIam(v.claims)) {
+      return applySecurityHeaders(
+        NextResponse.json(
+          {
+            error: 'Permissão negada: seu perfil não possui alçada para consultar ou alterar usuários, papéis ou políticas IAM/RBAC.',
+            code: 'IAM_ADMIN_FORBIDDEN',
+          },
+          { status: 403 }
+        ),
+        'IAM_ADMIN_FORBIDDEN'
+      );
+    }
   }
 
   if (isPublicStiHubPath(pathname, req.method)) {

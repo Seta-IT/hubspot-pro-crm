@@ -3,7 +3,7 @@
 // ============================================================================
 
 import http from 'node:http';
-import { CrmApiRouter } from './router';
+import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from './router';
 
 const ALLOWED_CORS_ORIGINS = new Set([
   'https://sti-hub.vercel.app',
@@ -47,10 +47,30 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
       }
     }
 
+    // Pacote A (29/10): o servidor standalone e um canal HTTP como o bridge do Next. Nada de
+    // chaves internas vindas do cliente (query/corpo); sessao so pelo header x-stihub-session.
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
+    const query: Record<string, string | undefined> = {};
+    reqUrl.searchParams.forEach((v, k) => {
+      if (!k.startsWith('_')) query[k] = v;
+    });
+    const sessionHeader = req.headers['x-stihub-session'];
+    const sessionToken = Array.isArray(sessionHeader) ? sessionHeader[0] : sessionHeader;
+    if (sessionToken) query._sessionToken = sessionToken;
+    query._fromHttpBridge = '1';
+    const cleanBody =
+      parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+        ? Object.fromEntries(
+            Object.entries(parsedBody as Record<string, unknown>).filter(
+              ([k]) => !(BRIDGE_RESERVED_KEYS as readonly string[]).includes(k)
+            )
+          )
+        : parsedBody;
     const response = await router.dispatch({
       method: req.method || 'GET',
-      path: req.url || '/',
-      body: parsedBody,
+      path: reqUrl.pathname,
+      query,
+      body: cleanBody,
     });
 
     res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8' });

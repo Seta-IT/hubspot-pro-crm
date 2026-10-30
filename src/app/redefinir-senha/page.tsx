@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import AuthCardShell, { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from '../lib/AuthCardShell';
 import { loadClientIamUsersOverride } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
 
 export default function RedefinirSenhaPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -30,8 +31,8 @@ export default function RedefinirSenhaPage() {
     e.preventDefault();
     setError(null);
     if (!token) return;
-    if (password.trim().length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.');
+    if (password.trim().length < NEW_PASSWORD_MIN_LENGTH) {
+      setError(NEW_PASSWORD_MIN_MESSAGE);
       return;
     }
     if (password.trim() !== confirm.trim()) {
@@ -58,7 +59,8 @@ export default function RedefinirSenhaPage() {
       } catch {
         // ignore
       }
-      document.cookie = 'stihub_session=; Path=/; Max-Age=0; SameSite=Lax';
+      // O cookie de sessao e HttpOnly: so o servidor consegue apaga-lo.
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
       setToken(null);
       setPassword('');
       setConfirm('');
@@ -86,12 +88,12 @@ export default function RedefinirSenhaPage() {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Nova senha *</label>
-            <input type="password" autoComplete="new-password" required minLength={6} value={password}
-              onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo de 6 caracteres" className={AUTH_INPUT_CLASS} />
+            <input type="password" autoComplete="new-password" required minLength={NEW_PASSWORD_MIN_LENGTH} value={password}
+              onChange={(e) => setPassword(e.target.value)} placeholder={NEW_PASSWORD_PLACEHOLDER} className={AUTH_INPUT_CLASS} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Confirmar nova senha *</label>
-            <input type="password" autoComplete="new-password" required minLength={6} value={confirm}
+            <input type="password" autoComplete="new-password" required minLength={NEW_PASSWORD_MIN_LENGTH} value={confirm}
               onChange={(e) => setConfirm(e.target.value)} placeholder="Repita a nova senha" className={AUTH_INPUT_CLASS} />
           </div>
           <button type="submit" disabled={loading} className={AUTH_BUTTON_CLASS}>

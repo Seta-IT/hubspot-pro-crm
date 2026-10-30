@@ -18,6 +18,7 @@ import {
   loadClientIamUsersOverride,
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
+import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
 
 export default function StiHubLoginPage() {
   const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
@@ -81,7 +82,8 @@ export default function StiHubLoginPage() {
 
   const completeAuthenticatedRedirect = (data: Record<string, unknown>, fallbackEmail: string) => {
     if (typeof window === 'undefined') return;
-    const token = String(data?.sessionToken || '');
+    // Pacote A: o token da sessao chega SO no cookie HttpOnly definido pelo servidor (Set-Cookie);
+    // o JS nao le nem grava stihub_session.
     const userObj = (data?.user || {}) as Record<string, unknown>;
     const verifiedEmail = String(userObj?.email || fallbackEmail || '')
       .trim()
@@ -96,7 +98,6 @@ export default function StiHubLoginPage() {
         authenticated: true,
         mfaVerified: true,
         verifiedVia: data?.verifiedVia || 'DIRECT_LOGIN',
-        sessionToken: token,
         user: data?.user,
         role: data?.role,
         effectiveActionGuards: data?.effectiveActionGuards,
@@ -108,7 +109,6 @@ export default function StiHubLoginPage() {
       })
     );
     document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
-    document.cookie = `stihub_session=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Lax`;
     if (verifiedEmail && userObj?.totpConfigured !== false) {
       document.cookie = `stihub_totp_enrolled_r1=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
     }
@@ -168,8 +168,8 @@ export default function StiHubLoginPage() {
     setErrorMsg(null);
     setInfoMsg(null);
     if (!inviteToken) return;
-    if (newPassword.trim().length < 6) {
-      setErrorMsg('A senha deve ter pelo menos 6 caracteres.');
+    if (newPassword.trim().length < NEW_PASSWORD_MIN_LENGTH) {
+      setErrorMsg(NEW_PASSWORD_MIN_MESSAGE);
       return;
     }
     if (newPassword.trim() !== confirmPassword.trim()) {
@@ -205,13 +205,15 @@ export default function StiHubLoginPage() {
       setPassword(newPassword.trim());
 
       // If 2FA is disabled for this user, enter the system immediately
-      if (d?.mfaRequired === false && d?.sessionToken) {
+      if (d?.mfaRequired === false && d?.authenticated === true) {
         completeAuthenticatedRedirect(d, inviteUser?.email || email);
         return;
       }
 
-      // First login after setting password: open Authenticator QR Code pairing automatically!
-      setChallengeData(d);
+      // First login after setting password: QR only if the server says not paired yet.
+      setChallengeData(
+        d?.totpConfigured === false ? d : { ...d, totpPairing: undefined }
+      );
       setActiveMfaChannel('TOTP_AUTHENTICATOR');
       setMfaCode('');
       setInfoMsg(
@@ -250,12 +252,14 @@ export default function StiHubLoginPage() {
       const d = json.data;
 
       // If 2FA is disabled for this user (mfaRequired === false), log straight in!
-      if (d?.mfaRequired === false && d?.sessionToken) {
+      if (d?.mfaRequired === false && d?.authenticated === true) {
         completeAuthenticatedRedirect(d, email.trim());
         return;
       }
 
-      setChallengeData(d);
+      setChallengeData(
+        d?.totpConfigured === false ? d : { ...d, totpPairing: undefined }
+      );
       setMfaCode('');
 
       // If it is the user's first login (totpConfigured === false) or email OTP failed because no SMTP is configured,
@@ -283,7 +287,11 @@ export default function StiHubLoginPage() {
   };
 
   const handleLoadFirstTimeTotpQrIfNeeded = async () => {
-    if (challengeData?.totpPairing || challengeData?.totpConfigured === true) return;
+    // Revisao 7706b4a: o pareamento so e pedido na etapa 2FA (senha ja validada, com o desafio
+    // da etapa 1) e SOMENTE quando o servidor disse explicitamente totpConfigured === false.
+    // Quem ja pareou (true) ou estado desconhecido (undefined) nunca pede QR/segredo.
+    if (step !== 'MFA_2FA' || !challengeData?.challengeId) return;
+    if (challengeData.totpConfigured !== false || challengeData.totpPairing) return;
     try {
       const targetEmail = challengeData?.user?.email || email.trim();
       const res = await fetch('/api/auth/setup-totp', {
@@ -402,10 +410,7 @@ export default function StiHubLoginPage() {
           userId: challengeData?.user?.id,
           code: cleanCode,
           mfaMethod: activeMfaChannel,
-          totpSecret:
-            challengeData?.totpConfigured === false
-              ? challengeData?.totpPairing?.totpSecret
-              : undefined,
+          // Revisao 7706b4a: o segredo TOTP nunca sai do navegador (o servidor usa o seu).
           challengeId: challengeData?.challengeId,
           iamUsersOverride: loadClientIamUsersOverride(),
           iamDeletedUsersOverride: loadClientDeletedUsersOverride(),
@@ -434,8 +439,15 @@ export default function StiHubLoginPage() {
     }
   };
 
-  const isTotpAlreadyConfigured =
-    challengeData?.totpConfigured !== false && !challengeData?.totpPairing;
+  // QR/segredo so aparecem na etapa 2FA, depois da senha validada, para quem o servidor
+  // marcou explicitamente como nao pareado (totpConfigured === false) e devolveu o pareamento.
+  const shouldShowTotpPairing = Boolean(
+    step === 'MFA_2FA' &&
+      challengeData?.challengeId &&
+      challengeData?.totpConfigured === false &&
+      challengeData?.totpPairing
+  );
+  const isTotpAlreadyConfigured = !shouldShowTotpPairing;
 
   return (
     <div className="min-h-screen bg-[#0d2b4e] flex flex-col items-center justify-center p-4 sm:p-6 text-slate-800">
@@ -511,10 +523,10 @@ export default function StiHubLoginPage() {
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Mínimo de 6 caracteres"
+                    placeholder={NEW_PASSWORD_PLACEHOLDER}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]"
                   />
                 </div>
@@ -529,7 +541,7 @@ export default function StiHubLoginPage() {
                   <input
                     type="password"
                     required
-                    minLength={6}
+                    minLength={NEW_PASSWORD_MIN_LENGTH}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repita a senha criada"
@@ -661,7 +673,7 @@ export default function StiHubLoginPage() {
                       Abra o <strong>Google Authenticator</strong> no seu celular e digite o código atual de 6 dígitos (válido por 30s).
                     </div>
                   ) : (
-                    challengeData?.totpPairing && (
+                    shouldShowTotpPairing && challengeData?.totpPairing && (
                       <div className="p-3 rounded-lg bg-white border border-slate-200 flex flex-col items-center text-center space-y-2.5">
                         <div className="font-semibold text-[#0d2b4e] flex items-center gap-1.5">
                           <QrCode className="w-4 h-4" />
