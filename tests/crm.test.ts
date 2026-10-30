@@ -566,7 +566,7 @@ describe('8. Fase 3 — Marketing Hub (Web Forms), Service Desk (JSM Tickets) & 
 
     assert.equal(subData.contact.companyId, 'comp-nubank');
     assert.ok(subData.ticket, 'Deve criar ticket automaticamente a partir do formulário de suporte');
-    assert.ok(subData.ticket.key.startsWith('JSM-'));
+    assert.ok(subData.ticket.key.match(/^SD-\d+$/) !== null);
     assert.equal(subData.ticket.priority, 'CRITICAL');
     assert.equal(subData.ticket.status, 'OPEN');
   });
@@ -1237,7 +1237,7 @@ describe('11. Pacotes NOC Telecom Seta: Filas N1/N2/N3, Conversão em O.S. ERP, 
     const createdPortalTicket = (createPortalRes.body as {
       data: { key: string; assignee: string; priority: string; equipmentSerial: string };
     }).data;
-    assert.ok(createdPortalTicket.key.startsWith('JSM-'));
+    assert.ok(createdPortalTicket.key.match(/^SD-\d+$/) !== null);
     assert.equal(createdPortalTicket.priority, 'CRITICAL');
     assert.equal(createdPortalTicket.equipmentSerial, 'SN-SETA-PABX-BM01');
     assert.ok(createdPortalTicket.assignee.includes('NOC N2'));

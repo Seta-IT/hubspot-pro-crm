@@ -10,6 +10,7 @@
     "start:web": "next start -p ${PORT:-3000}",
     "dev": "next dev -p 3000",
     "db:migrate": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js",
+    "db:migrate:setadesk": "tsc -p tsconfig.build.json && node dist/src/db/setadesk-migrate.js",
     "db:seed": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js --seed",
     "prisma:push": "npx prisma db push",
     "test": "tsc -p tsconfig.build.json && node --test dist/tests/*.test.js"

@@ -122,6 +122,7 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
+import { SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
 import { deriveServerTotpSecret, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
@@ -3138,6 +3139,63 @@ export class CrmRepository {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // SetaDesk: geracao de chave SD-<n>
+  // Com Postgres, a camada HTTP reserva chaves via sequencia propria
+  // (setadesk_ticket_seq) antes da rota rodar; sem Postgres, usa o contador
+  // local `setaDeskTicketSeq`, considerando apenas chaves SD- (nunca o maior
+  // numero de qualquer chave, como JSM-/Jira).
+  // --------------------------------------------------------------------------
+  private reservedTicketKeys: string[] = [];
+
+  /** Registra chaves ja reservadas na sequencia do Postgres para os proximos chamados. */
+  reserveTicketKeys(keys: string[]): void {
+    this.reservedTicketKeys = [...keys];
+  }
+
+  clearReservedTicketKeys(): string[] {
+    const left = this.reservedTicketKeys;
+    this.reservedTicketKeys = [];
+    return left;
+  }
+
+  private ticketKeyExists(key: string): boolean {
+    const k = key.toUpperCase();
+    return (this.state.serviceTickets || []).some(
+      (t) => t.key.toUpperCase() === k || (t.legacyKey || '').toUpperCase() === k
+    );
+  }
+
+  private takeReservedTicketKey(): string | null {
+    while (this.reservedTicketKeys.length > 0) {
+      const k = this.reservedTicketKeys.shift()!;
+      if (!this.ticketKeyExists(k)) return k;
+    }
+    return null;
+  }
+
+  private nextLocalSetaDeskTicketKey(): string {
+    const prefix = `${SETADESK_TICKET_KEY_PREFIX}-`;
+    const re = new RegExp(`^${SETADESK_TICKET_KEY_PREFIX}-(\\d+)$`, 'i');
+    let seq = Number.isFinite(this.state.setaDeskTicketSeq) ? Number(this.state.setaDeskTicketSeq) : 0;
+    for (const t of this.state.serviceTickets || []) {
+      const m = t.key.match(re);
+      if (m) seq = Math.max(seq, Number(m[1]));
+    }
+    let key: string;
+    do {
+      seq += 1;
+      key = `${prefix}${seq}`;
+    } while (this.ticketKeyExists(key));
+    this.state.setaDeskTicketSeq = seq;
+    return key;
+  }
+
+  /** Substitui a colecao de chamados (fonte: tabelas SetaDesk no Postgres). */
+  replaceServiceTickets(tickets: ServiceTicket[]): void {
+    this.state.serviceTickets = tickets;
+  }
+
   createServiceTicket(
     input: Partial<ServiceTicket> & { subject: string }
   ): ServiceTicket {
@@ -3145,11 +3203,7 @@ export class CrmRepository {
     const now = new Date();
     const nowIso = now.toISOString();
 
-    const maxNum = this.state.serviceTickets.reduce((max, t) => {
-      const m = t.key.match(/(\d+)$/);
-      return m ? Math.max(max, Number(m[1])) : max;
-    }, 100);
-    const nextKey = input.key || `JSM-${maxNum + 1}`;
+    const nextKey = input.key || this.takeReservedTicketKey() || this.nextLocalSetaDeskTicketKey();
 
     const priority: TicketPriority = input.priority || 'MEDIUM';
     const slaHoursMap: Record<TicketPriority, { firstRespHours: number; resolveHours: number }> = {
@@ -3207,6 +3261,15 @@ export class CrmRepository {
       createdAt: input.createdAt || nowIso,
       updatedAt: nowIso,
     };
+    if (input.queue !== undefined) ticket.queue = input.queue;
+    if (input.assigneeAgent !== undefined) ticket.assigneeAgent = input.assigneeAgent;
+    if (input.requesterEmail) ticket.requesterEmail = input.requesterEmail.trim().toLowerCase();
+    if (input.requesterName) ticket.requesterName = input.requesterName;
+    if (input.ccEmails) ticket.ccEmails = input.ccEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (input.source) ticket.source = input.source;
+    if (input.legacyKey) ticket.legacyKey = input.legacyKey;
+    if (input.jiraKey) ticket.jiraKey = input.jiraKey;
+    if (input.jiraId) ticket.jiraId = input.jiraId;
 
     this.state.serviceTickets.unshift(ticket);
 

@@ -24,6 +24,14 @@ import {
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
+import {
+  isSetaDeskPostgresEnabled,
+  loadSetaDeskTickets,
+  reserveSetaDeskTicketKeys,
+  syncSetaDeskTickets,
+  ticketKeysNeededForRoute,
+  type SetaDeskBaseline,
+} from '../db/setadesk-store';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
@@ -648,6 +656,24 @@ export class CrmApiRouter {
       }
     }
 
+    // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
+    let setaDeskBaseline: SetaDeskBaseline | null = null;
+    if (this.isSingletonRepo && isSetaDeskPostgresEnabled()) {
+      try {
+        const loaded = await loadSetaDeskTickets(this.repo.getState().serviceTickets || []);
+        if (loaded) {
+          this.repo.replaceServiceTickets(loaded.tickets);
+          setaDeskBaseline = loaded.baseline;
+        }
+        const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
+        this.repo.reserveTicketKeys(needed > 0 ? await reserveSetaDeskTicketKeys(needed) : []);
+      } catch (err) {
+        setaDeskBaseline = null;
+        this.repo.reserveTicketKeys([]);
+        console.error('[SetaDesk] Postgres indisponivel; usando estado local:', (err as Error)?.message || err);
+      }
+    }
+
     // Conta de servico (Bearer): pipeline proprio, sem sessao, sem journal, sem override IAM.
     if (query._fromHttpBridge === "1" && query._svcBearer === "1") {
       return this.dispatchSalesAgent(method, cleanPath, query, body);
@@ -701,6 +727,18 @@ export class CrmApiRouter {
         await syncStateToPostgres(this.repo.getState());
       } catch {
         // Ignore background sync failure if PostgreSQL is temporarily unavailable
+      }
+    }
+
+    if (setaDeskBaseline) {
+      this.repo.clearReservedTicketKeys();
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && response.status >= 200 && response.status < 400) {
+        try {
+          const actor = verifyStiHubSessionToken(query._sessionToken || null).claims?.email || null;
+          await syncSetaDeskTickets(this.repo.getState().serviceTickets || [], setaDeskBaseline, actor);
+        } catch (err) {
+          console.error('[SetaDesk] Falha ao gravar chamados no Postgres:', (err as Error)?.message || err);
+        }
       }
     }
 
