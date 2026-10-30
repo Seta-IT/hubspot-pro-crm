@@ -1755,6 +1755,38 @@ export class CrmApiRouter {
     return changed;
   }
 
+  /**
+   * D2 (CISO 30/10): campos de autoria, historico e aceite/assinatura sao do SERVIDOR. Em chamadas
+   * de sessao (tudo que nao e TRUSTED_INTERNAL_CONTEXT) eles sao descartados do corpo e o autor
+   * (updatedBy => savedBy da versao e employeeName do statusHistory) vem da sessao.
+   */
+  private static readonly SERVER_ONLY_PROPOSAL_FIELDS = [
+    'updatedBy',
+    'savedBy',
+    'employeeName',
+    'statusHistory',
+    'versionHistory',
+    'acceptance',
+    'digitalSignature',
+    'convertedContractId',
+    'convertedInvoiceId',
+    'convertedInvoiceIds',
+    'approvalIdempotencyKeySha256',
+    'sellerUserId',
+  ] as const;
+
+  private stripServerOnlyProposalFields(
+    input: Record<string, unknown>,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Record<string, unknown> {
+    if (ctx.trustedInternal) return input;
+    const out: Record<string, unknown> = { ...input };
+    for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete out[k];
+    out.updatedBy = this.sessionActorName(query);
+    return out;
+  }
+
   /** (c) sellerUserId: SOMENTE pelo servidor, do usuario RBAC cujo e-mail bate com sellerEmail. */
   private resolveSellerUserIdByEmail(email: unknown): string | undefined {
     const e = String(email || '').trim().toLowerCase();
@@ -1865,11 +1897,17 @@ export class CrmApiRouter {
         })
         .map((inc) => {
           const cur = byId.get(inc.id);
-          const { sellerUserId: _drop, ...rest } = inc as ErpCommercialProposal;
-          void _drop;
+          // D2: o journal nunca grava autoria, historico, versao nem aceite/assinatura; o upsert
+          // (merge) mantem os valores do servidor. Proposta nova: autor = sessao.
+          const rest: Record<string, unknown> = { ...(inc as unknown as Record<string, unknown>) };
+          for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete rest[k];
+          delete rest.version;
+          if (!cur) {
+            rest.updatedBy = this.sessionActorName(query);
+          }
           return (cur
             ? { ...rest, sellerName: cur.sellerName, sellerEmail: cur.sellerEmail }
-            : rest) as ErpCommercialProposal;
+            : rest) as unknown as ErpCommercialProposal;
         });
     }
     if (Array.isArray(j.deletedProposalIds)) {
@@ -4831,7 +4869,10 @@ export class CrmApiRouter {
             createInput.sellerEmail = scope.access.user.email;
             if (!createInput.sellerName) createInput.sellerName = scope.access.user.name;
           }
-          const created = this.repo.createProposal(createInput as { title: string; [k: string]: unknown });
+          // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
+          const created = this.repo.createProposal(
+            this.stripServerOnlyProposalFields(createInput, query, ctx) as { title: string; [k: string]: unknown }
+          );
           // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
           const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
           return { status: 201, body: { data: finalCreated } };
@@ -4989,7 +5030,11 @@ export class CrmApiRouter {
             }
           }
           const before = current ? { ...current } : null;
-          const updatedRaw = this.repo.updateProposal(propId, patch as Partial<ErpCommercialProposal>);
+          // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
+          const updatedRaw = this.repo.updateProposal(
+            propId,
+            this.stripServerOnlyProposalFields(patch, query, ctx) as Partial<ErpCommercialProposal>
+          );
           if (!updatedRaw) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
           return { status: 200, body: { data: updated } };

@@ -805,3 +805,117 @@ describe('Escopo de propostas nas rotas autenticadas (CISO 30/10: PATCH e lista)
     }
   });
 });
+
+describe('D2: autoria de proposta vem da sessao (CISO 30/10)', () => {
+  type P = { id: string; version?: number; status: string; updatedBy?: string; convertedContractId?: string | null; digitalSignature?: unknown; approvalIdempotencyKeySha256?: string; versionHistory?: Array<{ version: number; savedBy: string; changeSummary?: string }>; statusHistory?: Array<{ id: string; employeeName: string; notes: string; status: string }> };
+  const FORGED = {
+    updatedBy: 'Diretor Forjado',
+    savedBy: 'Diretor Forjado',
+    employeeName: 'Diretor Forjado',
+    statusHistory: [{ id: 'sh-forjado', date: '2020-01-01T00:00:00.000Z', notes: 'forjado', status: 'APROVADA', statusLabel: 'Aprovada', employeeName: 'Diretor Forjado' }],
+    versionHistory: [{ version: 99, versionLabel: 'v99.0', savedAt: '2020-01-01T00:00:00.000Z', savedBy: 'Diretor Forjado', changedFields: [], changeSummary: 'forjado', snapshot: {} }],
+    digitalSignature: { signerName: 'Forjado', signedAt: '2020-01-01T00:00:00.000Z' },
+    acceptance: { accepted: true },
+    convertedContractId: 'ctr-forjado',
+    convertedInvoiceId: 'inv-forjado',
+    convertedInvoiceIds: ['inv-forjado'],
+    approvalIdempotencyKeySha256: 'f'.repeat(64),
+  };
+  const call = (router: CrmApiRouter, method: string, path: string, session: string, body: Record<string, unknown> = {}) =>
+    router.dispatch({ method, path, query: { ...HTTP, _clientIp: '192.0.2.20', _sessionToken: session }, body });
+  const noForgery = (p: P) => {
+    const txt = JSON.stringify(p);
+    assert.equal(txt.includes('Diretor Forjado'), false, 'nome forjado gravado');
+    assert.equal(txt.includes('sh-forjado') || txt.includes('v99.0') || txt.includes('ctr-forjado') || txt.includes('inv-forjado'), false);
+    assert.equal(p.approvalIdempotencyKeySha256 === 'f'.repeat(64), false);
+    assert.ok(!p.digitalSignature, 'assinatura do corpo ignorada');
+  };
+
+  it('PATCH e PUT de sessao: updatedBy/savedBy/employeeName forjados gravam o nome da sessao; historicos e aceite do corpo ignorados', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const s = sessionFor(repo, 'usr-seta-03');
+    const own = repo.createProposal({ title: 'D2', companyName: 'C', sellerEmail: maria.email, sellerName: maria.name, status: 'ENVIADA', items: [] } as never) as unknown as P;
+    const v0 = own.version || 1;
+    for (const [i, m] of (['PATCH', 'PUT'] as const).entries()) {
+      const r = await call(router, m, `/api/erp/proposals/${own.id}`, s, { ...FORGED, title: `D2 ${m}`, status: i === 0 ? 'EM_NEGOCIACAO' : 'ENVIADA' });
+      assert.equal(r.status, 200, m);
+    }
+    const p = repo.listProposals().find((x) => x.id === own.id) as unknown as P;
+    noForgery(p);
+    assert.equal(p.version, v0 + 2);
+    const last = p.versionHistory![p.versionHistory!.length - 1];
+    assert.equal(last.savedBy, maria.name);
+    assert.ok(p.versionHistory!.every((v) => v.version <= v0 + 2));
+    const sh = p.statusHistory || [];
+    assert.ok(sh.length >= 2);
+    assert.ok(sh.slice(-2).every((h) => h.employeeName === maria.name));
+    assert.equal(p.updatedBy, maria.name);
+    assert.equal(p.convertedContractId ?? null, null);
+  });
+
+  it('POST de sessao: autoria e campos de aceite do corpo ignorados', async () => {
+    const { repo, router } = fresh();
+    const admin = repo.findRbacUserRecord('usr-seta-01', '')!;
+    const r = await call(router, 'POST', '/api/erp/proposals', sessionFor(repo, 'usr-seta-01'), { ...FORGED, title: 'D2 POST', companyName: 'C' });
+    assert.equal(r.status, 201);
+    const p = repo.listProposals().find((x) => x.id === (r.body as { data: { id: string } }).data.id) as unknown as P;
+    noForgery(p);
+    assert.equal(p.updatedBy, admin.name);
+  });
+
+  it('journal/reconcile de sessao nao grava autoria, historico, versao nem aceite', async () => {
+    const { repo, router } = fresh();
+    const s = sessionFor(repo, 'usr-seta-01');
+    const cur = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P;
+    const before = JSON.stringify({ v: cur.version, vh: cur.versionHistory, sh: cur.statusHistory });
+    await call(router, 'POST', '/api/state/reconcile', s, {
+      journal: {
+        upsertedProposals: [
+          { ...cur, ...FORGED, version: 999, title: 'via journal', updatedAt: new Date(Date.now() + 60_000).toISOString() },
+          { id: 'prop-journal-nova-d2', code: 'PROP-J-D2', title: 'nova via journal', status: 'RASCUNHO', items: [], ...FORGED, updatedAt: new Date().toISOString() },
+        ],
+      },
+    });
+    const after = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P & { title: string };
+    assert.equal(after.title, 'via journal', 'campos comuns continuam sincronizando');
+    assert.equal(JSON.stringify({ v: after.version, vh: after.versionHistory, sh: after.statusHistory }), before);
+    noForgery(after);
+    const nova = repo.listProposals().find((x) => x.id === 'prop-journal-nova-d2') as unknown as P;
+    assert.ok(nova);
+    noForgery(nova);
+    assert.equal(nova.updatedBy, repo.findRbacUserRecord('usr-seta-01', '')!.name);
+  });
+
+  it('fluxo normal da UI (status + statusObservation + updatedBy do navegador) continua funcionando', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const s = sessionFor(repo, 'usr-seta-03');
+    const own = repo.createProposal({ title: 'UI', companyName: 'C', sellerEmail: maria.email, sellerName: maria.name, status: 'ENVIADA', items: [] } as never) as unknown as P & { title: string };
+    const draft = { ...repo.listProposals().find((x) => x.id === own.id)! } as Record<string, unknown>;
+    const r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, s, {
+      ...draft,
+      title: 'UI editada',
+      status: 'EM_NEGOCIACAO',
+      statusObservation: 'Cliente pediu desconto',
+      updatedBy: maria.name,
+    });
+    assert.equal(r.status, 200);
+    const p = (r.body as { data: P & { title: string } }).data;
+    assert.equal(p.title, 'UI editada');
+    assert.equal(p.status, 'EM_NEGOCIACAO');
+    assert.equal(p.version, (own.version || 1) + 1);
+    const lastStatus = p.statusHistory![p.statusHistory!.length - 1];
+    assert.equal(lastStatus.notes, 'Cliente pediu desconto');
+    assert.equal(lastStatus.employeeName, maria.name);
+    assert.equal(p.versionHistory![p.versionHistory!.length - 1].savedBy, maria.name);
+  });
+
+  it('contexto interno confiavel mantem o comportamento atual (updatedBy do corpo vale)', async () => {
+    const { repo, router } = fresh();
+    const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-seta-002', body: { title: 'sync', updatedBy: 'Sync GestaoClick', status: 'ENVIADA' } });
+    assert.equal(r.status, 200);
+    const p = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P;
+    assert.equal(p.versionHistory![p.versionHistory!.length - 1].savedBy, 'Sync GestaoClick');
+  });
+});
