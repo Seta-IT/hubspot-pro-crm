@@ -990,6 +990,8 @@ export interface ErpCommercialProposal {
   digitalSignature?: ErpProposalDigitalSignature | null;
   /** SHA-256 da Idempotency-Key do aceite pelo link (repeticao devolve o mesmo resultado). */
   approvalIdempotencyKeySha256?: string;
+  /** M2 (CISO 30/10): id do usuario vendedor dono, gravado SOMENTE pelo servidor na criacao; imutavel. */
+  sellerUserId?: string;
   version?: number;
   versionHistory?: ErpProposalVersionEntry[];
   statusHistory?: ErpProposalStatusHistoryEntry[];

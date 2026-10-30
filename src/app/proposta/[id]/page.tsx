@@ -56,9 +56,9 @@ import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-st
 import { ProposalEditModal } from '../../components/ErpEditModals';
 
 /**
- * Token do link assinado: lido do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs nem ao
- * Referer. Compatibilidade: se vier em ?t=, e movido para o fragmento com history.replaceState.
- * O token so e enviado no header X-Proposal-Token (nunca na URL da API).
+ * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
+ * nem ao Referer. B5 (CISO 30/10): ?t= na query NAO e aceito. O token so e enviado no header
+ * X-Proposal-Token (nunca na URL da API).
  */
 function readProposalLinkTokenFromLocation(): string | null {
   if (typeof window === 'undefined') return null;
@@ -66,14 +66,6 @@ function readProposalLinkTokenFromLocation(): string | null {
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
     const fromHash = new URLSearchParams(hash).get('t');
     if (fromHash && fromHash.trim()) return fromHash.trim();
-    const url = new URL(window.location.href);
-    const fromQuery = url.searchParams.get('t');
-    if (fromQuery && fromQuery.trim()) {
-      url.searchParams.delete('t');
-      url.hash = `t=${fromQuery.trim()}`;
-      window.history.replaceState(window.history.state, '', url.toString());
-      return fromQuery.trim();
-    }
   } catch {
     // sem token
   }
