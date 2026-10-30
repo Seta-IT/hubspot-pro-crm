@@ -371,11 +371,18 @@ describe('Link assinado de proposta: emissao (POST /api/erp/proposals/:id/public
 
     const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
     // M2: a vendedora cria a propria proposta pela API => o servidor grava sellerUserId.
-    const createdOwn = await router.dispatch({
+    const forged = await router.dispatch({
       method: 'POST',
       path: '/api/erp/proposals',
       query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') },
       body: { title: 'Proposta da Maria', companyName: 'Cliente da Maria', sellerName: seller.name, sellerUserId: 'usr-seta-01', items: [] },
+    });
+    assert.equal(forged.status, 403, 'sellerUserId no corpo => 403');
+    const createdOwn = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') },
+      body: { title: 'Proposta da Maria', companyName: 'Cliente da Maria', sellerName: seller.name, items: [] },
     });
     assert.equal(createdOwn.status, 201);
     const own = repo.listProposals().find((x) => x.id === (createdOwn.body as { data: { id: string } }).data.id)!;
@@ -620,5 +627,178 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     const fn = src.slice(src.indexOf('function readProposalLinkTokenFromLocation'), src.indexOf('function PublicProposalPrintContent'));
     assert.match(fn, /window\.location\.hash/);
     assert.doesNotMatch(fn, /searchParams|location\.search|replaceState/);
+  });
+});
+
+describe('Escopo de propostas nas rotas autenticadas (CISO 30/10: PATCH e lista)', () => {
+  async function setup() {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!; // vendedora A (PROPRIOS)
+    const evelyn = repo.findRbacUserRecord('usr-seta-02', '')!; // dona das propostas de "B"
+    const a = sessionFor(repo, 'usr-seta-03');
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const mk = async (title: string, sellerEmail: string, sellerName: string) => {
+      const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/proposals', body: { title, companyName: 'C', sellerEmail, sellerName, items: [] } });
+      await new Promise((res) => setTimeout(res, 3));
+      return (r.body as { data: ErpProposal }).data;
+    };
+    const ofA = await mk('Proposta de A', maria.email, maria.name);
+    const ofB = await mk('Proposta de B', evelyn.email, evelyn.name);
+    return { repo, router, maria, evelyn, a, admin, ofA, ofB };
+  }
+  type ErpProposal = { id: string; code: string; sellerEmail?: string; sellerName?: string; sellerUserId?: string; version?: number; title: string };
+  const call = (router: CrmApiRouter, method: string, path: string, session: string, body: Record<string, unknown> = {}) =>
+    router.dispatch({ method, path, query: { ...HTTP, _clientIp: '192.0.2.10', _sessionToken: session }, body });
+
+  it('(c) sellerUserId gravado pelo servidor a partir do e-mail (nunca do corpo)', async () => {
+    const { ofA, ofB, maria, evelyn } = await setup();
+    assert.equal(ofA.sellerUserId, maria.id);
+    assert.equal(ofB.sellerUserId, evelyn.id);
+  });
+
+  it('(a) vendedor A faz PATCH ou PUT na proposta de B => 403, sem alterar', async () => {
+    const { repo, router, a, ofB, ofA } = await setup();
+    for (const m of ['PATCH', 'PUT']) {
+      const r = await call(router, m, `/api/erp/proposals/${ofB.id}`, a, { title: 'Hackeada' });
+      assert.equal(r.status, 403, m);
+      assert.equal((r.body as { code: string }).code, 'PROPOSAL_SCOPE_FORBIDDEN');
+      // tambem pelo codigo da proposta
+      assert.equal((await call(router, m, `/api/erp/proposals/${ofB.code}`, a, { title: 'Hackeada' })).status, 403);
+    }
+    assert.equal(repo.listProposals().find((p) => p.id === ofB.id)!.title, 'Proposta de B');
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${ofA.id}`, a, { title: 'Minha editada' })).status, 200);
+    assert.equal((await call(router, 'DELETE', `/api/erp/proposals/${ofB.id}`, a)).status, 403);
+    assert.ok(repo.listProposals().some((p) => p.id === ofB.id));
+  });
+
+  it('(b) A tenta trocar sellerEmail/sellerName/sellerUserId da propria para tomar ou passar a posse => 403', async () => {
+    const { repo, router, a, ofA, ofB, maria, evelyn } = await setup();
+    const tries = [{ sellerEmail: evelyn.email }, { sellerName: evelyn.name }, { sellerUserId: evelyn.id }, { sellerEmail: maria.email, sellerName: 'Outro Nome' }];
+    for (const t of tries) {
+      const r = await call(router, 'PATCH', `/api/erp/proposals/${ofA.id}`, a, { title: 'x', ...t });
+      assert.equal(r.status, 403, JSON.stringify(t));
+      assert.equal((r.body as { code: string }).code, 'PROPOSAL_OWNER_IMMUTABLE');
+    }
+    // Na de B (trocar o e-mail para o dela): bloqueado.
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, a, { sellerEmail: maria.email })).status, 403);
+    // Mesmos valores (o editor da UI reenvia o rascunho completo) => permitido.
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${ofA.id}`, a, { title: 'ok', sellerEmail: maria.email.toUpperCase(), sellerName: maria.name })).status, 200);
+    const after = repo.listProposals().find((p) => p.id === ofB.id)!;
+    assert.equal(after.sellerEmail, evelyn.email);
+    assert.equal(after.sellerUserId, evelyn.id);
+    // Criar em nome de outra pessoa / upsert em nome de outra: 403.
+    assert.equal((await call(router, 'POST', '/api/erp/proposals', a, { title: 'Nova', sellerEmail: evelyn.email })).status, 403);
+    assert.equal((await call(router, 'PATCH', '/api/erp/proposals/prop-so-no-navegador-1', a, { title: 'Upsert', sellerEmail: evelyn.email })).status, 403);
+    const up = await call(router, 'PATCH', '/api/erp/proposals/prop-so-no-navegador-2', a, { title: 'Upsert ok' });
+    assert.equal(up.status, 200);
+    const upd = (up.body as { data: ErpProposal }).data;
+    assert.equal(upd.sellerEmail, maria.email);
+    assert.equal(upd.sellerUserId, maria.id);
+    // Journal do navegador nao troca dono nem toca proposta de B.
+    const cur = repo.listProposals().find((p) => p.id === ofA.id)!;
+    await call(router, 'POST', '/api/state/reconcile', a, {
+      journal: {
+        upsertedProposals: [
+          { ...cur, sellerEmail: evelyn.email, sellerName: evelyn.name, updatedAt: new Date(Date.now() + 60_000).toISOString() },
+          { ...after, title: 'B via journal', updatedAt: new Date(Date.now() + 60_000).toISOString() },
+        ],
+        deletedProposalIds: [ofB.id],
+      },
+    });
+    const a2 = repo.listProposals().find((p) => p.id === ofA.id)!;
+    assert.equal(a2.sellerEmail, maria.email);
+    const b2 = repo.listProposals().find((p) => p.id === ofB.id)!;
+    assert.ok(b2, 'B nao apagada pelo journal de A');
+    assert.equal(b2.title, 'Proposta de B');
+  });
+
+  it('(d) a lista de A (e bootstrap/overview/negocio) nao mostra propostas de B', async () => {
+    const { repo, router, a, admin, ofA, ofB } = await setup();
+    const ids = (r: { body: unknown }) => ((r.body as { data: ErpProposal[] }).data || []).map((p) => p.id);
+    const la = await call(router, 'GET', '/api/erp/proposals', a);
+    assert.equal(la.status, 200);
+    assert.ok(ids(la).includes(ofA.id));
+    assert.equal(ids(la).includes(ofB.id), false);
+    assert.equal(ids(la).some((id) => id.startsWith('prop-seta-') || id.startsWith('prop-gc-')), false);
+    const ladm = await call(router, 'GET', '/api/erp/proposals', admin);
+    assert.ok(ids(ladm).includes(ofB.id) && ids(ladm).includes('prop-seta-001'));
+    const ov = await call(router, 'GET', '/api/erp/overview', a);
+    const ovIds = ((ov.body as { data: { proposals: ErpProposal[] } }).data.proposals || []).map((p) => p.id);
+    assert.equal(ovIds.includes(ofB.id), false);
+    const bs = await call(router, 'GET', '/api/bootstrap', a);
+    const bsIds = ((bs.body as { data: { erp: { proposals: ErpProposal[] } } }).data.erp.proposals || []).map((p) => p.id);
+    assert.equal(bsIds.includes(ofB.id), false);
+    assert.ok(bsIds.includes(ofA.id));
+    const deal = repo.listDeals()[0];
+    repo.updateProposal(ofB.id, { dealId: deal.id } as never);
+    const dd = await call(router, 'GET', `/api/deals/${deal.id}`, a);
+    if (dd.status === 200) {
+      const dIds = ((dd.body as { data: { proposals: ErpProposal[] } }).data.proposals || []).map((p) => p.id);
+      assert.equal(dIds.includes(ofB.id), false);
+    }
+    // Chamada em processo (codigo do servidor, sem HTTP/sessao) segue vendo tudo.
+    const internal = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/erp/proposals' });
+    assert.ok(ids(internal).includes(ofB.id));
+  });
+
+  it('(b) admin ou FULL/TODOS troca o dono e a auditoria registra antes e depois', async () => {
+    const { repo, router, admin, ofB, maria, evelyn } = await setup();
+    const r = await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, admin, { sellerEmail: maria.email, sellerName: maria.name, sellerUserId: 'usr-forjado' });
+    assert.equal(r.status, 200);
+    const p = repo.listProposals().find((x) => x.id === ofB.id)!;
+    assert.equal(p.sellerEmail, maria.email);
+    assert.equal(p.sellerUserId, maria.id, 'sellerUserId recalculado pelo e-mail, nao do corpo');
+    const logs = repo.listSecurityAuditLogs(500).logs as unknown as Array<{ action: string; details: string; actorEmail: string; resource: string }>;
+    const ev = logs.find((l) => l.action === 'PROPOSAL_OWNER_CHANGE' && l.resource.endsWith(ofB.id));
+    assert.ok(ev, 'auditoria PROPOSAL_OWNER_CHANGE');
+    assert.match(ev!.details, new RegExp(`Antes: nome="${evelyn.name}" email="${evelyn.email}" userId="${evelyn.id}"`));
+    assert.match(ev!.details, new RegExp(`Depois: nome="${maria.name}" email="${maria.email}" userId="${maria.id}"`));
+    assert.equal(ev!.actorEmail, repo.findRbacUserRecord('usr-seta-01', '')!.email);
+    // FULL/TODOS sem ser admin (sessao com escopo TODOS e acesso FULL): tambem pode.
+    const gerente = repo.findRbacUserRecord('usr-seta-02', '')!;
+    const gs = sessionFor(repo, 'usr-seta-02');
+    const access = (router as unknown as { resolveProposalSessionAccess(q: Record<string, string>): { proposalsAccess: string; isAdmin: boolean } | null }).resolveProposalSessionAccess({ _sessionToken: gs });
+    assert.ok(access && access.proposalsAccess === 'FULL' && !access.isAdmin && gerente.scope === 'TODOS', 'gerente comercial seed = FULL/TODOS');
+    {
+      const r2 = await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, gs, { sellerEmail: evelyn.email, sellerName: evelyn.name });
+      assert.equal(r2.status, 200);
+      assert.equal(repo.listProposals().find((x) => x.id === ofB.id)!.sellerUserId, evelyn.id);
+    }
+  });
+
+  it('(d) versions, acceptance-status e restore-version respeitam o escopo', async () => {
+    const { repo, router, a, admin, ofA, ofB, evelyn, maria } = await setup();
+    // gera versao 2 na de B e na de A
+    await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, admin, { title: 'B v2' });
+    await call(router, 'PATCH', `/api/erp/proposals/${ofA.id}`, a, { title: 'A v2' });
+    const nf = await call(router, 'GET', '/api/erp/proposals/prop-nao-existe/versions', a);
+    for (const sub of ['versions', 'acceptance-status']) {
+      const rb = await call(router, 'GET', `/api/erp/proposals/${ofB.id}/${sub}`, a);
+      assert.equal(rb.status, 404, sub);
+      assert.deepEqual(rb.body, nf.body);
+      assert.equal((await call(router, 'GET', `/api/erp/proposals/${ofA.id}/${sub}`, a)).status, 200, sub);
+      assert.equal((await call(router, 'GET', `/api/erp/proposals/${ofB.id}/${sub}`, admin)).status, 200, sub);
+    }
+    const rr = await call(router, 'POST', `/api/erp/proposals/${ofB.id}/restore-version`, a, { targetVersion: 1 });
+    assert.equal(rr.status, 403);
+    assert.equal(repo.listProposals().find((p) => p.id === ofB.id)!.title, 'B v2');
+    assert.equal((await call(router, 'POST', `/api/erp/proposals/${ofA.id}/restore-version`, a, { targetVersion: 1 })).status, 200);
+    // Revisao antiga com outro dono: A nao pode restaurar (trocaria o dono); admin pode, com auditoria.
+    await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, admin, { sellerEmail: maria.email, sellerName: maria.name });
+    const v = repo.listProposals().find((p) => p.id === ofB.id)!.versionHistory || [];
+    const oldVer = v.find((x) => (x.snapshot as { sellerEmail?: string })?.sellerEmail === evelyn.email);
+    assert.ok(oldVer, 'revisao antiga com o dono anterior');
+    if (oldVer) {
+      const blocked = await call(router, 'POST', `/api/erp/proposals/${ofB.id}/restore-version`, a, { targetVersion: oldVer.version });
+      assert.equal(blocked.status, 403);
+      assert.equal((blocked.body as { code: string }).code, 'PROPOSAL_OWNER_IMMUTABLE');
+      const ok = await call(router, 'POST', `/api/erp/proposals/${ofB.id}/restore-version`, admin, { targetVersion: oldVer.version });
+      assert.equal(ok.status, 200);
+      const restored = repo.listProposals().find((p) => p.id === ofB.id)!;
+      assert.equal(restored.sellerEmail, evelyn.email);
+      assert.equal(restored.sellerUserId, evelyn.id);
+      const logs = JSON.stringify(repo.listSecurityAuditLogs(500));
+      assert.match(logs, /restauracao da versao/);
+    }
   });
 });

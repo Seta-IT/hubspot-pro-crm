@@ -4106,6 +4106,19 @@ export class CrmRepository {
     } as Partial<ErpCommercialProposal>);
   }
 
+  /** (c) Unico caminho para gravar sellerUserId (servidor; derivado do e-mail). undefined => remove. */
+  setProposalSellerUserId(idOrCode: string, sellerUserId: string | undefined): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const found = erp.proposals.find(
+      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+    );
+    if (!found) return null;
+    if (sellerUserId) found.sellerUserId = String(sellerUserId);
+    else delete found.sellerUserId;
+    this.save();
+    return found;
+  }
+
   deleteProposal(idOrCode: string): boolean {
     const erp = this.ensureErp();
     const before = erp.proposals.length;

@@ -922,7 +922,7 @@ export class CrmApiRouter {
     ) {
       // A1: journal do navegador reconciliado sem token de link assinado.
       const rec = this.repo.reconcileClientState(
-        deepRedactProposalLinkTokens(body._reconcileJournal) as ClientDurableJournal
+        this.sanitizeProposalJournal(deepRedactProposalLinkTokens(body._reconcileJournal), query, { trustedInternal })
       );
       if (rec.reconciled) journalReconciled = true;
     }
@@ -1670,6 +1670,218 @@ export class CrmApiRouter {
     return this.repo.listProposals().find((p) => p.id === id);
   }
 
+  // ==========================================================================
+  // ESCOPO DE PROPOSTAS NAS ROTAS AUTENTICADAS (parecer CISO 30/10, achados PATCH/lista)
+  // ==========================================================================
+
+  /**
+   * internal: codigo do servidor (contexto interno, conta de servico, ou chamada em processo sem
+   * HTTP e sem sessao). session: sessao MFA com ERP e acesso a propostas. denied: o resto.
+   * restricted = escopo PROPRIOS/EQUIPE sem admin. ownerAdmin = pode trocar o dono (admin, ou
+   * proposalsQuotesAccess FULL com escopo TODOS).
+   */
+  private proposalScope(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ):
+    | { kind: 'internal' }
+    | { kind: 'denied' }
+    | {
+        kind: 'session';
+        access: NonNullable<ReturnType<CrmApiRouter['resolveProposalSessionAccess']>>;
+        restricted: boolean;
+        ownerAdmin: boolean;
+      } {
+    if (ctx.trustedInternal || ctx.serviceAccount) return { kind: 'internal' };
+    if (query._fromHttpBridge !== '1' && !query._sessionToken) return { kind: 'internal' };
+    const access = this.resolveProposalSessionAccess(query);
+    if (!access) return { kind: 'denied' };
+    const restricted = !access.isAdmin && CrmApiRouter.isRestrictedProposalScope(access.user.scope);
+    const ownerAdmin = access.isAdmin || (access.proposalsAccess === 'FULL' && access.user.scope === 'TODOS');
+    return { kind: 'session', access, restricted, ownerAdmin };
+  }
+
+  private static proposalVisibleIn(scope: ReturnType<CrmApiRouter['proposalScope']>, p: ErpCommercialProposal): boolean {
+    if (scope.kind === 'internal') return true;
+    if (scope.kind === 'denied') return false;
+    return !scope.restricted || CrmApiRouter.isProposalOwnedBy(p, scope.access.user);
+  }
+
+  private filterProposalsByScope(
+    list: ErpCommercialProposal[],
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ErpCommercialProposal[] {
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'internal') return list;
+    return list.filter((p) => CrmApiRouter.proposalVisibleIn(scope, p));
+  }
+
+  /** Bootstrap/estado/overview: erp.proposals filtrado pelo escopo da sessao. */
+  private scopeBootstrapProposals<T>(payload: T, query: Record<string, string | undefined>, ctx: { trustedInternal: boolean; serviceAccount?: boolean }): T {
+    const erp = (payload as { erp?: { proposals?: ErpCommercialProposal[] } })?.erp;
+    if (!erp || !Array.isArray(erp.proposals)) return payload;
+    return { ...(payload as object), erp: { ...erp, proposals: this.filterProposalsByScope(erp.proposals, query, ctx) } } as T;
+  }
+
+  private findProposalByRef(ref: string): ErpCommercialProposal | undefined {
+    const r = String(ref || '').trim();
+    return this.repo.listProposals().find((p) => p.id === r || String(p.code || '').toLowerCase() === r.toLowerCase());
+  }
+
+  private static normSellerText(v: unknown): string {
+    return String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  /**
+   * Campos de dono que o corpo tenta MUDAR. Proposta existente: compara com o valor atual.
+   * Proposta nova: compara com o proprio usuario (vendedor restrito so cria em nome proprio).
+   * sellerUserId no corpo nunca e aceito (so o servidor grava).
+   */
+  private static sellerFieldChanges(
+    current: ErpCommercialProposal | undefined,
+    body: Record<string, unknown>,
+    self: { email: string; name: string }
+  ): string[] {
+    const changed: string[] = [];
+    const n = CrmApiRouter.normSellerText;
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k) && body[k] !== undefined;
+    if (has('sellerUserId') && n(body.sellerUserId) !== n(current?.sellerUserId)) changed.push('sellerUserId');
+    if (has('sellerEmail') && n(body.sellerEmail) !== n(current ? current.sellerEmail : self.email)) changed.push('sellerEmail');
+    if (has('sellerName') && n(body.sellerName) !== n(current ? current.sellerName : self.name)) changed.push('sellerName');
+    return changed;
+  }
+
+  /** (c) sellerUserId: SOMENTE pelo servidor, do usuario RBAC cujo e-mail bate com sellerEmail. */
+  private resolveSellerUserIdByEmail(email: unknown): string | undefined {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e) return undefined;
+    const rec = this.repo.findRbacUserRecord('', e);
+    return rec && String(rec.email || '').toLowerCase() === e ? rec.id : undefined;
+  }
+
+  private proposalScopeForbidden(code: 'PROPOSAL_SCOPE_FORBIDDEN' | 'PROPOSAL_OWNER_IMMUTABLE', fields?: string[]): ApiResponse {
+    return {
+      status: 403,
+      body:
+        code === 'PROPOSAL_SCOPE_FORBIDDEN'
+          ? { error: 'Acesso negado: esta proposta não pertence ao seu escopo de visibilidade.', code }
+          : {
+              error: 'Somente administradores ou perfis com acesso total (FULL/TODOS) podem alterar o vendedor responsável pela proposta.',
+              code,
+              fields: fields || [],
+            },
+    };
+  }
+
+  private proposalOwnerAudit(
+    scope: ReturnType<CrmApiRouter['proposalScope']>,
+    query: Record<string, string | undefined>,
+    proposalId: string,
+    before: { sellerName?: string; sellerEmail?: string; sellerUserId?: string },
+    after: { sellerName?: string; sellerEmail?: string; sellerUserId?: string },
+    via: string
+  ): void {
+    const fmt = (o: { sellerName?: string; sellerEmail?: string; sellerUserId?: string }) =>
+      `nome="${String(o.sellerName || '')}" email="${String(o.sellerEmail || '')}" userId="${String(o.sellerUserId || '')}"`;
+    try {
+      const actor =
+        scope.kind === 'session'
+          ? { email: scope.access.user.email, name: scope.access.user.name, role: scope.access.user.roleId }
+          : { email: 'sistema@sti-hub', name: 'Sistema STI-hub (interno)', role: 'SYSTEM' };
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor.email,
+        actorName: actor.name,
+        actorRole: actor.role,
+        action: 'PROPOSAL_OWNER_CHANGE',
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalId).slice(0, 80)}`,
+        status: 'SUCCESS',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Troca do vendedor responsavel (${via}). Antes: ${fmt(before)}. Depois: ${fmt(after)}.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
+  /** Apos criar/editar/restaurar: recalcula sellerUserId pelo e-mail (se mudou) e audita troca de dono. */
+  private finalizeProposalOwner(
+    scope: ReturnType<CrmApiRouter['proposalScope']>,
+    query: Record<string, string | undefined>,
+    before: ErpCommercialProposal | null,
+    after: ErpCommercialProposal,
+    via: string
+  ): ErpCommercialProposal {
+    const n = CrmApiRouter.normSellerText;
+    const emailChanged = !before || n(before.sellerEmail) !== n(after.sellerEmail);
+    let result = after;
+    if (emailChanged) {
+      result = this.repo.setProposalSellerUserId(after.id, this.resolveSellerUserIdByEmail(after.sellerEmail)) || after;
+    }
+    if (
+      before &&
+      (n(before.sellerEmail) !== n(result.sellerEmail) ||
+        n(before.sellerName) !== n(result.sellerName) ||
+        n(before.sellerUserId) !== n(result.sellerUserId))
+    ) {
+      this.proposalOwnerAudit(
+        scope,
+        query,
+        result.id,
+        { sellerName: before.sellerName, sellerEmail: before.sellerEmail, sellerUserId: before.sellerUserId },
+        { sellerName: result.sellerName, sellerEmail: result.sellerEmail, sellerUserId: result.sellerUserId },
+        via
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Journal do navegador: nunca troca o dono (campos de vendedor das existentes sao mantidos) e,
+   * para escopo restrito, so aplica/apaga propostas proprias (novas: so em nome proprio).
+   */
+  private sanitizeProposalJournal(
+    journal: unknown,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ClientDurableJournal {
+    const j = { ...((journal || {}) as ClientDurableJournal) };
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'internal') return j;
+    const byId = new Map(this.repo.listProposals().map((p) => [p.id, p] as const));
+    if (Array.isArray(j.upsertedProposals)) {
+      j.upsertedProposals = j.upsertedProposals
+        .filter((inc) => {
+          if (!inc || !inc.id) return false;
+          if (scope.kind === 'denied') return false;
+          const cur = byId.get(inc.id);
+          if (cur) return CrmApiRouter.proposalVisibleIn(scope, cur);
+          if (!scope.restricted && scope.ownerAdmin) return true;
+          return CrmApiRouter.sellerFieldChanges(undefined, inc as unknown as Record<string, unknown>, scope.access.user).length === 0;
+        })
+        .map((inc) => {
+          const cur = byId.get(inc.id);
+          const { sellerUserId: _drop, ...rest } = inc as ErpCommercialProposal;
+          void _drop;
+          return (cur
+            ? { ...rest, sellerName: cur.sellerName, sellerEmail: cur.sellerEmail }
+            : rest) as ErpCommercialProposal;
+        });
+    }
+    if (Array.isArray(j.deletedProposalIds)) {
+      j.deletedProposalIds = j.deletedProposalIds.filter((id) => {
+        const cur = byId.get(String(id)) || this.findProposalByRef(String(id));
+        return Boolean(cur) && CrmApiRouter.proposalVisibleIn(scope, cur!);
+      });
+    }
+    return j;
+  }
+
   /** GET publico: so com token valido para ESTE id e a versao ATUAL. Qualquer falha => 404 generico. */
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
@@ -2308,7 +2520,7 @@ export class CrmApiRouter {
         let reconciliation = { reconciled: false, appliedCount: 0 };
         if (method === "POST" && body.reconcileJournal) {
           reconciliation = this.repo.reconcileClientState(
-            deepRedactProposalLinkTokens(body.reconcileJournal) as ClientDurableJournal
+            this.sanitizeProposalJournal(deepRedactProposalLinkTokens(body.reconcileJournal), query, ctx)
           );
         }
         const question =
@@ -2318,7 +2530,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(question),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(question), query, ctx),
             reconciliation,
           },
         };
@@ -2326,11 +2538,13 @@ export class CrmApiRouter {
 
       if (cleanPath === "/api/state/reconcile" && method === "POST") {
         const journal = (body.journal || body.reconcileJournal || body) as ClientDurableJournal;
-        const reconciliation = this.repo.reconcileClientState(deepRedactProposalLinkTokens(journal));
+        const reconciliation = this.repo.reconcileClientState(
+          this.sanitizeProposalJournal(deepRedactProposalLinkTokens(journal), query, ctx)
+        );
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(), query, ctx),
             reconciliation,
           },
         };
@@ -2711,13 +2925,18 @@ export class CrmApiRouter {
           const contact = deal.contactId ? this.repo.getContactById(deal.contactId) || null : null;
           const company = deal.companyId ? this.repo.getCompanyById(deal.companyId) || null : null;
           const timeline = this.repo.listTimelineEvents({ dealId: id });
-          const proposals = this.repo
-            .listProposals()
-            .filter(
-              (p) =>
-                p.dealId === id ||
-                (deal.companyId && p.companyId === deal.companyId)
-            );
+          // Escopo de propostas (CISO 30/10): o detalhe do negocio so traz as visiveis.
+          const proposals = this.filterProposalsByScope(
+            this.repo
+              .listProposals()
+              .filter(
+                (p) =>
+                  p.dealId === id ||
+                  (deal.companyId && p.companyId === deal.companyId)
+              ),
+            query,
+            ctx
+          );
           const rentalContracts = this.repo
             .listRentalContracts()
             .filter(
@@ -4605,29 +4824,34 @@ export class CrmApiRouter {
       // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
       // ======================================================================
       if (cleanPath === '/api/erp/overview' && method === 'GET') {
-        return { status: 200, body: { data: this.repo.getErpOverview() } };
+        return { status: 200, body: { data: this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp } };
       }
 
       if (cleanPath === '/api/erp/proposals') {
         if (method === 'GET') {
-          const list = this.repo.listProposals();
+          // (d) Lista filtrada no servidor pelo mesmo escopo do GET :id.
+          const list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {
           if (!body.title) {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
-          // M2: sellerUserId so pelo servidor (vendedor de escopo restrito que cria a propria proposta).
+          const scope = this.proposalScope(query, ctx);
+          if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           const { sellerUserId: _ignoredSellerUserId, ...createInput } = body as Record<string, unknown>;
           void _ignoredSellerUserId;
-          const creator = ctx.trustedInternal ? null : this.resolveProposalSessionAccess(query);
-          const created = this.repo.createProposal(
-            createInput as { title: string; [k: string]: unknown },
-            creator && !creator.isAdmin && CrmApiRouter.isRestrictedProposalScope(creator.user.scope)
-              ? { sellerUserId: creator.user.id }
-              : undefined
-          );
-          return { status: 201, body: { data: created } };
+          if (scope.kind === 'session' && !scope.ownerAdmin) {
+            // (b) Quem nao e admin/FULL-TODOS so cria em nome proprio.
+            const changed = CrmApiRouter.sellerFieldChanges(undefined, body, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+            createInput.sellerEmail = scope.access.user.email;
+            if (!createInput.sellerName) createInput.sellerName = scope.access.user.name;
+          }
+          const created = this.repo.createProposal(createInput as { title: string; [k: string]: unknown });
+          // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
+          const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
+          return { status: 201, body: { data: finalCreated } };
         }
       }
 
@@ -4652,27 +4876,48 @@ export class CrmApiRouter {
       if (restorePropVerMatch && method === 'POST') {
         const propId = decodeURIComponent(restorePropVerMatch[1]);
         const targetVersion = Number(body.targetVersion ?? body.version ?? 1);
-        const restored = this.repo.restoreProposalVersion(
+        // (d) Escopo: restrito so restaura as proprias; a revisao nao pode trocar o dono para quem
+        // nao e admin/FULL-TODOS; troca feita por admin e auditada.
+        const scope = this.proposalScope(query, ctx);
+        const current = this.findProposalByRef(propId);
+        if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+        if (current && !CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+        const beforeRestore = current ? { ...current } : null;
+        if (current && scope.kind === 'session' && !scope.ownerAdmin) {
+          const snap = (current.versionHistory || []).find((v) => Number(v.version) === targetVersion)?.snapshot as
+            | Record<string, unknown>
+            | undefined;
+          if (snap) {
+            const { sellerUserId: _s, ...snapNoId } = snap;
+            void _s;
+            const changed = CrmApiRouter.sellerFieldChanges(current, snapNoId, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+          }
+        }
+        const restoredRaw = this.repo.restoreProposalVersion(
           propId,
           targetVersion,
           // Pacote G: autor da restauracao = sessao (body.restoredBy so de contexto interno confiavel)
           ctx.trustedInternal && typeof body.restoredBy === 'string' ? body.restoredBy : this.sessionActorName(query)
         );
-        if (!restored) {
+        if (!restoredRaw) {
           return {
             status: 404,
             body: { error: 'Proposta comercial ou versão solicitada não encontrada.' },
           };
         }
+        const restored = this.finalizeProposalOwner(scope, query, beforeRestore, restoredRaw, `restauracao da versao ${targetVersion}`);
         return { status: 200, body: { data: restored } };
       }
 
       const propVersionsMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/versions$/);
       if (propVersionsMatch && method === 'GET') {
         const propId = decodeURIComponent(propVersionsMatch[1]);
-        const found = this.repo
+        const found0 = this.repo
           .listProposals()
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        // (d) Fora do escopo => mesmo 404 de inexistente.
+        const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
         if (!found) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         }
@@ -4692,9 +4937,11 @@ export class CrmApiRouter {
       const acceptanceStatusMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/acceptance-status$/);
       if (acceptanceStatusMatch && method === 'GET') {
         const propId = decodeURIComponent(acceptanceStatusMatch[1]);
-        const found = this.repo
+        const found0 = this.repo
           .listProposals()
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        // (d) Fora do escopo => mesmo 404 de inexistente.
+        const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
         if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         const accepted = found.status === 'APROVADA' || found.status === 'CONVERTIDA_CONTRATO';
         return {
@@ -4736,20 +4983,41 @@ export class CrmApiRouter {
           return { status: 200, body: { data: found } };
         }
         if (method === 'PATCH' || method === 'PUT') {
-          // M2: no upsert (proposta so existia no navegador), o servidor grava o sellerUserId do
-          // vendedor de escopo restrito que salvou; em proposta existente o campo e preservado.
-          const editor = ctx.trustedInternal ? null : this.resolveProposalSessionAccess(query);
-          const updated = this.repo.updateProposal(
-            propId,
-            body,
-            editor && !editor.isAdmin && CrmApiRouter.isRestrictedProposalScope(editor.user.scope)
-              ? { sellerUserId: editor.user.id }
-              : undefined
-          );
-          if (!updated) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          // (a) Mesmo escopo do GET: PROPRIOS/EQUIPE so editam as proprias (403 nas outras).
+          // (b) Dono (sellerEmail/sellerName/sellerUserId) so muda por admin ou FULL/TODOS, com
+          // auditoria antes/depois. (c) sellerUserId so pelo servidor, a partir do e-mail.
+          const scope = this.proposalScope(query, ctx);
+          if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          const current = this.findProposalByRef(propId);
+          if (current && !CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          const { sellerUserId: _bodySellerUserId, ...patch } = body as Record<string, unknown>;
+          void _bodySellerUserId;
+          if (scope.kind === 'session' && !scope.ownerAdmin) {
+            const changed = CrmApiRouter.sellerFieldChanges(current, body, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+            if (current) {
+              // Valores iguais (normalizados): mantem exatamente os gravados.
+              delete patch.sellerEmail;
+              delete patch.sellerName;
+            } else {
+              // Upsert (proposta so existia no navegador): em nome proprio.
+              patch.sellerEmail = scope.access.user.email;
+              if (!patch.sellerName) patch.sellerName = scope.access.user.name;
+            }
+          }
+          const before = current ? { ...current } : null;
+          const updatedRaw = this.repo.updateProposal(propId, patch as Partial<ErpCommercialProposal>);
+          if (!updatedRaw) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          // (d) Escopo: restrito so apaga as proprias.
+          const delScope = this.proposalScope(query, ctx);
+          const delCurrent = this.findProposalByRef(propId);
+          if (delScope.kind === 'denied' || (delCurrent && !CrmApiRouter.proposalVisibleIn(delScope, delCurrent))) {
+            return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          }
           const deleted = this.repo.deleteProposal(propId);
           if (!deleted) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           return { status: 200, body: { success: true, deletedId: propId } };
