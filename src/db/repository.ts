@@ -10,6 +10,7 @@ import {
 // HubSpot Pro CRM - Transactional Repository Layer (File-Persisted & In-Memory)
 // ============================================================================
 
+import { hashPasswordScrypt, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -102,14 +103,12 @@ import {
   buildTotpQrCodeSvgDataUrl,
   computeRfc6238Totp,
   formatBase32SecretBlocks,
-  hashCorporatePassword,
   STIHUB_TOTP_ROTATION_EPOCH,
   isValidPureBase32Secret,
   sha256Hex,
   signMfaChallengeToken,
   signStiHubSessionToken,
   signUserInviteToken,
-  verifyCorporatePassword,
   verifyMfaChallengeToken,
   verifyUserInviteToken,
   verifyRfc6238Totp,
@@ -6946,7 +6945,7 @@ export class CrmRepository {
         existing.mfaMethod = input.mfaMethod;
       }
       if (input.password && String(input.password).trim().length >= 6) {
-        existing.passwordHash = hashCorporatePassword(String(input.password));
+        existing.passwordHash = hashPasswordScrypt(String(input.password)); // Pacote E: scrypt + sal por usuario
       }
       // totpSecret nunca e aceito da entrada: sempre derivado no servidor.
       existing.totpSecret = generateTotpSecretBase32(existing.email);
@@ -7106,9 +7105,10 @@ export class CrmRepository {
       totpEpoch: input.totpConfigured && input.totpEpoch === STIHUB_TOTP_ROTATION_EPOCH ? STIHUB_TOTP_ROTATION_EPOCH : null,
       lastUsedTotpTimeStep: null,
       passwordHash:
+        // Pacote E: passwordHash NUNCA e aceito da entrada; senha so via campo password (hash no servidor).
         input.password && String(input.password).trim().length >= 6
-          ? hashCorporatePassword(String(input.password))
-          : input.passwordHash || undefined,
+          ? hashPasswordScrypt(String(input.password))
+          : undefined,
       inviteStatus:
         input.inviteStatus ||
         (input.password && String(input.password).trim().length >= 6 ? "ACTIVE" : "PENDING_INVITE"),
@@ -7441,6 +7441,8 @@ export class CrmRepository {
         "totpEpoch",
         "lastUsedTotpTimeStep",
         "passwordHash",
+        // Pacote E: override cru do navegador NUNCA define senha (so o POST de definicao de senha).
+        "password",
         "iamSeal",
         // homeScreen so muda pelas rotas validadas (allowlist) ou por registro selado.
         "homeScreen",
@@ -7516,7 +7518,7 @@ export class CrmRepository {
     if (patch.mfaMethod !== undefined && patch.mfaMethod !== rec.mfaMethod) { rec.mfaMethod = patch.mfaMethod; changed.push("mfaMethod"); }
     let passwordChangedAt: string | undefined;
     if (patch.newPassword !== undefined) {
-      rec.passwordHash = hashCorporatePassword(patch.newPassword);
+      rec.passwordHash = hashPasswordScrypt(patch.newPassword);
       // Sessoes emitidas antes disto ficam invalidas (isSessionOlderThanPasswordChange).
       passwordChangedAt = new Date(nowMs).toISOString();
       rec.passwordChangedAt = passwordChangedAt;
@@ -7544,7 +7546,7 @@ export class CrmRepository {
     const windowMs = 15 * 60 * 1000;
     const t = this.loginAttemptTracker.get(key);
     if (t && t.lockedUntilMs > nowMs) return { ok: false, locked: true, failedAttempts: t.failedAttempts };
-    if (verifyCorporatePassword(password, found.passwordHash)) return { ok: true };
+    if (verifyStoredPassword(password, found.passwordHash).ok) return { ok: true };
     const fresh = !t || nowMs - t.firstAttemptMs > windowMs;
     const fails = (fresh ? 0 : t!.failedAttempts) + 1;
     this.loginAttemptTracker.set(key, {
@@ -8173,7 +8175,8 @@ export class CrmRepository {
       };
     }
 
-    if (!verifyCorporatePassword(password, found.passwordHash)) {
+    const pwCheck = verifyStoredPassword(password, found.passwordHash);
+    if (!pwCheck.ok) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
       this.loginAttemptTracker.set(emailClean, {
@@ -8193,6 +8196,26 @@ export class CrmRepository {
         details: `Tentativa de login com senha inválida para ${found.email} (falha #${fails}).`,
       });
       return { ok: false, error: "Senha corporativa inválida." };
+    }
+
+    // Pacote E: hash legado (SHA-256 sal fixo) conferiu => regrava em scrypt com sal por usuario.
+    // NAO altera passwordChangedAt (sessoes/tokens seguem validos) nem nenhum campo de 2FA.
+    if (pwCheck.needsRehash) {
+      // Sem markLocalIamChange: selos mais antigos com OUTRAS mudancas continuam valendo; se um
+      // deles trouxer o hash legado de volta, ele segue aceito e e regravado no proximo login.
+      found.passwordHash = hashPasswordScrypt(String(password));
+      this.save();
+      this.appendSecurityAuditLog({
+        actorEmail: found.email,
+        actorName: found.name,
+        actorRole: found.roleId,
+        action: "AUTH_PASSWORD_HASH_UPGRADED",
+        module: "AUTH_MFA",
+        resource: "/api/auth/login",
+        status: "SUCCESS",
+        ipAddress,
+        details: `Hash de senha de ${found.email} migrado para scrypt (sal por usuário) no login.`,
+      });
     }
 
     const {

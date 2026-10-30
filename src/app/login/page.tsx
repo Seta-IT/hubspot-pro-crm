@@ -16,6 +16,7 @@ import {
 import {
   loadClientDeletedUsersOverride,
   loadClientIamUsersOverride,
+  migrateClientIamStorage,
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
@@ -123,6 +124,11 @@ export default function StiHubLoginPage() {
     window.location.assign(nextUrl);
   };
 
+  // Pacote E: ao carregar, apaga do localStorage senha/hash legados (mantem os selos).
+  useEffect(() => {
+    migrateClientIamStorage();
+  }, []);
+
   // Detect ?invite=... or ?token=... on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -197,10 +203,8 @@ export default function StiHubLoginPage() {
       }
       const d = json.data;
       if (d?.user) {
-        saveClientIamUserOverrideIfNewer({
-          ...d.user,
-          password: newPassword.trim(),
-        });
+        // Pacote E: a senha nunca vai para o cache do navegador (o hash viaja so no iamSeal).
+        saveClientIamUserOverrideIfNewer(d.user);
       }
       setPassword(newPassword.trim());
 

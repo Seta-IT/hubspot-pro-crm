@@ -138,7 +138,7 @@ import {
   SlidingWindowRateLimiter,
   verifyPasswordResetToken,
 } from './password-reset';
-import { hashCorporatePassword, verifyCorporatePassword } from '../app/lib/auth';
+import { hashPasswordScrypt, verifyStoredPassword } from '../db/password-hash';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -539,6 +539,32 @@ export function computeRealtimeTicketsAndKpis(
 export const STEP_UP_CID_PREFIX = 'STEPUP-';
 /** Janela em que a reverificacao MFA libera ver/regenerar o pareamento do proprio usuario. */
 export const STEP_UP_FRESH_MS = 10 * 60 * 1000;
+/** Pacote E: campos de credencial que nunca entram pelas rotas IAM admin. */
+export const IAM_ALWAYS_FORBIDDEN_BODY_FIELDS = [
+  'passwordHash',
+  'totpSecret',
+  'totpSecretFormatted',
+  'lastUsedTotpTimeStep',
+] as const;
+
+/** `password` so e aceito no POST de criacao e no PUT/PATCH de edicao do usuario. */
+export function findForbiddenIamCredentialFields(
+  rawPath: string,
+  method: string,
+  body: Record<string, unknown> | null | undefined
+): string[] {
+  const b = body && typeof body === 'object' ? body : {};
+  const out: string[] = IAM_ALWAYS_FORBIDDEN_BODY_FIELDS.filter((k) => b[k] !== undefined);
+  if (b.password !== undefined && b.password !== null && b.password !== '') {
+    const n = normalizeApiPathForAuthz(rawPath);
+    const m = String(method || '').toUpperCase();
+    const isCreate = m === 'POST' && /^\/api\/(?:admin|rbac|iam)\/users$/.test(n);
+    const isUpdate = (m === 'PUT' || m === 'PATCH') && /^\/api\/(?:admin|rbac|iam)\/users\/[^/]+$/.test(n);
+    if (!isCreate && !isUpdate) out.push('password');
+  }
+  return out;
+}
+
 export const CLIENT_FORBIDDEN_TOTP_FIELDS = ['totpSecret', 'totpSecretFormatted', 'lastUsedTotpTimeStep'] as const;
 export function stripClientTotpSecretFields(body: unknown): Record<string, unknown> {
   const src = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -565,7 +591,7 @@ function checkAdminNewPassword(
     void _drop;
     return { ok: true, body: rest };
   }
-  if (existing?.passwordHash && verifyCorporatePassword(pw, existing.passwordHash)) {
+  if (existing?.passwordHash && verifyStoredPassword(pw, existing.passwordHash).ok) {
     const { password: _same, ...rest } = body;
     void _same;
     return { ok: true, body: rest };
@@ -1506,6 +1532,21 @@ export class CrmApiRouter {
             body: {
               error: "Permissão negada: seu perfil não possui alçada para consultar ou alterar usuários, papéis ou políticas IAM/RBAC.",
               code: "IAM_ADMIN_FORBIDDEN",
+            },
+          };
+        }
+      }
+
+      // Pacote E (29/10): rotas IAM admin nunca recebem hash, segredo TOTP ou senha fora do
+      // POST/PUT de definicao de senha do usuario. Campo proibido => 400 (nada e aplicado).
+      if (isIamAdminRoute(cleanPath)) {
+        const forbidden = findForbiddenIamCredentialFields(cleanPath, method, body as Record<string, unknown>);
+        if (forbidden.length > 0) {
+          return {
+            status: 400,
+            body: {
+              error: `Campo(s) não aceito(s) nas rotas de administração IAM: ${forbidden.join(', ')}. A senha só é definida pelo campo "password" (mínimo de 12 caracteres) ao criar ou editar o usuário.`,
+              code: 'IAM_FORBIDDEN_CREDENTIAL_FIELD',
             },
           };
         }
@@ -5748,7 +5789,7 @@ export class CrmApiRouter {
         const recPw = rec as unknown as { id: string; passwordHash?: string; passwordChangedAt?: string };
         if (isPasswordResetTokenStale(c, recPw)) return invalidLink;
         this.consumedPasswordResetNonces.add(c.nonce);
-        recPw.passwordHash = hashCorporatePassword(newPassword);
+        recPw.passwordHash = hashPasswordScrypt(newPassword);
         recPw.passwordChangedAt = new Date().toISOString();
         (rec as unknown as { updatedAt?: string }).updatedAt = recPw.passwordChangedAt;
         this.repo.markLocalIamChange(rec.id);

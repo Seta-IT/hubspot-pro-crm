@@ -999,13 +999,123 @@ export function findStiHubUserByEmail(email: string): StiHubUserAccount | null {
 
 export const STIHUB_IAM_USERS_STORAGE_KEY = "stihub_iam_users_override_v1";
 
+/**
+ * Pacote E (29/10/2026): campos de credencial que o navegador NUNCA guarda nem reenvia.
+ * A senha so sai do navegador no POST de definicao (login, convite, redefinicao, Minha Conta,
+ * criar/editar usuario no IAM). Entre instancias, o hash so viaja dentro do iamSeal (opaco,
+ * AES-256-GCM do servidor).
+ */
+export const CLIENT_IAM_CREDENTIAL_KEYS: readonly string[] = Object.freeze([
+  "password",
+  "passwordHash",
+  "currentPassword",
+  "newPassword",
+  "totpSecret",
+  "totpSecretFormatted",
+  "lastUsedTotpTimeStep",
+]);
+
+/** Copia sem campos de credencial (preserva iamSeal e todo o resto). */
+export function scrubClientIamCredentialFields<T extends Record<string, unknown>>(entry: T): { clean: T; changed: boolean } {
+  const clean = { ...entry } as Record<string, unknown>;
+  let changed = false;
+  for (const k of CLIENT_IAM_CREDENTIAL_KEYS) {
+    if (k in clean) {
+      delete clean[k];
+      changed = true;
+    }
+  }
+  return { clean: clean as T, changed };
+}
+
+/**
+ * Migracao transparente: apaga do localStorage senha/hash/segredo legados (gravados antes da
+ * contencao) no cache IAM e na sessao ativa, sem perder o restante (selos, preferencias).
+ * Devolve quantos registros foram limpos. Idempotente.
+ */
+export function migrateClientIamStorage(): number {
+  if (typeof window === "undefined") return 0;
+  let cleaned = 0;
+  try {
+    const raw = window.localStorage.getItem(STIHUB_IAM_USERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const next = parsed.map((e) => {
+          if (!e || typeof e !== "object") return e;
+          const r = scrubClientIamCredentialFields(e as Record<string, unknown>);
+          if (r.changed) cleaned++;
+          return r.clean;
+        });
+        if (cleaned > 0) window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(next));
+      }
+    }
+  } catch {
+    // armazenamento indisponivel ou JSON invalido: nada a migrar
+  }
+  // Chave legada do antigo AdminSettingsCenterTab (lista de usuarios com totpSecret do cliente).
+  try {
+    const rawL = window.localStorage.getItem("stihub_users_v1");
+    if (rawL) {
+      const parsedL = JSON.parse(rawL);
+      if (Array.isArray(parsedL)) {
+        let changedL = 0;
+        const nextL = parsedL.map((e) => {
+          if (!e || typeof e !== "object") return e;
+          const r = scrubClientIamCredentialFields(e as Record<string, unknown>);
+          if (r.changed) changedL++;
+          return r.clean;
+        });
+        if (changedL > 0) {
+          window.localStorage.setItem("stihub_users_v1", JSON.stringify(nextL));
+          cleaned += changedL;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const rawS = window.localStorage.getItem(STIHUB_SESSION_STORAGE_KEY);
+    if (rawS) {
+      const sess = JSON.parse(rawS) as Record<string, unknown> | null;
+      if (sess && typeof sess === "object") {
+        let changed = false;
+        const top = scrubClientIamCredentialFields(sess);
+        const out = top.clean as Record<string, unknown>;
+        changed = top.changed;
+        if (out.user && typeof out.user === "object") {
+          const u = scrubClientIamCredentialFields(out.user as Record<string, unknown>);
+          if (u.changed) {
+            out.user = u.clean;
+            changed = true;
+          }
+        }
+        if (changed) {
+          window.localStorage.setItem(STIHUB_SESSION_STORAGE_KEY, JSON.stringify(out));
+          cleaned++;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return cleaned;
+}
+
 export function loadClientIamUsersOverride(): Array<Record<string, unknown>> {
   if (typeof window === "undefined") return [];
   try {
+    // Pacote E: toda leitura ja migra o armazenamento e nunca devolve credenciais.
+    migrateClientIamStorage();
     const raw = window.localStorage.getItem(STIHUB_IAM_USERS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((e) => e && typeof e === "object")
+          .map((e) => scrubClientIamCredentialFields(e as Record<string, unknown>).clean)
+      : [];
   } catch {
     return [];
   }
@@ -1024,10 +1134,7 @@ export function saveClientIamUserOverride(user: Record<string, unknown> | null |
     );
     // Contencao 29/10/2026: nunca guardar senha em claro, hash ou segredo TOTP no navegador.
     // A persistencia entre instancias usa o campo opaco iamSeal emitido pelo servidor.
-    const safeUser: Record<string, unknown> = { ...user };
-    for (const k of ["password", "passwordHash", "totpSecret", "totpSecretFormatted", "lastUsedTotpTimeStep"]) {
-      delete safeUser[k];
-    }
+    const safeUser: Record<string, unknown> = scrubClientIamCredentialFields(user).clean;
     filtered.unshift(safeUser);
     window.localStorage.setItem(STIHUB_IAM_USERS_STORAGE_KEY, JSON.stringify(filtered.slice(0, 50)));
   } catch {

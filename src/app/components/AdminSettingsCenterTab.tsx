@@ -54,6 +54,7 @@ import {
   generateTotpCodeSync,
   generateTotpSecretBase32,
   StiHubSessionPayload,
+  scrubClientIamCredentialFields,
 } from '../lib/auth';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 
@@ -189,7 +190,8 @@ export default function AdminSettingsCenterTab({
     setUsers(nextUsers);
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem('stihub_users_v1', JSON.stringify(nextUsers));
+        // Pacote E: nunca grava credenciais (totpSecret etc.) no navegador.
+        window.localStorage.setItem('stihub_users_v1', JSON.stringify(nextUsers.map((u) => scrubClientIamCredentialFields(u as unknown as Record<string, unknown>).clean)));
       } catch {
         // ignore
       }
@@ -251,7 +253,7 @@ export default function AdminSettingsCenterTab({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...createdUser,
+        ...scrubClientIamCredentialFields(createdUser as unknown as Record<string, unknown>).clean,
         roleId: newUserLegacyRole,
         scope:
           newUserScope === 'ALL' ? 'TODOS' : newUserScope === 'TEAM' ? 'EQUIPE' : 'PROPRIOS',
@@ -1578,7 +1580,7 @@ export default function AdminSettingsCenterTab({
                         await fetch('/api/rbac/users', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(updatedUser),
+                          body: JSON.stringify(scrubClientIamCredentialFields(updatedUser as unknown as Record<string, unknown>).clean),
                         }).catch(() => null);
                         setConfiguringMfaUser(null);
                         onShowToast(
