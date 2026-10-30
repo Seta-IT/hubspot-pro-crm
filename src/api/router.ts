@@ -1014,6 +1014,19 @@ export class CrmApiRouter {
   }
 
   // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
+  /**
+   * Pacote F: autoria padrao = nome do usuario da SESSAO; sem sessao (contexto interno/cron)
+   * => "Sistema STI-hub". Nunca um nome fixo de pessoa.
+   */
+  private sessionActorName(query: Record<string, string | undefined>): string {
+    const tok = query._sessionToken;
+    if (tok) {
+      const sess = this.repo.resolveSessionFromToken(tok);
+      if (sess.authenticated && sess.user?.name) return sess.user.name;
+    }
+    return 'Sistema STI-hub';
+  }
+
   /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
   private readonly portalLimiters = new PortalRateLimiters();
 
@@ -1777,6 +1790,16 @@ export class CrmApiRouter {
       // SYSTEM & DATABASE HEALTH (/api/health)
       // ======================================================================
       if (cleanPath === "/api/health" && method === "GET") {
+        // Pacote F: anonimo (ou nao-admin) recebe SO {status:'ok'}; modo do banco e contagens
+        // apenas com sessao MFA de administrador (canManageUsersRbac).
+        const healthSess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+        const healthAdmin = Boolean(
+          ctx.trustedInternal ||
+            (healthSess && healthSess.authenticated && healthSess.mfaVerified && healthSess.effectiveActionGuards.canManageUsersRbac)
+        );
+        if (!healthAdmin) {
+          return { status: 200, body: { status: "ok" } };
+        }
         const dbHealth = await checkPostgresHealth();
         const state = this.repo.getState();
         return {
@@ -1909,7 +1932,7 @@ export class CrmApiRouter {
               body: `Dados cadastrais revisados (Etapa: ${updated.lifecycleStage}, Status: ${updated.leadStatus}, Cargo: ${updated.jobTitle || '—'}).`,
               contactId: updated.id,
               companyId: updated.companyId,
-              actor: typeof body.ownerName === 'string' ? body.ownerName : 'Marcéllo Mira',
+              actor: typeof body.ownerName === 'string' && body.ownerName.trim() ? body.ownerName : this.sessionActorName(query),
             });
           }
           if (updated && updated.leadScore >= 80 && before.leadScore < 80) {
@@ -2039,7 +2062,7 @@ export class CrmApiRouter {
             title: `Cadastro corporativo atualizado: ${updated.name}`,
             body: `Domínio: ${updated.domain || '—'} | CNPJ: ${updated.cnpj || '—'} | Setor: ${updated.industry || '—'}.`,
             companyId: updated.id,
-            actor: 'Marcéllo Mira',
+            actor: this.sessionActorName(query),
           });
           return { status: 200, body: { data: updated } };
         }
@@ -3411,7 +3434,7 @@ export class CrmApiRouter {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
         }
         const updated = this.repo.addTicketComment(idOrKey, {
-          author: body.author ? String(body.author) : 'Marcéllo Mira',
+          author: body.author ? String(body.author) : this.sessionActorName(query),
           authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
           isInternal: Boolean(body.isInternal),
           body: String(body.body),
@@ -3465,7 +3488,7 @@ export class CrmApiRouter {
         if (method === 'PATCH' || method === 'PUT') {
           if (body.action === 'ADD_COMMENT' && body.body) {
             const withComment = this.repo.addTicketComment(idOrKey, {
-              author: body.author ? String(body.author) : 'Marcéllo Mira',
+              author: body.author ? String(body.author) : this.sessionActorName(query),
               authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
               isInternal: Boolean(body.isInternal),
               body: String(body.body),
@@ -3544,7 +3567,8 @@ export class CrmApiRouter {
         if (cleanPath === '/api/portal/tickets' && method === 'POST') {
           const subject = String(body.subject || '').trim().slice(0, 300);
           const email = normalizePortalEmail(body.email);
-          const name = String(body.name || body.firstName || 'Cliente Seta Telecom').trim().slice(0, 120);
+          // Pacote F: autoria publica = nome do FORMULARIO ou "Cliente" (nunca o nome do contato do CRM).
+          const name = String(body.name || body.firstName || '').trim().slice(0, 120) || 'Cliente';
           const companyName = String(body.companyName || body.company || '').trim().slice(0, 200);
           const phone = body.phone ? String(body.phone).trim().slice(0, 40) : null;
           const description = String(
@@ -3610,7 +3634,7 @@ export class CrmApiRouter {
             comments: [
               {
                 id: `cmt-portal-${Date.now()}`,
-                author: contact ? `${contact.firstName} ${contact.lastName}`.trim() : name,
+                author: name, // identico exista ou nao o contato (nao revela cadastro)
                 authorRole: 'CUSTOMER',
                 isInternal: false,
                 body: description,

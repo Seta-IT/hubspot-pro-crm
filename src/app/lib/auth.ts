@@ -7,7 +7,7 @@
 // ============================================================================
 
 import QRCode from 'qrcode';
-import { INITIAL_STIHUB_USERS, StiHubRole, StiHubUserAccount } from './rbac';
+import { INITIAL_STIHUB_USERS, StiHubRole } from './rbac';
 import type {
   StiHubCrmPermissions,
   StiHubErpPermissions,
@@ -989,13 +989,6 @@ export function getClientSession(): StiHubSessionPayload | null {
   return null;
 }
 
-export function findStiHubUserByEmail(email: string): StiHubUserAccount | null {
-  const clean = String(email || '').trim().toLowerCase();
-  return (
-    INITIAL_STIHUB_USERS.find((u) => u.email.toLowerCase() === clean) ||
-    (clean.includes('marcelo') ? INITIAL_STIHUB_USERS[0] : null)
-  );
-}
 
 export const STIHUB_IAM_USERS_STORAGE_KEY = "stihub_iam_users_override_v1";
 
