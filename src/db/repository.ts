@@ -4717,7 +4717,10 @@ export class CrmRepository {
     const nextEquipments = structuredClone(current.equipments || []);
     const returnedItems: ErpContractPartialReturnItem[] = [];
     let totalReturnedAssetValueBrl = 0;
-    const returnCfop: '5.909' | '6.909' = current.remessaCfop === '6.908' ? '6.909' : '5.909';
+    // #12: a NF-e de retorno emitida pela própria locadora é de ENTRADA (CFOP 1.909 / 2.909);
+    // 5.909 / 6.909 é o CFOP de saída do locatário contribuinte.
+    const returnCfop: '1.909' | '2.909' = current.remessaCfop === '6.908' ? '2.909' : '1.909';
+    const returnedUnitAssetValues: number[] = [];
     const returnNfeNumber = `000.509.${100 + erp.invoices.length + 1}`;
 
     for (const reqItem of input.itemsToReturn || []) {
@@ -4745,6 +4748,7 @@ export class CrmRepository {
       const proRataBilledBrl = round2(monthlyReductionBrl * (cycleDaysUsed / 30));
       const unitAssetVal = eq.quantity > 0 ? Number(eq.assetValueBrl || 0) / eq.quantity : unitRent * 6;
       totalReturnedAssetValueBrl = round2(totalReturnedAssetValueBrl + unitAssetVal * actualQtyReturned);
+      returnedUnitAssetValues.push(unitAssetVal);
 
       returnedItems.push({
         skuGestaoClick: eq.skuGestaoClick,
@@ -4784,16 +4788,17 @@ export class CrmRepository {
 
     let returnNfe: ErpFiscalInvoice | null = null;
     if (input.emitReturnNfe !== false) {
+      // Mesmo valor dos bens na NF-e de remessa (sem piso artificial de R$ 100)
       const taxRet = calculateBrazilianTaxBreakdown({
-        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        grossAmount: totalReturnedAssetValueBrl,
         discountAmount: 0,
-        documentType: 'NFE_REMESSA_LOCACAO',
+        documentType: 'NFE_RETORNO_LOCACAO',
         taxRegime: erp.gestaoClickConfig.taxRegime,
       });
       returnNfe = {
         id: `inv-ret-${Date.now()}`,
         documentNumber: `NFE-RET-${returnNfeNumber.replace(/\./g, '')}`,
-        documentType: 'NFE_REMESSA_LOCACAO',
+        documentType: 'NFE_RETORNO_LOCACAO',
         competenceMonth: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
         companyId: current.companyId,
         companyName: current.companyName,
@@ -4802,27 +4807,27 @@ export class CrmRepository {
         rentalContractId: current.id,
         proposalId: current.proposalId,
         dealId: current.dealId,
-        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        grossAmount: totalReturnedAssetValueBrl,
         discountAmount: 0,
-        netAmount: Math.max(100, totalReturnedAssetValueBrl),
-        status: 'PAGA',
+        netAmount: totalReturnedAssetValueBrl,
+        status: 'ENTRADA_REGISTRADA',
         issueDate: returnedAt,
         dueDate: returnedAt,
-        paidAt: returnedAt,
-        paymentMethod: 'TED_BANCARIA',
+        paidAt: null,
+        paymentMethod: 'NAO_APLICAVEL',
         serviceCodeLc116: null,
-        cfop: `${returnCfop} — Retorno de bem remetido por conta de contrato de locação`,
+        cfop: `${returnCfop} — Entrada: retorno de bem remetido por conta de contrato de locação`,
         cstIcms: '041 - Não tributada (Art. 7º, X do RICMS — Retorno de Locação)',
         cstPisCofins: '08 - Operação sem incidência da contribuição',
         verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 5091 0110 0050 9991`,
         pixCopyPaste: 'DOCUMENTO FISCAL DE RETORNO PATRIMONIAL PARCIAL — SEM COBRANÇA FINANCEIRA',
         boletoDigitableLine: `SEM FATURA FINANCEIRA (CFOP ${returnCfop} - RETORNO PARCIAL DE LOCAÇÃO)`,
-        itemsDescription: returnedItems.map((ri) => ({
+        itemsDescription: returnedItems.map((ri, riIdx) => ({
           description: `Retorno Parcial de Locação (${current.contractNumber}): ${ri.description}`,
           serialNumber: ri.serialNumber,
           quantity: ri.quantityReturned,
-          unitValue: ri.unitMonthlyRent * 6,
-          totalValue: round2(ri.quantityReturned * ri.unitMonthlyRent * 6),
+          unitValue: round2(returnedUnitAssetValues[riIdx] ?? 0),
+          totalValue: round2(ri.quantityReturned * (returnedUnitAssetValues[riIdx] ?? 0)),
         })),
         taxBreakdown: taxRet,
         createdAt: nowIso,
@@ -5226,6 +5231,36 @@ export class CrmRepository {
     );
     if (idx === -1) return null;
     const current = erp.invoices[idx];
+    // #16: NF-e de importação tem valores congelados (calculados por calculateSebraeImportNfe com ICMS
+    // "por dentro"); um PATCH não recalcula nem sobrescreve valores/tributos — apenas campos descritivos.
+    if (current.documentType === 'NFE_IMPORTACAO' && current.importMetadata) {
+      const {
+        grossAmount: _g,
+        discountAmount: _d,
+        netAmount: _n,
+        taxBreakdown: _t,
+        importMetadata: _m,
+        documentType: _dt,
+        itemsDescription: _items,
+        ...safePatch
+      } = patch;
+      const frozenUpdated: ErpFiscalInvoice = {
+        ...current,
+        ...safePatch,
+        id: current.id,
+        documentType: current.documentType,
+        grossAmount: current.grossAmount,
+        discountAmount: current.discountAmount,
+        netAmount: current.netAmount,
+        taxBreakdown: current.taxBreakdown,
+        importMetadata: current.importMetadata,
+        itemsDescription: current.itemsDescription,
+        updatedAt: new Date().toISOString(),
+      };
+      erp.invoices[idx] = frozenUpdated;
+      this.save();
+      return frozenUpdated;
+    }
     const grossAmount =
       patch.grossAmount !== undefined ? Number(patch.grossAmount) : current.grossAmount;
     const discountAmount =
@@ -5983,6 +6018,67 @@ export class CrmRepository {
     return [...this.ensureErp().invoices];
   }
 
+  private fiscalSequenceKey(modelo: string, serie: string): string {
+    return `${modelo}-${Number(String(serie).replace(/\D/g, '') || '1')}`;
+  }
+
+  /** Maior nNF já usado por NF-e modelo 55 da série (a partir dos metadados de importação gravados). */
+  private maxUsedFiscalNumber(modelo: string, serie: string): number {
+    if (modelo !== '55') return 0;
+    const erp = this.ensureErp();
+    const key = this.fiscalSequenceKey(modelo, serie);
+    let max = 0;
+    for (const inv of erp.invoices) {
+      const meta = inv.importMetadata;
+      if (!meta || this.fiscalSequenceKey('55', meta.serie) !== key) continue;
+      const n = Number(String(meta.nNF).replace(/\D/g, ''));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+
+  /** Próximo nNF disponível para modelo/série, sem reservar (pré-visualização). */
+  peekNextFiscalNumber(modelo: string, serie: string): number {
+    const erp = this.ensureErp();
+    const key = this.fiscalSequenceKey(modelo, serie);
+    const last = Math.max(erp.fiscalNumberSequences?.[key] || 0, this.maxUsedFiscalNumber(modelo, serie));
+    return last + 1;
+  }
+
+  /**
+   * #11: numerador atômico por modelo/série. A reserva é síncrona (sem await entre leitura e gravação),
+   * portanto duas emissões no mesmo processo nunca recebem o mesmo número. Quando o número é informado,
+   * ele só é aceito se ainda não tiver sido usado nem reservado.
+   */
+  reserveFiscalNumber(
+    modelo: string,
+    serie: string,
+    requested?: number | null
+  ): { ok: true; nNF: number } | { ok: false; nextAvailable: number } {
+    const erp = this.ensureErp();
+    if (!erp.fiscalNumberSequences) erp.fiscalNumberSequences = {};
+    const key = this.fiscalSequenceKey(modelo, serie);
+    const reserved = erp.fiscalNumberSequences[key] || 0;
+    const last = Math.max(reserved, this.maxUsedFiscalNumber(modelo, serie));
+    let nNF: number;
+    if (requested !== undefined && requested !== null && Number.isFinite(requested) && requested > 0) {
+      const req = Math.floor(requested);
+      const used = erp.invoices.some(
+        (inv) =>
+          inv.importMetadata &&
+          this.fiscalSequenceKey('55', inv.importMetadata.serie) === key &&
+          Number(String(inv.importMetadata.nNF).replace(/\D/g, '')) === req
+      );
+      if (used || req <= reserved) return { ok: false, nextAvailable: last + 1 };
+      nNF = req;
+    } else {
+      nNF = last + 1;
+    }
+    erp.fiscalNumberSequences[key] = Math.max(last, nNF);
+    this.save();
+    return { ok: true, nNF };
+  }
+
   createInvoice(
     input: Partial<ErpFiscalInvoice> & {
       companyName: string;
@@ -6001,7 +6097,10 @@ export class CrmRepository {
       documentType: input.documentType,
       taxRegime: erp.gestaoClickConfig.taxRegime,
       issRatePercent: erp.gestaoClickConfig.defaultIssRatePercent,
+      importMetadata: input.importMetadata,
     });
+    const isEntryNote =
+      input.documentType === 'NFE_IMPORTACAO' || input.documentType === 'NFE_RETORNO_LOCACAO';
 
     const prefix =
       input.documentType === 'FATURA_LOCACAO'
@@ -6016,7 +6115,9 @@ export class CrmRepository {
                 ? 'NFCOM-2026-'
                 : input.documentType === 'NFE_IMPORTACAO'
                   ? 'NFE-IMP-00'
-                  : 'NFE-REM-';
+                  : input.documentType === 'NFE_RETORNO_LOCACAO'
+                    ? 'NFE-RET-'
+                    : 'NFE-REM-';
     const docNum =
       input.documentNumber || `${prefix}${String(erp.invoices.length + 1).padStart(4, '0')}`;
     const dueDate =
@@ -6036,7 +6137,9 @@ export class CrmRepository {
                 ? '5.933 — Prestação de serviço tributado pelo ISSQN'
                 : input.documentType === 'NFE_IMPORTACAO'
                   ? '3.102 — Compra para comercialização (Importação Direta — Simples Nacional CSOSN 900)'
-                  : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
+                  : input.documentType === 'NFE_RETORNO_LOCACAO'
+                    ? '1.909 — Entrada: retorno de bem remetido por conta de contrato de locação'
+                    : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
 
     const defaultCstIcms =
       input.cstIcms ||
@@ -6048,7 +6151,7 @@ export class CrmRepository {
 
     const defaultCstPisCofins =
       input.cstPisCofins ||
-      (input.documentType === 'NFE_REMESSA_LOCACAO'
+      (input.documentType === 'NFE_REMESSA_LOCACAO' || input.documentType === 'NFE_RETORNO_LOCACAO'
         ? '08 - Operação sem incidência da contribuição'
         : input.documentType === 'NFSE_SERVICO'
           ? '01 - Retenção na Fonte CSRF 4,65% + IRRF 1,5%'
@@ -6061,7 +6164,14 @@ export class CrmRepository {
       competenceMonth: input.competenceMonth || '10/2026',
       companyId: input.companyId || null,
       companyName: input.companyName,
-      companyCnpj: input.companyCnpj || '18.236.120/0001-58',
+      // #5: a contraparte estrangeira não tem CNPJ — o idEstrangeiro vai em counterpartyForeignId
+      companyCnpj:
+        input.documentType === 'NFE_IMPORTACAO'
+          ? String(input.companyCnpj || '')
+          : input.companyCnpj || '18.236.120/0001-58',
+      ...(input.counterpartyForeignId !== undefined
+        ? { counterpartyForeignId: input.counterpartyForeignId }
+        : {}),
       companyAddress: input.companyAddress || 'São Paulo/SP',
       rentalContractId: input.rentalContractId || null,
       proposalId: input.proposalId || null,
@@ -6069,11 +6179,16 @@ export class CrmRepository {
       grossAmount,
       discountAmount,
       netAmount: taxBreakdown.netReceivableAmount,
-      status: input.status || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PAGA' : 'EMITIDA'),
+      // #11: nota de entrada tem status próprio (não é PAGA/TED)
+      status:
+        input.status ||
+        (isEntryNote ? 'ENTRADA_REGISTRADA' : input.documentType === 'NFCE_CONSUMIDOR' ? 'PAGA' : 'EMITIDA'),
       issueDate: input.issueDate || nowIso.slice(0, 10),
       dueDate,
       paidAt: input.paidAt || (input.documentType === 'NFCE_CONSUMIDOR' ? nowIso.slice(0, 10) : null),
-      paymentMethod: input.paymentMethod || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PIX_CORPORATIVO' : 'BOLETO_PIX'),
+      paymentMethod:
+        input.paymentMethod ||
+        (isEntryNote ? 'NAO_APLICAVEL' : input.documentType === 'NFCE_CONSUMIDOR' ? 'PIX_CORPORATIVO' : 'BOLETO_PIX'),
       serviceCodeLc116:
         input.serviceCodeLc116 !== undefined
           ? input.serviceCodeLc116
@@ -6089,7 +6204,7 @@ export class CrmRepository {
       cfop: defaultCfop,
       cstIcms: defaultCstIcms,
       cstPisCofins: defaultCstPisCofins,
-      verificationCodeOrKey: `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
+      verificationCodeOrKey: input.verificationCodeOrKey || `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
       pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304B8C1`,
       boletoDigitableLine: `34191.79001 01043.510047 91020.150008 1 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
       itemsDescription:
@@ -6106,15 +6221,7 @@ export class CrmRepository {
                 totalValue: grossAmount,
               },
             ],
-      taxBreakdown: input.importMetadata
-        ? {
-            ...taxBreakdown,
-            pisAmount: input.importMetadata.totals.vPIS,
-            cofinsAmount: input.importMetadata.totals.vCOFINS,
-            icmsAmount: input.importMetadata.totals.vICMS,
-            totalTaxesEstimated: input.importMetadata.totals.vTotTrib,
-          }
-        : taxBreakdown,
+      taxBreakdown,
       ...(input.importMetadata ? { importMetadata: input.importMetadata } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -6129,7 +6236,7 @@ export class CrmRepository {
         id: `po-imp-${Date.now()}`,
         code: String(40 + erp.purchaseOrders.length),
         supplierName: input.companyName,
-        supplierCnpj: input.companyCnpj || "EXTERIOR",
+        supplierCnpj: input.companyCnpj || `EXTERIOR${input.counterpartyForeignId ? ` (ID ${input.counterpartyForeignId})` : ''}`,
         issueDate: (input.issueDate || nowIso.slice(0, 10)).split("-").reverse().join("/"),
         status: "Confirmada",
         nfeNumber: docNum,
@@ -6159,7 +6266,10 @@ export class CrmRepository {
         invoiceId: invoice.id,
         paymentMethod: 'Fechamento de Câmbio + DARF/GNRE Desembaraço',
       });
-    } else if (input.documentType !== 'NFE_REMESSA_LOCACAO') {
+    } else if (
+      input.documentType !== 'NFE_REMESSA_LOCACAO' &&
+      input.documentType !== 'NFE_RETORNO_LOCACAO'
+    ) {
       erp.financialEntries.unshift({
         id: `fin-${Date.now()}`,
         type: 'RECEBER',

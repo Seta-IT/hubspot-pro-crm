@@ -1057,7 +1057,8 @@ export interface ErpContractPartialReturnItem {
   unitMonthlyRent: number;
   proRataBilledBrl: number;
   monthlyReductionBrl: number;
-  returnNfeCfop?: '5.909' | '6.909';
+  /** CFOP da NF-e de entrada emitida pela locadora no retorno do bem (1.909 estadual / 2.909 interestadual) */
+  returnNfeCfop?: '1.909' | '2.909';
   returnNfeNumber?: string;
 }
 
@@ -1181,7 +1182,9 @@ export type ErpFiscalDocumentType =
   | 'NFE_VENDA_PRODUTO'
   | 'NFCE_CONSUMIDOR'
   | 'NFCOM_TELECOM'
-  | 'NFE_IMPORTACAO';
+  | 'NFE_IMPORTACAO'
+  /** NF-e de ENTRADA emitida pela locadora no retorno do bem locado (CFOP 1.909 / 2.909) */
+  | 'NFE_RETORNO_LOCACAO';
 
 export interface ErpImportDeclarationAddition {
   nAdicao: string;
@@ -1228,6 +1231,7 @@ export interface ErpImportNfeItem {
   uCom: string;
   qCom: number;
   fobUnitForeign: number;
+  /** Valor unitário em R$ com até 10 casas decimais (vUnCom do layout 4.00) */
   vUnComBrl: number;
   vProdBrl: number;
   vFreteShareBrl: number;
@@ -1257,6 +1261,8 @@ export interface ErpImportNfeItem {
   nAdicao: string;
   nSeqAdic: string;
   cFabricante: string;
+  /** true quando os valores do item foram preservados do arquivo/DI importado (não recalculados) */
+  declaredValuesApplied?: boolean;
 }
 
 export interface ErpImportNfeMetadata {
@@ -1292,6 +1298,14 @@ export interface ErpImportNfeMetadata {
     vTotTrib: number;
   };
   infCpl: string;
+  /** Chave de acesso de 44 dígitos (DV módulo 11) gerada para o rascunho */
+  accessKey?: string;
+  cNF?: string;
+  cDV?: string;
+  /** Data/hora de emissão no fuso America/Sao_Paulo (AAAA-MM-DDThh:mm:ss-03:00) */
+  dhEmi?: string;
+  /** O XML gerado é um rascunho: sem assinatura digital e sem protNFe da SEFAZ */
+  documentStatus?: 'RASCUNHO_NAO_AUTORIZADO';
   sebraeTxtContent?: string;
   sefazXmlContent?: string;
 }
@@ -1334,11 +1348,14 @@ export interface ErpFiscalInvoice {
   grossAmount: number;
   discountAmount: number;
   netAmount: number;
-  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA';
+  /** ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria */
+  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA';
   issueDate: string;
   dueDate: string;
   paidAt: string | null;
-  paymentMethod: 'BOLETO_PIX' | 'PIX_CORPORATIVO' | 'TED_BANCARIA';
+  paymentMethod: 'BOLETO_PIX' | 'PIX_CORPORATIVO' | 'TED_BANCARIA' | 'NAO_APLICAVEL';
+  /** Identificador do estrangeiro (idEstrangeiro) quando a contraparte não possui CNPJ (ex.: exportador na importação) */
+  counterpartyForeignId?: string | null;
   serviceCodeLc116: string | null;
   cfop: string | null;
   cstIcms: string | null;
@@ -1740,6 +1757,8 @@ export interface ErpDatabaseState {
   suppliers?: ErpSupplierRecord[];
   employees?: ErpEmployeeRecord[];
   purchaseOrders?: ErpPurchaseOrder[];
+  /** Numerador fiscal por modelo/série (chave "55-1" = modelo 55, série 1) => último nNF reservado */
+  fiscalNumberSequences?: Record<string, number>;
 }
 
 // ============================================================================

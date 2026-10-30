@@ -249,7 +249,9 @@ export function matchInvoicesForContract(
     if (
       cleanInvCnpj.length >= 11 &&
       cleanInvCnpj === cleanCtrCnpj &&
-      (inv.documentType === 'FATURA_LOCACAO' || inv.documentType === 'NFE_REMESSA_LOCACAO')
+      (inv.documentType === 'FATURA_LOCACAO' ||
+        inv.documentType === 'NFE_REMESSA_LOCACAO' ||
+        inv.documentType === 'NFE_RETORNO_LOCACAO')
     ) {
       return true;
     }

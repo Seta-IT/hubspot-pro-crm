@@ -115,9 +115,14 @@ import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
   analyzeAndFixSebraeTxt,
   calculateSebraeImportNfe,
+  ImportCnpjMismatchError,
+  ImportFileTooLargeError,
+  MAX_IMPORT_FILE_BYTES,
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
+  utf8ByteLength,
 } from '../modules/erp/sebrae-nfe-import-engine';
+import { validateImportNfeRequest } from '../modules/erp/nfe-import-validation';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal } from '../db/types';
 import {
@@ -3296,7 +3301,11 @@ export class CrmApiRouter {
           (cleanPath === "/api/erp/invoices" ||
             cleanPath === "/api/erp/fiscal-documents" ||
             cleanPath.endsWith("/generate-invoice") ||
-            cleanPath.endsWith("/generate-remessa")) &&
+            cleanPath.endsWith("/generate-remessa") ||
+            // #7: emissão/cálculo/importação de NF-e de importação exigem alçada fiscal
+            cleanPath === "/api/erp/nfe-importacao/emit" ||
+            cleanPath === "/api/erp/nfe-importacao/calculate" ||
+            cleanPath === "/api/erp/nfe-importacao/parse-file") &&
           method === "POST"
         ) {
           if (
@@ -6210,25 +6219,39 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/calculate' && method === 'POST') {
+        // #10: validação de entrada (zod) => 400 em vez de TypeError/NaN
+        const validated = validateImportNfeRequest(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'NFE_IMPORT_INVALID_INPUT', issues: validated.issues } };
+        }
+        const input = validated.data;
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
-        const meta = calculateSebraeImportNfe({
-          serie: String(body.serie || '1'),
-          nNF: String(body.nNF || String(erp.invoices.length + 12)),
-          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
-          crt: (body.crt as '1' | '2' | '3') || '1',
-          finNFe: (body.finNFe as '1' | '2') || '1',
-          indFinal: (body.indFinal as '0' | '1') || '0',
-          indPres: (body.indPres as '0' | '9') || '0',
-          indIntermed: (body.indIntermed as '0' | '1') || '0',
-          di: body.di as ErpImportDeclarationInfo,
-          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
-          emitterName: cfg.companyLegalName,
-          emitterCnpj: cfg.companyCnpj,
-          emitterIe: cfg.stateRegistration,
-          emitterUf: 'SP',
-        });
-        return { status: 200, body: { data: meta } };
+        const serie = input.serie || '1';
+        try {
+          const meta = calculateSebraeImportNfe({
+            serie,
+            nNF: input.nNF || String(this.repo.peekNextFiscalNumber('55', serie)),
+            natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
+            crt: input.crt || '1',
+            finNFe: input.finNFe || '1',
+            indFinal: input.indFinal || '0',
+            indPres: input.indPres || '0',
+            indIntermed: input.indIntermed || '0',
+            di: input.di as unknown as ErpImportDeclarationInfo,
+            rawItems: input.rawItems as RawImportItemDraft[],
+            emitterName: cfg.companyLegalName,
+            emitterCnpj: cfg.companyCnpj,
+            emitterIe: cfg.stateRegistration,
+            emitterUf: 'SP',
+          });
+          return { status: 200, body: { data: meta } };
+        } catch (err) {
+          return {
+            status: 400,
+            body: { error: err instanceof Error ? err.message : 'Falha no cálculo da NF-e de importação.', code: 'NFE_IMPORT_INVALID_INPUT' },
+          };
+        }
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/analyze-txt' && method === 'POST') {
@@ -6237,19 +6260,25 @@ export class CrmApiRouter {
         if (!rawTxt.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo TXT para análise.' } };
         }
+        if (utf8ByteLength(rawTxt) > MAX_IMPORT_FILE_BYTES) {
+          return {
+            status: 413,
+            body: { error: new ImportFileTooLargeError(utf8ByteLength(rawTxt)).message, code: 'IMPORT_FILE_TOO_LARGE' },
+          };
+        }
         const analysis = analyzeAndFixSebraeTxt(rawTxt, filename);
         return { status: 200, body: { data: analysis } };
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/parse-file' && method === 'POST') {
         const rawContent = String(body.content || body.txt || body.xml || '');
-        const filename = String(body.filename || body.fileName || 'NFE_IMPORTACAO_SEBRAE_401.txt');
+        const filename = String(body.filename || body.fileName || 'NFE_IMPORTACAO_SEBRAE_401.txt').slice(0, 255);
         if (!rawContent.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo .TXT ou .XML para importação.' } };
         }
+        const erp = this.repo.getErpOverview();
+        const cfg = erp.gestaoClickConfig;
         try {
-          const erp = this.repo.getErpOverview();
-          const cfg = erp.gestaoClickConfig;
           const draft = parseImportFileToSebraeDraft(rawContent, filename, {
             emitterName: cfg.companyLegalName,
             emitterCnpj: cfg.companyCnpj,
@@ -6258,6 +6287,36 @@ export class CrmApiRouter {
           });
           return { status: 200, body: { data: draft } };
         } catch (err) {
+          if (err instanceof ImportFileTooLargeError) {
+            return { status: 413, body: { error: err.message, code: err.code } };
+          }
+          if (err instanceof ImportCnpjMismatchError) {
+            // #5: trava de CNPJ => 409 + trilha de auditoria
+            const token =
+              query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+            const actor = token ? this.repo.resolveSessionFromToken(token) : null;
+            this.repo.appendSecurityAuditLog({
+              ...(actor?.authenticated
+                ? { actorEmail: actor.user.email, actorName: actor.user.name, actorRole: actor.role.id }
+                : { actorEmail: 'sem-sessao', actorName: 'Requisição sem sessão', actorRole: 'DESCONHECIDO' }),
+              action: 'NFE_IMPORT_CNPJ_MISMATCH_BLOCKED',
+              module: 'ERP',
+              resource: 'POST /api/erp/nfe-importacao/parse-file',
+              status: 'BLOCKED',
+              ipAddress: query._clientIp || undefined,
+              details: `Arquivo "${filename}" bloqueado: CNPJ ${err.fileCnpj} (${err.source}) diferente do CNPJ do emitente configurado ${err.configuredCnpj}.`,
+            });
+            return {
+              status: 409,
+              body: {
+                error: err.message,
+                code: err.code,
+                fileCnpj: err.fileCnpj,
+                configuredCnpj: err.configuredCnpj,
+                source: err.source,
+              },
+            };
+          }
           return {
             status: 400,
             body: {
@@ -6268,49 +6327,81 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/emit' && method === 'POST') {
+        // #10: validação de entrada (zod) => 400
+        const validated = validateImportNfeRequest(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'NFE_IMPORT_INVALID_INPUT', issues: validated.issues } };
+        }
+        const input = validated.data;
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
-        const meta = calculateSebraeImportNfe({
-          serie: String(body.serie || '1'),
-          nNF: String(body.nNF || String(erp.invoices.length + 12)),
-          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
-          crt: (body.crt as '1' | '2' | '3') || '1',
-          finNFe: (body.finNFe as '1' | '2') || '1',
-          indFinal: (body.indFinal as '0' | '1') || '0',
-          indPres: (body.indPres as '0' | '9') || '0',
-          indIntermed: (body.indIntermed as '0' | '1') || '0',
-          di: body.di as ErpImportDeclarationInfo,
-          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
-          emitterName: cfg.companyLegalName,
-          emitterCnpj: cfg.companyCnpj,
-          emitterIe: cfg.stateRegistration,
-          emitterUf: 'SP',
-        });
+        const serie = input.serie || '1';
+        // #11: numerador atômico por modelo/série (nunca reaproveita número já usado)
+        const reservation = this.repo.reserveFiscalNumber('55', serie, input.nNF ? Number(input.nNF) : null);
+        if (!reservation.ok) {
+          return {
+            status: 409,
+            body: {
+              error: `O número ${input.nNF} já foi usado na série ${serie} (modelo 55). Próximo número disponível: ${reservation.nextAvailable}.`,
+              code: 'NFE_NUMBER_ALREADY_USED',
+              nextAvailable: reservation.nextAvailable,
+            },
+          };
+        }
+        let meta;
+        try {
+          meta = calculateSebraeImportNfe({
+            serie,
+            nNF: String(reservation.nNF),
+            natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
+            crt: input.crt || '1',
+            finNFe: input.finNFe || '1',
+            indFinal: input.indFinal || '0',
+            indPres: input.indPres || '0',
+            indIntermed: input.indIntermed || '0',
+            di: input.di as unknown as ErpImportDeclarationInfo,
+            rawItems: input.rawItems as RawImportItemDraft[],
+            emitterName: cfg.companyLegalName,
+            emitterCnpj: cfg.companyCnpj,
+            emitterIe: cfg.stateRegistration,
+            emitterUf: 'SP',
+          });
+        } catch (err) {
+          return {
+            status: 400,
+            body: { error: err instanceof Error ? err.message : 'Falha no cálculo da NF-e de importação.', code: 'NFE_IMPORT_INVALID_INPUT' },
+          };
+        }
 
         const docNum = `NFE-IMP-${String(meta.nNF).padStart(6, '0')}`;
         const mainCfop = meta.items[0]?.cfop || '3.102';
+        const issueDate = meta.di.dDesemb || new Date().toISOString().slice(0, 10);
         const created = this.repo.createInvoice({
           documentNumber: docNum,
           documentType: 'NFE_IMPORTACAO',
           companyName: `${meta.di.exporterName} (EXTERIOR - ${meta.di.exporterCountryName})`,
-          companyCnpj: `EXTERIOR-ID-${meta.di.exporterIdEstrangeiro}`,
+          // #5: exportador estrangeiro não tem CNPJ; o idEstrangeiro fica em campo próprio
+          companyCnpj: '',
+          counterpartyForeignId: meta.di.exporterIdEstrangeiro || null,
           companyAddress: `${meta.di.exporterAddress} - UF: EX (BACEN ${meta.di.exporterCountryCodeBacen} - ${meta.di.exporterCountryName})`,
           grossAmount: meta.totals.vNF,
           discountAmount: 0,
           netAmount: meta.totals.vNF,
-          status: 'PAGA',
-          issueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          dueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          paidAt: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          paymentMethod: 'TED_BANCARIA',
+          // #11: nota de entrada com status próprio (não PAGA / TED)
+          status: 'ENTRADA_REGISTRADA',
+          issueDate,
+          dueDate: issueDate,
+          paidAt: null,
+          paymentMethod: 'NAO_APLICAVEL',
           serviceCodeLc116: 'N/A — NF-e de Entrada de Importação (Emissor Sebrae 4.01 • Simples Nacional CRT=1)',
           cfop: `${mainCfop} — Importação Direta (DI ${meta.di.nDI} • Desembaraço ${meta.di.xLocDesemb}/${meta.di.UFDesemb})`,
           cstIcms: `CSOSN 900 (Simples Nacional) • Origem 1 • BC ICMS Por Dentro R$ ${meta.totals.vBC_ICMS.toFixed(2)} (ICMS: R$ ${meta.totals.vICMS.toFixed(2)})`,
           cstPisCofins: `CST 70 — PIS-Imp R$ ${meta.totals.vPIS.toFixed(2)} + COFINS-Imp R$ ${meta.totals.vCOFINS.toFixed(2)}`,
-          verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 ${String(meta.nNF).padStart(6, '0')} 1010 2010 08`,
+          // #6: chave de acesso real (DV módulo 11) do rascunho — ainda não autorizada pela SEFAZ
+          verificationCodeOrKey: (meta.accessKey || '').replace(/(\d{4})(?=\d)/g, '$1 '),
           pixCopyPaste: `DESEMBARAÇO ADUANEIRO DI ${meta.di.nDI} • PTAX R$ ${meta.di.exchangeRatePtax.toFixed(4)} + GNRE/DARF`,
           boletoDigitableLine: `IMPORTAÇÃO DIRETA — ${meta.di.xLocDesemb}/${meta.di.UFDesemb} (DI ${meta.di.nDI})`,
-          itemsDescription: meta.items.map((it: any) => ({
+          itemsDescription: meta.items.map((it) => ({
             description: `[${it.cProd}] ${it.xProd} (NCM ${it.ncm} • CFOP ${it.cfop} • DI ${meta.di.nDI} Ad. ${it.nAdicao})`,
             serialNumber: `DI-${meta.di.nDI.replace(/\D/g, "")}-AD${it.nAdicao}`,
             quantity: it.qCom,

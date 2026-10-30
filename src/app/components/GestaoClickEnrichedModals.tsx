@@ -2758,8 +2758,8 @@ export function PartialEquipmentReturnProRataModal({
                 readOnly
                 value={
                   contract.remessaCfop === '6.908'
-                    ? '6.909 — Retorno Interestadual de Locação'
-                    : '5.909 — Retorno Estadual de Locação'
+                    ? '2.909 — Entrada: Retorno Interestadual de Locação (NF-e emitida pela locadora)'
+                    : '1.909 — Entrada: Retorno Estadual de Locação (NF-e emitida pela locadora)'
                 }
                 className="w-full px-3 py-2 rounded border border-slate-200 bg-slate-50 font-mono font-semibold text-slate-700"
               />
@@ -2894,7 +2894,7 @@ export function PartialEquipmentReturnProRataModal({
               />
               <div>
                 <span className="font-semibold text-slate-800 block">
-                  Emitir NF-e de Retorno Parcial de Locação (CFOP 5.909 / 6.909)
+                  Emitir NF-e de Entrada de Retorno Parcial de Locação (CFOP 1.909 / 2.909)
                 </span>
                 <span className="text-[10px] text-slate-500">
                   Documento fiscal de entrada patrimonial sem incidência de ICMS/IPI

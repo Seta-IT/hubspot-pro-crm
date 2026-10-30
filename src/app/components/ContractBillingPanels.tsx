@@ -373,9 +373,13 @@ export function ContractGestaoClickDataPanel({
 export function invoiceTypeBadge(inv: ErpFiscalInvoice): { label: string; cls: string } {
   if (inv.documentType === 'FATURA_LOCACAO') return { label: 'Fatura de Locação', cls: 'bg-emerald-100 text-emerald-800' };
   if (inv.documentType === 'NFSE_SERVICO') return { label: 'NFS-e Serviço', cls: 'bg-indigo-100 text-indigo-800' };
+  if (inv.documentType === 'NFE_RETORNO_LOCACAO') {
+    return { label: 'NF-e Entrada Retorno 1.909', cls: 'bg-amber-100 text-amber-800' };
+  }
   if (inv.documentType === 'NFE_REMESSA_LOCACAO') {
+    // Registros antigos de retorno foram gravados como NFE_REMESSA_LOCACAO com CFOP x.909
     const isRet = String(inv.cfop || '').includes('909') || inv.documentNumber.includes('RET');
-    return isRet ? { label: 'NF-e Retorno 5.909', cls: 'bg-amber-100 text-amber-800' } : { label: 'NF-e Remessa 5.908', cls: 'bg-blue-100 text-blue-800' };
+    return isRet ? { label: 'NF-e Retorno (legado)', cls: 'bg-amber-100 text-amber-800' } : { label: 'NF-e Remessa 5.908', cls: 'bg-blue-100 text-blue-800' };
   }
   return { label: inv.documentType, cls: 'bg-slate-100 text-slate-700' };
 }

@@ -110,6 +110,7 @@ import {
 } from './ContractBillingPanels';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
+import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
@@ -480,9 +481,16 @@ export default function ErpGestaoClickTab({
   const handleGlobalImportFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      onShowToast(`Arquivo "${file.name}" excede o limite de ${(MAX_IMPORT_FILE_BYTES / 1024 / 1024).toFixed(0)} MB para importação.`);
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const content = String(reader.result || "");
+      // #25: detecta UTF-8 x ISO-8859-1 (TXT do Emissor Sebrae)
+      const buf = reader.result instanceof ArrayBuffer ? new Uint8Array(reader.result) : new Uint8Array();
+      const content = decodeImportFileBytes(buf).text;
       setActiveSection("FISCAL");
       setActiveSubId("FIS_IMPORTACAO");
       setGlobalUploadedImportFile({
@@ -491,10 +499,10 @@ export default function ErpGestaoClickTab({
         trigger: Date.now(),
       });
     };
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
     e.target.value = "";
   };
-  const [produtosSubFilter, setProdutosSubFilter] = useState<"TODOS" | "NFE_VENDA_PRODUTO" | "NFE_REMESSA_LOCACAO" | "NFCOM_TELECOM">("TODOS");
+  const [produtosSubFilter, setProdutosSubFilter] = useState<"TODOS" | "NFE_VENDA_PRODUTO" | "NFE_REMESSA_LOCACAO" | "NFE_RETORNO_LOCACAO" | "NFCOM_TELECOM">("TODOS");
   const [selectedProposalForPrint, setSelectedProposalForPrint] =
     useState<ErpCommercialProposal | null>(null);
   const [showNewProposalModal, setShowNewProposalModal] = useState(false);
@@ -2009,7 +2017,7 @@ export default function ErpGestaoClickTab({
   };
 
   const handleNavigateToFiscalFromContract = (nfeNumberOrQuery: string) => {
-    setActiveSubId("FIS_TODOS");
+    setActiveSubId("FIS_TODAS");
     setInvoicesStatusFilter("TODOS");
     setInvoicesSearchQuery(nfeNumberOrQuery);
     setActiveSection("FISCAL");
@@ -4021,9 +4029,14 @@ export default function ErpGestaoClickTab({
           label: "NF-e IMPORTAÇÃO SIMPLES NACIONAL (SEBRAE 4.01 • CSOSN 900)",
           className: "bg-teal-100 text-teal-950 border border-teal-300",
         };
+      case "NFE_RETORNO_LOCACAO":
+        return {
+          label: "NF-e ENTRADA — RETORNO DE LOCAÇÃO (CFOP 1.909 / 2.909)",
+          className: "bg-slate-100 text-slate-900 border border-slate-300",
+        };
       default:
         return {
-          label: "NF-e RETORNO DE LOCAÇÃO (CFOP 5.909 / 6.909)",
+          label: "DOCUMENTO FISCAL",
           className: "bg-slate-100 text-slate-900 border border-slate-300",
         };
     }
@@ -4038,21 +4051,12 @@ export default function ErpGestaoClickTab({
       activeSubId === "FIS_COMPRAS" ||
       activeSubId === "FIS_AUXILIARES"
         ? activeSubId
-        : "FIS_TODOS";
-
-    const countProdutos = invoices.filter((i) =>
-      ["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)
-    ).length;
-    const countServicos = invoices.filter((i) =>
-      ["NFSE_SERVICO", "FATURA_LOCACAO"].includes(i.documentType)
-    ).length;
-    const countConsumidor = invoices.filter((i) => i.documentType === "NFCE_CONSUMIDOR").length;
-    const countImportacao = invoices.filter((i) => i.documentType === "NFE_IMPORTACAO").length;
+        : "FIS_TODAS";
 
     let filteredInvoices = invoices;
     if (effectiveFiscalTab === "FIS_PRODUTOS") {
       filteredInvoices = invoices.filter((i) => {
-        if (!["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)) {
+        if (!["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFE_RETORNO_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)) {
           return false;
         }
         if (produtosSubFilter !== "TODOS" && i.documentType !== produtosSubFilter) {
@@ -4161,30 +4165,7 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-            {[
-              { id: "FIS_TODOS", label: `Todos os Documentos (${invoices.length})` },
-              { id: "FIS_PRODUTOS", label: `Notas de Produtos (${countProdutos})` },
-              { id: "FIS_SERVICOS", label: `Notas de Serviços & Faturas Locação (${countServicos})` },
-              { id: "FIS_CONSUMIDOR", label: `Notas do Consumidor NFC-e (${countConsumidor})` },
-              { id: "FIS_IMPORTACAO", label: `NF-e Importação Sebrae 4.0 (${countImportacao})` },
-              { id: "FIS_COMPRAS", label: `Notas de Compras / Entrada (${purchaseOrders.length})` },
-              { id: "FIS_AUXILIARES", label: "Opções Auxiliares & Tabelas CFOP/ISS" },
-            ].map((tabItem) => (
-              <button
-                key={tabItem.id}
-                type="button"
-                onClick={() => setActiveSubId(tabItem.id)}
-                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                  effectiveFiscalTab === tabItem.id
-                    ? "bg-[#1e3a6e] text-white shadow-2xs"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {tabItem.label}
-              </button>
-            ))}
-          </div>
+          {/* #22: a navegação entre sub-abas do Fiscal fica somente na sidebar (sem abas duplicadas nem contadores) */}
         </div>
 
         {/* SUB-ABA 1: NOTAS DE PRODUTOS (NF-e Venda 5.102 + NF-e Remessa Locação 5.908/6.908 + NFCom) */}
@@ -4222,6 +4203,7 @@ export default function ErpGestaoClickTab({
                 { id: "TODOS", label: "Todas NF-e de Produtos" },
                 { id: "NFE_VENDA_PRODUTO", label: "NF-e Venda de Equipamentos (CFOP 5.102 / 6.102)" },
                 { id: "NFE_REMESSA_LOCACAO", label: "NF-e Remessa em Locação (CFOP 5.908 / 6.908)" },
+                { id: "NFE_RETORNO_LOCACAO", label: "NF-e Entrada Retorno de Locação (CFOP 1.909 / 2.909)" },
                 { id: "NFCOM_TELECOM", label: "NFCom Telecom Mod. 62 (CFOP 5.303)" },
               ].map((f) => (
                 <button
@@ -4566,14 +4548,15 @@ export default function ErpGestaoClickTab({
                 <option value="EMITIDA">Emitidas / Em Aberto ({invoices.filter((i) => i.status === "EMITIDA").length})</option>
                 <option value="PAGA">Pagas / Liquidadas ({invoices.filter((i) => i.status === "PAGA").length})</option>
                 <option value="VENCIDA">Vencidas ({invoices.filter((i) => i.status === "VENCIDA").length})</option>
+                <option value="ENTRADA_REGISTRADA">Notas de entrada registradas ({invoices.filter((i) => i.status === "ENTRADA_REGISTRADA").length})</option>
               </select>
-              {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODOS") && (
+              {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODAS") && (
                 <button
                   type="button"
                   onClick={() => {
                     setInvoicesSearchQuery("");
                     setInvoicesStatusFilter("TODOS");
-                    setActiveSubId("FIS_TODOS");
+                    setActiveSubId("FIS_TODAS");
                   }}
                   className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
                 >
@@ -4584,7 +4567,7 @@ export default function ErpGestaoClickTab({
           </div>
         )}
 
-        {/* LISTA DE DOCUMENTOS FISCAIS (PARA FIS_PRODUTOS, FIS_SERVICOS, FIS_CONSUMIDOR, FIS_TODOS) */}
+        {/* LISTA DE DOCUMENTOS FISCAIS (PARA FIS_PRODUTOS, FIS_SERVICOS, FIS_CONSUMIDOR, FIS_TODAS) */}
         {effectiveFiscalTab !== "FIS_COMPRAS" &&
           effectiveFiscalTab !== "FIS_IMPORTACAO" &&
           effectiveFiscalTab !== "FIS_AUXILIARES" &&
@@ -4608,10 +4591,14 @@ export default function ErpGestaoClickTab({
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                          isPaid ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-800"
+                          isPaid
+                            ? "bg-emerald-600 text-white"
+                            : inv.status === "ENTRADA_REGISTRADA"
+                              ? "bg-slate-200 text-slate-800"
+                              : "bg-amber-100 text-amber-800"
                         }`}
                       >
-                        {inv.status}
+                        {inv.status === "ENTRADA_REGISTRADA" ? "ENTRADA REGISTRADA" : inv.status}
                       </span>
                     </div>
                     <h3 className="text-base font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
@@ -4706,7 +4693,7 @@ export default function ErpGestaoClickTab({
                     >
                       <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
                     </button>
-                    {!isPaid && inv.documentType !== "NFE_REMESSA_LOCACAO" && (
+                    {!isPaid && inv.status !== "ENTRADA_REGISTRADA" && inv.documentType !== "NFE_REMESSA_LOCACAO" && inv.documentType !== "NFE_RETORNO_LOCACAO" && (
                       <button
                         type="button"
                         onClick={() => handleMarkInvoicePaid(inv.id)}

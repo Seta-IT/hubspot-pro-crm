@@ -5,6 +5,7 @@
 
 import {
   ErpFiscalDocumentType,
+  ErpImportNfeMetadata,
   ErpTaxBreakdown,
   ErpTaxRegime,
 } from '../../db/types';
@@ -20,19 +21,25 @@ export function calculateBrazilianTaxBreakdown(params: {
   taxRegime?: ErpTaxRegime;
   issRatePercent?: number;
   icmsRatePercent?: number;
+  /** NF-e de importação: totais congelados calculados por calculateSebraeImportNfe (ICMS "por dentro") */
+  importMetadata?: ErpImportNfeMetadata;
 }): ErpTaxBreakdown {
   const taxRegime: ErpTaxRegime = params.taxRegime || 'LUCRO_PRESUMIDO';
   const base = Math.max(0, Number(params.grossAmount || 0) - Number(params.discountAmount || 0));
 
   // 0. NFE_IMPORTACAO (NF-e Modelo 55 - Entrada de Importação Direta do Exterior CFOP 3.102 / 3.551 — Simples Nacional CSOSN 900 — Emissor Sebrae 4.01)
   if (params.documentType === 'NFE_IMPORTACAO') {
-    const icmsRate = params.icmsRatePercent ?? 18.0;
-    const pisRate = 2.1; // PIS-Importação (Lei 10.865/2004)
-    const cofinsRate = 9.65; // COFINS-Importação (Lei 10.865/2004)
-    const pisAmount = round2((base * pisRate) / 100);
-    const cofinsAmount = round2((base * cofinsRate) / 100);
-    const icmsAmount = round2((base * icmsRate) / 100);
-    const totalTaxesEstimated = round2(icmsAmount + pisAmount + cofinsAmount);
+    // #16: os valores da importação vêm de calculateSebraeImportNfe (BC "por dentro" — Art. 13, V da LC 87/96)
+    // e ficam congelados. O cálculo simplificado "por fora" abaixo só é usado sem metadados (estimativa).
+    const frozen = params.importMetadata?.totals;
+    const firstItem = params.importMetadata?.items?.[0];
+    const icmsRate = firstItem?.icmsRatePercent ?? params.icmsRatePercent ?? 18.0;
+    const pisRate = firstItem?.pisRatePercent ?? 2.1; // PIS-Importação (Lei 10.865/2004)
+    const cofinsRate = firstItem?.cofinsRatePercent ?? 9.65; // COFINS-Importação (Lei 10.865/2004)
+    const pisAmount = frozen ? frozen.vPIS : round2((base * pisRate) / 100);
+    const cofinsAmount = frozen ? frozen.vCOFINS : round2((base * cofinsRate) / 100);
+    const icmsAmount = frozen ? frozen.vICMS : round2((base * icmsRate) / 100);
+    const totalTaxesEstimated = frozen ? frozen.vTotTrib : round2(icmsAmount + pisAmount + cofinsAmount);
 
     return {
       taxRegime: 'SIMPLES_NACIONAL',
@@ -53,7 +60,7 @@ export function calculateBrazilianTaxBreakdown(params: {
       icmsAmount,
       totalTaxesEstimated,
       totalWithheld: 0,
-      netReceivableAmount: round2(base),
+      netReceivableAmount: frozen ? frozen.vNF : round2(base),
       legalExemptionNotice:
         'DANFE NF-e Modelo 55 (Layout 4.00 SEFAZ / Emissor Sebrae 4.01) — Nota Fiscal de Entrada de Importação Direta do Exterior (CFOP 3.102 Comercialização / 3.551 Ativo Imobilizado). Emitente optante pelo Simples Nacional (CRT=1, CSOSN 900 - Outros, Origem 1 - Estrangeira Importação Direta). Base de Cálculo do ICMS calculada "por dentro" conforme Art. 13, V da LC 87/1996, incluindo Valor Aduaneiro CIF, II, IPI, PIS-Importação (2,10%), COFINS-Importação (9,65%), Taxa SISCOMEX e Despesas Aduaneiras.',
     };
@@ -83,6 +90,33 @@ export function calculateBrazilianTaxBreakdown(params: {
       netReceivableAmount: round2(base),
       legalExemptionNotice:
         'NF-e Modelo 55 — Remessa de bem por conta de contrato de locação (CFOP 5.908 Estadual / 6.908 Interestadual). Não incidência de ICMS (CST 41), IPI (CST 53) e PIS/COFINS (CST 08) por tratar-se de movimentação patrimonial temporária de ativo locado.',
+    };
+  }
+
+  // 1b. NFE_RETORNO_LOCACAO (NF-e de ENTRADA emitida pela locadora no retorno do bem — CFOP 1.909 / 2.909)
+  if (params.documentType === 'NFE_RETORNO_LOCACAO') {
+    return {
+      taxRegime,
+      issRatePercent: 0,
+      issAmount: 0,
+      issWithheld: false,
+      pisRatePercent: 0,
+      pisAmount: 0,
+      cofinsRatePercent: 0,
+      cofinsAmount: 0,
+      irpjEstimatedAmount: 0,
+      csllEstimatedAmount: 0,
+      irrfWithheldRatePercent: 0,
+      irrfWithheldAmount: 0,
+      csrfWithheldRatePercent: 0,
+      csrfWithheldAmount: 0,
+      icmsRatePercent: 0,
+      icmsAmount: 0,
+      totalTaxesEstimated: 0,
+      totalWithheld: 0,
+      netReceivableAmount: round2(base),
+      legalExemptionNotice:
+        'NF-e Modelo 55 de ENTRADA — Retorno de bem remetido por conta de contrato de locação (CFOP 1.909 Estadual / 2.909 Interestadual), emitida pela locadora pelo mesmo valor da NF-e de remessa (CFOP 5.908 / 6.908). Operação sem incidência de ICMS, IPI e PIS/COFINS e sem cobrança financeira.',
     };
   }
 
@@ -218,7 +252,7 @@ export function calculateBrazilianTaxBreakdown(params: {
       totalWithheld: 0,
       netReceivableAmount: round2(base),
       legalExemptionNotice:
-        'Locação pura de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da Lei Complementar nº 116/2003 e Súmula Vinculante nº 31 do Supremo Tribunal Federal (STF). Dispensada a emissão de NFS-e municipal, servindo a presente Fatura/Recibo de Locação como documento hábil para cobrança e contabilização (Lei nº 8.846/1994, art. 1º). Sem retenção na fonte de IRRF nem de CSRF (PIS/COFINS/CSLL 4,65%) conforme IN RFB nº 1.234/2012.',
+        'Locação pura de bens móveis sem fornecimento de mão de obra. ISSQN não incide: o item 3.01 da lista anexa à Lei Complementar nº 116/2003 (locação de bens móveis) foi vetado e a Súmula Vinculante nº 31 do STF declara inconstitucional a incidência do ISS sobre a locação de bens móveis dissociada da prestação de serviços. Por isso não há NFS-e municipal; esta Fatura/Recibo de Locação documenta a cobrança. Sem retenção de CSRF (PIS/COFINS/CSLL 4,65%), pois a locação de bens móveis não está entre os serviços listados no art. 30 da Lei nº 10.833/2003.',
     };
   }
 

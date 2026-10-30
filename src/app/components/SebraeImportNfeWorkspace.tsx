@@ -24,6 +24,8 @@ import {
   analyzeAndFixSebraeTxt,
   BACEN_COUNTRIES,
   calculateSebraeImportNfe,
+  decodeImportFileBytes,
+  MAX_IMPORT_FILE_BYTES,
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
   SEBRAE_REFERENCE_CASES,
@@ -225,11 +227,21 @@ export default function SebraeImportNfeWorkspace({
         const j = await res.json();
         if (j.data) {
           await onInvoiceCreated(j.data);
-          setNNF(String(Number(nNF || 12) + 1));
+          const usedNumber = Number(j.importMetadata?.nNF || nNF || 0);
+          setNNF(String(usedNumber + 1));
           onShowToast(
-            `NF-e de Importação ${j.data.documentNumber} (DI ${di.nDI}) emitida no padrão Sebrae 4.01 e escriturada em Compras!`
+            `NF-e de Importação ${j.data.documentNumber} (DI ${di.nDI}) registrada como rascunho (Sebrae 4.01) e escriturada em Compras.`
           );
         }
+      } else {
+        const j = await res.json().catch(() => ({}));
+        if (res.status === 409 && j?.nextAvailable) {
+          setNNF(String(j.nextAvailable));
+        }
+        onShowToast(
+          (j && typeof j.error === "string" && j.error) ||
+            `Não foi possível emitir a NF-e de importação (HTTP ${res.status}).`
+        );
       }
     } finally {
       setEmitting(false);
@@ -302,13 +314,21 @@ export default function SebraeImportNfeWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUploadedFile?.trigger]);
 
+  // #25: detecção de codificação (UTF-8 x ISO-8859-1/Windows-1252) feita por decodeImportFileBytes
   const readFileFromBrowser = (file: File) => {
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      onShowToast(
+        `Arquivo "${file.name}" excede o limite de ${(MAX_IMPORT_FILE_BYTES / 1024 / 1024).toFixed(0)} MB para importação.`
+      );
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const content = String(reader.result || "");
+      const buf = reader.result instanceof ArrayBuffer ? new Uint8Array(reader.result) : new Uint8Array();
+      const content = decodeImportFileBytes(buf).text;
       handleImportFileAndPopulateTabs(content, file.name);
     };
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
   };
 
   const handleUploadTxtFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -367,13 +387,13 @@ export default function SebraeImportNfeWorkspace({
               onClick={() =>
                 handleDownloadFile(
                   computedMeta.sefazXmlContent || '',
-                  `NFE_IMP_${nNF}_SEFAZ_400.xml`,
+                  `NFE_IMP_${nNF}_RASCUNHO_NAO_AUTORIZADO.xml`,
                   'application/xml;charset=utf-8'
                 )
               }
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 cursor-pointer"
             >
-              <FileCode2 className="w-3.5 h-3.5 text-amber-300" /> Baixar XML 4.00
+              <FileCode2 className="w-3.5 h-3.5 text-amber-300" /> Baixar XML 4.00 (rascunho não autorizado)
             </button>
             <button
               type="button"
@@ -537,7 +557,7 @@ export default function SebraeImportNfeWorkspace({
             onClick={() =>
               handleImportFileAndPopulateTabs(
                 computedMeta.sefazXmlContent || "",
-                `NFE_IMP_${nNF}_SEFAZ_400.xml`
+                `NFE_IMP_${nNF}_RASCUNHO_NAO_AUTORIZADO.xml`
               )
             }
             className="px-3 py-1.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-semibold border border-indigo-200 cursor-pointer"
@@ -640,7 +660,7 @@ export default function SebraeImportNfeWorkspace({
           { id: 'ABA_1_NFE', label: '1. Dados da NF-e (Reg. B • Mod. 55)' },
           { id: 'ABA_2_EXPORTADOR', label: '2. Exportador Estrangeiro (Reg. E • UF EX)' },
           { id: 'ABA_3_DI_ADUANA', label: '3. DI / DUIMP, Câmbio & Aduana (Reg. I18/I25)' },
-          { id: 'ABA_4_ITENS_IMPOSTOS', label: `4. Produtos & Impostos CSOSN 900 (${rawItems.length})` },
+          { id: 'ABA_4_ITENS_IMPOSTOS', label: '4. Produtos & Impostos CSOSN 900' },
           { id: 'ABA_5_TOTAIS_INFCPL', label: '5. Totais W02 & Inf. Complementares (Reg. Z)' },
           { id: 'ABA_6_TXT_XML_FIREWALL', label: '6. Validador TXT Sebrae 4.01 & XML (Firewall Fiscal)' },
         ].map((t) => (
@@ -1017,7 +1037,11 @@ export default function SebraeImportNfeWorkspace({
                 min="0.01"
                 value={di.exchangeRatePtax}
                 onChange={(e) =>
-                  setDi({ ...di, exchangeRatePtax: Math.max(0.01, Number(e.target.value) || 5.725) })
+                  setDi({
+                    ...di,
+                    // #10: sem PTAX padrão — mantém o último valor válido informado
+                    exchangeRatePtax: Number(e.target.value) > 0 ? Number(e.target.value) : di.exchangeRatePtax,
+                  })
                 }
                 className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-emerald-800"
               />
@@ -1684,13 +1708,13 @@ export default function SebraeImportNfeWorkspace({
                       onClick={() =>
                         handleDownloadFile(
                           meta.sefazXmlContent!,
-                          `${inv.documentNumber}_SEFAZ_400.xml`,
+                          `${inv.documentNumber}_RASCUNHO_NAO_AUTORIZADO.xml`,
                           'application/xml;charset=utf-8'
                         )
                       }
                       className="px-2.5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-semibold cursor-pointer"
                     >
-                      XML 4.00
+                      XML 4.00 (rascunho)
                     </button>
                   )}
                   <button

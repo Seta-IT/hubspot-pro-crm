@@ -1662,7 +1662,8 @@ describe('12. Devolução Parcial com Rateio Proporcional (Pro-Rata Die s/ Pausa
     assert.equal(partialData.contract.partialReturns[0].previousMonthlyValue, 12000);
     assert.equal(partialData.contract.partialReturns[0].newRecurringMonthlyValue, 11520);
     assert.equal(partialData.contract.partialReturns[0].currentCycleProRataTotalBrl, 11760);
-    assert.ok(partialData.returnNfe?.cfop.startsWith('5.909'));
+    assert.ok(partialData.returnNfe?.cfop.startsWith('1.909'));
+    assert.equal(partialData.returnNfe?.documentType, 'NFE_RETORNO_LOCACAO');
     assert.equal(partialData.proRataInvoice?.grossAmount, 11760);
     assert.equal(partialData.proRataInvoice?.taxBreakdown.issAmount, 0);
 
