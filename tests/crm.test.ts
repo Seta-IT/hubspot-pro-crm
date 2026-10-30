@@ -3224,43 +3224,60 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(pageSrc.includes("Investimento Mensal (MRR)"), false);
     assert.ok(pageSrc.includes("Valor Mensal"));
 
-    // 8. Validação completa do processo de Assinatura Digital (inclusive para proposta compartilhada via ?d=)
+    // 8. Validação do processo de Assinatura Digital. Link assinado (29/10/2026): o aceite NUNCA
+    // cria a proposta a partir de payload do cliente (?d=): corpo extra => 400, id inexistente => 404.
+    const sharedPayload = {
+      id: "prop-shared-custom-99",
+      code: "PROP-CUSTOM-99",
+      title: "Proposta Comercial Customizada Teste Assinatura",
+      companyName: "Empresa Assinante S.A.",
+      companyCnpj: "18.236.120/0001-58",
+      sellerName: "Marcelo Lopes Mira",
+      sellerEmail: "marcelo.mira@setatelecom.com.br",
+      sellerPhone: "(11) 99999-4929",
+      contractMonths: 24,
+      monthlyRecurringTotal: 4500,
+      items: [
+        {
+          id: "it-sig-1",
+          sku: "SL-44-SEC-K9",
+          description: "Licença Telecom",
+          fiscalNature: "LOCACAO_BENS_MOVEIS",
+          ncmOrServiceCode: "NCM 8517.62.59",
+          quantity: 1,
+          unitPrice: 4500,
+          discountPercent: 0,
+          isRecurring: true,
+          totalMonthly: 4500,
+        },
+      ],
+    };
+    const signer = {
+      signerName: "Roberto Carlos Diretor",
+      signerCpf: "529.982.247-25",
+      signerRole: "Diretor Executivo",
+      modality: "ICP_BRASIL_A1",
+      acceptedTerms: true,
+    };
+    const withPayload = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: "POST",
+      path: "/api/erp/proposals/prop-shared-custom-99/approve",
+      body: { ...signer, proposal: sharedPayload },
+    });
+    assert.equal(withPayload.status, 400);
+    const missing = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: "POST",
+      path: "/api/erp/proposals/prop-shared-custom-99/approve",
+      body: signer,
+    });
+    assert.equal(missing.status, 404);
+    assert.equal(repo.listProposals().some((p) => p.id === "prop-shared-custom-99"), false);
+
+    repo.updateProposal("prop-shared-custom-99", sharedPayload as never);
     const approveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/erp/proposals/prop-shared-custom-99/approve",
-      body: {
-        signerName: "Roberto Carlos Diretor",
-        signerCpf: "529.982.247-25",
-        signerRole: "Diretor Executivo",
-        modality: "ICP_BRASIL_A1",
-        acceptedTerms: true,
-        proposal: {
-          id: "prop-shared-custom-99",
-          code: "PROP-CUSTOM-99",
-          title: "Proposta Comercial Customizada Teste Assinatura",
-          companyName: "Empresa Assinante S.A.",
-          companyCnpj: "18.236.120/0001-58",
-          sellerName: "Marcelo Lopes Mira",
-          sellerEmail: "marcelo.mira@setatelecom.com.br",
-          sellerPhone: "(11) 99999-4929",
-          contractMonths: 24,
-          monthlyRecurringTotal: 4500,
-          items: [
-            {
-              id: "it-sig-1",
-              sku: "SL-44-SEC-K9",
-              description: "Licença Telecom",
-              fiscalNature: "LOCACAO_BENS_MOVEIS",
-              ncmOrServiceCode: "NCM 8517.62.59",
-              quantity: 1,
-              unitPrice: 4500,
-              discountPercent: 0,
-              isRecurring: true,
-              totalMonthly: 4500,
-            },
-          ],
-        },
-      },
+      body: signer,
     });
     assert.equal(approveRes.status, 200);
     const approvedData = (approveRes.body as {

@@ -38,6 +38,7 @@ import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildPublicProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 
 export type DealsViewMode =
@@ -603,14 +604,15 @@ export default function DealsKanbanTab({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(createdProposalBanner.publicUrl);
-                onShowToast?.("Link público da proposta copiado para enviar ao cliente!");
+              onClick={async () => {
+                // Link assinado (29/10): gerado no servidor com a sessao do vendedor.
+                const r = await copySignedProposalLink(createdProposalBanner.proposal.id);
+                onShowToast?.(r.ok ? "Link assinado da proposta copiado para enviar ao cliente!" : r.error);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-white text-slate-900 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5 text-emerald-700" />
-              Copiar Link p/ Cliente
+              Copiar link para o cliente
             </button>
             <a
               href={createdProposalBanner.publicUrl}
@@ -2554,11 +2556,11 @@ export default function DealsKanbanTab({
                               </a>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  navigator.clipboard?.writeText(pubUrl);
-                                  onShowToast?.(`Link da proposta ${prop.code} copiado!`);
+                                onClick={async () => {
+                                  const r = await copySignedProposalLink(prop.id);
+                                  onShowToast?.(r.ok ? `Link assinado da proposta ${prop.code} copiado!` : r.error);
                                 }}
-                                title="Copiar link público"
+                                title="Copiar link para o cliente"
                                 className="p-1 rounded border border-[#cbd6e2] bg-white hover:bg-slate-100 text-[#33475b] cursor-pointer"
                               >
                                 <Copy className="w-3 h-3" />

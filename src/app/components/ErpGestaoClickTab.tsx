@@ -125,6 +125,7 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { copySignedProposalLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 import {
   BatchRentalBillingAndEmailModal,
@@ -1483,9 +1484,14 @@ export default function ErpGestaoClickTab({
                 <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                    onClick={async () => {
+                      // Link assinado (29/10): o cliente so abre a proposta com o link gerado no servidor.
                       setOpenProposalMenuId(null);
+                      const signed = await copySignedProposalLink(prop.id);
+                      if (!signed.ok) {
+                        onShowToast(signed.error);
+                        return;
+                      }
                       setEmailModalPayload({
                         docType: "PROPOSAL",
                         recipientName: prop.careOf || prop.contactName || prop.companyName,
@@ -1494,43 +1500,46 @@ export default function ErpGestaoClickTab({
                         companyCnpj: prop.companyCnpj,
                         documentCode: prop.code,
                         amountBrl: prop.monthlyRecurringTotal,
-                        publicPdfUrl: publicUrl,
+                        publicPdfUrl: signed.url,
                         proposalId: prop.id,
                         customSubject: `Proposta Comercial ${prop.code} — Seta Telecom (${prop.companyName})`,
                       });
-                      onShowToast(`Link público de ${prop.code} copiado para envio por e-mail!`);
+                      onShowToast(`Link assinado de ${prop.code} copiado para envio por e-mail!`);
                     }}
                     className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por e-mail
                   </button>
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(
-                      `Olá! Segue o link da Proposta Comercial ${prop.code} da Seta Telecom (${prop.companyName}): ${publicUrl}`
-                    )}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                  <button
+                    type="button"
+                    onClick={async () => {
                       setOpenProposalMenuId(null);
+                      const r = await openWithSignedProposalLink(prop.id, (url) =>
+                        `https://wa.me/?text=${encodeURIComponent(
+                          `Olá! Segue o link da Proposta Comercial ${prop.code} da Seta Telecom (${prop.companyName}): ${url}`
+                        )}`
+                      );
+                      if (!r.ok) onShowToast(r.error);
                     }}
-                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                    className="w-full text-left block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por WhatsApp
-                  </a>
-                  <a
-                    href={`sms:?&body=${encodeURIComponent(
-                      `Seta Telecom - Proposta Comercial ${prop.code}: ${publicUrl}`
-                    )}`}
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
                       setOpenProposalMenuId(null);
-                      onShowToast(`Link copiado para envio por SMS!`);
+                      const r = await openWithSignedProposalLink(
+                        prop.id,
+                        (url) => `sms:?&body=${encodeURIComponent(`Seta Telecom - Proposta Comercial ${prop.code}: ${url}`)}`,
+                        true
+                      );
+                      onShowToast(r.ok ? `Link assinado copiado para envio por SMS!` : r.error);
                     }}
-                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                    className="w-full text-left block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por SMS
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -4924,13 +4933,13 @@ export default function ErpGestaoClickTab({
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(createdProposalBanner.publicUrl);
-                    onShowToast('Link público copiado para a área de transferência!');
+                  onClick={async () => {
+                    const r = await copySignedProposalLink(createdProposalBanner.proposal.id);
+                    onShowToast(r.ok ? 'Link assinado para o cliente copiado para a área de transferência!' : r.error);
                   }}
                   className="px-3 py-2 rounded bg-white text-slate-900 text-xs font-extrabold cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5 inline mr-1" /> Copiar Link p/ Cliente
+                  <Copy className="w-3.5 h-3.5 inline mr-1" /> Copiar link para o cliente
                 </button>
                 <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded bg-emerald-600 text-white text-xs font-extrabold">
                   <ExternalLink className="w-3.5 h-3.5 inline mr-1" /> Abrir Proposta
