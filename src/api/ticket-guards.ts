@@ -71,3 +71,16 @@ export function emailCommentIsPublic(
   const all = [...splitRecipients(recipients.to), ...splitRecipients(recipients.cc), ...splitRecipients(recipients.bcc)];
   return allowed.size > 0 && all.length > 0 && all.every((e) => allowed.has(e));
 }
+
+/**
+ * Pacote I: newStatus do comentario da equipe usa o MESMO enum do PATCH (TicketTeamPatchSchema)
+ * e e aplicado pelo mesmo caminho do PATCH (updateServiceTicket: pausa/retomada de SLA,
+ * resolvedAt e slaStatus). Ausente/null/'' => sem mudanca de status; invalido => 400.
+ */
+export function parseTicketCommentStatus(
+  raw: unknown
+): { ok: true; status?: NonNullable<TicketTeamPatch['status']> } | { ok: false } {
+  if (raw === undefined || raw === null || raw === '') return { ok: true };
+  const r = TicketTeamPatchSchema.shape.status.safeParse(raw);
+  return r.success && r.data ? { ok: true, status: r.data } : { ok: false };
+}

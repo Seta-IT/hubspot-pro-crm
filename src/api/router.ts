@@ -67,8 +67,11 @@ import {
   selfProfilePatchSchema,
 } from './self-profile';
 import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
-import { buildKnownOwnerSet, cleanOwnerName, isAssignableOwnerName } from './owner-validation';
-import { emailCommentIsPublic, parseTicketTeamPatch, resolveTeamCommentVisibility } from './ticket-guards';
+import { buildOwnerCanonicalMap, cleanOwnerName, resolveOwnerNameToStore } from './owner-validation';
+import { emailCommentIsPublic, parseTicketCommentStatus, parseTicketTeamPatch, resolveTeamCommentVisibility } from './ticket-guards';
+import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
+import { pickRentalContractPatch } from './contract-patch-guard';
+import { LoginIpFailureGuard } from './login-ip-guard';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -671,7 +674,7 @@ export class CrmApiRouter {
     return this.repo;
   }
 
-  buildBootstrapPayload(customAiQuestion?: string) {
+  buildBootstrapPayload(customAiQuestion?: string, gcPrivileged = false) {
     const rawContacts = this.repo.listContacts();
     const rawCompanies = this.repo.listCompanies();
     const rawDeals = this.repo.listDeals();
@@ -807,7 +810,9 @@ export class CrmApiRouter {
     const snippets = this.repo.listSnippets();
 
     const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion);
-    const erp = this.repo.getErpOverview();
+    const erpRaw = this.repo.getErpOverview();
+    // Pacote I: config GestaoClick sem campos tecnicos para quem nao e admin/ERP FULL.
+    const erp = { ...erpRaw, gestaoClickConfig: toGestaoClickConfigView(erpRaw.gestaoClickConfig, gcPrivileged) };
 
     return {
       aiReport,
@@ -1067,6 +1072,25 @@ export class CrmApiRouter {
 
   // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
   /**
+   * Pacote I: mesma regra do POST /api/erp/gestaoclick/sync — sessao autenticada com 2FA e
+   * administrador (canManageUsersRbac) ou controle TOTAL do ERP. Contexto interno confiavel passa.
+   */
+  private gestaoClickPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const actor = this.repo.findRbacUserRecord(user.id, user.email);
+    const allowed = Boolean(
+      sess.mfaVerified && (sess.effectiveActionGuards.canManageUsersRbac || isModuleFullControl(actor, 'ERP'))
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /**
    * Pacote F: autoria padrao = nome do usuario da SESSAO; sem sessao (contexto interno/cron)
    * => "Sistema STI-hub". Nunca um nome fixo de pessoa.
    */
@@ -1098,8 +1122,14 @@ export class CrmApiRouter {
       authorRole,
       isInternal,
       body: String(body.body),
-      newStatus: body.newStatus as TicketStatus | undefined,
     });
+    // Pacote I: status validado pelo router (parseTicketCommentStatus) e aplicado pelo mesmo
+    // caminho do PATCH (SLA, resolvedAt, slaStatus).
+    const nextStatus = parseTicketCommentStatus(body.newStatus);
+    let result = updated;
+    if (updated && nextStatus.ok && nextStatus.status && nextStatus.status !== updated.status) {
+      result = this.repo.updateServiceTicket(updated.id, { status: nextStatus.status }) || updated;
+    }
     if (updated && !isInternal) {
       try {
         const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
@@ -1119,7 +1149,7 @@ export class CrmApiRouter {
         // auditoria nunca derruba a resposta
       }
     }
-    return updated;
+    return result;
   }
 
   /**
@@ -1163,17 +1193,17 @@ export class CrmApiRouter {
     if (typeof body.ownerName !== 'string') return bad('OWNER_INVALID', 'Responsável (ownerName) inválido.');
     const cleaned = cleanOwnerName(body.ownerName);
     if (!cleaned) return bad('OWNER_EMPTY', 'Responsável (ownerName) vazio: escolha um responsável ou use null (somente administradores) para remover.');
-    body.ownerName = cleaned; // grava normalizado
-    const st = this.repo.getState();
-    const known = buildKnownOwnerSet({
-      users: this.repo.getRbacState().users as Array<{ name?: string; email?: string; active?: boolean }>,
-      existingOwnerNames: [
-        ...st.contacts.map((c) => c.ownerName),
-        ...st.companies.map((c) => c.ownerName),
-        ...st.deals.map((d) => d.ownerName),
-      ],
-    });
-    if (isAssignableOwnerName(cleaned, current, known)) return null;
+    // Pacote I: so usuario ATIVO do RBAC (ou opcao oficial do seletor); sem diferenciar caixa e
+    // acentos; grava o nome CANONICO. Nomes que existem so nos dados nao sao mais aceitos.
+    const canonicalOwner = resolveOwnerNameToStore(
+      cleaned,
+      current,
+      buildOwnerCanonicalMap({ users: this.repo.getRbacState().users as Array<{ name?: string; email?: string; active?: boolean }> })
+    );
+    if (canonicalOwner) {
+      body.ownerName = canonicalOwner;
+      return null;
+    }
     return bad('OWNER_NOT_FOUND', 'Responsável (ownerName) desconhecido ou inativo: escolha um usuário ativo do STI-hub ou um responsável da lista oficial.');
   }
 
@@ -1212,7 +1242,8 @@ export class CrmApiRouter {
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
   /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
-  private readonly loginFailIpLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
+  // Pacote I (D3): falhas por IP + e-mail (ver src/api/login-ip-guard.ts).
+  private readonly loginFailIpGuard = new LoginIpFailureGuard();
   private readonly consumedPasswordResetNonces = new Set<string>();
 
   /** GET/PATCH /api/auth/me — ver spec self-profile-patch-auth-me.md. */
@@ -1925,7 +1956,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(question),
+            data: this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed),
             reconciliation,
           },
         };
@@ -1937,7 +1968,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(),
+            data: this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed),
             reconciliation,
           },
         };
@@ -3605,6 +3636,12 @@ export class CrmApiRouter {
         if (!body.body) {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
         }
+        if (!parseTicketCommentStatus(body.newStatus).ok) {
+          return {
+            status: 400,
+            body: { error: 'Status do comentário inválido: use OPEN, IN_PROGRESS, WAITING_CUSTOMER, RESOLVED ou CLOSED.', code: 'TICKET_COMMENT_STATUS_INVALID' },
+          };
+        }
         const updated = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
         if (!updated) {
           return { status: 404, body: { error: 'Chamado não encontrado.' } };
@@ -3653,6 +3690,12 @@ export class CrmApiRouter {
 
         if (method === 'PATCH' || method === 'PUT') {
           if (body.action === 'ADD_COMMENT' && body.body) {
+            if (!parseTicketCommentStatus(body.newStatus).ok) {
+              return {
+                status: 400,
+                body: { error: 'Status do comentário inválido: use OPEN, IN_PROGRESS, WAITING_CUSTOMER, RESOLVED ou CLOSED.', code: 'TICKET_COMMENT_STATUS_INVALID' },
+              };
+            }
             const withComment = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
             if (!withComment) return { status: 404, body: { error: 'Chamado não encontrado.' } };
             const sla = computeRealtimeTicketSla(withComment);
@@ -4209,7 +4252,11 @@ export class CrmApiRouter {
       // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
       // ======================================================================
       if (cleanPath === '/api/erp/overview' && method === 'GET') {
-        return { status: 200, body: { data: this.repo.getErpOverview() } };
+        const ov = this.repo.getErpOverview();
+        return {
+          status: 200,
+          body: { data: { ...ov, gestaoClickConfig: toGestaoClickConfigView(ov.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed) } },
+        };
       }
 
       if (cleanPath === '/api/erp/proposals') {
@@ -4621,19 +4668,11 @@ export class CrmApiRouter {
         const ctrId = decodeURIComponent(contractIdMatch[1]);
         if (method === 'PATCH' || method === 'PUT') {
           // Pacote H (D2): autor da versao vem da SESSAO; trilhas e autoria do corpo sao ignoradas.
-          const {
-            updatedBy: _ub,
-            savedBy: _sb,
-            versionHistory: _vh,
-            statusHistory: _sh,
-            version: _v,
-            versionLabel: _vl,
-            ...ctrPatch
-          } = body as Record<string, unknown>;
-          void _ub; void _sb; void _vh; void _sh; void _v; void _vl;
+          // Pacote I: so chaves conhecidas do contrato; desconhecidas (SavedBy, saved_by...) sao descartadas.
+          const { patch: ctrPatch } = pickRentalContractPatch(body);
           const updated = this.repo.updateRentalContract(
             ctrId,
-            ctrPatch as Partial<ErpRentalContract>,
+            ctrPatch,
             this.sessionActorName(query)
           );
           if (!updated) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
@@ -5081,7 +5120,7 @@ export class CrmApiRouter {
           status: 200,
           body: {
             data: {
-              ...erp.gestaoClickConfig,
+              ...toGestaoClickConfigView(erp.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed),
               hasEnvCredentials: Boolean(process.env.GESTAOCLICK_ACCESS_TOKEN),
               totalMcpEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS.length,
               liveTotalsStore118887: GESTAOCLICK_STORE_118887_TOTALS,
@@ -5128,18 +5167,82 @@ export class CrmApiRouter {
           }
         }
         const cfg = await this.repo.syncLiveGestaoClick({ forceRefresh: true });
+        const syncOv = this.repo.getErpOverview();
         return {
           status: 200,
           body: {
-            data: cfg,
-            erp: this.repo.getErpOverview(),
+            data: toGestaoClickConfigView(cfg, true),
+            erp: { ...syncOv, gestaoClickConfig: toGestaoClickConfigView(syncOv.gestaoClickConfig, true) },
           },
         };
       }
 
       if (cleanPath === '/api/erp/gestaoclick/config' && (method === 'PATCH' || method === 'POST')) {
-        const cfg = this.repo.updateGestaoClickConfig(body);
-        return { status: 200, body: { data: cfg } };
+        // Pacote I (D2): dados fiscais da empresa (ISS, regime, CNPJ...) afetam a emissao fiscal.
+        // Mesma guarda do sync (2FA + admin ou ERP FULL); allowlist fechada; auditoria antes/depois.
+        const gcPriv = this.gestaoClickPrivilege(query, ctx);
+        const gcIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        if (!gcPriv.allowed) {
+          if (gcPriv.authenticated) {
+            try {
+              this.repo.appendSecurityAuditLog({
+                actorEmail: gcPriv.email,
+                actorName: gcPriv.name,
+                actorRole: gcPriv.roleId,
+                action: 'GESTAOCLICK_CONFIG_UPDATE_DENIED',
+                module: 'ERP',
+                resource: '/api/erp/gestaoclick/config',
+                status: 'BLOCKED',
+                ipAddress: gcIp,
+                details: `Alteracao da configuracao fiscal/GestaoClick negada (403). Campos enviados: ${Object.keys(body || {}).slice(0, 20).join(', ').slice(0, 300)}.`,
+              });
+            } catch {
+              // auditoria nunca derruba a resposta
+            }
+          }
+          return {
+            status: gcPriv.authenticated ? 403 : 401,
+            body: {
+              error: 'Permissão negada: alterar a configuração fiscal/GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+              code: 'GESTAOCLICK_CONFIG_FORBIDDEN',
+            },
+          };
+        }
+        const parsedCfg = parseGestaoClickConfigPatch(body);
+        if (!parsedCfg.ok) {
+          return {
+            status: 400,
+            body: {
+              error:
+                parsedCfg.code === 'GESTAOCLICK_CONFIG_EMPTY'
+                  ? 'Nenhum campo editável informado.'
+                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário e alíquota de ISS (0 a 5%).`,
+              code: parsedCfg.code,
+              fields: parsedCfg.fields,
+            },
+          };
+        }
+        const cfgBefore = { ...this.repo.getErpOverview().gestaoClickConfig };
+        const cfg = this.repo.updateGestaoClickConfig(parsedCfg.data);
+        const changes = diffGestaoClickConfig(cfgBefore, cfg);
+        if (changes.length > 0) {
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: gcPriv.email || 'sistema@sti-hub',
+              actorName: gcPriv.name || 'Sistema STI-hub',
+              actorRole: gcPriv.roleId || 'SYSTEM',
+              action: 'GESTAOCLICK_CONFIG_UPDATED',
+              module: 'ERP',
+              resource: '/api/erp/gestaoclick/config',
+              status: 'SUCCESS',
+              ipAddress: gcIp,
+              details: `Configuracao fiscal/GestaoClick alterada: ${JSON.stringify(changes).slice(0, 1500)}`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+        }
+        return { status: 200, body: { data: toGestaoClickConfigView(cfg, true) } };
       }
 
       // ======================================================================
@@ -5450,7 +5553,7 @@ export class CrmApiRouter {
         // Pacote H (D3b): IP confiavel do bridge (x-vercel-forwarded-for / x-real-ip; ver
         // src/api/client-ip.ts). Sem IP => balde 'sem-ip' compartilhado (mais restritivo).
         const loginIp = String(query._clientIp || 'sem-ip').slice(0, 64);
-        if (this.loginFailIpLimiter.count(loginIp) >= this.loginFailIpLimiter.max) {
+        if (this.loginFailIpGuard.isBlocked(loginIp, email)) {
           return {
             status: 429,
             body: {
@@ -5466,7 +5569,7 @@ export class CrmApiRouter {
           enrolledSet.has(email.toLowerCase())
         );
         if (!challenge.ok) {
-          this.loginFailIpLimiter.hit(loginIp);
+          this.loginFailIpGuard.hit(loginIp, email);
           return {
             status: 401,
             body: { error: challenge.error || 'Falha na autenticação corporativa.' },

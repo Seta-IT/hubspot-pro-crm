@@ -6647,12 +6647,51 @@ export class CrmRepository {
   static readonly LOGIN_TRACKER_MAX = 5000;
   static readonly LOGIN_TRACKER_RECENT_MS = 15 * 60 * 1000;
 
+  /**
+   * Pacote I (D1): o contador de falhas e por HMAC do e-mail normalizado (chave aleatoria por
+   * processo; o e-mail em claro nao fica no mapa) e NAO depende de a conta existir. Com o mapa
+   * cheio e sem entrada fria para despejar, a falha vai para um balde fixo (LOGIN_OVERFLOW_BUCKETS,
+   * memoria limitada) escolhido pelo mesmo HMAC: conta real e e-mail inexistente se comportam
+   * igual (os dois travam no 7o erro). Entradas ja existentes (ex.: vitima bloqueada) nunca saem.
+   * Custo aceito no modo degradado: e-mails que caem no mesmo balde compartilham o contador.
+   */
+  static readonly LOGIN_OVERFLOW_BUCKETS = 4096;
+  private readonly loginTrackerHmacKey = crypto.randomBytes(32);
+  private readonly loginOverflowBuckets = new Map<
+    number,
+    { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number }
+  >();
+
+  /** Chave do contador de login para um e-mail (HMAC; mesma para conta real ou inexistente). */
+  loginTrackerKey(email: string): string {
+    return (
+      "e:" +
+      crypto
+        .createHmac("sha256", this.loginTrackerHmacKey)
+        .update(String(email || "").trim().toLowerCase())
+        .digest("base64url")
+        .slice(0, 22)
+    );
+  }
+
+  private loginOverflowBucketOf(key: string): number {
+    const b = Buffer.from(key.slice(2), "base64url");
+    return ((b[0] << 8) | b[1]) % CrmRepository.LOGIN_OVERFLOW_BUCKETS;
+  }
+
+  /** Contador vigente (mapa ou, se o e-mail nao tem entrada, o balde de transbordo). */
+  private getLoginTracker(
+    email: string
+  ): { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number } | undefined {
+    const key = this.loginTrackerKey(email);
+    return this.loginAttemptTracker.get(key) || this.loginOverflowBuckets.get(this.loginOverflowBucketOf(key));
+  }
+
   private recordLoginFailureEntry(
     key: string,
-    isKnownAccount: boolean,
     entry: { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number },
     nowMs: number
-  ): boolean {
+  ): void {
     const map = this.loginAttemptTracker;
     if (!map.has(key) && map.size >= CrmRepository.LOGIN_TRACKER_MAX) {
       for (const [k, e] of map) {
@@ -6660,10 +6699,13 @@ export class CrmRepository {
         const last = e.lastAttemptMs ?? e.firstAttemptMs;
         if (e.lockedUntilMs <= nowMs && nowMs - last > CrmRepository.LOGIN_TRACKER_RECENT_MS) map.delete(k);
       }
-      if (map.size >= CrmRepository.LOGIN_TRACKER_MAX && !isKnownAccount) return false;
+      if (map.size >= CrmRepository.LOGIN_TRACKER_MAX) {
+        // Mapa cheio de entradas quentes: balde de transbordo (igual para qualquer e-mail).
+        this.loginOverflowBuckets.set(this.loginOverflowBucketOf(key), entry);
+        return;
+      }
     }
     map.set(key, entry);
-    return true;
   }
 
   private usedTotpCodeTracker = new Map<string, string>();
@@ -7510,7 +7552,7 @@ export class CrmRepository {
     const q = String(userId || "").trim().toLowerCase();
     const found = rbac.users.find((u) => u.id.toLowerCase() === q);
     if (!found) return { ok: false };
-    const key = found.email.toLowerCase();
+    const key = this.loginTrackerKey(found.email);
     const nowMs = Date.now();
     const windowMs = 15 * 60 * 1000;
     const t = this.loginAttemptTracker.get(key);
@@ -7528,7 +7570,7 @@ export class CrmRepository {
 
   /** Leitura do contador de falhas de senha (testes/diagnostico; sem dados sensiveis). */
   getFailedPasswordAttempts(email: string): number {
-    return this.loginAttemptTracker.get(String(email || "").trim().toLowerCase())?.failedAttempts || 0;
+    return this.getLoginTracker(email)?.failedAttempts || 0;
   }
 
   deleteRbacUser(
@@ -8121,7 +8163,7 @@ export class CrmRepository {
     }
 
     const nowMs = Date.now();
-    const tracker = this.loginAttemptTracker.get(emailClean);
+    const tracker = this.getLoginTracker(emailClean); // Pacote I (D1): por HMAC do e-mail
     if (tracker && tracker.lockedUntilMs > nowMs) {
       const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
       return {
@@ -8139,7 +8181,7 @@ export class CrmRepository {
     if (!pwCheck.ok || !found || !found.active) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
-      this.recordLoginFailureEntry(emailClean, Boolean(found), {
+      this.recordLoginFailureEntry(this.loginTrackerKey(emailClean), {
         failedAttempts: fails,
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
@@ -8316,8 +8358,9 @@ export class CrmRepository {
     }
 
     const emailKey = user.email.toLowerCase();
+    const loginKey = this.loginTrackerKey(user.email); // Pacote I (D1): contador por HMAC do e-mail
     const nowMs = Date.now();
-    const tracker = this.loginAttemptTracker.get(emailKey);
+    const tracker = this.loginAttemptTracker.get(loginKey);
     if (tracker && tracker.lockedUntilMs > nowMs) {
       const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
       return {
@@ -8486,7 +8529,7 @@ export class CrmRepository {
     if (!isValidTotp && !isValidEmailOtp) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 5 ? nowMs + 5 * 60 * 1000 : 0;
-      this.loginAttemptTracker.set(emailKey, {
+      this.loginAttemptTracker.set(loginKey, {
         failedAttempts: fails,
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
@@ -8508,7 +8551,7 @@ export class CrmRepository {
       };
     }
 
-    this.loginAttemptTracker.delete(emailKey);
+    this.loginAttemptTracker.delete(loginKey);
     if (statelessChallenge?.cid) {
       this.consumedChallengeIds.add(statelessChallenge.cid);
     }

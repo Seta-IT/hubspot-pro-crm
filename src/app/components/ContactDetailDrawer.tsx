@@ -88,6 +88,7 @@ export default function ContactDetailDrawer({
   const [buyingRole, setBuyingRole] = useState<BuyingRoleType>('DECISOR');
   const [isUnworked, setIsUnworked] = useState<boolean>(false);
   const [ownerName, setOwnerName] = useState('Marcelo Lopes Mira');
+  const [initialOwnerName, setInitialOwnerName] = useState(''); // Pacote I: so envia se mudou
   const [city, setCity] = useState('');
   const [stateUf, setStateUf] = useState('');
 
@@ -114,14 +115,14 @@ export default function ContactDetailDrawer({
       setBuyingRole(contactDetail.buyingRole || 'DECISOR');
       setIsUnworked(Boolean(contactDetail.isUnworked));
       const props = contactDetail.customProperties || {};
-      setOwnerName(
-        String(
-          contactDetail.ownerName ||
-            props.ownerName ||
-            contactDetail.ownerId ||
-            'Marcelo Lopes Mira'
-        )
+      const loadedOwner = String(
+        contactDetail.ownerName ||
+          props.ownerName ||
+          contactDetail.ownerId ||
+          'Marcelo Lopes Mira'
       );
+      setOwnerName(loadedOwner);
+      setInitialOwnerName(loadedOwner);
       setCity(String(props.city || contactDetail.company?.city || ''));
       setStateUf(String(props.state || contactDetail.company?.state || ''));
     }
@@ -132,7 +133,9 @@ export default function ContactDetailDrawer({
     if (!contactDetail || !firstName.trim() || !email.trim()) return;
     setSavingEdit(true);
     try {
-      const cleanOwner = ownerName.trim() || 'Marcelo Lopes Mira';
+      // Pacote I: campo vazio ou sem mudanca => ownerName omitido (o servidor mantem o atual).
+      const cleanOwner = ownerName.trim();
+      const ownerChanged = cleanOwner !== '' && cleanOwner !== initialOwnerName.trim();
       await onUpdateContact(contactDetail.id, {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -144,10 +147,12 @@ export default function ContactDetailDrawer({
         leadStatus,
         buyingRole,
         isUnworked,
-        ownerId: cleanOwner.toLowerCase().includes('evelyn')
-          ? 'owner-evelyn'
-          : 'owner-marcello',
-        ownerName: cleanOwner,
+        ...(ownerChanged
+          ? {
+              ownerId: cleanOwner.toLowerCase().includes('evelyn') ? 'owner-evelyn' : 'owner-marcello',
+              ownerName: cleanOwner,
+            }
+          : {}),
         city: city.trim() || undefined,
         state: stateUf.trim() || undefined,
       });

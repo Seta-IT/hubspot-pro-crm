@@ -1045,17 +1045,50 @@ export const ACTIVE_SESSION_TOP_KEYS = [
   'issuedAt',
 ] as const;
 
-/** Copia do registro de sessao ativa pronta para o localStorage (allowlist no topo e em user). */
+/**
+ * Pacote I (item 8): chaves sensiveis removidas em QUALQUER nivel da sessao guardada no navegador
+ * (comparacao sem caixa, sem '_'/'-'). Tambem cai qualquer chave terminada em password/passwordhash/
+ * secret/token/seal/otp, alem de __proto__/constructor/prototype.
+ */
+const SESSION_SENSITIVE_EXACT = new Set([
+  'password', 'passwordhash', 'currentpassword', 'newpassword', 'secret', 'totpsecret',
+  'totpsecretformatted', 'lastusedtotptimestep', 'iamseal', 'sessiontoken', 'token', 'accesstoken',
+  'secretaccesstoken', 'refreshtoken', 'apikey', 'challengeid', 'otp', 'otpcode', 'demototpcode',
+  'devotppreview', 'totppairing', 'otpauthuri', 'qrcodesvgdataurl',
+]);
+const SESSION_SENSITIVE_SUFFIX = /(password|passwordhash|secret|token|seal|otp)$/;
+const SESSION_FORBIDDEN_PROTO = new Set(['__proto__', 'constructor', 'prototype']);
+const SESSION_MAX_DEPTH = 8;
+
+export function isSensitiveSessionKey(key: string): boolean {
+  const n = String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SESSION_SENSITIVE_EXACT.has(n) || SESSION_SENSITIVE_SUFFIX.test(n);
+}
+
+/** Copia profunda sem chaves sensiveis (objetos e arrays; alem da profundidade maxima => descartado). */
+export function deepScrubSessionValue(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value !== 'object') return typeof value === 'function' ? undefined : value;
+  if (depth >= SESSION_MAX_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((v) => deepScrubSessionValue(v, depth + 1)).filter((v) => v !== undefined);
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value as Record<string, unknown>)) {
+    if (SESSION_FORBIDDEN_PROTO.has(k) || isSensitiveSessionKey(k)) continue;
+    const v = deepScrubSessionValue((value as Record<string, unknown>)[k], depth + 1);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/** Copia do registro de sessao ativa pronta para o localStorage (allowlist no topo e em user; demais niveis sem chaves sensiveis). */
 export function sanitizeActiveSessionForStorage<T extends Record<string, unknown>>(session: T): T {
   const src = scrubClientIamCredentialFields(session as Record<string, unknown>).clean as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const k of ACTIVE_SESSION_TOP_KEYS) {
     if (src[k] === undefined) continue;
-    out[k] = k === 'user' ? toActiveSessionDisplayUser(src[k]) : src[k];
-  }
-  // role pode ser objeto (definicao do papel): sem credenciais.
-  if (out.role && typeof out.role === 'object' && !Array.isArray(out.role)) {
-    out.role = scrubClientIamCredentialFields(out.role as Record<string, unknown>).clean;
+    const v = k === 'user' ? toActiveSessionDisplayUser(src[k]) : deepScrubSessionValue(src[k]);
+    if (v !== undefined) out[k] = v;
   }
   return out as T;
 }

@@ -227,6 +227,15 @@ export function inferContractModality(ctr: ErpRentalContract): ErpContractModali
   return "LOCACAO";
 }
 
+/** Pacote I: mensagem de erro do PATCH /api/erp/gestaoclick/config (403 sem permissao, 400 campo invalido). */
+async function gcConfigErrorMessage(res: Response): Promise<string> {
+  const j = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (res.status === 403 || res.status === 401) {
+    return 'Sem permissão: alterar a configuração fiscal exige 2FA e perfil administrador ou controle total do ERP.';
+  }
+  return j?.error || 'Não foi possível salvar a configuração fiscal.';
+}
+
 function getModalityBadgeMeta(modality: ErpContractModality) {
   switch (modality) {
     case "SERVICO":
@@ -667,6 +676,8 @@ export default function ErpGestaoClickTab({
     if (res.ok) {
       onShowToast(`Regime tributário do ERP alterado para ${taxRegime}!`);
       await onRefresh();
+    } else {
+      onShowToast(await gcConfigErrorMessage(res)); // Pacote I
     }
   };
 
@@ -4390,11 +4401,15 @@ export default function ErpGestaoClickTab({
                         { key: "defaultIssRatePercent", label: "Alíquota ISSQN Padrão (%) - Serviços LC 116", type: "number" },
                       ],
                       onSave: async (vals) => {
-                        await fetch("/api/erp/gestaoclick/config", {
+                        const res = await fetch("/api/erp/gestaoclick/config", {
                           method: "PATCH",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(vals),
                         });
+                        if (!res.ok) {
+                          onShowToast(await gcConfigErrorMessage(res)); // Pacote I
+                          return;
+                        }
                         setGenericModal(null);
                         onShowToast("Parâmetros fiscais e alíquota de ISS atualizados!");
                         await onRefresh();
@@ -6583,11 +6598,15 @@ export default function ErpGestaoClickTab({
                           { key: 'storeName', label: 'Nome da Loja / Unidade' },
                         ],
                         onSave: async (vals) => {
-                          await fetch('/api/erp/gestaoclick/config', {
+                          const res = await fetch('/api/erp/gestaoclick/config', {
                             method: 'PATCH',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(vals),
                           });
+                          if (!res.ok) {
+                            onShowToast(await gcConfigErrorMessage(res)); // Pacote I
+                            return;
+                          }
                           setGenericModal(null);
                           onShowToast('Configurações da empresa salvas!');
                           await onRefresh();
