@@ -46,100 +46,144 @@ const DOT_SPELLINGS = ['&period;', '%252e', '&#x2e;', '\\u002e', '&#46;', '\\x2e
  * Visao NORMALIZADA do texto com o mapa para o original: remove espacos/quebras e invisiveis,
  * converte ASCII de largura total e transforma %2E, %252E, &#46;, &#x2e;, &period;, \u002e e \x2e
  * em ".". start[i]/end[i] = faixa no original do i-esimo caractere da visao.
+ * B-V4-1: caminho rapido (ASCII visivel sem %, & ou \ => visao = texto, mapa identidade) e laco
+ * por charCode (regex so para nao-ASCII); custo linear e baixo mesmo para corpos de 1 MB.
  */
-function buildNormalizedView(s: string): { v: string; start: number[]; end: number[] } {
-  let v = '';
-  const start: number[] = [];
-  const end: number[] = [];
+interface NormalizedView { v: string; start: Int32Array | null; end: Int32Array | null }
+const PLAIN_ASCII_RE = /^[\x21-\x24\x27-\x5b\x5d-\x7e]*$/;
+const isAsciiSpace = (c: number): boolean => c === 0x20 || (c >= 0x09 && c <= 0x0d);
+
+function buildNormalizedView(s: string): NormalizedView {
+  if (PLAIN_ASCII_RE.test(s)) return { v: s, start: null, end: null };
+  const n = s.length;
+  const start = new Int32Array(n);
+  const end = new Int32Array(n);
+  const parts: string[] = [];
+  let buf = '';
+  let k = 0;
   let i = 0;
-  while (i < s.length) {
-    let matchedDot = 0;
-    if (s[i] === '%' || s[i] === '&' || s[i] === '\\') {
+  while (i < n) {
+    const c = s.charCodeAt(i);
+    if (c === 0x25 || c === 0x26 || c === 0x5c) {
       const low = s.slice(i, i + 8).toLowerCase();
+      let matchedDot = 0;
       for (const d of DOT_SPELLINGS) {
         if (low.startsWith(d)) { matchedDot = d.length; break; }
       }
+      if (matchedDot) {
+        buf += '.'; start[k] = i; end[k] = i + matchedDot; k++;
+        i += matchedDot;
+        if (buf.length >= 4096) { parts.push(buf); buf = ''; }
+        continue;
+      }
     }
-    if (matchedDot) {
-      v += '.'; start.push(i); end.push(i + matchedDot);
-      i += matchedDot;
-      continue;
-    }
-    const cp = s.codePointAt(i)!;
-    const ch = String.fromCodePoint(cp);
-    const len = ch.length;
-    if (/^\s$/u.test(ch) || INVISIBLE_RE.test(ch)) {
+    if (c < 0x80) {
+      if (!isAsciiSpace(c)) { buf += s[i]; start[k] = i; end[k] = i + 1; k++; }
+      i++;
+    } else {
+      const cp = s.codePointAt(i)!;
+      const ch = String.fromCodePoint(cp);
+      const len = ch.length;
+      if (!(/^\s$/u.test(ch) || INVISIBLE_RE.test(ch))) {
+        const out = cp >= 0xff01 && cp <= 0xff5e ? String.fromCharCode(cp - 0xfee0) : ch;
+        for (let t = 0; t < out.length; t++) { buf += out[t]; start[k] = i; end[k] = i + len; k++; }
+      }
       i += len;
-      continue;
     }
-    const out = cp >= 0xff01 && cp <= 0xff5e ? String.fromCharCode(cp - 0xfee0) : ch;
-    for (const c of out) { v += c; start.push(i); end.push(i + len); }
-    i += len;
+    if (buf.length >= 4096) { parts.push(buf); buf = ''; }
   }
-  return { v, start, end };
+  parts.push(buf);
+  return { v: parts.join(''), start, end };
 }
 
-/** Decodifica base64/base64url (sem padding) para texto latin1, ate maxBytes. */
-function decodeB64(chars: string, maxBytes: number): string {
+/** Claims gravadas pelo assinante sempre comecam por {"v": (ordem fixa em proposal-link.ts). */
+const PAYLOAD_PREFIX = '{"v":';
+/** 8 caracteres base64 = 6 bytes: o suficiente para conferir o prefixo. */
+const PREFIX_CHARS = 8;
+/** Payload real tem ~140-200 caracteres; acima disso nao e um link de proposta. */
+const MAX_PAYLOAD_CHARS = 400;
+
+/**
+ * Decodifica base64/base64url (sem padding) de s[from..] para texto latin1, lendo no maximo
+ * maxChars caracteres; para no primeiro caractere fora do alfabeto ou (stopAtClose) logo apos
+ * o primeiro '}'. Devolve o texto e quantos caracteres foram lidos.
+ */
+function decodeB64At(s: string, from: number, maxChars: number, stopAtClose: boolean): { txt: string; read: number } {
   let bits = 0;
   let acc = 0;
-  let out = '';
-  for (let i = 0; i < chars.length && out.length < maxBytes; i++) {
-    const val = B64_INDEX[chars[i]];
+  let txt = '';
+  let i = from;
+  const lim = Math.min(s.length, from + maxChars);
+  for (; i < lim; i++) {
+    const val = B64_INDEX[s[i]];
     if (val === undefined) break;
     acc = ((acc << 6) | val) & 0xffffff;
     bits += 6;
     if (bits >= 8) {
       bits -= 8;
-      out += String.fromCharCode((acc >> bits) & 0xff);
+      const ch = String.fromCharCode((acc >> bits) & 0xff);
+      txt += ch;
+      if (stopAtClose && ch === '}') { i++; break; }
     }
   }
-  return out;
+  return { txt, read: i - from };
+}
+
+/** Custo O(8): o candidato em s[from] decodifica para {"v": ? */
+function hasPayloadPrefix(s: string, from: number): boolean {
+  return decodeB64At(s, from, PREFIX_CHARS, false).txt.startsWith(PAYLOAD_PREFIX);
 }
 
 /**
- * Se `chars` comeca com o base64 de um objeto JSON com pid e jti (claims do link), devolve
- * quantos caracteres base64 formam esse payload; senao 0.
+ * Se s[from..] e o base64 de um objeto JSON {"v":...} com pid e jti (claims do link), devolve
+ * quantos caracteres base64 formam esse payload; senao 0. Le no maximo MAX_PAYLOAD_CHARS.
  */
-function proposalPayloadLength(chars: string): number {
-  const txt = decodeB64(chars.slice(0, 1400), 1024);
-  if (!txt.startsWith('{"')) return 0;
-  const close = txt.indexOf('}');
-  if (close < 0) return 0;
+function proposalPayloadLengthAt(s: string, from: number): number {
+  if (!hasPayloadPrefix(s, from)) return 0;
+  const { txt } = decodeB64At(s, from, MAX_PAYLOAD_CHARS, true);
+  if (!txt.endsWith('}')) return 0;
   try {
-    const c = JSON.parse(txt.slice(0, close + 1)) as Record<string, unknown>;
+    const c = JSON.parse(txt) as Record<string, unknown>;
     if (!c || typeof c !== 'object' || !('pid' in c) || !('jti' in c)) return 0;
   } catch {
     return 0;
   }
-  return Math.ceil(((close + 1) * 4) / 3);
+  return Math.ceil((txt.length * 4) / 3);
 }
 
 /** true se o texto base64url decodifica para as claims de um link de proposta. */
 export function looksLikeProposalLinkPayload(payloadB64url: string): boolean {
-  return proposalPayloadLength(String(payloadB64url || '')) > 0;
+  return proposalPayloadLengthAt(String(payloadB64url || ''), 0) > 0;
 }
 
 /**
  * A3: redige o PAYLOAD do token (e a assinatura que vier depois do ponto) onde quer que esteja,
  * depois de normalizar: quebra de linha/espaco no meio, colado a outro texto, ponto escrito como
  * %2E / &#46; / \u002e, ZWSP e outros invisiveis, base64 padrao. So redige se o payload
- * decodificar para JSON com pid e jti (tokens de sessao, convite e reset ficam intactos). Sem o
- * payload (jti aleatorio) o token nao pode ser reconstruido.
+ * decodificar para JSON {"v":...} com pid e jti (tokens de sessao, convite e reset ficam
+ * intactos). Sem o payload (jti aleatorio) o token nao pode ser reconstruido.
+ * B-V4-1 (custo): `eyJ` sem o prefixo {"v": custa O(8) e avanca 3; candidato com o prefixo que
+ * falha pula ate o fim da sequencia base64 => custo total linear no tamanho do texto.
  */
 function redactProposalPayloads(s: string): string {
   if (s.length < MIN_TEXT_FOR_PAYLOAD) return s;
   const { v, start, end } = buildNormalizedView(s);
+  const st = (i: number) => (start ? start[i] : i);
+  const en = (i: number) => (end ? end[i] : i + 1);
   const spans: Array<[number, number]> = [];
   let from = 0;
   for (;;) {
     const idx = v.indexOf('eyJ', from);
     if (idx < 0) break;
-    let j = idx;
-    while (j < v.length && j - idx < 1400 && isB64Char(v[j])) j++;
-    const plen = proposalPayloadLength(v.slice(idx, j));
-    if (!plen || idx + plen > j) {
+    if (!hasPayloadPrefix(v, idx)) {
       from = idx + 3;
+      continue;
+    }
+    const plen = proposalPayloadLengthAt(v, idx);
+    if (!plen) {
+      let j = idx;
+      while (j < v.length && isB64Char(v[j])) j++;
+      from = Math.max(j, idx + 3);
       continue;
     }
     let e = idx + plen;
@@ -152,7 +196,7 @@ function redactProposalPayloads(s: string): string {
         while (v[e] === '=') e++;
       }
     }
-    spans.push([start[idx], end[e - 1]]);
+    spans.push([st(idx), en(e - 1)]);
     from = e;
   }
   if (!spans.length) return s;
@@ -181,6 +225,44 @@ export function redactProposalLinkTokens(text: unknown): unknown {
     out = out.replace(new RegExp(PROPOSAL_LINK_TOKEN_ENCODED_PATTERN.source, 'gi'), PROPOSAL_LINK_TOKEN_ENCODED_REDACTED);
   }
   return out;
+}
+
+/** B-V4-1: tamanho maximo de corpo (1 MiB). Acima disso => 413 BODY_TOO_LARGE (rotas do link e dispatch). */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * B-V4-1: true se o corpo JA PARSEADO excede maxBytes (estimativa do JSON: strings em UTF-8,
+ * chaves, numeros e separadores). Iterativo e com saida antecipada: custo <= tamanho do limite.
+ */
+export function bodyExceedsMaxBytes(value: unknown, maxBytes = MAX_BODY_BYTES): boolean {
+  let total = 0;
+  const strBytes = (x: string): number => {
+    let b = x.length + 2;
+    for (let i = 0; i < x.length && b <= maxBytes; i++) {
+      const c = x.charCodeAt(i);
+      if (c >= 0x80) b += c >= 0x800 ? 2 : 1;
+    }
+    return b;
+  };
+  const stack: unknown[] = [value];
+  while (stack.length) {
+    const v = stack.pop();
+    if (typeof v === 'string') total += strBytes(v);
+    else if (v && typeof v === 'object') {
+      if (Array.isArray(v)) {
+        total += 2 + v.length;
+        for (const c of v) stack.push(c);
+      } else {
+        total += 2;
+        for (const [k, c] of Object.entries(v as Record<string, unknown>)) {
+          total += strBytes(k) + 2;
+          stack.push(c);
+        }
+      }
+    } else total += 5;
+    if (total > maxBytes) return true;
+  }
+  return false;
 }
 
 /** Profundidade maxima aceita num corpo (a raiz e o nivel 0). Acima disso o dispatch recusa (400). */

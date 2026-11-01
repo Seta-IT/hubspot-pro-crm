@@ -14,8 +14,8 @@ export const PROPOSAL_IDEMPOTENCY_HEADER = 'idempotency-key';
 export const PROPOSAL_TOKEN_QUERY_KEY = 'proposalLinkToken';
 export const PROPOSAL_IDEMPOTENCY_QUERY_KEY = 'proposalIdempotencyKey';
 
-/** Copia a requisicao movendo os headers do link para parametros internos (apenas em memoria). */
-export async function withProposalLinkParams(req: NextRequest): Promise<NextRequest> {
+/** Copia a requisicao (corpo ja lido) movendo os headers do link para parametros internos. */
+export function buildProposalLinkRequest(req: NextRequest, body: string | undefined): NextRequest {
   const url = new URL(req.url);
   url.searchParams.delete(PROPOSAL_TOKEN_QUERY_KEY);
   url.searchParams.delete(PROPOSAL_IDEMPOTENCY_QUERY_KEY);
@@ -25,7 +25,15 @@ export async function withProposalLinkParams(req: NextRequest): Promise<NextRequ
   if (idem && idem.length <= 256) url.searchParams.set(PROPOSAL_IDEMPOTENCY_QUERY_KEY, idem);
   const headers = new Headers(req.headers);
   headers.delete(PROPOSAL_TOKEN_HEADER);
+  // O corpo foi relido: o content-length original deixa de valer para a copia.
+  headers.delete('content-length');
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+  return new NextRequest(url, { method: req.method, headers, body: hasBody ? body ?? '' : undefined });
+}
+
+/** Copia a requisicao movendo os headers do link para parametros internos (apenas em memoria). */
+export async function withProposalLinkParams(req: NextRequest): Promise<NextRequest> {
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
   const body = hasBody ? await req.text() : undefined;
-  return new NextRequest(url, { method: req.method, headers, body });
+  return buildProposalLinkRequest(req, body);
 }

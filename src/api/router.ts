@@ -105,7 +105,7 @@ import {
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
 } from '../app/lib/proposal-link';
-import { bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_BYTES, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -419,6 +419,8 @@ export interface ApiRequest {
   body?: unknown;
   /** So codigo do servidor passa TRUSTED_INTERNAL_CONTEXT (libera rotas IAM sem sessao). */
   context?: typeof TRUSTED_INTERNAL_CONTEXT;
+  /** B-V4-1: tamanho do corpo lido (bytes) ou o content-length declarado, quando o canal souber. */
+  bodyBytes?: number;
 }
 
 export interface ApiResponse<T = unknown> {
@@ -951,6 +953,18 @@ export class CrmApiRouter {
     // redigida descarta essas chaves; recusar aqui mantem o 400 das validacoes .strict() (H/I).
     // Corpo acima de 40 niveis => 400 (fail-closed; a redacao e a checagem de chaves reservadas
     // examinam ate essa profundidade). Antes de qualquer efeito, como o A4.
+    // B-V4-1: corpo acima de 1 MiB => 413 ANTES da redacao (custo de CPU pre-sessao/rate-limit).
+    // Usa o tamanho informado pelo canal (server.ts standalone) e, sempre, a estimativa do
+    // corpo ja parseado (o bridge do Next nao informa o tamanho).
+    if (
+      (typeof req.bodyBytes === 'number' && Number.isFinite(req.bodyBytes) && req.bodyBytes > MAX_BODY_BYTES) ||
+      bodyExceedsMaxBytes(req.body)
+    ) {
+      return {
+        status: 413,
+        body: { error: `Corpo da requisição acima do limite permitido (${MAX_BODY_BYTES} bytes).`, code: 'BODY_TOO_LARGE' },
+      };
+    }
     if (bodyExceedsMaxDepth(rawBody)) {
       return {
         status: 400,

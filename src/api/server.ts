@@ -4,6 +4,7 @@
 
 import http from 'node:http';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from './router';
+import { MAX_BODY_BYTES } from '../app/lib/proposal-link-redact';
 
 const ALLOWED_CORS_ORIGINS = new Set([
   'https://sti-hub.vercel.app',
@@ -33,9 +34,28 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
       return;
     }
 
+    // B-V4-1: corpo acima de MAX_BODY_BYTES => 413 antes de ler o resto/parsear/redigir.
+    const tooLarge = () => {
+      res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: `Corpo da requisição acima do limite permitido (${MAX_BODY_BYTES} bytes).`, code: 'BODY_TOO_LARGE' }));
+    };
+    const declaredLen = Number(req.headers['content-length'] || '0');
+    if (!Number.isFinite(declaredLen) || declaredLen > MAX_BODY_BYTES) {
+      tooLarge();
+      req.destroy();
+      return;
+    }
     const chunks: Buffer[] = [];
+    let readBytes = 0;
     for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      readBytes += b.length;
+      if (readBytes > MAX_BODY_BYTES) {
+        tooLarge();
+        req.destroy();
+        return;
+      }
+      chunks.push(b);
     }
     const rawBody = Buffer.concat(chunks).toString('utf-8');
     let parsedBody: unknown = {};
@@ -71,6 +91,7 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
       path: reqUrl.pathname,
       query,
       body: cleanBody,
+      bodyBytes: readBytes,
     });
 
     res.writeHead(response.status, { 'Content-Type': 'application/json; charset=utf-8' });
