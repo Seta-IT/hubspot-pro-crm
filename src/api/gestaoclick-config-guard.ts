@@ -35,6 +35,8 @@ export const GestaoClickConfigPatchSchema = z
         const c = validateCnpj(v);
         return c.isValid && Boolean(c.digits?.startsWith('14806925'));
       }, { message: 'CNPJ inválido ou fora da raiz 14.806.925' })
+      // Pacote J (D-I3): gravado normalizado, so os 14 digitos (pontuado/espacado => mesmo valor).
+      .transform((v) => String(validateCnpj(v).digits || v.replace(/\D+/g, '')))
       .optional(),
     municipalRegistration: z.string().trim().max(40).optional(),
     stateRegistration: z.string().trim().max(40).optional(),
@@ -42,6 +44,9 @@ export const GestaoClickConfigPatchSchema = z
     taxRegime: z.enum(['LUCRO_PRESUMIDO', 'LUCRO_REAL', 'SIMPLES_NACIONAL']).optional(),
     // ISSQN (LC 116/2003): teto legal de 5%.
     defaultIssRatePercent: z.number().finite().min(0).max(5).optional(),
+    // Pacote J (D-I2): NF mensal automatica de locacao. Booleano estrito; a rota so chega aqui
+    // com 2FA + admin/ERP FULL e a mudanca entra na auditoria antes/depois (diff dos editaveis).
+    autoGenerateMonthlyRentalInvoices: z.boolean().optional(),
   })
   .strict();
 

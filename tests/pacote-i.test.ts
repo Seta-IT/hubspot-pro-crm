@@ -101,7 +101,7 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
       [{ liveTotals: {} }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
       [{ users: [] }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
       [{ API_BASE_URL: 'x' }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
-      [{ autoGenerateMonthlyRentalInvoices: false }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
+      [{ autoGenerateMonthlyRentalInvoices: 'false' }, 'GESTAOCLICK_CONFIG_INVALID'], // Pacote J (D-I2): booleano estrito
       [{ connected: false }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
       [{ lastSyncAt: 'x' }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
       [{ taxRegime: 'LUCRO_REAL', __proto__x: 1 }, 'GESTAOCLICK_CONFIG_FIELD_NOT_ALLOWED'],
@@ -125,7 +125,7 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
 
   it('allowlist = exatamente os campos que a tela de config envia', () => {
     const tab = src('src/app/components/ErpGestaoClickTab.tsx');
-    const sent = new Set<string>(['taxRegime']); // handleChangeTaxRegime
+    const sent = new Set<string>(['taxRegime', 'autoGenerateMonthlyRentalInvoices']); // handleChangeTaxRegime; Pacote J (D-I2): auto-NF so pela API privilegiada
     for (const m of tab.matchAll(/\{ key: ["'](companyLegalName|companyCnpj|municipalRegistration|stateRegistration|defaultIssRatePercent|storeName)["']/g)) sent.add(m[1]);
     assert.deepEqual([...GESTAOCLICK_CONFIG_EDITABLE_KEYS].sort(), [...sent].sort());
     assert.equal(parseGestaoClickConfigPatch({ taxRegime: 'LUCRO_REAL' }).ok, true);
@@ -258,7 +258,8 @@ describe('Pacote I (8): sessao do navegador sem segredos em qualquer nivel', () 
     }
     assert.equal((s.effectiveActionGuards as Record<string, unknown>).canManageUsersRbac, true, 'guardas preservadas');
     assert.equal((s.crmPermissions as Record<string, unknown>).contactsAccess, 'FULL');
-    assert.equal(((s.role as Record<string, unknown>).policy as Record<string, unknown>).keep, true);
+    assert.equal((s.role as Record<string, unknown>).policy, undefined, 'Pacote J (D-I6): allowlist por nivel'); 
+    assert.equal((s.role as Record<string, unknown>).id, 'R');
     assert.equal((s.moduleAccess as Record<string, unknown>).crm, true);
     assert.equal(({} as Record<string, unknown>).polluted, undefined);
   });

@@ -84,3 +84,26 @@ export function parseTicketCommentStatus(
   const r = TicketTeamPatchSchema.shape.status.safeParse(raw);
   return r.success && r.data ? { ok: true, status: r.data } : { ok: false };
 }
+
+/**
+ * Pacote J (4): POST /api/tickets (criacao pela equipe) — status, prioridade, categoria e canal
+ * so dos enums do sistema (os mesmos do PATCH; canal = TicketChannel). Ausente/null/'' => padrao
+ * do servidor; qualquer outro valor => 400 com os campos (sem eco de valores).
+ */
+export const TICKET_CREATE_ENUMS: Readonly<Record<'status' | 'priority' | 'category' | 'channel', readonly string[]>> = {
+  status: TicketTeamPatchSchema.shape.status.unwrap().options,
+  priority: TicketTeamPatchSchema.shape.priority.unwrap().options,
+  category: TicketTeamPatchSchema.shape.category.unwrap().options,
+  channel: ['WEB_PORTAL', 'EMAIL', 'WHATSAPP', 'PHONE', 'CHAT'],
+};
+
+export function findInvalidTicketCreateEnums(body: unknown): string[] {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const bad: string[] = [];
+  for (const [field, allowed] of Object.entries(TICKET_CREATE_ENUMS)) {
+    const v = b[field];
+    if (v === undefined || v === null || v === '') continue;
+    if (typeof v !== 'string' || !allowed.includes(v)) bad.push(field);
+  }
+  return bad;
+}

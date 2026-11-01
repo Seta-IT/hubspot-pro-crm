@@ -23,3 +23,34 @@ export function resolveTrustedClientIp(headers: HeaderGetter, onVercel = process
     (onVercel ? undefined : firstIp(headers.get('x-forwarded-for')))
   );
 }
+
+/**
+ * Pacote J (D-I4): chave de rate-limit por IP. IPv4 => o proprio endereco. IPv6 => o prefixo /64
+ * (um cliente recebe normalmente um /64 inteiro; contar cada /128 deixava o atacante trocar de
+ * endereco a vontade). IPv4 mapeado (::ffff:a.b.c.d) => o IPv4. Invalido/vazio => 'sem-ip'.
+ * So para contagem: a auditoria continua gravando o endereco completo.
+ */
+export function rateLimitIpKey(ip: string | null | undefined): string {
+  const raw = String(ip || '').trim().replace(/^\[|\]$/g, '').split('%')[0];
+  if (!raw || raw === 'sem-ip') return 'sem-ip';
+  if (!raw.includes(':')) return raw;
+  const mapped = raw.match(/^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (mapped) return mapped[1];
+  let s = raw.toLowerCase();
+  // Cauda IPv4 embutida (ex.: 64:ff9b::1.2.3.4) => 2 hextets.
+  const v4 = s.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const n = v4.slice(1).map(Number);
+    if (n.some((x) => x > 255)) return raw;
+    s = s.slice(0, -v4[0].length) + ((n[0] << 8) | n[1]).toString(16) + ':' + ((n[2] << 8) | n[3]).toString(16);
+  }
+  const parts = s.split('::');
+  if (parts.length > 2) return raw;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (parts.length === 1 && head.length !== 8)) return raw;
+  const hextets = [...head, ...Array(fill).fill('0'), ...tail];
+  if (hextets.length !== 8 || hextets.some((h) => !/^[0-9a-f]{1,4}$/.test(h))) return raw;
+  return `${hextets.slice(0, 4).map((h) => parseInt(h, 16).toString(16)).join(':')}::/64`;
+}

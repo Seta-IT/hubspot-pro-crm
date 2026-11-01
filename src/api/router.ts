@@ -68,10 +68,11 @@ import {
 } from './self-profile';
 import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
 import { buildOwnerCanonicalMap, cleanOwnerName, resolveOwnerNameToStore } from './owner-validation';
-import { emailCommentIsPublic, parseTicketCommentStatus, parseTicketTeamPatch, resolveTeamCommentVisibility } from './ticket-guards';
+import { emailCommentIsPublic, findInvalidTicketCreateEnums, parseTicketCommentStatus, parseTicketTeamPatch, resolveTeamCommentVisibility, TICKET_CREATE_ENUMS } from './ticket-guards';
 import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
 import { pickRentalContractPatch } from './contract-patch-guard';
 import { LoginIpFailureGuard } from './login-ip-guard';
+import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -123,6 +124,7 @@ import {
   WebForm,
   WorkflowExecution,
   WorkflowTriggerType,
+  StiHubRbacState,
 } from '../db/types';
 
 import {
@@ -136,6 +138,7 @@ import {
   verifyPasswordResetToken,
 } from './password-reset';
 import { hashPasswordScrypt, verifyStoredPassword } from '../db/password-hash';
+import { isRecordIdConflictError } from '../db/record-id-guard';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -674,7 +677,44 @@ export class CrmApiRouter {
     return this.repo;
   }
 
-  buildBootstrapPayload(customAiQuestion?: string, gcPrivileged = false) {
+  /**
+   * Pacote J (5): visao do RBAC no /api/bootstrap e /api/state. Admin (canManageUsersRbac) ou
+   * contexto interno => estado completo (painel IAM). Demais usuarios => SO o proprio registro e o
+   * proprio papel (permissoes efetivas), sem lista de usuarios/e-mails, auditLogs nem
+   * configuracoes de seguranca. (Segredos ja sao removidos na resposta HTTP pelo sanitizador.)
+   */
+  private bootstrapRbacView(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { full: true } | { full: false; userId: string; email: string } {
+    if (ctx.trustedInternal) return { full: true };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    if (!sess || !sess.authenticated) return { full: false, userId: '', email: '' };
+    if (sess.effectiveActionGuards.canManageUsersRbac) return { full: true };
+    return { full: false, userId: String(sess.user?.id || ''), email: String(sess.user?.email || '') };
+  }
+
+  private buildRbacForViewer(view: ReturnType<CrmApiRouter['bootstrapRbacView']>): StiHubRbacState {
+    const rbac = this.repo.getRbacState();
+    if (view.full) return rbac;
+    const email = view.email.trim().toLowerCase();
+    const own = rbac.users.filter(
+      (u) => (view.userId && u.id === view.userId) || (email && String(u.email || '').toLowerCase() === email)
+    ).slice(0, 1);
+    const ownRoleIds = new Set(own.map((u) => u.roleId));
+    return {
+      roles: rbac.roles.filter((r) => ownRoleIds.has(r.id)),
+      users: own,
+      securityConfig: {} as StiHubRbacState['securityConfig'],
+      auditLogs: [],
+    };
+  }
+
+  buildBootstrapPayload(
+    customAiQuestion?: string,
+    gcPrivileged = false,
+    rbacView: ReturnType<CrmApiRouter['bootstrapRbacView']> = { full: false, userId: '', email: '' }
+  ) {
     const rawContacts = this.repo.listContacts();
     const rawCompanies = this.repo.listCompanies();
     const rawDeals = this.repo.listDeals();
@@ -842,7 +882,7 @@ export class CrmApiRouter {
       suppressionList: this.repo.listSuppressionEntries(),
       accountEngagement: this.repo.getAccountBasedEngagementSummary(),
       erp,
-      rbac: this.repo.getRbacState(),
+      rbac: this.buildRbacForViewer(rbacView),
       serverTimestamp: new Date().toISOString(),
     };
   }
@@ -1956,7 +1996,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed),
+            data: this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)),
             reconciliation,
           },
         };
@@ -1968,7 +2008,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed),
+            data: this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)),
             reconciliation,
           },
         };
@@ -3472,7 +3512,8 @@ export class CrmApiRouter {
               values.description ||
               values.message ||
               `Chamado aberto pelo formulário web "${form.name}".`,
-            category: (values.category as TicketCategory) || 'SUPPORT',
+            // Pacote J (4): categoria do formulario publico so do enum (senao SUPPORT).
+            category: (TICKET_CREATE_ENUMS.category.includes(String(values.category || '')) ? values.category : 'SUPPORT') as TicketCategory,
             priority,
             channel: 'WEB_PORTAL',
             contactId: contact.id,
@@ -3607,6 +3648,17 @@ export class CrmApiRouter {
         if (method === 'POST') {
           if (!body.subject) {
             return { status: 400, body: { error: 'O campo "subject" do chamado é obrigatório.' } };
+          }
+          const badTicketEnums = findInvalidTicketCreateEnums(body);
+          if (badTicketEnums.length > 0) {
+            return {
+              status: 400,
+              body: {
+                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do Service Desk (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
+                code: 'TICKET_CREATE_FIELD_INVALID',
+                fields: badTicketEnums,
+              },
+            };
           }
           const created = this.repo.createServiceTicket({
             subject: String(body.subject),
@@ -3797,7 +3849,7 @@ export class CrmApiRouter {
             : 'HIGH';
           const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim().slice(0, 120) : null;
 
-          if (!this.portalLimiters.createIp.hit(`create:${portalIp}`)) {
+          if (!this.portalLimiters.createIp.hit(`create:${rateLimitIpKey(portalIp)}`)) {
             this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'rate-limit (429)');
             return tooMany;
           }
@@ -4205,8 +4257,9 @@ export class CrmApiRouter {
           this.repo.createServiceTicket({
             subject,
             description: String(p.content || p.description || 'Importado via HubSpot Service Hub.'),
-            priority: (p.hs_ticket_priority as TicketPriority) || 'HIGH',
-            status: (p.hs_pipeline_stage as TicketStatus) || 'OPEN',
+            // Pacote J (4): valores do HubSpot fora do enum do STI-hub => padrao (nunca grava cru).
+            priority: (TICKET_CREATE_ENUMS.priority.includes(String(p.hs_ticket_priority || '')) ? p.hs_ticket_priority : 'HIGH') as TicketPriority,
+            status: (TICKET_CREATE_ENUMS.status.includes(String(p.hs_pipeline_stage || '')) ? p.hs_pipeline_stage : 'OPEN') as TicketStatus,
             contactId: contact?.id || null,
             companyId: contact?.companyId || null,
             tags: ['HubSpot-Import'],
@@ -4268,8 +4321,15 @@ export class CrmApiRouter {
           if (!body.title) {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
+          // Pacote J (A1): fora do contexto interno, id e code da proposta nova sao SEMPRE do
+          // servidor (a tela usa o registro devolvido). Colisao no contexto interno => 409.
+          const createInput = { ...(body as Record<string, unknown>) };
+          if (!ctx.trustedInternal) {
+            delete createInput.id;
+            delete createInput.code;
+          }
           const created = this.repo.createProposal(
-            body as { title: string; [k: string]: unknown }
+            createInput as { title: string; [k: string]: unknown }
           );
           return { status: 201, body: { data: created } };
         }
@@ -5018,6 +5078,40 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/daily-sync' && (method === 'GET' || method === 'POST')) {
+        // Pacote J (3): a sync diaria chama o GestaoClick ao vivo (GET tambem). Mesma regra do
+        // POST /api/erp/gestaoclick/sync: 2FA + admin ou controle TOTAL do ERP. O Vercel Cron
+        // (GET com Bearer CRON_SECRET validado no bridge) e o contexto interno seguem liberados.
+        const dailyCron =
+          query._fromHttpBridge === '1' && query._cronAuthorized === '1' && method === 'GET';
+        if (!ctx.trustedInternal && !dailyCron) {
+          const priv = this.gestaoClickPrivilege(query, ctx);
+          if (!priv.allowed) {
+            if (priv.authenticated) {
+              try {
+                this.repo.appendSecurityAuditLog({
+                  actorEmail: priv.email || 'desconhecido',
+                  actorName: priv.name || 'desconhecido',
+                  actorRole: priv.roleId || 'desconhecido',
+                  action: 'ERP_DAILY_SYNC_DENIED',
+                  module: 'ERP',
+                  resource: `${method} /api/erp/daily-sync`,
+                  status: 'BLOCKED',
+                  ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+                  details: 'Disparo da sincronizacao diaria GestaoClick negado: exige 2FA e perfil administrador ou controle total do ERP.',
+                });
+              } catch {
+                // auditoria nunca derruba a resposta
+              }
+            }
+            return {
+              status: priv.authenticated ? 403 : 401,
+              body: {
+                error: 'Permissão negada: a sincronização diária do GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                code: 'ERP_DAILY_SYNC_FORBIDDEN',
+              },
+            };
+          }
+        }
         const syncReport = await this.repo.runIncrementalDailySync({
           forceRefresh: method === 'POST' ? body.forceRefresh !== false : false,
         });
@@ -5216,7 +5310,7 @@ export class CrmApiRouter {
               error:
                 parsedCfg.code === 'GESTAOCLICK_CONFIG_EMPTY'
                   ? 'Nenhum campo editável informado.'
-                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário e alíquota de ISS (0 a 5%).`,
+                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
               code: parsedCfg.code,
               fields: parsedCfg.fields,
             },
@@ -6069,7 +6163,7 @@ export class CrmApiRouter {
         const generic = { status: 200, body: { data: { ok: true, message: FORGOT_PASSWORD_GENERIC_MESSAGE } } };
         const emailIn = String(body.email || '').trim().toLowerCase().slice(0, 254);
         const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-        const ipOk = this.forgotPasswordIpLimiter.hit(ip);
+        const ipOk = this.forgotPasswordIpLimiter.hit(rateLimitIpKey(ip)); // Pacote J (D-I4)
         const emailOk = emailIn ? this.forgotPasswordEmailLimiter.hit(`${emailIn}`) : true;
         if (ipOk && emailOk && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailIn)) {
           const rec = this.repo.findRbacUserRecord('', emailIn);
@@ -6097,7 +6191,7 @@ export class CrmApiRouter {
 
       if (cleanPath === '/api/auth/reset-password' && method === 'POST') {
         const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-        if (!this.resetPasswordIpLimiter.hit(ip)) {
+        if (!this.resetPasswordIpLimiter.hit(rateLimitIpKey(ip))) { // Pacote J (D-I4)
           return { status: 429, body: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' } };
         }
         const invalidLink = {
@@ -6953,6 +7047,10 @@ export class CrmApiRouter {
         body: { error: `Rota não encontrada: ${method} ${cleanPath}` },
       };
     } catch (err) {
+      // Pacote J (A1): criacao com id/codigo ja existente => 409 (nunca sobrepoe nem duplica).
+      if (isRecordIdConflictError(err)) {
+        return { status: 409, body: { error: err.message, code: err.code } };
+      }
       return {
         status: 500,
         body: {

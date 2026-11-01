@@ -10,6 +10,7 @@ import {
 // HubSpot Pro CRM - Transactional Repository Layer (File-Persisted & In-Memory)
 // ============================================================================
 
+import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
@@ -1071,6 +1072,53 @@ export class CrmRepository {
     }
   }
 
+  /**
+   * Pacote J (A1/A2): propostas do journal do navegador.
+   * - Proposta NOVA (id exato inexistente) cujo id colide, sem caixa, com id ou codigo de outra
+   *   proposta => descartada (nunca sombra/duplicata). Codigo ausente ou ocupado => o servidor
+   *   gera o proximo codigo livre.
+   * - Proposta EXISTENTE (mesmo id): o journal nao troca o codigo para um ocupado nem o apaga.
+   * (Escopo/dono e status ficam com o router — area do link assinado.)
+   */
+  private guardJournalProposals(
+    current: ErpCommercialProposal[],
+    incoming: ErpCommercialProposal[] | undefined
+  ): ErpCommercialProposal[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const byId = new Map(current.map((p) => [p.id, p] as const));
+    const occupied = occupiedRefs(current, (p) => [p.id, p.code]);
+    const batchNewCodes = new Map<string, string>();
+    const out: ErpCommercialProposal[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object' || !inc.id || typeof inc.id !== 'string') continue;
+      const cur = byId.get(inc.id);
+      const incCode = typeof inc.code === 'string' ? inc.code.trim() : '';
+      if (cur) {
+        const curCode = String(cur.code || '');
+        const codeOk = incCode && (refKey(incCode) === refKey(curCode) || !occupied.has(refKey(incCode)));
+        const next = { ...inc } as ErpCommercialProposal;
+        if ('code' in inc || !curCode) next.code = codeOk ? incCode : curCode;
+        if (codeOk && refKey(incCode) !== refKey(curCode)) occupied.add(refKey(incCode));
+        out.push(next);
+        continue;
+      }
+      const again = batchNewCodes.get(inc.id);
+      if (again !== undefined) {
+        out.push({ ...inc, code: again } as ErpCommercialProposal); // mesma proposta nova repetida no lote
+        continue;
+      }
+      if (occupied.has(refKey(inc.id))) continue; // sombra por caixa ou pelo codigo de outra
+      const code = incCode && !occupied.has(refKey(incCode))
+        ? incCode
+        : nextFreeCode(occupied, current.length + out.length + 1, formatProposalCode);
+      occupied.add(refKey(inc.id));
+      occupied.add(refKey(code));
+      batchNewCodes.set(inc.id, code);
+      out.push({ ...inc, code, items: Array.isArray(inc.items) ? inc.items : [] } as ErpCommercialProposal);
+    }
+    return out;
+  }
+
   reconcileClientState(journal?: ClientDurableJournal | null): {
     reconciled: boolean;
     appliedCount: number;
@@ -1235,7 +1283,8 @@ export class CrmRepository {
     if (!erp.salesOrders) erp.salesOrders = [];
     if (!erp.serviceOrders) erp.serviceOrders = [];
     if (!erp.purchaseOrders) erp.purchaseOrders = [];
-    upsertCollection(erp.proposals, journal.upsertedProposals, deletedProposals);
+    upsertCollection(erp.proposals, this.guardJournalProposals(erp.proposals, journal.upsertedProposals), deletedProposals);
+    this.backfillMissingProposalCodes(erp.proposals);
     upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
     upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
     upsertCollection(erp.catalog, journal.upsertedCatalogItems, deletedCatalog);
@@ -1374,6 +1423,7 @@ export class CrmRepository {
       state?: string;
     }
   ): Contact {
+    assertNewRecordId(this.state.contacts, input.id, 'CONTACT_ID_CONFLICT', 'um contato'); // Pacote J (A1)
     const now = new Date().toISOString();
     const cleanFirstName = (input.firstName || "Novo").trim();
     const cleanLastName = (input.lastName || "").trim();
@@ -1628,6 +1678,7 @@ export class CrmRepository {
   }
 
   createCompany(input: Partial<Company> & { name: string }): Company {
+    assertNewRecordId(this.state.companies, input.id, 'COMPANY_ID_CONFLICT', 'uma empresa'); // Pacote J (A1)
     const now = new Date().toISOString();
     const domVal = normalizeCorporateDomain(input.domain);
     const cnpjVal = validateCnpj(input.cnpj);
@@ -1844,6 +1895,7 @@ export class CrmRepository {
   }
 
   createDeal(input: Partial<Deal> & { title: string; value: number }): Deal {
+    assertNewRecordId(this.state.deals, input.id, 'DEAL_ID_CONFLICT', 'um negócio'); // Pacote J (A1)
     const now = new Date().toISOString();
     const defaultPipeline = this.state.pipelines[0];
     const matchedPipeForStage = input.stageId
@@ -3163,6 +3215,7 @@ export class CrmRepository {
     input: Partial<ServiceTicket> & { subject: string }
   ): ServiceTicket {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    assertNewRecordId(this.state.serviceTickets, input.id, 'TICKET_ID_CONFLICT', 'um chamado'); // Pacote J (A1)
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -3595,6 +3648,9 @@ export class CrmRepository {
     }
     if (Array.isArray(this.state.erp.proposals)) {
       this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
+      // Pacote J (A2): proposta sem code (journal antigo) recebe um codigo livre do servidor, para
+      // que buscas por id/codigo nunca derrubem as edicoes de todas as propostas.
+      this.backfillMissingProposalCodes(this.state.erp.proposals);
     }
     return this.state.erp;
   }
@@ -3666,11 +3722,38 @@ export class CrmRepository {
     return [...this.ensureErp().proposals];
   }
 
+  /** Pacote J (A2): preenche `code` ausente/vazio com o proximo codigo livre (nao altera os demais). */
+  private backfillMissingProposalCodes(proposals: ErpCommercialProposal[]): void {
+    if (!proposals.some((p) => p && !String(p.code || '').trim())) return;
+    const occupied = occupiedRefs(proposals, (p) => [p && p.id, p && p.code]);
+    for (const p of proposals) {
+      if (p && !String(p.code || '').trim()) {
+        p.code = nextFreeCode(occupied, proposals.length + 1, formatProposalCode);
+        occupied.add(refKey(p.code));
+      }
+    }
+  }
+
   createProposal(input: Partial<ErpCommercialProposal> & { title: string }): ErpCommercialProposal {
     const erp = this.ensureErp();
     const now = new Date().toISOString();
     const nextNum = erp.proposals.length + 1;
-    const code = input.code || `PROP-2026-00${nextNum}`;
+    // Pacote J (A1): criacao nunca sobrepoe nem duplica. id/codigo informado que ja exista (como
+    // id OU codigo de outra proposta, sem caixa) => 409; sem codigo => proximo codigo livre.
+    const occupied = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);
+    const inputId = input.id !== undefined && input.id !== null ? String(input.id).trim() : '';
+    if (inputId && occupied.has(refKey(inputId))) {
+      throw new RecordIdConflictError('PROPOSAL_ID_CONFLICT', 'Já existe uma proposta com este identificador. Crie sem informar "id" (o servidor gera um novo).');
+    }
+    const inputCode = input.code !== undefined && input.code !== null ? String(input.code).trim() : '';
+    if (inputCode && occupied.has(refKey(inputCode))) {
+      throw new RecordIdConflictError('PROPOSAL_CODE_CONFLICT', 'Já existe uma proposta com este código. Crie sem informar "code" (o servidor gera um novo).');
+    }
+    const code = inputCode || nextFreeCode(occupied, nextNum, formatProposalCode);
+    let newId = inputId;
+    while (!newId || (newId !== inputId && occupied.has(refKey(newId)))) {
+      newId = `prop-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    }
 
     const company = input.companyId ? this.getCompanyById(input.companyId) : undefined;
     const contact = input.contactId ? this.getContactById(input.contactId) : undefined;
@@ -3782,7 +3865,7 @@ export class CrmRepository {
 
     const proposal: ErpCommercialProposal = {
       ...input,
-      id: input.id || `prop-${Date.now()}`,
+      id: newId,
       code,
       title: input.title.trim(),
       budgetType: inferredBudgetType,
@@ -3861,14 +3944,19 @@ export class CrmRepository {
   ): ErpCommercialProposal | null {
     const erp = this.ensureErp();
     const idx = erp.proposals.findIndex(
-      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === idOrCode.toLowerCase()
     );
     const nowIso = new Date().toISOString();
 
     if (idx === -1) {
       // If editing a proposal/quote that was only on the client or GestãoClick, upsert it!
+      // Pacote J (A1): o upsert nunca duplica codigo de outra proposta (codigo ocupado => o servidor
+      // gera outro) e id que colide sem caixa com id/codigo existente => 409 (createProposal).
+      const occupiedCodes = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);
+      const safeCode = patch.code && !occupiedCodes.has(refKey(patch.code)) ? String(patch.code) : undefined;
       const created = this.createProposal({
         ...patch,
+        code: safeCode,
         id: idOrCode,
         title: patch.title || `Proposta Comercial ${idOrCode}`,
       });
@@ -3876,7 +3964,7 @@ export class CrmRepository {
     }
 
     const current = ensureProposalInitializedWithVersion(erp.proposals[idx]);
-    const rawItems = Array.isArray(patch.items) ? patch.items : current.items;
+    const rawItems = Array.isArray(patch.items) ? patch.items : Array.isArray(current.items) ? current.items : []; // Pacote J (A2)
     const items = rawItems.map((it) => {
       const itemType =
         it.itemType ||
@@ -4070,7 +4158,7 @@ export class CrmRepository {
   ): ErpCommercialProposal | null {
     const erp = this.ensureErp();
     const found = erp.proposals.find(
-      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === idOrCode.toLowerCase()
     );
     if (!found) return null;
     ensureProposalInitializedWithVersion(found);
@@ -4091,7 +4179,7 @@ export class CrmRepository {
     const erp = this.ensureErp();
     const before = erp.proposals.length;
     erp.proposals = erp.proposals.filter(
-      (p) => p.id !== idOrCode && p.code.toLowerCase() !== idOrCode.toLowerCase()
+      (p) => p.id !== idOrCode && String(p.code || '').toLowerCase() !== idOrCode.toLowerCase()
     );
     if (erp.proposals.length !== before) {
       this.save();
@@ -5040,7 +5128,7 @@ export class CrmRepository {
         p.id === cleanId ||
         p.id.toLowerCase() === cleanId.toLowerCase() ||
         p.code === cleanId ||
-        p.code.toLowerCase() === cleanId.toLowerCase()
+        String(p.code || '').toLowerCase() === cleanId.toLowerCase()
     );
     if (!proposal && signatureInput && typeof signatureInput === "object") {
       const incoming = (signatureInput.proposal && typeof signatureInput.proposal === "object"
@@ -5215,9 +5303,15 @@ export class CrmRepository {
     input: Partial<ErpRentalContract> & { title: string; companyName: string; monthlyValue: number }
   ): ErpRentalContract {
     const erp = this.ensureErp();
+    assertNewRecordId(erp.rentalContracts, input.id, 'CONTRACT_ID_CONFLICT', 'um contrato'); // Pacote J (A1)
     const nowIso = new Date().toISOString();
+    // Pacote J (A1): numero de contrato nunca duplica (a tela calcula LOC-2026-<n> localmente; se
+    // ja existir, o servidor gera o proximo livre em vez de criar dois contratos com o mesmo numero).
+    const occupiedContractNumbers = occupiedRefs(erp.rentalContracts, (c) => [c.contractNumber]);
     const contractNumber =
-      input.contractNumber || `LOC-2026-${100 + erp.rentalContracts.length + 1}`;
+      input.contractNumber && !occupiedContractNumbers.has(refKey(input.contractNumber))
+        ? input.contractNumber
+        : nextFreeCode(occupiedContractNumbers, 100 + erp.rentalContracts.length + 1, (n) => `LOC-2026-${n}`);
     const contractMonths = Number(input.contractMonths || 24);
 
     const contract: ErpRentalContract = {
