@@ -5458,7 +5458,7 @@ export class CrmRepository {
       signatureHashSha256,
       timestampToken: `ACT-ITI-${now.getFullYear()}-${signatureHashSha256.slice(16, 28).toUpperCase()}`,
       signedAt: nowIso,
-      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "189.112.44.18",
+      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "sem-ip", // CISO 30/10: sem IP fixo de fallback
     };
 
     proposal.status = "CONVERTIDA_CONTRATO";

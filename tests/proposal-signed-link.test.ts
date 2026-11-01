@@ -1011,3 +1011,117 @@ describe('Mudanca de status por sessao (CISO 30/10)', () => {
     assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'ENVIADA');
   });
 });
+
+describe('Item 1: resposta de /api/erp/gestaoclick/sync passa pelo escopo de propostas', () => {
+  it('usuario com controle TOTAL do ERP mas escopo PROPRIOS so ve as proprias no overview do sync', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    Object.assign(maria.erpPermissions as object, {
+      financeBanksAccess: 'FULL', fiscalIssuanceAccess: 'FULL', proposalsQuotesAccess: 'FULL', stockOsSalesAccess: 'FULL',
+      rentalContractsAccess: 'FULL', canIssueFiscalDocuments: true, canApproveProposals: true, canDeleteErpRecords: true, maxDiscountPercent: 100,
+    });
+    assert.ok(!maria.enabledModules || maria.enabledModules.includes('ERP'));
+    const own = repo.createProposal({ title: 'M', companyName: 'C', sellerEmail: maria.email, items: [] } as never);
+    const r = await router.dispatch({ method: 'POST', path: '/api/erp/gestaoclick/sync', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') }, body: {} });
+    assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+    const ids = ((r.body as { erp: { proposals: Array<{ id: string }> } }).erp.proposals || []).map((p) => p.id);
+    assert.deepEqual(ids, [own.id]);
+    assert.ok(repo.listProposals().length > 1);
+    const adm = await router.dispatch({ method: 'POST', path: '/api/erp/gestaoclick/sync', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') }, body: {} });
+    assert.equal(adm.status, 200);
+    assert.equal((adm.body as { erp: { proposals: unknown[] } }).erp.proposals.length, repo.listProposals().length);
+  });
+});
+
+describe('Item 2: redacao central (formato do token, forma codificada, todos os caminhos)', () => {
+  it('redige #t=, %23t%3D (inclusive duplo) e o token solto; outros tokens intactos', () => {
+    const tok = linkFor('prop-x');
+    const [payload, sig] = tok.split('.');
+    assert.equal(sig.length, 43);
+    const out = redactProposalLinkTokens(
+      `a https://h/proposta/p#t=${tok} b https://h/x?u=https%3A%2F%2Fh%2Fproposta%2Fp%23t%3D${tok} c %2523t%253D${payload}%252E${sig} d ${tok} e`
+    );
+    assert.ok(!out.includes(sig), out);
+    assert.ok(!out.includes(payload), out);
+    assert.match(out, /#t=\[REDACTED\]/);
+    assert.match(out, /%23t%3D\[REDACTED\]/);
+    assert.match(out, / d \[REDACTED\] e$/);
+    const sess = sessionFor(fresh().repo, 'usr-seta-01');
+    assert.equal(redactProposalLinkTokens(`x ${sess} y`), `x ${sess} y`, 'token de sessao nao e de link');
+    const fakeJwtLike = `eyJhbGciOiJIUzI1NiJ9.${'A'.repeat(43)}`;
+    assert.equal(redactProposalLinkTokens(fakeJwtLike), fakeJwtLike);
+  });
+
+  it('dispatch redige o corpo de QUALQUER rota que grava (tarefa, timeline); Resend recebe o link completo', async () => {
+    const { repo, router } = fresh();
+    const tok = linkFor('prop-seta-001', 2);
+    const sig = tok.split('.')[1];
+    const enc = `https%3A%2F%2Fh%2Fproposta%2Fprop-seta-001%23t%3D${tok}`;
+    const t = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tasks', body: { title: `Ver ${enc}`, description: `token ${tok}`, notes: `#t=${tok}` } });
+    assert.ok(t.status < 300, JSON.stringify(t.body).slice(0, 200));
+    assert.ok(!JSON.stringify(repo.listTasks({})).includes(sig));
+    const realFetch = globalThis.fetch;
+    const prevKey = process.env.RESEND_API_KEY;
+    const sent: string[] = [];
+    process.env.RESEND_API_KEY = 're_test_proposal_link_fake';
+    globalThis.fetch = (async (_i: unknown, init?: { body?: unknown }) => {
+      sent.push(String(init?.body || ''));
+      return new Response('{"id":"f"}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const r = await router.dispatch({
+        context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/communications/send-email',
+        body: { to: 'cliente@exemplo.invalid', subject: 'Proposta', body: `Link: https://h/proposta/prop-seta-001#t=${tok}\nAlt: ${enc}`, docType: 'PROPOSAL', publicPdfUrl: `https://h/proposta/prop-seta-001#t=${tok}` },
+      });
+      assert.equal(r.status < 300, true);
+    } finally {
+      globalThis.fetch = realFetch;
+      if (prevKey === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = prevKey;
+    }
+    assert.equal(sent.length, 1);
+    assert.ok(sent[0].includes(`#t=${tok}`), 'Resend recebe o link completo');
+    assert.ok(sent[0].includes(`%23t%3D${tok}`));
+    const state = JSON.stringify(repo.getState());
+    assert.ok(!state.includes(sig), 'nada gravado com a assinatura do token');
+  });
+});
+
+describe('Item 4: allowlist de campos, ncm vazio, sem-ip', () => {
+  it('PATCH de sessao e journal descartam campos fora da allowlist (id, createdAt, chaves desconhecidas)', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const p = repo.createProposal({ title: 'A', companyName: 'C', items: [] } as never);
+    const created = repo.listProposals().find((x) => x.id === p.id)!.createdAt;
+    const r = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _clientIp: '192.0.2.40', _sessionToken: sa }, body: { title: 'B', id: 'sequestro', createdAt: '2000-01-01T00:00:00.000Z', isAdmin: true, pdfSecret: 'x' } });
+    assert.equal(r.status, 200);
+    const cur = repo.listProposals().find((x) => x.id === p.id)! as unknown as Record<string, unknown>;
+    assert.equal(cur.title, 'B');
+    assert.equal(cur.createdAt, created);
+    assert.equal(cur.isAdmin, undefined);
+    assert.equal(cur.pdfSecret, undefined);
+    assert.equal(repo.listProposals().some((x) => x.id === 'sequestro'), false);
+    await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: { ...HTTP, _clientIp: '192.0.2.40', _sessionToken: sa }, body: { journal: { upsertedProposals: [{ ...(cur as object), title: 'J', createdAt: '2000-01-01T00:00:00.000Z', foo: 'bar', updatedAt: new Date(Date.now() + 60_000).toISOString() }] } } });
+    const j = repo.listProposals().find((x) => x.id === p.id)! as unknown as Record<string, unknown>;
+    assert.equal(j.title, 'J');
+    assert.equal(j.createdAt, created);
+    assert.equal(j.foo, undefined);
+  });
+
+  it('aceite sem IP grava "sem-ip" (sem IP fixo) e item sem NCM nao derruba a conversao', () => {
+    const { repo } = fresh();
+    const p = repo.createProposal({
+      title: 'NCM', companyName: 'C', companyCnpj: '00.000.000/0001-00', status: 'ENVIADA',
+      items: [{ id: 'i1', description: 'Roteador', quantity: 1, unitPrice: 100, itemType: 'PRODUTO' }],
+    } as never);
+    const res = repo.approveProposalAndConvertToContract(p.id, { signerName: 'Cliente' });
+    assert.ok(res);
+    assert.equal(res!.digitalSignature.ipAddress, 'sem-ip');
+    assert.ok(!JSON.stringify(res).includes('189.112.44.18'));
+  });
+
+  it('rota de aceite usa return await (erro assincrono cai no try/catch da rota)', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const src = fs.readFileSync(require('node:path').join(process.cwd(), 'src/api/router.ts'), 'utf8');
+    assert.match(src, /return await this\.approveProposalViaLink\(/);
+  });
+});
