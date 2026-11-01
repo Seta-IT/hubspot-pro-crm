@@ -181,6 +181,11 @@ function redactProposalPayloads(s: string): string {
     }
     const plen = proposalPayloadLengthAt(v, idx);
     if (!plen) {
+      // RESIDUAL ACEITO PELO CISO (checagem final da v4, 01/11/2026): um `eyJ2Ijo...` FALSO
+      // colado na MESMA sequencia base64, imediatamente antes do token real, faz este laco
+      // pular a sequencia inteira, e o token real NAO e redigido. Aceito para manter o custo
+      // linear (B-V4-1): voltar e re-tentar cada `eyJ` da sequencia reabre o custo quadratico.
+      // Exige ofuscacao deliberada por quem ja tem o token. Ver /workspace/reviews/v4-fix/NOTAS.md.
       let j = idx;
       while (j < v.length && isB64Char(v[j])) j++;
       from = Math.max(j, idx + 3);
