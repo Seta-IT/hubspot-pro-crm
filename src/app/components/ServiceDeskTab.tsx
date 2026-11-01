@@ -445,9 +445,7 @@ export default function ServiceDeskTab({
     setSendingComment(true);
     try {
       await onAddTicketComment(activeTicket.id, {
-        author: isInternalNote
-          ? `Engenharia ${activeTicket.assignee.split('-')[0].trim()} (Nota Interna)`
-          : 'Marcéllo Mira (NOC Seta Telecom)',
+        author: '', // Pacote H: o servidor define o autor (sessao)
         authorRole: 'AGENT',
         isInternal: isInternalNote,
         body: commentBody.trim(),
@@ -1843,18 +1841,18 @@ export default function ServiceDeskTab({
                   </span>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5].map((star) => (
-                      <button
+                      // Pacote H: CSAT e do CLIENTE (portal); a equipe so visualiza.
+                      <span
                         key={star}
-                        type="button"
-                        onClick={() => onUpdateTicket(activeTicket.id, { csatScore: star })}
-                        className={`px-2 py-0.5 rounded text-xs font-extrabold transition cursor-pointer ${
+                        title={activeTicket.csatScore ? `Nota do cliente: ${activeTicket.csatScore}/5` : 'Aguardando avaliação do cliente no portal'}
+                        className={`px-2 py-0.5 rounded text-xs font-extrabold ${
                           (activeTicket.csatScore || 0) >= star
                             ? 'bg-amber-400 text-slate-950'
-                            : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-700'
+                            : 'bg-white border border-slate-200 text-slate-400'
                         }`}
                       >
                         {star}/5
-                      </button>
+                      </span>
                     ))}
                   </div>
                 </div>

@@ -8,6 +8,8 @@
 //   - responsavel ja presente nos dados (legado HubSpot/GestaoClick), para nao quebrar registros
 //     existentes nem reatribuicoes entre responsaveis reais.
 // Valor igual ao atual passa (formularios reenviam o registro inteiro). Desconhecido => 400.
+// Pacote H: string vazia => 400 (limpar = null explicito, so admin); usuario inativo => 400;
+// o valor gravado e normalizado (trim + espacos colapsados).
 // ============================================================================
 import { SETA_OWNER_OPTIONS } from '../app/lib/owner-options';
 
@@ -20,28 +22,52 @@ export function normalizeOwnerName(v: unknown): string {
     .trim();
 }
 
+/** Pacote H: forma gravada do responsavel (trim + espacos colapsados). */
+export function cleanOwnerName(v: unknown): string {
+  return String(v ?? '').replace(/\s+/g, ' ').trim();
+}
+
+const isInactiveLabel = (n: string) => /\(inativ[oa]\)/i.test(n);
+
 export interface OwnerUniverse {
-  users: Array<{ name?: string; email?: string }>;
+  users: Array<{ name?: string; email?: string; active?: boolean }>;
   existingOwnerNames: Array<string | null | undefined>;
 }
 
+/**
+ * Responsaveis ATIVOS conhecidos. Pacote H: usuario IAM inativo, opcao "(Inativo)" da lista
+ * oficial e nomes legados que batem com usuario inativo NAO entram (nao podem ser atribuidos
+ * de novo; o valor atual de um registro continua aceito sem mudanca).
+ */
 export function buildKnownOwnerSet(u: OwnerUniverse): Set<string> {
   const set = new Set<string>();
-  for (const n of SETA_OWNER_OPTIONS) set.add(normalizeOwnerName(n));
+  const inactive = new Set<string>();
   for (const x of u.users || []) {
-    if (x?.name) set.add(normalizeOwnerName(x.name));
-    if (x?.email) set.add(normalizeOwnerName(x.email));
+    if (x?.active === false) {
+      if (x.name) inactive.add(normalizeOwnerName(x.name));
+      if (x.email) inactive.add(normalizeOwnerName(x.email));
+    }
   }
-  for (const n of u.existingOwnerNames || []) if (n) set.add(normalizeOwnerName(n));
-  set.delete('');
+  const add = (n: string | null | undefined) => {
+    if (!n || isInactiveLabel(n)) return;
+    const k = normalizeOwnerName(n);
+    if (k && !inactive.has(k)) set.add(k);
+  };
+  for (const n of SETA_OWNER_OPTIONS) add(n);
+  for (const x of u.users || []) {
+    if (x?.active === false) continue;
+    add(x?.name);
+    add(x?.email);
+  }
+  for (const n of u.existingOwnerNames || []) add(n);
   return set;
 }
 
-/** ok=false => 400 OWNER_NOT_FOUND. Ausente/vazio ou igual ao atual => ok. */
+/** Valor nao vazio (ja limpo) igual ao atual ou conhecido e ativo => ok. */
 export function isAssignableOwnerName(value: unknown, current: string | null | undefined, known: Set<string>): boolean {
-  if (value === undefined || value === null) return true;
+  if (typeof value !== 'string') return false;
   const n = normalizeOwnerName(value);
-  if (!n) return true;
+  if (!n) return false;
   if (current && normalizeOwnerName(current) === n) return true;
   return known.has(n);
 }

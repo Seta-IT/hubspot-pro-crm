@@ -17,6 +17,7 @@ import {
   loadClientDeletedUsersOverride,
   loadClientIamUsersOverride,
   migrateClientIamStorage,
+  sanitizeActiveSessionForStorage,
   toActiveSessionDisplayUser,
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
@@ -96,7 +97,8 @@ export default function StiHubLoginPage() {
     }
     localStorage.setItem(
       'stihub_active_session_v1',
-      JSON.stringify({
+      // Pacote H: allowlist do topo e do user (lib/auth sanitizeActiveSessionForStorage).
+      JSON.stringify(sanitizeActiveSessionForStorage({
         authenticated: true,
         mfaVerified: true,
         verifiedVia: data?.verifiedVia || 'DIRECT_LOGIN',
@@ -108,7 +110,7 @@ export default function StiHubLoginPage() {
         crmPermissions: data?.crmPermissions,
         erpPermissions: data?.erpPermissions,
         loggedAt: new Date().toISOString(),
-      })
+      }))
     );
     document.cookie = 'stihub_logged_out=; Path=/; Max-Age=0; SameSite=Lax';
     if (verifiedEmail && userObj?.totpConfigured !== false) {

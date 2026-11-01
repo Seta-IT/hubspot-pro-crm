@@ -1020,11 +1020,44 @@ export function toActiveSessionDisplayUser(u: unknown): Record<string, unknown> 
   return out;
 }
 
-/** Copia do registro de sessao ativa pronta para o localStorage (user so com campos de exibicao). */
+/**
+ * Pacote H: ALLOWLIST do topo de stihub_active_session_v1 (uniao do que o login e o
+ * setClientSessionCookie gravam e do que getClientSession/page.tsx leem). Qualquer outra chave
+ * (token, hash, segredo, selo, desafio...) e descartada; `user` so com campos de exibicao.
+ */
+export const ACTIVE_SESSION_TOP_KEYS = [
+  'authenticated',
+  'mfaVerified',
+  'mfaMethod',
+  'verifiedVia',
+  'user',
+  'role',
+  'effectiveActionGuards',
+  'enabledModules',
+  'moduleAccess',
+  'crmPermissions',
+  'erpPermissions',
+  'loggedAt',
+  'userId',
+  'name',
+  'email',
+  'department',
+  'issuedAt',
+] as const;
+
+/** Copia do registro de sessao ativa pronta para o localStorage (allowlist no topo e em user). */
 export function sanitizeActiveSessionForStorage<T extends Record<string, unknown>>(session: T): T {
-  const top = scrubClientIamCredentialFields(session as Record<string, unknown>).clean as Record<string, unknown>;
-  if ('user' in top) top.user = toActiveSessionDisplayUser(top.user);
-  return top as T;
+  const src = scrubClientIamCredentialFields(session as Record<string, unknown>).clean as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ACTIVE_SESSION_TOP_KEYS) {
+    if (src[k] === undefined) continue;
+    out[k] = k === 'user' ? toActiveSessionDisplayUser(src[k]) : src[k];
+  }
+  // role pode ser objeto (definicao do papel): sem credenciais.
+  if (out.role && typeof out.role === 'object' && !Array.isArray(out.role)) {
+    out.role = scrubClientIamCredentialFields(out.role as Record<string, unknown>).clean;
+  }
+  return out as T;
 }
 
 export const STIHUB_IAM_USERS_STORAGE_KEY = "stihub_iam_users_override_v1";
@@ -1110,18 +1143,9 @@ export function migrateClientIamStorage(): number {
     if (rawS) {
       const sess = JSON.parse(rawS) as Record<string, unknown> | null;
       if (sess && typeof sess === "object") {
-        let changed = false;
-        const top = scrubClientIamCredentialFields(sess);
-        const out = top.clean as Record<string, unknown>;
-        changed = top.changed;
-        if (out.user && typeof out.user === "object") {
-          // Pacote G (5d): user da sessao ativa so com campos de exibicao.
-          const display = toActiveSessionDisplayUser(out.user);
-          if (JSON.stringify(display) !== JSON.stringify(out.user)) {
-            out.user = display;
-            changed = true;
-          }
-        }
+        // Pacote H: mesma allowlist da gravacao (topo + user so exibicao).
+        const out = sanitizeActiveSessionForStorage(sess);
+        const changed = JSON.stringify(out) !== JSON.stringify(sess);
         if (changed) {
           window.localStorage.setItem(STIHUB_SESSION_STORAGE_KEY, JSON.stringify(out));
           cleaned++;
