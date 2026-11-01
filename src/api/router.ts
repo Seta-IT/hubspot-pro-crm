@@ -24,10 +24,10 @@ import type { ErpFinancialEntry } from "../db/types";
 import { ClientDurableJournal, CrmRepository, getRepository } from '../db/repository';
 import {
   checkPostgresHealth,
+  isPersistenceFailClosed,
   isPostgresEnabled,
-  loadStateFromPostgres,
-  syncStateToPostgres,
 } from '../db/postgres';
+import { PgStateSync } from '../db/pg-state-sync';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
@@ -643,10 +643,29 @@ function checkAdminNewPassword(
   return { ok: true, body };
 }
 
+/** Rotas que sempre checam a versao do estado (ignoram o debounce opcional). */
+const PERSISTENCE_ALWAYS_CHECK_PATH = /^\/api\/(auth|admin|rbac|iam|users|me|security|service-accounts|portal|proposals\/public)(\/|$)/;
+
+/** 503 de persistencia (sem detalhes internos). */
+function persistenceUnavailableResponse(err: unknown): ApiResponse {
+  const code = (err as { code?: string } | null)?.code || 'PG_UNAVAILABLE';
+  console.error(`[STI-hub] Persistencia indisponivel (${code}): ${err instanceof Error ? err.message : String(err)}`);
+  return {
+    status: 503,
+    headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' },
+    body: {
+      error: 'O STI-hub está temporariamente sem acesso ao banco de dados. Nada foi salvo; tente novamente em instantes.',
+      code: 'PERSISTENCE_UNAVAILABLE',
+    },
+  };
+}
+
 export class CrmApiRouter {
   private repo: CrmRepository;
   private isSingletonRepo: boolean;
   private pgInitialized = false;
+  /** Neon Free: versao + snapshot limpo por instancia (ver src/db/pg-state-sync.ts). */
+  private readonly pgSync = new PgStateSync();
   private gcInitialized = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
@@ -873,13 +892,17 @@ export class CrmApiRouter {
 
     if (this.isSingletonRepo && isPostgresEnabled()) {
       try {
-        const pgState = await loadStateFromPostgres();
-        if (pgState) {
-          this.repo.loadState(pgState);
-        }
+        await this.pgSync.beginRequest(this.repo, {
+          forceCheck: method !== "GET" || PERSISTENCE_ALWAYS_CHECK_PATH.test(cleanPath),
+        });
         this.pgInitialized = true;
-      } catch {
-        // Fallback to local state if PostgreSQL is unreachable
+      } catch (err) {
+        // Neon Free (c): em producao/preview, banco vazio ou ilegivel => 503 (nunca seed nem /tmp).
+        if (isPersistenceFailClosed()) {
+          this.pgSync.invalidate();
+          return persistenceUnavailableResponse(err);
+        }
+        // Desenvolvimento/testes: segue com o estado local, como antes.
       }
     }
 
@@ -933,9 +956,13 @@ export class CrmApiRouter {
         journalReconciled)
     ) {
       try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // Ignore background sync failure if PostgreSQL is temporarily unavailable
+        await this.pgSync.commit(this.repo);
+      } catch (err) {
+        // Neon Free (c): em producao/preview a falha de gravacao vira 503 (antes: 2xx sem salvar).
+        if (isPersistenceFailClosed()) {
+          this.pgSync.invalidate();
+          return persistenceUnavailableResponse(err);
+        }
       }
     }
 
@@ -1055,9 +1082,12 @@ export class CrmApiRouter {
 
     if (this.isSingletonRepo && isPostgresEnabled() && route.kind === 'CREATE' && raw.status >= 200 && raw.status < 400) {
       try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // sincronizacao opcional
+        await this.pgSync.commit(this.repo);
+      } catch (err) {
+        if (isPersistenceFailClosed()) {
+          this.pgSync.invalidate();
+          return persistenceUnavailableResponse(err);
+        }
       }
     }
     // Nunca devolve headers (em especial Set-Cookie) para a conta de servico.

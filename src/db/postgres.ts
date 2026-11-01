@@ -18,20 +18,47 @@ export function isPostgresEnabled(): boolean {
   return getDatabaseUrl() !== null;
 }
 
+/**
+ * TLS do Postgres (Neon: certificado publico, validado pela cadeia padrao do Node).
+ * Antes: TLS com rejectUnauthorized=false — na pratica ja era ignorado quando a URL trazia
+ * sslmode=require (o pg-connection-string 2.x sobrepoe o `ssl` explicito e valida o certificado),
+ * mas valeria se so PGSSLMODE estivesse definido. Agora a validacao e sempre explicita.
+ * Excecao so fora de producao/preview: STI_HUB_PG_TLS_INSECURE=1 (Postgres local com certificado proprio).
+ */
+export function resolvePostgresSsl(connStr: string): false | { rejectUnauthorized: boolean } {
+  const wantsTls =
+    process.env.PGSSLMODE === 'require' ||
+    process.env.PGSSLMODE === 'verify-full' ||
+    /[?&]sslmode=(require|verify-ca|verify-full|prefer)\b/.test(connStr) ||
+    /\.neon\.tech\b/i.test(connStr);
+  if (!wantsTls) return false;
+  const insecureAllowed = process.env.STI_HUB_PG_TLS_INSECURE === '1' && !isPersistenceFailClosed();
+  return { rejectUnauthorized: !insecureAllowed };
+}
+
+/** Retira da URL os parametros sslmode/uselibpqcompat para que o `ssl` explicito acima valha. */
+export function stripSslParams(connStr: string): string {
+  try {
+    const u = new URL(connStr);
+    u.searchParams.delete('sslmode');
+    u.searchParams.delete('uselibpqcompat');
+    return u.toString();
+  } catch {
+    return connStr;
+  }
+}
+
 export function getPostgresPool(): Pool | null {
   const connStr = getDatabaseUrl();
   if (!connStr) return null;
   if (!pgPool) {
+    const ssl = resolvePostgresSsl(connStr);
     pgPool = new Pool({
-      connectionString: connStr,
+      connectionString: ssl ? stripSslParams(connStr) : connStr,
       max: Number(process.env.PG_POOL_MAX || 10),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
-      ssl:
-        process.env.PGSSLMODE === 'require' ||
-        (connStr.includes('sslmode=require'))
-          ? { rejectUnauthorized: false }
-          : undefined,
+      ssl: ssl || undefined,
     });
   }
   return pgPool;
@@ -50,6 +77,63 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
   if (!executor) return;
   if (schemaEnsured && !poolOrClient) return;
 
+  // Neon Free (01/11/2026): o DDL roda numa transacao com advisory lock (serializa instancias
+  // frias concorrentes). So aditivo e idempotente.
+  const ownClient = executor instanceof Pool ? await executor.connect() : null;
+  const c = (ownClient || executor) as Pool | PoolClient;
+  try {
+    await c.query('BEGIN');
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext('sti_hub_schema_v1'))`);
+    await runSchemaDdl(c);
+    await c.query('COMMIT');
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    ownClient?.release();
+  }
+  schemaEnsured = true;
+}
+
+/**
+ * DDL aditivo da versao do estado (Neon Free): coluna `version` em crm_kv_store e trigger que
+ * a incrementa em QUALQUER UPDATE (inclusive o upsert do codigo antigo durante o corte e um
+ * rollback para o deploy anterior). Nada e apagado nem renomeado.
+ */
+const STATE_VERSION_DDL = `
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'crm_kv_store' AND column_name = 'version'
+    ) THEN
+      ALTER TABLE crm_kv_store ADD COLUMN version BIGINT NOT NULL DEFAULT 1;
+    END IF;
+  END
+  $$;
+
+  CREATE OR REPLACE FUNCTION crm_kv_store_bump_version() RETURNS trigger AS $$
+  BEGIN
+    NEW.version := COALESCE(OLD.version, 0) + 1;
+    RETURN NEW;
+  END
+  $$ LANGUAGE plpgsql;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+      WHERE t.tgname = 'crm_kv_store_version_bump' AND c.relname = 'crm_kv_store' AND NOT t.tgisinternal
+    ) THEN
+      CREATE TRIGGER crm_kv_store_version_bump
+        BEFORE UPDATE ON crm_kv_store
+        FOR EACH ROW EXECUTE FUNCTION crm_kv_store_bump_version();
+    END IF;
+  END
+  $$;
+`;
+
+async function runSchemaDdl(executor: Pool | PoolClient): Promise<void> {
   await executor.query(`
     CREATE TABLE IF NOT EXISTS crm_kv_store (
       key TEXT PRIMARY KEY,
@@ -188,30 +272,191 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_status ON crm_service_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_priority ON crm_service_tickets(priority);
   `);
-
-  schemaEnsured = true;
+  await executor.query(STATE_VERSION_DDL);
 }
 
+export const CRM_STATE_KEY = 'crm_state_v1';
+
+/**
+ * Producao/preview (Vercel) ou STI_HUB_PG_FAIL_CLOSED=1: banco vazio, falha de leitura ou de
+ * gravacao viram 503 — nunca seed, nunca /tmp em silencio.
+ */
+export function isPersistenceFailClosed(): boolean {
+  const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
+  return vercelEnv === 'production' || vercelEnv === 'preview' || process.env.STI_HUB_PG_FAIL_CLOSED === '1';
+}
+
+/** Espelhos relacionais (crm_companies...) so com STI_HUB_PG_RELATIONAL_MIRROR=1: nenhum codigo os le. */
+export function isRelationalMirrorEnabled(): boolean {
+  return process.env.STI_HUB_PG_RELATIONAL_MIRROR === '1';
+}
+
+export class PersistenceUnavailableError extends Error {
+  readonly code: string;
+  constructor(code: 'PG_STATE_MISSING' | 'PG_READ_FAILED' | 'PG_WRITE_FAILED' | 'PG_WRITE_CONFLICT', message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'PersistenceUnavailableError';
+  }
+}
+
+/** Le so a versao do estado (alguns bytes). null = linha inexistente. */
+export async function readStateVersion(): Promise<number | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensurePostgresSchema();
+  const res = await pool.query<{ version: string }>(
+    `SELECT version FROM crm_kv_store WHERE key = $1`,
+    [CRM_STATE_KEY]
+  );
+  return res.rows.length ? Number(res.rows[0].version) : null;
+}
+
+/**
+ * Hash (md5 do texto JSONB) de cada "segmento" do estado: chaves de 1o nivel e, para `erp` e
+ * `rbac` (objetos grandes), as de 2o nivel ("erp.invoices"...). ~3 KB no total. Permite que uma
+ * instancia releia so os segmentos que outra instancia alterou.
+ */
+const SEGMENT_HASHES_SQL = (payloadExpr: string) => `(
+  SELECT COALESCE(jsonb_object_agg(s.seg, s.h), '{}'::jsonb) FROM (
+    SELECT e.key AS seg, md5(e.value::text) AS h FROM jsonb_each(${payloadExpr}) e
+      WHERE e.key NOT IN ('erp', 'rbac') OR jsonb_typeof(e.value) <> 'object'
+    UNION ALL
+    SELECT 'erp.' || x.key, md5(x.value::text) FROM jsonb_each(
+      CASE WHEN jsonb_typeof(${payloadExpr}->'erp') = 'object' THEN ${payloadExpr}->'erp' ELSE '{}'::jsonb END) x
+    UNION ALL
+    SELECT 'rbac.' || x.key, md5(x.value::text) FROM jsonb_each(
+      CASE WHEN jsonb_typeof(${payloadExpr}->'rbac') = 'object' THEN ${payloadExpr}->'rbac' ELSE '{}'::jsonb END) x
+  ) s
+)`;
+
+export type SegmentHashes = Record<string, string>;
+
+/** Le o estado inteiro com a versao e os hashes dos segmentos. null = linha inexistente. */
+export async function readStateWithVersion(): Promise<{ state: CrmDatabaseState; version: number; hashes: SegmentHashes } | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensurePostgresSchema();
+  const res = await pool.query<{ payload: CrmDatabaseState; version: string; hashes: SegmentHashes }>(
+    `SELECT payload, version, ${SEGMENT_HASHES_SQL('payload')} AS hashes FROM crm_kv_store WHERE key = $1`,
+    [CRM_STATE_KEY]
+  );
+  if (!res.rows.length || !res.rows[0].payload) return null;
+  return { state: res.rows[0].payload, version: Number(res.rows[0].version), hashes: res.rows[0].hashes || {} };
+}
+
+/** So a versao e os hashes dos segmentos (~3 KB). */
+export async function readSegmentHashes(): Promise<{ version: number; hashes: SegmentHashes } | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensurePostgresSchema();
+  const res = await pool.query<{ version: string; hashes: SegmentHashes }>(
+    `SELECT version, ${SEGMENT_HASHES_SQL('payload')} AS hashes FROM crm_kv_store WHERE key = $1`,
+    [CRM_STATE_KEY]
+  );
+  if (!res.rows.length) return null;
+  return { version: Number(res.rows[0].version), hashes: res.rows[0].hashes || {} };
+}
+
+/**
+ * Le so os segmentos pedidos ("contacts", "erp.invoices"...), desde que a versao ainda seja
+ * `expectedVersion`. null = a versao mudou no meio (o chamador rele tudo).
+ */
+export async function readSegments(paths: string[], expectedVersion: number): Promise<Record<string, unknown> | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensurePostgresSchema();
+  const res = await pool.query<{ segs: Record<string, unknown> | null }>(
+    `SELECT (SELECT jsonb_object_agg(p, payload #> string_to_array(p, '.')) FROM unnest($3::text[]) p) AS segs
+       FROM crm_kv_store WHERE key = $1 AND version = $2`,
+    [CRM_STATE_KEY, expectedVersion, paths]
+  );
+  if (!res.rows.length) return null;
+  return res.rows[0].segs || {};
+}
+
+/**
+ * Grava o snapshot so se a versao no banco ainda for `expectedVersion` (UPDATE condicional;
+ * o trigger incrementa a versao). expectedVersion null => cria a linha (so se nao existir).
+ * Retorna a nova versao, ou null em conflito (outra instancia gravou antes).
+ */
+export async function writeStateIfVersion(
+  json: string,
+  expectedVersion: number | null,
+  state?: CrmDatabaseState
+): Promise<{ version: number; hashes: SegmentHashes } | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensurePostgresSchema();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res =
+      expectedVersion === null
+        ? await client.query<{ version: string; hashes: SegmentHashes }>(
+            `INSERT INTO crm_kv_store AS k (key, payload, updated_at) VALUES ($1, $2::jsonb, NOW())
+             ON CONFLICT (key) DO NOTHING RETURNING version, ${SEGMENT_HASHES_SQL('k.payload')} AS hashes`,
+            [CRM_STATE_KEY, json]
+          )
+        : await client.query<{ version: string; hashes: SegmentHashes }>(
+            `UPDATE crm_kv_store AS k SET payload = $2::jsonb, updated_at = NOW()
+             WHERE key = $1 AND version = $3 RETURNING version, ${SEGMENT_HASHES_SQL('k.payload')} AS hashes`,
+            [CRM_STATE_KEY, json, expectedVersion]
+          );
+    if (!res.rows.length) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    if (state && isRelationalMirrorEnabled()) {
+      await syncRelationalMirrors(client, state);
+    }
+    await client.query('COMMIT');
+    return { version: Number(res.rows[0].version), hashes: res.rows[0].hashes || {} };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Upsert incondicional (CLI de migracao/seed). O app usa writeStateIfVersion. */
 export async function syncStateToPostgres(state: CrmDatabaseState): Promise<void> {
   const pool = getPostgresPool();
   if (!pool) return;
 
-  await ensurePostgresSchema(pool);
+  await ensurePostgresSchema();
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
-
-    // 1. Atomic full state snapshot in crm_kv_store
     await client.query(
       `INSERT INTO crm_kv_store (key, payload, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (key) DO UPDATE
        SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      ['crm_state_v1', JSON.stringify(state)]
+      [CRM_STATE_KEY, JSON.stringify(state)]
     );
+    if (isRelationalMirrorEnabled()) {
+      await syncRelationalMirrors(client, state);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
-    // 2. Sync relational mirror tables for SQL & BI tools
+/**
+ * Espelhos relacionais para SQL/BI (DELETE + INSERT de tudo). Desligados por padrao desde
+ * 01/11/2026: nenhum codigo do app os le (busca em src/, scripts/, tests/), e regrava-los a cada
+ * escrita custava compute e historico no Neon Free. As tabelas continuam existindo (nada apagado);
+ * com STI_HUB_PG_RELATIONAL_MIRROR=1 voltam a ser sincronizadas.
+ */
+async function syncRelationalMirrors(client: PoolClient, state: CrmDatabaseState): Promise<void> {
+  {
     await client.query('DELETE FROM crm_companies');
     for (const comp of state.companies) {
       await client.query(
@@ -399,33 +644,31 @@ export async function syncStateToPostgres(state: CrmDatabaseState): Promise<void
       );
     }
 
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
   }
 }
 
 export async function loadStateFromPostgres(options?: {
   forceReset?: boolean;
+  /** Seed so com intencao explicita (CLI). Em producao/preview, banco vazio => erro, nunca seed. */
+  allowSeed?: boolean;
 }): Promise<CrmDatabaseState | null> {
   const pool = getPostgresPool();
   if (!pool) return null;
 
-  await ensurePostgresSchema(pool);
+  await ensurePostgresSchema();
 
   if (!options?.forceReset) {
-    const res = await pool.query<{ payload: CrmDatabaseState }>(
-      `SELECT payload FROM crm_kv_store WHERE key = $1 LIMIT 1`,
-      ['crm_state_v1']
-    );
-    if (res.rows.length > 0 && res.rows[0].payload) {
-      return res.rows[0].payload;
-    }
+    const row = await readStateWithVersion();
+    if (row) return row.state;
   }
 
+  const seedAllowed = options?.allowSeed === true || !isPersistenceFailClosed();
+  if (!seedAllowed) {
+    throw new PersistenceUnavailableError(
+      'PG_STATE_MISSING',
+      'Estado do STI-hub ausente no PostgreSQL: recusado aplicar o seed em producao/preview.'
+    );
+  }
   const seed = createInitialSeedState();
   await syncStateToPostgres(seed);
   return seed;
