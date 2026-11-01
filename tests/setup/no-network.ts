@@ -12,10 +12,14 @@
 //     net/tls/http/https (monkeypatch de net.Socket.prototype.connect, por onde passam
 //     net.connect, tls.connect, http(s).request, pg e nodemailer) e o DNS (dns.lookup,
 //     dns.resolve*, dns.promises.*) para hosts que nao sejam loopback. Socket unix (path) passa.
+//  6. Pacote H: lookup customizado em net.connect/createConnection (o endereco RESOLVIDO tambem
+//     precisa ser loopback; checado no callback do lookup e de novo no 'connect' do socket),
+//     dgram (send/connect) e todos os dns.resolve*, reverse e lookupService (callback e promises).
 // ============================================================================
 import fs from 'node:fs';
 import net from 'node:net';
 import dns from 'node:dns';
+import dgram from 'node:dgram';
 
 export const CNPJ_HOSTS = ['brasilapi.com.br', 'receitaws.com.br', 'publica.cnpj.ws'];
 export const CNPJ_ATTEMPTS_FILE = process.env.STI_HUB_TEST_CNPJ_LOG || '/tmp/stihub-test-cnpj-mocked.log';
@@ -126,6 +130,36 @@ if (process.env.NODE_ENV === 'test') {
       process.nextTick(() => this.destroy(err));
       return this;
     }
+    if (!isPath) {
+      // Pacote H: lookup customizado pode resolver "localhost" para um IP externo.
+      if (first && typeof first === 'object' && typeof first.lookup === 'function') {
+        const userLookup = first.lookup;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        first.lookup = (hn: string, opts: any, cb: any) => {
+          const done = typeof opts === 'function' ? opts : cb;
+          const o = typeof opts === 'function' ? {} : opts;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          userLookup(hn, o, (e: any, addr: any, fam: any) => {
+            if (e) return done(e);
+            const list = Array.isArray(addr) ? addr.map((a) => a?.address) : [addr];
+            const bad = list.find((a) => !isLoopbackHost(a));
+            if (bad !== undefined) {
+              logBlocked('socket.lookup', `${hn}->${bad}`);
+              return done(blockedError('conexao (lookup customizado)', `${hn}->${bad}`));
+            }
+            return done(null, addr, fam);
+          });
+        };
+      }
+      // Defesa extra: endereco remoto efetivo precisa ser loopback.
+      this.once('connect', () => {
+        const ra = this.remoteAddress;
+        if (ra && !isLoopbackHost(ra)) {
+          logBlocked('socket.remote', ra);
+          this.destroy(blockedError('conexao (endereco remoto)', ra));
+        }
+      });
+    }
     return realConnect.apply(this, args as Parameters<typeof realConnect>);
   };
 
@@ -151,7 +185,11 @@ if (process.env.NODE_ENV === 'test') {
       err.code = 'ENOTFOUND';
       throw err;
     };
-  const DNS_FNS = ['lookup', 'resolve', 'resolve4', 'resolve6', 'resolveAny', 'resolveCname', 'resolveMx', 'resolveSrv', 'resolveTxt'] as const;
+  const DNS_FNS = [
+    'lookup', 'lookupService', 'reverse',
+    'resolve', 'resolve4', 'resolve6', 'resolveAny', 'resolveCaa', 'resolveCname', 'resolveMx', 'resolveNaptr',
+    'resolveNs', 'resolvePtr', 'resolveSoa', 'resolveSrv', 'resolveTlsa', 'resolveTxt',
+  ] as const;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = dns as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,5 +206,37 @@ if (process.env.NODE_ENV === 'test') {
         R.prototype[fn] = R === d.Resolver ? wrapCb(fn, R.prototype[fn]) : wrapPromise(fn, R.prototype[fn]);
       }
     }
+  }
+}
+
+// Pacote H: UDP (dgram) so para loopback.
+if (process.env.NODE_ENV === 'test') {
+  const proto = dgram.Socket.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+  const realSend = proto.send;
+  proto.send = function guardedSend(this: dgram.Socket, ...args: unknown[]) {
+    // send(msg, [offset, length,] port, [address], [cb]): address = 1a string apos msg
+    const addr = args.slice(1).find((a) => typeof a === 'string') as string | undefined;
+    if (addr !== undefined && !isLoopbackHost(addr)) {
+      logBlocked('dgram.send', addr);
+      const cb = args.reverse().find((a) => typeof a === 'function') as ((e: Error) => void) | undefined;
+      const err = blockedError('dgram.send', addr);
+      if (cb) process.nextTick(() => cb(err));
+      else process.nextTick(() => this.emit('error', err));
+      return undefined;
+    }
+    return realSend.apply(this, args);
+  };
+  const realDConnect = proto.connect;
+  if (typeof realDConnect === 'function') {
+    proto.connect = function guardedDConnect(this: dgram.Socket, ...args: unknown[]) {
+      const addr = typeof args[1] === 'string' ? (args[1] as string) : undefined;
+      if (addr !== undefined && !isLoopbackHost(addr)) {
+        logBlocked('dgram.connect', addr);
+        const err = blockedError('dgram.connect', addr);
+        process.nextTick(() => this.emit('error', err));
+        return undefined;
+      }
+      return realDConnect.apply(this, args);
+    };
   }
 }

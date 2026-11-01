@@ -16,7 +16,7 @@ import {
   signMfaChallengeToken,
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
-import type { ErpFinancialEntry } from "../db/types";
+import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
 // ============================================================================
 // HubSpot Pro CRM - Unified REST API Router & Controller
 // ============================================================================
@@ -67,7 +67,8 @@ import {
   selfProfilePatchSchema,
 } from './self-profile';
 import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
-import { buildKnownOwnerSet, isAssignableOwnerName } from './owner-validation';
+import { buildKnownOwnerSet, cleanOwnerName, isAssignableOwnerName } from './owner-validation';
+import { emailCommentIsPublic, parseTicketTeamPatch, resolveTeamCommentVisibility } from './ticket-guards';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -1079,6 +1080,49 @@ export class CrmApiRouter {
   }
 
   /**
+   * Pacote H: comentario da EQUIPE num chamado. authorRole = AGENT (so contexto interno confiavel
+   * pode informar outro papel/autor); isInternal true por padrao; publicar exige isInternal:false
+   * explicito e gera auditoria de visibilidade.
+   */
+  private addTeamTicketComment(
+    idOrKey: string,
+    body: Record<string, unknown>,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): ServiceTicket | null {
+    const isInternal = resolveTeamCommentVisibility(body.isInternal);
+    const author = ctx.trustedInternal && body.author ? String(body.author) : this.sessionActorName(query);
+    const authorRole: 'AGENT' | 'CUSTOMER' = ctx.trustedInternal && body.authorRole === 'CUSTOMER' ? 'CUSTOMER' : 'AGENT';
+    const updated = this.repo.addTicketComment(idOrKey, {
+      author,
+      authorRole,
+      isInternal,
+      body: String(body.body),
+      newStatus: body.newStatus as TicketStatus | undefined,
+    });
+    if (updated && !isInternal) {
+      try {
+        const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+        const su = sess && sess.authenticated ? sess.user : null;
+        this.repo.appendSecurityAuditLog({
+          actorEmail: su?.email || 'sistema@sti-hub',
+          actorName: author,
+          actorRole: su?.roleId || (ctx.trustedInternal ? 'SYSTEM' : 'ANON'),
+          action: 'TICKET_COMMENT_PUBLIC',
+          module: 'CHAMADOS',
+          resource: `/api/tickets/${String(updated.key || idOrKey).slice(0, 64)}/comments`,
+          status: 'SUCCESS',
+          ipAddress: query._clientIp || 'sem-ip',
+          details: `Comentario PUBLICO (visivel ao cliente no portal) registrado no chamado ${updated.key} por ${author}.`,
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+    }
+    return updated;
+  }
+
+  /**
    * Pacote G: ownerName (responsavel atribuido) so aceita responsavel conhecido quando MUDA.
    * Ver src/api/owner-validation.ts. Contexto interno confiavel (sync/cron) nao e validado.
    */
@@ -1086,7 +1130,8 @@ export class CrmApiRouter {
     method: string,
     cleanPath: string,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean }
+    ctx: { trustedInternal: boolean },
+    query: Record<string, string | undefined>
   ): { status: number; body: unknown } | null {
     if (ctx.trustedInternal || !body || body.ownerName === undefined) return null;
     const m = method.toUpperCase();
@@ -1096,30 +1141,40 @@ export class CrmApiRouter {
     const isCreate = m === 'POST' && !id;
     const isUpdate = (m === 'PUT' || m === 'PATCH') && Boolean(id) && kind !== 'marketing/campaigns';
     if (!isCreate && !isUpdate) return null;
+    const bad = (code: string, error: string) => ({ status: 400, body: { error, code } });
     let current: string | undefined;
     if (isUpdate && id) {
       const rid = decodeURIComponent(id);
       const rec =
         kind === 'contacts' ? this.repo.getContactById(rid) : kind === 'companies' ? this.repo.getCompanyById(rid) : this.repo.getDealById(rid);
       current = (rec as { ownerName?: string } | undefined)?.ownerName;
+      // Pacote H: formularios reenviam o registro inteiro; sem mudanca (inclusive vazio -> vazio) passa.
+      if (rec && (body.ownerName === null || typeof body.ownerName === 'string') && cleanOwnerName(body.ownerName) === cleanOwnerName(current)) {
+        if (current !== undefined) body.ownerName = current; // mantem exatamente o valor gravado
+        return null;
+      }
     }
+    // Pacote H: null explicito = limpar o responsavel => so administrador.
+    if (body.ownerName === null) {
+      const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+      const isAdmin = Boolean(sess && sess.authenticated && sess.mfaVerified && sess.effectiveActionGuards.canManageUsersRbac);
+      return isAdmin ? null : { status: 403, body: { error: 'Somente administradores podem remover o responsável (ownerName: null).', code: 'OWNER_CLEAR_ADMIN_ONLY' } };
+    }
+    if (typeof body.ownerName !== 'string') return bad('OWNER_INVALID', 'Responsável (ownerName) inválido.');
+    const cleaned = cleanOwnerName(body.ownerName);
+    if (!cleaned) return bad('OWNER_EMPTY', 'Responsável (ownerName) vazio: escolha um responsável ou use null (somente administradores) para remover.');
+    body.ownerName = cleaned; // grava normalizado
     const st = this.repo.getState();
     const known = buildKnownOwnerSet({
-      users: (this.repo.findRbacUserRecord('', ''), (st.rbac?.users || []) as Array<{ name?: string; email?: string }>),
+      users: this.repo.getRbacState().users as Array<{ name?: string; email?: string; active?: boolean }>,
       existingOwnerNames: [
         ...st.contacts.map((c) => c.ownerName),
         ...st.companies.map((c) => c.ownerName),
         ...st.deals.map((d) => d.ownerName),
       ],
     });
-    if (isAssignableOwnerName(body.ownerName, current, known)) return null;
-    return {
-      status: 400,
-      body: {
-        error: 'Responsável (ownerName) desconhecido: escolha um usuário do STI-hub ou um responsável da lista oficial.',
-        code: 'OWNER_NOT_FOUND',
-      },
-    };
+    if (isAssignableOwnerName(cleaned, current, known)) return null;
+    return bad('OWNER_NOT_FOUND', 'Responsável (ownerName) desconhecido ou inativo: escolha um usuário ativo do STI-hub ou um responsável da lista oficial.');
   }
 
   /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
@@ -1156,6 +1211,8 @@ export class CrmApiRouter {
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
+  /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
+  private readonly loginFailIpLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
   private readonly consumedPasswordResetNonces = new Set<string>();
 
   /** GET/PATCH /api/auth/me — ver spec self-profile-patch-auth-me.md. */
@@ -1888,7 +1945,7 @@ export class CrmApiRouter {
 
       // Pacote G: responsavel atribuido (ownerName) validado contra responsaveis conhecidos.
       {
-        const ownerErr = this.checkOwnerNameAssignment(method, cleanPath, body as Record<string, unknown>, ctx);
+        const ownerErr = this.checkOwnerNameAssignment(method, cleanPath, body as Record<string, unknown>, ctx, query);
         if (ownerErr) return ownerErr;
       }
 
@@ -3548,13 +3605,7 @@ export class CrmApiRouter {
         if (!body.body) {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
         }
-        const updated = this.repo.addTicketComment(idOrKey, {
-          author: ctx.trustedInternal && body.author ? String(body.author) : this.sessionActorName(query), // Pacote G
-          authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
-          isInternal: Boolean(body.isInternal),
-          body: String(body.body),
-          newStatus: body.newStatus as TicketStatus | undefined,
-        });
+        const updated = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
         if (!updated) {
           return { status: 404, body: { error: 'Chamado não encontrado.' } };
         }
@@ -3602,13 +3653,7 @@ export class CrmApiRouter {
 
         if (method === 'PATCH' || method === 'PUT') {
           if (body.action === 'ADD_COMMENT' && body.body) {
-            const withComment = this.repo.addTicketComment(idOrKey, {
-              author: ctx.trustedInternal && body.author ? String(body.author) : this.sessionActorName(query), // Pacote G
-              authorRole: (body.authorRole as 'AGENT' | 'CUSTOMER') || 'AGENT',
-              isInternal: Boolean(body.isInternal),
-              body: String(body.body),
-              newStatus: body.newStatus as TicketStatus | undefined,
-            });
+            const withComment = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
             if (!withComment) return { status: 404, body: { error: 'Chamado não encontrado.' } };
             const sla = computeRealtimeTicketSla(withComment);
             withComment.slaStatus = sla.slaStatus;
@@ -3625,14 +3670,24 @@ export class CrmApiRouter {
             return { status: 200, body: { data: resOs.ticket, serviceOrder: resOs.serviceOrder } };
           }
 
-          const updated = this.repo.updateServiceTicket(idOrKey, body);
+          // Pacote H: allowlist estrita (zod .strict()) do que a equipe edita; o resto => 400.
+          const parsedPatch = parseTicketTeamPatch(body);
+          if (!parsedPatch.ok) {
+            return {
+              status: 400,
+              body: {
+                error: `Campo(s) não editável(is) neste chamado: ${parsedPatch.fields.join(', ')}. Comentários: POST /api/tickets/:id/comments; CSAT e datas de SLA são definidos pelo sistema/portal.`,
+                code: 'TICKET_PATCH_FIELD_NOT_ALLOWED',
+                fields: parsedPatch.fields,
+              },
+            };
+          }
+          const updated = this.repo.updateServiceTicket(idOrKey, parsedPatch.data as Partial<ServiceTicket>);
           if (!updated) {
             return { status: 404, body: { error: 'Chamado não encontrado.' } };
           }
           const sla = computeRealtimeTicketSla(updated);
-          if (!body.slaStatus) {
-            updated.slaStatus = sla.slaStatus;
-          }
+          updated.slaStatus = sla.slaStatus;
           return { status: 200, body: { data: updated } };
         }
 
@@ -4565,7 +4620,22 @@ export class CrmApiRouter {
       if (contractIdMatch) {
         const ctrId = decodeURIComponent(contractIdMatch[1]);
         if (method === 'PATCH' || method === 'PUT') {
-          const updated = this.repo.updateRentalContract(ctrId, body);
+          // Pacote H (D2): autor da versao vem da SESSAO; trilhas e autoria do corpo sao ignoradas.
+          const {
+            updatedBy: _ub,
+            savedBy: _sb,
+            versionHistory: _vh,
+            statusHistory: _sh,
+            version: _v,
+            versionLabel: _vl,
+            ...ctrPatch
+          } = body as Record<string, unknown>;
+          void _ub; void _sb; void _vh; void _sh; void _v; void _vl;
+          const updated = this.repo.updateRentalContract(
+            ctrId,
+            ctrPatch as Partial<ErpRentalContract>,
+            this.sessionActorName(query)
+          );
           if (!updated) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { data: updated } };
         }
@@ -5021,14 +5091,43 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/gestaoclick/sync' && method === 'POST') {
-        const cfg = await this.repo.syncLiveGestaoClick({
-          forceRefresh: true,
-          accessToken: typeof body.accessToken === 'string' ? body.accessToken : undefined,
-          secretAccessToken:
-            typeof body.secretAccessToken === 'string' ? body.secretAccessToken : undefined,
-          apiBaseUrl: typeof body.apiBaseUrl === 'string' ? body.apiBaseUrl : undefined,
-          mcpServerUrl: typeof body.mcpServerUrl === 'string' ? body.mcpServerUrl : undefined,
-        });
+        // Pacote H (extra): credenciais/endpoints do GestaoClick vem SO do servidor (env/config).
+        // Credencial ou URL no corpo => 400 (o front chama sem corpo). URL tambem e recusada:
+        // apontaria a sincronizacao (com as credenciais do servidor) para um host arbitrario.
+        const gcForbidden = Object.keys((body as Record<string, unknown>) || {}).filter((k) =>
+          ['accesstoken', 'secretaccesstoken', 'apibaseurl', 'mcpserverurl', 'apikey', 'token', 'secret'].includes(
+            normalizeCredentialFieldName(k)
+          )
+        );
+        if (gcForbidden.length > 0) {
+          return {
+            status: 400,
+            body: {
+              error: `Campo(s) não aceito(s) na sincronização GestãoClick: ${gcForbidden.join(', ')}. As credenciais vêm só do servidor.`,
+              code: 'GESTAOCLICK_CREDENTIALS_IN_BODY',
+            },
+          };
+        }
+        // MFA + administrador (canManageUsersRbac) ou controle TOTAL do ERP.
+        if (!ctx.trustedInternal) {
+          const gcSess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+          const gcUser = gcSess && gcSess.authenticated ? gcSess.user : null;
+          const gcActor = gcUser ? this.repo.findRbacUserRecord(gcUser.id, gcUser.email) : undefined;
+          const gcAllowed = Boolean(
+            gcSess && gcSess.authenticated && gcSess.mfaVerified &&
+              (gcSess.effectiveActionGuards.canManageUsersRbac || isModuleFullControl(gcActor, 'ERP'))
+          );
+          if (!gcAllowed) {
+            return {
+              status: gcSess && gcSess.authenticated ? 403 : 401,
+              body: {
+                error: 'Permissão negada: a sincronização GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                code: 'GESTAOCLICK_SYNC_FORBIDDEN',
+              },
+            };
+          }
+        }
+        const cfg = await this.repo.syncLiveGestaoClick({ forceRefresh: true });
         return {
           status: 200,
           body: {
@@ -5110,10 +5209,16 @@ export class CrmApiRouter {
 
         // If linked to a ticket, also append comment to ticket
         if (body.ticketId) {
+          // Pacote H: PUBLICO so se TODOS os destinatarios (to/cc/bcc) forem o solicitante/contato
+          // do chamado (comparacao normalizada); senao, nota INTERNA. Papel AGENT, autor da sessao.
+          const seTicket = this.repo.getServiceTicketById(String(body.ticketId));
+          const seContactEmail = seTicket?.contactId ? this.repo.getContactById(seTicket.contactId)?.email : null;
+          const seRequester = (seTicket as { requesterEmail?: string | null } | undefined)?.requesterEmail || null;
+          const sePublic = emailCommentIsPublic({ to: body.to, cc: body.cc, bcc: body.bcc }, [seContactEmail, seRequester]);
           this.repo.addTicketComment(String(body.ticketId), {
             author: `${this.sessionActorName(query)} (E-mail STI-hub)`, // Pacote G
             authorRole: 'AGENT',
-            isInternal: false,
+            isInternal: !sePublic,
             body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
           });
         }
@@ -5342,13 +5447,26 @@ export class CrmApiRouter {
             .map((x) => x.trim().toLowerCase())
             .filter(Boolean)
         );
+        // Pacote H (D3b): IP confiavel do bridge (x-vercel-forwarded-for / x-real-ip; ver
+        // src/api/client-ip.ts). Sem IP => balde 'sem-ip' compartilhado (mais restritivo).
+        const loginIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        if (this.loginFailIpLimiter.count(loginIp) >= this.loginFailIpLimiter.max) {
+          return {
+            status: 429,
+            body: {
+              error: 'Muitas tentativas de login a partir deste endereço. Aguarde alguns minutos e tente novamente.',
+              code: 'LOGIN_IP_RATE_LIMITED',
+            },
+          };
+        }
         const challenge = this.repo.initiateLoginChallenge(
           email,
           password,
-          '189.112.44.18',
+          loginIp,
           enrolledSet.has(email.toLowerCase())
         );
         if (!challenge.ok) {
+          this.loginFailIpLimiter.hit(loginIp);
           return {
             status: 401,
             body: { error: challenge.error || 'Falha na autenticação corporativa.' },

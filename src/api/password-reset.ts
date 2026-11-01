@@ -117,6 +117,14 @@ export class SlidingWindowRateLimiter {
     }
     return arr.length <= this.limit;
   }
+  /** Pacote H: quantas ocorrencias na janela (sem registrar uma nova). */
+  count(key: string, now: number = Date.now()): number {
+    return (this.hits.get(String(key || '').toLowerCase()) || []).filter((t) => now - t < this.windowMs).length;
+  }
+  /** Pacote H: limite configurado (para checar antes de processar). */
+  get max(): number {
+    return this.limit;
+  }
 }
 
 export const FORGOT_PASSWORD_GENERIC_MESSAGE =

@@ -4102,7 +4102,8 @@ export class CrmRepository {
 
   updateRentalContract(
     idOrNum: string,
-    patch: Partial<ErpRentalContract>
+    patch: Partial<ErpRentalContract>,
+    savedBy?: string // Pacote H (D2): autor da versao = usuario da sessao (router)
   ): ErpRentalContract | null {
     const erp = this.ensureErp();
     const idx = erp.rentalContracts.findIndex(
@@ -4133,7 +4134,7 @@ export class CrmRepository {
         patch.contractMonths !== undefined ? Number(patch.contractMonths) : current.contractMonths,
       updatedAt: new Date().toISOString(),
     };
-    appendContractVersionOnMutation(current, updated);
+    appendContractVersionOnMutation(current, updated, undefined, savedBy);
     erp.rentalContracts[idx] = updated;
     if (patch.generateNextInvoiceOnSave === true) {
       this.generateMonthlyRentalInvoice(updated.id, updated.lastBilledCompetence || undefined, {
@@ -6631,8 +6632,39 @@ export class CrmRepository {
 
   private loginAttemptTracker = new Map<
     string,
-    { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number }
+    { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number }
   >();
+
+  /**
+   * Pacote H (D3a): limite do mapa de tentativas de login (memoria por instancia).
+   * Quando cheio, o despejo NUNCA remove entrada bloqueada nem com falha recente (15 min):
+   * so entradas frias. Sem espaco, e-mail DESCONHECIDO (sem conta) nao ganha entrada nova
+   * (a tentativa e recusada normalmente, sem registro); conta REAL sempre e registrada.
+   * Assim, inundar com e-mails falsos nunca libera a vitima bloqueada.
+   * D3c: o mapa e por instancia (sem store duravel); persistencia entre instancias aguarda
+   * a decisao do store duravel (Marcéllo). Complemento: limite por IP no router.
+   */
+  static readonly LOGIN_TRACKER_MAX = 5000;
+  static readonly LOGIN_TRACKER_RECENT_MS = 15 * 60 * 1000;
+
+  private recordLoginFailureEntry(
+    key: string,
+    isKnownAccount: boolean,
+    entry: { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number },
+    nowMs: number
+  ): boolean {
+    const map = this.loginAttemptTracker;
+    if (!map.has(key) && map.size >= CrmRepository.LOGIN_TRACKER_MAX) {
+      for (const [k, e] of map) {
+        if (map.size < CrmRepository.LOGIN_TRACKER_MAX) break;
+        const last = e.lastAttemptMs ?? e.firstAttemptMs;
+        if (e.lockedUntilMs <= nowMs && nowMs - last > CrmRepository.LOGIN_TRACKER_RECENT_MS) map.delete(k);
+      }
+      if (map.size >= CrmRepository.LOGIN_TRACKER_MAX && !isKnownAccount) return false;
+    }
+    map.set(key, entry);
+    return true;
+  }
 
   private usedTotpCodeTracker = new Map<string, string>();
   private consumedChallengeIds = new Set<string>();
@@ -7871,7 +7903,7 @@ export class CrmRepository {
     const loginChallenge = this.initiateLoginChallenge(
       updatedUser.email,
       cleanPass,
-      input.ipAddress || "189.112.44.18",
+      input.ipAddress || "sem-ip", // Pacote H: sem IP fixo
       false
     );
     return {
@@ -7948,7 +7980,7 @@ export class CrmRepository {
 
   createEmailOtpChallenge(
     userOrEmail: string,
-    ipAddress = "189.112.44.18",
+    ipAddress = "sem-ip", // Pacote H: sem IP fixo
     purpose: MfaChallengeFlow = "LOGIN"
   ): {
     ok: boolean;
@@ -8051,7 +8083,7 @@ export class CrmRepository {
   initiateLoginChallenge(
     email: string,
     password?: string,
-    ipAddress = "189.112.44.18",
+    ipAddress = "sem-ip",
     enrolledCookieForced = false
   ): {
     ok: boolean;
@@ -8107,15 +8139,12 @@ export class CrmRepository {
     if (!pwCheck.ok || !found || !found.active) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
-      this.loginAttemptTracker.set(emailClean, {
+      this.recordLoginFailureEntry(emailClean, Boolean(found), {
         failedAttempts: fails,
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
-      });
-      if (this.loginAttemptTracker.size > 5000) {
-        const oldest = this.loginAttemptTracker.keys().next().value;
-        if (oldest !== undefined) this.loginAttemptTracker.delete(oldest);
-      }
+        lastAttemptMs: nowMs,
+      }, nowMs);
       const reason = !found ? "e-mail inexistente" : !pwCheck.ok ? "senha invalida" : "conta inativa";
       this.appendSecurityAuditLog({
         actorEmail: found?.email || emailClean.slice(0, 120),
