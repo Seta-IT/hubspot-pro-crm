@@ -172,9 +172,18 @@ export function verifyProposalLinkToken(
     if (!/^[A-Za-z0-9_-]+$/.test(parts[0]) || !PROPOSAL_LINK_SIGNATURE_PATTERN.test(parts[1])) return { valid: false };
     const want = createHmac('sha256', signingKey(secret)).update(parts[0], 'utf8').digest();
     const got = fromB64url(parts[1]);
-    const sigOk = got.length === want.length && timingSafeEqual(got, want);
-    if (!sigOk) return { valid: false };
-    const c = JSON.parse(fromB64url(parts[0]).toString('utf8')) as ProposalLinkClaims;
+    if (got.length !== want.length) return { valid: false };
+    // Maleabilidade: o 43o caractere carrega 2 bits que o decoder ignora (4 grafias da mesma
+    // assinatura). So a forma canonica e aceita. As duas checagens rodam sempre, em tempo
+    // constante, e sao combinadas sem curto-circuito.
+    const sigCanonical = safeEqualStr(b64url(got), parts[1]);
+    const sigMatches = timingSafeEqual(got, want);
+    if (!(Number(sigCanonical) & Number(sigMatches))) return { valid: false };
+    // Payload tambem so na forma canonica (o HMAC cobre a STRING; a decodificacao nao pode
+    // admitir outra grafia para os mesmos bytes).
+    const payloadBytes = fromB64url(parts[0]);
+    if (!safeEqualStr(b64url(payloadBytes), parts[0])) return { valid: false };
+    const c = JSON.parse(payloadBytes.toString('utf8')) as ProposalLinkClaims;
     if (!c || c.v !== 1 || typeof c.pid !== 'string' || typeof c.jti !== 'string') return { valid: false };
     if (!Number.isInteger(c.ver) || c.ver < 1) return { valid: false };
     if (!Number.isFinite(c.iat) || !Number.isFinite(c.exp)) return { valid: false };

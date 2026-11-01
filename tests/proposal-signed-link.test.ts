@@ -4,6 +4,7 @@
 // ============================================================================
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { createInMemoryRepository } from '../src/db/repository';
@@ -200,6 +201,66 @@ describe('Link assinado de proposta: GET publico', () => {
     repo.updateProposal(p.id, { title: `${p.title} (rev)` });
     const after = repo.listProposals().find((x) => x.id === p.id)!;
     if ((after.version || 1) !== ver) assert.equal((await getPublic(router, p.id, good)).status, 404);
+  });
+
+  it('maleabilidade: so a forma canonica da assinatura e do payload vale (as outras grafias => o mesmo 404)', async () => {
+    const { repo, router } = fresh();
+    const p = repo.listProposals().find((x) => x.id === 'prop-seta-001')!;
+    const ver = p.version || 1;
+    const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const dec = (x: string) => Buffer.from(x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    // Todas as grafias do ultimo caractere que decodificam para os MESMOS bytes (inclui a original).
+    const sameBytesVariants = (x: string) =>
+      A.split('').map((ch) => x.slice(0, -1) + ch).filter((y) => dec(y).equals(dec(x)));
+    const good = linkFor(p.id, ver);
+    const okRes = await getPublic(router, p.id, good);
+    assert.equal(okRes.status, 200);
+    const ref404 = await getPublic(router, p.id, `${good.split('.')[0]}.${'A'.repeat(43)}`);
+    assert.equal(ref404.status, 404);
+
+    // 1) Assinatura: 43 caracteres => o ultimo carrega 2 bits ignorados => 4 grafias.
+    const [payload, sig] = good.split('.');
+    const sigVariants = sameBytesVariants(sig);
+    assert.equal(sigVariants.length, 4);
+    assert.ok(sigVariants.includes(sig));
+    for (const alt of sigVariants) {
+      const t = `${payload}.${alt}`;
+      const want = alt === sig;
+      assert.equal(verifyProposalLinkToken(t, { proposalId: p.id }).valid, want, alt);
+      const r = await getPublic(router, p.id, t);
+      if (want) assert.equal(r.status, 200);
+      else {
+        assert.equal(r.status, 404, alt);
+        assert.deepEqual(r.body, ref404.body);
+      }
+    }
+
+    // 2) Payload nao canonico com HMAC VALIDO sobre a propria string (o HMAC cobre a string,
+    // nao os bytes): precisa ser recusado mesmo assim.
+    const secret = resolveProposalLinkSecret()!;
+    const key = createHmac('sha256', secret).update('stihub:proposal-public-link:v1', 'utf8').digest();
+    const signRaw = (pl: string) => `${pl}.${createHmac('sha256', key).update(pl, 'utf8').digest('base64url')}`;
+    assert.equal(signRaw(payload), good, 'helper replica a assinatura real');
+    const now = Date.now();
+    let claimsB64 = '';
+    for (let k = 0; k < 8; k++) {
+      claimsB64 = Buffer.from(JSON.stringify({ v: 1, pid: p.id, ver, iat: now, exp: now + 86_400_000, jti: `jti-${'x'.repeat(k)}` })).toString('base64url');
+      if (claimsB64.length % 4 === 2) break; // ultimo caractere com 4 bits ignorados
+    }
+    assert.equal(claimsB64.length % 4, 2);
+    assert.equal(verifyProposalLinkToken(signRaw(claimsB64), { proposalId: p.id }).valid, true, 'canonico vale');
+    const payloadVariants = sameBytesVariants(claimsB64).filter((y) => y !== claimsB64);
+    assert.ok(payloadVariants.length >= 1);
+    assert.equal(payloadVariants.length, 15); // 4 bits ignorados => 16 grafias, 1 canonica
+    const nonCanonical = payloadVariants;
+    for (const pl of nonCanonical) {
+      assert.ok(dec(pl).equals(dec(claimsB64)), 'mesmos bytes');
+      const t = signRaw(pl);
+      assert.equal(verifyProposalLinkToken(t, { proposalId: p.id }).valid, false, pl);
+      const r = await getPublic(router, p.id, t);
+      assert.equal(r.status, 404, pl);
+      assert.deepEqual(r.body, ref404.body);
+    }
   });
 
   it('token valido => DTO publico reduzido, sem campos proibidos e so com as chaves da lista branca', async () => {
