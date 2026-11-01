@@ -341,6 +341,8 @@ export default function ErpGestaoClickTab({
   const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
   const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
   const [statusModalObservation, setStatusModalObservation] = useState<string>("");
+  const [statusModalJustification, setStatusModalJustification] = useState<string>("");
+  const [statusModalError, setStatusModalError] = useState<string | null>(null);
   const [statusModalHistoryOpen, setStatusModalHistoryOpen] = useState<boolean>(true);
   const [statusModalVersionsOpen, setStatusModalVersionsOpen] = useState<boolean>(true);
   const [savingProposalStatus, setSavingProposalStatus] = useState<boolean>(false);
@@ -671,40 +673,21 @@ export default function ErpGestaoClickTab({
     }
   };
 
+  // CISO 30/10: "Gerar contrato/locação" nao converte mais por sessao (o /approve exige o token do
+  // link assinado). Abre "Alterar situação" ja em "Aprovado manualmente" (justificativa obrigatoria,
+  // sem gerar contrato/fatura); a conversao acontece quando o cliente aceita pelo link.
   const handleApproveProposal = async (proposalId: string) => {
-    setBusyId(proposalId);
-    try {
-      const localProp = proposals.find((p) => p.id === proposalId || p.code === proposalId);
-      if (localProp) {
-        await fetch(`/api/erp/proposals/${encodeURIComponent(localProp.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(localProp),
-        }).catch(() => null);
-      }
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposalId)}/approve`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const j = await res.json();
-        if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
-        if (j.data?.contract) {
-          recordUpsertedContract(j.data.contract);
-          setHighlightedContractId(j.data.contract.id);
-        }
-        if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
-        const ctrNum = j.data?.contract?.contractNumber || 'LOC';
-        const invNum = j.data?.invoice?.documentNumber || 'FAT-LOC';
-        onShowToast(
-          `Proposta aprovada! Contrato ${ctrNum} e Fatura de Locação ${invNum} gerados automaticamente!`
-        );
-        await onRefresh();
-        setActiveSection('CONTRATOS');
-        setContractsSubFilter('TODOS');
-      }
-    } finally {
-      setBusyId(null);
+    const localProp = proposals.find((p) => p.id === proposalId || p.code === proposalId);
+    if (!localProp) return;
+    if (localProp.status === 'CONVERTIDA_CONTRATO' || localProp.convertedContractId) {
+      onShowToast(`O orçamento ${localProp.code} já está em contrato/faturamento.`);
+      return;
     }
+    openProposalStatusModal(localProp, false);
+    if (localProp.status !== 'APROVADA') setStatusModalSelectedStatus('APROVADA');
+    onShowToast(
+      'Contrato e fatura são gerados quando o cliente aceita pelo link assinado ("Copiar link para o cliente"). Aqui você pode registrar uma aprovação manual com justificativa.'
+    );
   };
 
   const handleRenewContract = async (ctr: ErpRentalContract, extraMonths = 12) => {
@@ -1094,8 +1077,17 @@ export default function ErpGestaoClickTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
       }
-    );
-    const saved: ErpCommercialProposal = res.ok ? (await res.json())?.data || updated : updated;
+    ).catch(() => null);
+    if (!res || !res.ok) {
+      // CISO 30/10: erro do servidor (400/403/409) aparece claro e nada e gravado localmente.
+      const j = res ? await res.json().catch(() => null) : null;
+      const msg =
+        (j && typeof j.error === "string" && j.error) ||
+        (!res ? "Falha de conexão." : `Erro ${res.status} ao salvar.`);
+      onShowToast(`Orçamento não salvo: ${msg}`);
+      return;
+    }
+    const saved: ErpCommercialProposal = (await res.json().catch(() => null))?.data || updated;
     recordUpsertedProposal(saved);
     const publicUrl = buildPublicProposalUrl(saved);
     const printUrl = buildPublicProposalUrl(saved, { autoPrint: true });
@@ -1123,6 +1115,8 @@ export default function ErpGestaoClickTab({
     setStatusModalProposal(prop);
     setStatusModalSelectedStatus(prop.status);
     setStatusModalObservation("");
+    setStatusModalJustification("");
+    setStatusModalError(null);
     setStatusModalHistoryOpen(true);
     setStatusModalVersionsOpen(expandVersions);
   };
@@ -1156,71 +1150,69 @@ export default function ErpGestaoClickTab({
 
   const handleConfirmChangeProposalStatus = async () => {
     if (!statusModalProposal) return;
+    const prop = statusModalProposal;
+    const obs = statusModalObservation.trim();
+    const target = statusModalSelectedStatus;
+    const manualApproval = target === "APROVADA" && prop.status !== "APROVADA";
+    const justification = statusModalJustification.trim();
+    setStatusModalError(null);
+    // CISO 30/10: conversao em contrato/faturamento nao e mais manual (so aceite pelo link
+    // assinado ou processo interno). Aprovar manualmente exige justificativa (>= 10).
+    if (target === "CONVERTIDA_CONTRATO" && prop.status !== "CONVERTIDA_CONTRATO") {
+      setStatusModalError(
+        "A conversão em contrato/faturamento não é mais manual. Ela acontece quando o cliente aceita pelo link assinado. Use \"Aprovado manualmente\"."
+      );
+      return;
+    }
+    if (manualApproval && justification.length < 10) {
+      setStatusModalError(
+        "Informe a justificativa da aprovação manual (mínimo de 10 caracteres). Ex.: \"Cliente aceitou por telefone com o diretor em 30/10\"."
+      );
+      return;
+    }
+    if (target === prop.status && !obs) {
+      setStatusModalProposal(null);
+      return;
+    }
     setSavingProposalStatus(true);
     try {
-      const prop = statusModalProposal;
-      const obs = statusModalObservation.trim();
-      const approving =
-        statusModalSelectedStatus === "APROVADA" ||
-        statusModalSelectedStatus === "CONVERTIDA_CONTRATO";
-
-      // REGRA OBRIGATÓRIA: Para orçamentos de locação, ao aprovar já entra em contrato para seguir com faturamento
-      if (approving && isRentalProposal(prop)) {
-        const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}/approve`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            statusObservation:
-              obs || "Proposta aprovada — Contrato de Locação e Faturamento gerados automaticamente",
-            proposal: prop,
-          }),
-        });
-        if (res.ok) {
-          const j = await res.json();
-          if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
-          if (j.data?.contract) {
-            recordUpsertedContract(j.data.contract);
-            setHighlightedContractId(j.data.contract.id);
-          }
-          if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
-          const ctrNum = j.data?.contract?.contractNumber || "LOC";
-          const invNum = j.data?.invoice?.documentNumber || "FAT-LOC";
-          onShowToast(
-            `Situação alterada para Concretizado! Contrato ${ctrNum} e Fatura ${invNum} gerados para faturamento.`
-          );
-          setStatusModalProposal(null);
-          await onRefresh();
-          setActiveSection("CONTRATOS");
-          setContractsSubFilter("TODOS");
-          return;
-        }
-      }
-
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: statusModalSelectedStatus,
+          status: target,
           statusObservation:
-            obs ||
-            `Situação alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}`,
-          updatedBy: activeUser?.name || "Sistema STI-hub",
+            obs || `Situação alterada para ${getGestaoClickSituationSpec(target).label}`,
+          ...(manualApproval ? { approvalJustification: justification } : {}),
         }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        const saved: ErpCommercialProposal = j?.data || {
-          ...prop,
-          status: statusModalSelectedStatus,
-        };
-        recordUpsertedProposal(saved);
-        onShowToast(
-          `Situação do orçamento ${prop.code} alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}!`
-        );
-        setStatusModalProposal(saved);
-        setStatusModalObservation("");
-        await onRefresh();
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        const j = res ? await res.json().catch(() => null) : null;
+        const msg =
+          (j && typeof j.error === "string" && j.error) ||
+          (!res
+            ? "Falha de conexão. A situação não foi alterada."
+            : res.status === 403
+              ? "Você não tem permissão para esta mudança de situação."
+              : res.status === 400
+                ? "Dados inválidos para a mudança de situação."
+                : `Não foi possível alterar a situação (erro ${res.status}).`);
+        setStatusModalError(msg);
+        onShowToast(`Situação não alterada: ${msg}`);
+        return;
       }
+      const j = await res.json().catch(() => null);
+      const saved: ErpCommercialProposal = j?.data || { ...prop, status: target };
+      recordUpsertedProposal(saved);
+      onShowToast(
+        manualApproval
+          ? `Orçamento ${prop.code} aprovado manualmente (sem gerar contrato/fatura).`
+          : `Situação do orçamento ${prop.code} alterada para ${getGestaoClickSituationSpec(target).label}!`
+      );
+      setStatusModalProposal(saved);
+      setStatusModalObservation("");
+      setStatusModalJustification("");
+      await onRefresh();
     } finally {
       setSavingProposalStatus(false);
     }
@@ -7382,19 +7374,27 @@ export default function ErpGestaoClickTab({
                   </label>
                   <select
                     value={statusModalSelectedStatus}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setStatusModalError(null);
                       setStatusModalSelectedStatus(
                         e.target.value as ErpCommercialProposal["status"]
-                      )
-                    }
+                      );
+                    }}
                     className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:border-[#1b2559]"
                   >
                     <option value="RASCUNHO">Em aberto</option>
                     <option value="EM_NEGOCIACAO">Em andamento</option>
                     <option value="ENVIADA">Enviado</option>
-                    <option value="APROVADA">Concretizado</option>
-                    <option value="CONVERTIDA_CONTRATO">
-                      Concretizado (Em Contrato / Faturamento)
+                    <option value="APROVADA">
+                      {statusModalProposal.status === "APROVADA"
+                        ? "Concretizado (aprovado)"
+                        : "Aprovado manualmente (exige justificativa)"}
+                    </option>
+                    <option
+                      value="CONVERTIDA_CONTRATO"
+                      disabled={statusModalProposal.status !== "CONVERTIDA_CONTRATO"}
+                    >
+                      Em Contrato / Faturamento (só pelo aceite do cliente)
                     </option>
                     <option value="RECUSADA">Cancelado</option>
                   </select>
@@ -7414,18 +7414,54 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
 
-              {(statusModalSelectedStatus === "APROVADA" ||
-                statusModalSelectedStatus === "CONVERTIDA_CONTRATO") &&
-                isRentalProposal(statusModalProposal) && (
-                  <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2 text-[11px] font-medium">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      <strong>Regra Automática de Locação Seta Telecom:</strong> Ao confirmar a situação como{" "}
-                      <strong>Concretizado</strong>, este orçamento de locação gera automaticamente o{" "}
-                      <strong>Contrato de Locação</strong> e a <strong>Fatura</strong> para seguir com o faturamento.
-                    </span>
+              {statusModalSelectedStatus === "APROVADA" &&
+                statusModalProposal.status !== "APROVADA" && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-800">
+                      Justificativa da aprovação manual<span className="text-rose-600">*</span>
+                      <span className="ml-1 font-normal text-slate-500">(mínimo de 10 caracteres)</span>
+                    </label>
+                    <textarea
+                      value={statusModalJustification}
+                      onChange={(e) => {
+                        setStatusModalError(null);
+                        setStatusModalJustification(e.target.value);
+                      }}
+                      rows={2}
+                      maxLength={1000}
+                      placeholder="Ex.: Cliente aceitou por telefone com o diretor em 30/10"
+                      className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#1b2559]"
+                    />
+                    <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-2 text-[11px] font-medium">
+                      <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        <strong>Aprovação manual</strong> (ex.: cliente aceitou por telefone): fica registrada com o seu
+                        nome e a justificativa, mas <strong>não gera Contrato nem Fatura</strong>. A conversão em
+                        contrato/faturamento acontece quando o cliente aceita pelo <strong>link assinado</strong> da
+                        proposta{isRentalProposal(statusModalProposal) ? " (inclusive para locação)" : ""}. Só
+                        administradores ou perfis com acesso total podem aprovar manualmente.
+                      </span>
+                    </div>
                   </div>
                 )}
+
+              {(statusModalProposal.status === "APROVADA" ||
+                statusModalProposal.status === "CONVERTIDA_CONTRATO") &&
+                statusModalSelectedStatus !== statusModalProposal.status && (
+                  <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-[11px] font-medium">
+                    Esta proposta já está aprovada/convertida: só um <strong>administrador</strong> pode mudar a
+                    situação, e a mudança fica registrada na auditoria.
+                  </div>
+                )}
+
+              {statusModalError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-md bg-rose-50 border border-rose-200 text-rose-900 text-[11px] font-semibold"
+                >
+                  {statusModalError}
+                </div>
+              )}
 
               {/* Acordeão 1: Histórico de situações */}
               {(() => {
@@ -7704,7 +7740,11 @@ export default function ErpGestaoClickTab({
                   onClick={handleConfirmChangeProposalStatus}
                   className="px-5 py-2 rounded-md bg-[#1b2559] hover:bg-[#11183b] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                 >
-                  {savingProposalStatus ? "Salvando..." : "Alterar"}
+                  {savingProposalStatus
+                    ? "Salvando..."
+                    : statusModalSelectedStatus === "APROVADA" && statusModalProposal.status !== "APROVADA"
+                      ? "Aprovar manualmente"
+                      : "Alterar"}
                 </button>
               </div>
             </div>

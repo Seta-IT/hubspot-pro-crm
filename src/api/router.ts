@@ -1830,7 +1830,140 @@ export class CrmApiRouter {
     'convertedInvoiceIds',
     'approvalIdempotencyKeySha256',
     'sellerUserId',
+    'approvalMode',
+    'approvalJustification',
+    'approvedBy',
+    'approvedAt',
   ] as const;
+
+  // ==========================================================================
+  // MUDANCA DE STATUS POR SESSAO (CISO 30/10)
+  // ==========================================================================
+  /** Status de conversao/faturamento do enum ErpProposalStatus: so approve com token ou contexto interno. */
+  static readonly PROPOSAL_CONVERSION_STATUSES: readonly string[] = ['CONVERTIDA_CONTRATO'];
+  /** Status "travados": sair deles para outro status, por sessao, so admin (auditado). */
+  static readonly PROPOSAL_LOCKED_STATUSES: readonly string[] = ['APROVADA', 'CONVERTIDA_CONTRATO'];
+  static readonly PROPOSAL_APPROVAL_JUSTIFICATION_MIN = 10;
+
+  /**
+   * Regras 1-4 para chamadas que NAO sao TRUSTED_INTERNAL_CONTEXT. Devolve os campos que o
+   * servidor grava (aprovacao manual) e a auditoria a registrar apos gravar, ou a resposta de erro.
+   */
+  private checkProposalStatusChange(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    current: ErpCommercialProposal | undefined,
+    requestedRaw: unknown,
+    justificationRaw: unknown
+  ):
+    | { ok: true; transition: boolean; serverFields: Record<string, unknown>; audit?: { action: string; details: string } }
+    | { ok: false; response: ApiResponse } {
+    const none = { ok: true as const, transition: false, serverFields: {} };
+    if (ctx.trustedInternal) return none;
+    if (requestedRaw === undefined || requestedRaw === null || String(requestedRaw).trim() === '') return none;
+    const requested = String(requestedRaw).trim().toUpperCase();
+    const from = current ? String(current.status || '').toUpperCase() : '';
+    // Regra 4: reenviar o mesmo status nao e transicao.
+    if (current && requested === from) return none;
+    const scope = this.proposalScope(query, ctx);
+    const access = scope.kind === 'session' ? scope.access : null;
+    const isAdmin = Boolean(access?.isAdmin);
+    const ownerAdmin = scope.kind === 'session' && scope.ownerAdmin;
+    const deny = (status: number, code: string, error: string): { ok: false; response: ApiResponse } => {
+      this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_STATUS_CHANGE', 'BLOCKED', `${code}: ${from || '(nova)'} -> ${requested}`);
+      return { ok: false, response: { status, body: { error, code } } };
+    };
+    // Regra 1: conversao/faturamento nunca por sessao.
+    if (CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(requested)) {
+      return deny(
+        403,
+        'PROPOSAL_STATUS_CONVERSION_FORBIDDEN',
+        'A conversão em contrato/faturamento não pode ser feita manualmente. Ela acontece quando o cliente aceita pelo link assinado (ou por processo interno do sistema). Use "Aprovar manualmente" se o cliente aceitou fora do link.'
+      );
+    }
+    // Regra 3: sair de APROVADA/CONVERTIDA so admin (auditado).
+    if (current && CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(from)) {
+      if (!isAdmin) {
+        return deny(
+          403,
+          'PROPOSAL_STATUS_LOCKED',
+          'Esta proposta já foi aprovada/convertida. Somente um administrador pode alterar a situação dela.'
+        );
+      }
+      if (requested !== 'APROVADA') {
+        return {
+          ok: true,
+          transition: true,
+          serverFields: {},
+          audit: { action: 'PROPOSAL_STATUS_REOPEN', details: `Situação alterada por administrador: ${from} -> ${requested}` },
+        };
+      }
+    }
+    // Regra 2: APROVADA so admin ou FULL/TODOS, com justificativa (>= 10), sem conversao.
+    if (requested === 'APROVADA') {
+      if (!ownerAdmin) {
+        return deny(
+          403,
+          'PROPOSAL_MANUAL_APPROVAL_FORBIDDEN',
+          'Somente administradores ou perfis com acesso total (FULL/TODOS) podem aprovar uma proposta manualmente. Envie o link assinado para o cliente aceitar.'
+        );
+      }
+      const justification = String(justificationRaw ?? '').trim();
+      if (justification.length < CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN) {
+        this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_MANUAL_APPROVAL', 'BLOCKED', 'justificativa ausente ou curta (400)');
+        return {
+          ok: false,
+          response: {
+            status: 400,
+            body: {
+              error: `Informe a justificativa da aprovação manual (mínimo de ${CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN} caracteres), por exemplo: "Cliente aceitou por telefone em 30/10 com o diretor".`,
+              code: 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED',
+              fields: ['approvalJustification'],
+            },
+          },
+        };
+      }
+      const clipped = justification.slice(0, 1000);
+      return {
+        ok: true,
+        transition: true,
+        serverFields: {
+          approvalMode: 'MANUAL',
+          approvalJustification: clipped,
+          approvedBy: this.sessionActorName(query),
+          approvedAt: new Date().toISOString(),
+          statusObservation: `Aprovação manual: ${clipped}`,
+        },
+        audit: { action: 'PROPOSAL_MANUAL_APPROVAL', details: `Aprovação manual (${from || 'nova'} -> APROVADA). Justificativa: ${clipped}` },
+      };
+    }
+    return { ok: true, transition: true, serverFields: {} };
+  }
+
+  private proposalStatusAudit(
+    query: Record<string, string | undefined>,
+    access: { user: { email: string; name: string; roleId: string } } | null,
+    proposalId: string,
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    details: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: access?.user.email || 'sem-sessao@sti-hub',
+        actorName: access?.user.name || 'Sem sessao',
+        actorRole: access?.user.roleId || 'NONE',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalId).slice(0, 80)}`,
+        status,
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: redactProposalLinkTokens(details).slice(0, 1500),
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
 
   private stripServerOnlyProposalFields(
     input: Record<string, unknown>,
@@ -1961,6 +2094,23 @@ export class CrmApiRouter {
           delete rest.version;
           if (!cur) {
             rest.updatedBy = this.sessionActorName(query);
+          }
+          // Status (CISO 30/10): o journal nunca muda situacao para/de APROVADA/CONVERTIDA (nem
+          // admin: isso exige PATCH com justificativa/auditoria). Demais transicoes seguem.
+          if (scope.kind === 'session') {
+            const st = rest.status === undefined ? undefined : String(rest.status);
+            if (cur) {
+              const curSt = String(cur.status || '');
+              if (
+                st !== undefined &&
+                st !== curSt &&
+                (CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(st) || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(curSt))
+              ) {
+                rest.status = curSt;
+              }
+            } else if (st !== undefined && CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(st)) {
+              rest.status = 'RASCUNHO';
+            }
           }
           return (cur
             ? { ...rest, sellerName: cur.sellerName, sellerEmail: cur.sellerEmail }
@@ -4924,10 +5074,18 @@ export class CrmApiRouter {
             createInput.sellerEmail = scope.access.user.email;
             if (!createInput.sellerName) createInput.sellerName = scope.access.user.name;
           }
+          // Status (CISO 30/10): criar ja APROVADA/CONVERTIDA segue as mesmas regras.
+          const createStatus = this.checkProposalStatusChange(query, ctx, undefined, body.status, body.approvalJustification);
+          if (!createStatus.ok) return createStatus.response;
           // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
-          const created = this.repo.createProposal(
-            this.stripServerOnlyProposalFields(createInput, query, ctx) as { title: string; [k: string]: unknown }
-          );
+          const created = this.repo.createProposal({
+            ...this.stripServerOnlyProposalFields(createInput, query, ctx),
+            ...createStatus.serverFields,
+          } as { title: string; [k: string]: unknown });
+          if (createStatus.audit) {
+            const sc = this.proposalScope(query, ctx);
+            this.proposalStatusAudit(query, sc.kind === 'session' ? sc.access : null, created.id, createStatus.audit.action, 'SUCCESS', createStatus.audit.details);
+          }
           // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
           const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
           return { status: 201, body: { data: finalCreated } };
@@ -4973,6 +5131,27 @@ export class CrmApiRouter {
             if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
           }
         }
+        // Status (CISO 30/10): a restauracao nao pode levar a APROVADA/CONVERTIDA por sessao (use
+        // "Alterar situacao"), e sair de APROVADA/CONVERTIDA so admin (auditado).
+        let restoreStatusAudit: { action: string; details: string } | undefined;
+        if (current && !ctx.trustedInternal) {
+          const snapStatus = (current.versionHistory || []).find((v) => Number(v.version) === targetVersion)?.snapshot?.status;
+          if (snapStatus && String(snapStatus) !== String(current.status)) {
+            if (String(snapStatus) === 'APROVADA' || CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(String(snapStatus))) {
+              this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, current.id, 'PROPOSAL_STATUS_CHANGE', 'BLOCKED', `restauracao para ${String(snapStatus)} (403)`);
+              return {
+                status: 403,
+                body: {
+                  error: 'Esta revisão mudaria a situação para Aprovada/Convertida. Restaure outra revisão ou use "Alterar situação" (aprovação manual com justificativa).',
+                  code: 'PROPOSAL_STATUS_RESTORE_FORBIDDEN',
+                },
+              };
+            }
+            const chk = this.checkProposalStatusChange(query, ctx, current, snapStatus, undefined);
+            if (!chk.ok) return chk.response;
+            restoreStatusAudit = chk.audit;
+          }
+        }
         const restoredRaw = this.repo.restoreProposalVersion(
           propId,
           targetVersion,
@@ -4986,6 +5165,9 @@ export class CrmApiRouter {
           };
         }
         const restored = this.finalizeProposalOwner(scope, query, beforeRestore, restoredRaw, `restauracao da versao ${targetVersion}`);
+        if (restoreStatusAudit) {
+          this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, restored.id, restoreStatusAudit.action, 'SUCCESS', `${restoreStatusAudit.details} (restauracao da versao ${targetVersion})`);
+        }
         return { status: 200, body: { data: restored } };
       }
 
@@ -5085,12 +5267,19 @@ export class CrmApiRouter {
             }
           }
           const before = current ? { ...current } : null;
+          // Status (CISO 30/10): regras 1-4 (conversao nunca; APROVADA so admin/FULL-TODOS com
+          // justificativa; sair de APROVADA/CONVERTIDA so admin; mesmo status nao e transicao).
+          const statusCheck = this.checkProposalStatusChange(query, ctx, current, body.status, body.approvalJustification);
+          if (!statusCheck.ok) return statusCheck.response;
           // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
-          const updatedRaw = this.repo.updateProposal(
-            propId,
-            this.stripServerOnlyProposalFields(patch, query, ctx) as Partial<ErpCommercialProposal>
-          );
+          const updatedRaw = this.repo.updateProposal(propId, {
+            ...this.stripServerOnlyProposalFields(patch, query, ctx),
+            ...statusCheck.serverFields,
+          } as Partial<ErpCommercialProposal>);
           if (!updatedRaw) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          if (statusCheck.audit) {
+            this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, updatedRaw.id, statusCheck.audit.action, 'SUCCESS', statusCheck.audit.details);
+          }
           const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
           return { status: 200, body: { data: updated } };
         }
