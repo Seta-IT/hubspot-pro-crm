@@ -97,14 +97,15 @@ describe('Checagem final v4: STI_HUB_PUBLIC_ORIGIN no link assinado', () => {
     const router = new CrmApiRouter(repo);
     const rec = repo.findRbacUserRecord('usr-seta-01', '')!;
     const session = signStiHubSessionToken({ uid: rec.id, email: rec.email, name: rec.name, roleId: rec.roleId, scope: rec.scope, enabledModules: ['CRM', 'ERP', 'CHAMADOS'], moduleAccess: { crm: true, erp: true, chamados: true }, mfaVerified: true, mfaMethod: 'TOTP_AUTHENTICATOR', iat: Date.now() - 1000, exp: Date.now() + 3_600_000 } as Parameters<typeof signStiHubSessionToken>[0]);
-    const issue = () => router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/public-link', query: { _fromHttpBridge: '1', _clientIp: '198.51.100.31', _origin: 'https://preview-xyz.vercel.app', _sessionToken: session }, body: {} });
+    // prop-seta-002 (EM_NEGOCIACAO): a 001 do seed e CONVERTIDA_CONTRATO => 409 pelo D3.
+    const issue = () => router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-002/public-link', query: { _fromHttpBridge: '1', _clientIp: '198.51.100.31', _origin: 'https://preview-xyz.vercel.app', _sessionToken: session }, body: {} });
     process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br/';
     let r = await issue();
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/sti-hub\.setatelecom\.com\.br\/proposta\/prop-seta-001#t=/);
+    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/sti-hub\.setatelecom\.com\.br\/proposta\/prop-seta-002#t=/);
     delete process.env.STI_HUB_PUBLIC_ORIGIN;
     r = await issue();
     assert.equal(r.status, 200);
-    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/preview-xyz\.vercel\.app\/proposta\/prop-seta-001#t=/);
+    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/preview-xyz\.vercel\.app\/proposta\/prop-seta-002#t=/);
   });
 });
