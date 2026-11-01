@@ -99,7 +99,12 @@ describe('Link assinado de proposta: token HMAC', () => {
     if (ok.valid) assert.equal(ok.claims.ver, 1);
     assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-seta-002' }).valid, false);
     const [payload, sig] = t.split('.');
-    assert.equal(verifyProposalLinkToken(`${payload}.${sig.slice(0, -2)}AA`, { proposalId: 'prop-seta-001' }).valid, false);
+    // Adulteracao deterministica (antes: troca dos 2 ultimos por 'AA', que era a propria
+    // assinatura quando ela ja terminava em 'AA' => falha intermitente ~1/4096).
+    const flip = (c: string) => (c === 'A' ? 'B' : 'A');
+    const tampered = `${sig.slice(0, 20)}${flip(sig[20])}${sig.slice(21)}`;
+    assert.notEqual(tampered, sig);
+    assert.equal(verifyProposalLinkToken(`${payload}.${tampered}`, { proposalId: 'prop-seta-001' }).valid, false);
     const forgedPayload = Buffer.from(JSON.stringify({ v: 1, pid: 'prop-seta-001', ver: 9, iat: Date.now(), exp: Date.now() + 1e6, jti: 'x' })).toString('base64url');
     assert.equal(verifyProposalLinkToken(`${forgedPayload}.${sig}`, { proposalId: 'prop-seta-001' }).valid, false);
     const expired = linkFor('prop-seta-001', 1, { ttlDays: 1, nowMs: Date.now() - 2 * 86_400_000 });
