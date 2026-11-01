@@ -5113,7 +5113,7 @@ export class CrmRepository {
           : `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       assetTag: `PAT-SETA-${1000 + erp.rentalContracts.length * 10 + idx + 1}`,
       assetStatus: 'EM_CLIENTE' as const,
-      ncm: item.ncmOrServiceCode.replace('NCM ', '') || '8517.62.14',
+      ncm: (item.ncmOrServiceCode || '').replace('NCM ', '') || '8517.62.14', // item 4: item sem NCM nao derruba o aceite
       quantity: item.quantity,
       unitMonthlyRent: item.unitPrice,
       assetValueBrl: item.unitPrice * 6 * item.quantity,
@@ -5190,7 +5190,7 @@ export class CrmRepository {
       signatureHashSha256,
       timestampToken: `ACT-ITI-${now.getFullYear()}-${signatureHashSha256.slice(16, 28).toUpperCase()}`,
       signedAt: nowIso,
-      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "189.112.44.18",
+      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "sem-ip", // CISO 30/10: sem IP fixo de fallback
     };
 
     proposal.status = "CONVERTIDA_CONTRATO";
