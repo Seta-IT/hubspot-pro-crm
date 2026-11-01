@@ -1119,13 +1119,125 @@ export class CrmRepository {
     return out;
   }
 
-  reconcileClientState(journal?: ClientDurableJournal | null): {
+  /**
+   * Pacote K: id do journal comparado sem caixa/espacos (como as buscas da API). Um registro do
+   * journal cujo id difere so na caixa de um existente E o mesmo registro (recebe o id canonico),
+   * nunca um novo; se a variacao bater em mais de um existente (ambiguo), e descartado.
+   * Repeticoes no mesmo lote convergem para o primeiro id.
+   */
+  private canonicalizeJournalIds<T extends { id: string }>(
+    current: readonly T[],
+    incoming: T[] | undefined
+  ): T[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const exact = new Set(current.map((c) => c.id));
+    const byKey = new Map<string, string[]>();
+    for (const c of current) {
+      const k = refKey(c.id);
+      if (!k) continue;
+      const arr = byKey.get(k) || [];
+      arr.push(c.id);
+      byKey.set(k, arr);
+    }
+    const batch = new Map<string, string>();
+    const out: T[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object' || typeof inc.id !== 'string' || !inc.id.trim()) continue;
+      if (exact.has(inc.id)) {
+        out.push(inc);
+        continue;
+      }
+      const k = refKey(inc.id);
+      const matches = byKey.get(k) || [];
+      if (matches.length === 1) {
+        out.push({ ...inc, id: matches[0] });
+        continue;
+      }
+      if (matches.length > 1) continue; // ambiguo: nunca sobrepoe um registro escolhido ao acaso
+      const first = batch.get(k);
+      if (first !== undefined) {
+        out.push({ ...inc, id: first });
+        continue;
+      }
+      batch.set(k, inc.id);
+      out.push(inc);
+    }
+    return out;
+  }
+
+  /**
+   * Pacote K: contratos do journal. Numero ausente ou ja usado por OUTRO contrato => contrato novo
+   * recebe o proximo LOC-2026-<n> livre; contrato existente mantem o proprio numero. O journal
+   * nunca gera fatura (generateNextInvoiceOnSave sempre false).
+   */
+  private guardJournalContracts(
+    current: ErpRentalContract[],
+    incoming: ErpRentalContract[] | undefined
+  ): ErpRentalContract[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const byId = new Map(current.map((c) => [c.id, c] as const));
+    const owner = new Map<string, string>(); // numero (sem caixa) -> id do contrato
+    for (const c of current) {
+      const k = refKey(c.contractNumber);
+      if (k && !owner.has(k)) owner.set(k, c.id);
+    }
+    const occupied = () => new Set(owner.keys());
+    const assigned = new Map<string, string>(); // id novo -> numero atribuido no lote
+    const out: ErpRentalContract[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object') continue;
+      const cur = byId.get(inc.id);
+      const next = { ...inc, generateNextInvoiceOnSave: false } as ErpRentalContract;
+      // Contrato minimo/mal formado do journal (sem equipments, valor nao numerico) derrubava o
+      // /api/bootstrap e o overview do ERP para todos (500). Normaliza sem inventar dados.
+      if (!Array.isArray(next.equipments)) next.equipments = cur && Array.isArray(cur.equipments) ? cur.equipments : [];
+      if (!Number.isFinite(Number(next.monthlyValue))) next.monthlyValue = cur ? cur.monthlyValue : 0;
+      else next.monthlyValue = Number(next.monthlyValue);
+      const incNum = typeof inc.contractNumber === 'string' ? inc.contractNumber.trim() : '';
+      if (cur) {
+        const free = incNum && (!owner.has(refKey(incNum)) || owner.get(refKey(incNum)) === cur.id);
+        if (free) {
+          if (refKey(incNum) !== refKey(cur.contractNumber)) {
+            owner.delete(refKey(cur.contractNumber));
+            owner.set(refKey(incNum), cur.id);
+          }
+          next.contractNumber = incNum;
+        } else {
+          next.contractNumber = cur.contractNumber;
+        }
+        out.push(next);
+        continue;
+      }
+      const again = assigned.get(inc.id);
+      if (again !== undefined) {
+        out.push({ ...next, contractNumber: again });
+        continue;
+      }
+      const num = incNum && !owner.has(refKey(incNum))
+        ? incNum
+        : nextFreeCode(occupied(), 100 + current.length + assigned.size + 1, (n) => `LOC-2026-${n}`);
+      owner.set(refKey(num), inc.id);
+      assigned.set(inc.id, num);
+      out.push({ ...next, contractNumber: num });
+    }
+    return out;
+  }
+
+  reconcileClientState(
+    journal?: ClientDurableJournal | null,
+    options?: { canIssueFiscalDocuments?: boolean }
+  ): {
     reconciled: boolean;
     appliedCount: number;
+    fiscalDropped?: number;
   } {
     if (!journal || typeof journal !== "object") {
       return { reconciled: false, appliedCount: 0 };
     }
+    // Pacote K (D-I2): sem a alcada fiscal, o journal nao cria fatura/NF. O router sempre informa
+    // a alcada da sessao; chamada direta ao repositorio (contexto interno) segue liberada.
+    const canIssueFiscal = options?.canIssueFiscalDocuments !== false;
+    let fiscalDropped = 0;
 
     let appliedCount = 0;
 
@@ -1186,10 +1298,11 @@ export class CrmRepository {
       }
     };
 
-    upsertCollection(this.state.companies, journal.upsertedCompanies, deletedCompanies);
-    upsertCollection(this.state.contacts, journal.upsertedContacts, deletedContacts);
+    // Pacote K: contato/empresa/negocio com id em outra caixa = o mesmo registro (sem duplicar).
+    upsertCollection(this.state.companies, this.canonicalizeJournalIds(this.state.companies, journal.upsertedCompanies), deletedCompanies);
+    upsertCollection(this.state.contacts, this.canonicalizeJournalIds(this.state.contacts, journal.upsertedContacts), deletedContacts);
     upsertCollection(this.state.pipelines, journal.upsertedPipelines);
-    upsertCollection(this.state.deals, journal.upsertedDeals, deletedDeals);
+    upsertCollection(this.state.deals, this.canonicalizeJournalIds(this.state.deals, journal.upsertedDeals), deletedDeals);
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
     upsertCollection(this.state.serviceTickets, journal.upsertedTickets, deletedTickets);
     if (!this.state.webForms) this.state.webForms = [];
@@ -1285,8 +1398,23 @@ export class CrmRepository {
     if (!erp.purchaseOrders) erp.purchaseOrders = [];
     upsertCollection(erp.proposals, this.guardJournalProposals(erp.proposals, journal.upsertedProposals), deletedProposals);
     this.backfillMissingProposalCodes(erp.proposals);
-    upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
-    upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
+    // Pacote K: contrato do journal com id em outra caixa = o mesmo; numero duplicado => proximo livre.
+    upsertCollection(
+      erp.rentalContracts,
+      this.guardJournalContracts(erp.rentalContracts, this.canonicalizeJournalIds(erp.rentalContracts, journal.upsertedContracts)),
+      deletedContracts
+    );
+    {
+      // Pacote K (D-I2): fatura/NF NOVA pelo journal so com a alcada fiscal.
+      let incomingInvoices = this.canonicalizeJournalIds(erp.invoices, journal.upsertedInvoices);
+      if (!canIssueFiscal && Array.isArray(incomingInvoices)) {
+        const existingInvIds = new Set(erp.invoices.map((i) => i.id));
+        const kept = incomingInvoices.filter((i) => existingInvIds.has(i.id));
+        fiscalDropped += incomingInvoices.length - kept.length;
+        incomingInvoices = kept;
+      }
+      upsertCollection(erp.invoices, incomingInvoices, deletedInvoices);
+    }
     upsertCollection(erp.catalog, journal.upsertedCatalogItems, deletedCatalog);
     upsertCollection(erp.suppliers, journal.upsertedSuppliers, deletedSuppliers);
     upsertCollection(erp.employees, journal.upsertedEmployees, deletedEmployees);
@@ -1308,7 +1436,9 @@ export class CrmRepository {
     if (appliedCount > 0) {
       this.save();
     }
-    return { reconciled: appliedCount > 0, appliedCount };
+    return fiscalDropped > 0
+      ? { reconciled: appliedCount > 0, appliedCount, fiscalDropped }
+      : { reconciled: appliedCount > 0, appliedCount };
   }
 
   resetToSeed(): CrmDatabaseState {
@@ -3668,7 +3798,7 @@ export class CrmRepository {
       0
     );
     const totalRentedEquipments = activeContracts.reduce(
-      (s, c) => s + c.equipments.reduce((acc, eq) => acc + eq.quantity, 0),
+      (s, c) => s + (Array.isArray(c.equipments) ? c.equipments : []).reduce((acc, eq) => acc + eq.quantity, 0), // Pacote K: dado legado sem equipments nao derruba o overview
       0
     );
 

@@ -946,7 +946,7 @@ export class CrmApiRouter {
       typeof body._reconcileJournal === "object" &&
       body._reconcileJournal !== null
     ) {
-      const rec = this.repo.reconcileClientState(body._reconcileJournal as ClientDurableJournal);
+      const rec = this.reconcileJournalForSession(body._reconcileJournal as ClientDurableJournal, query, { trustedInternal }, cleanPath);
       if (rec.reconciled) journalReconciled = true;
     }
 
@@ -1128,6 +1128,165 @@ export class CrmApiRouter {
       sess.mfaVerified && (sess.effectiveActionGuards.canManageUsersRbac || isModuleFullControl(actor, 'ERP'))
     );
     return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /**
+   * Pacote K (D-I2): alcada FISCAL = a mesma de POST /api/erp/rental-contracts/:id/generate-invoice
+   * (canIssueFiscalDocuments no perfil ERP ou nos guards efetivos, sessao com 2FA). Contexto
+   * interno confiavel => liberado; conta de servico => nunca emite.
+   */
+  private fiscalIssuancePrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    if (ctx.serviceAccount) return { allowed: false, authenticated: true, email: 'conta-de-servico', name: 'Conta de serviço', roleId: 'SERVICE' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const allowed = Boolean(
+      sess.mfaVerified &&
+        (sess.erpPermissions?.canIssueFiscalDocuments || sess.effectiveActionGuards?.canIssueFiscalDocuments)
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /** Pacote K (D-I2): negativa de emissao fiscal (403/401) sempre auditada como ERP_FISCAL_ISSUANCE_DENIED. */
+  private denyFiscalIssuance(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    priv: { authenticated: boolean; email?: string; name?: string; roleId?: string },
+    reason: string
+  ): ApiResponse {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: priv.email || 'desconhecido',
+        actorName: priv.name || 'desconhecido',
+        actorRole: priv.roleId || 'desconhecido',
+        action: 'ERP_FISCAL_ISSUANCE_DENIED',
+        module: 'ERP',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: 'BLOCKED',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Emissao de fatura/NF negada (${reason}): exige a alcada fiscal canIssueFiscalDocuments, a mesma de /generate-invoice.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+    return {
+      status: priv.authenticated ? 403 : 401,
+      body: {
+        error: "Permissão negada (Painel ERP): seu usuário não possui alçada para emitir documentos fiscais (NF-e / NFS-e / Fatura SV 31).",
+        code: "ERP_FISCAL_ISSUANCE_FORBIDDEN",
+      },
+    };
+  }
+
+  /**
+   * Pacote K (D-I2): toda rota que GERA fatura/NF exige a alcada fiscal; a geracao automatica ao
+   * salvar contrato (generateNextInvoiceOnSave) tambem respeita a flag global
+   * autoGenerateMonthlyRentalInvoices. Devolve a resposta de erro ou null (segue o fluxo).
+   */
+  private checkFiscalIssuanceRoute(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse | null {
+    const b = body && typeof body === 'object' ? body : {};
+    let reason: string | null = null;
+    let autoOnSave = false;
+    const isContractCollection = cleanPath === '/api/erp/rental-contracts' || cleanPath === '/api/erp/contracts';
+    const isContractItem = /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+$/.test(cleanPath) &&
+      cleanPath !== '/api/erp/rental-contracts/batch-billing' && cleanPath !== '/api/erp/rental-contracts/batch-email';
+    if (method === 'POST') {
+      if (
+        cleanPath === '/api/erp/invoices' ||
+        cleanPath === '/api/erp/fiscal-documents' ||
+        /^\/api\/erp\/rental-contracts\/[^/]+\/generate-(?:invoice|remessa)$/.test(cleanPath)
+      ) reason = 'emissao direta';
+      else if (cleanPath === '/api/erp/rental-contracts/batch-billing') reason = 'faturamento em lote';
+      else if (cleanPath === '/api/erp/nfe-importacao/emit') reason = 'NF-e de importacao';
+      else if (
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+\/partial-return$/.test(cleanPath) &&
+        (b.emitReturnNfe !== false || b.emitProRataInvoice !== false)
+      ) reason = 'NF de retorno/fatura pro-rata da devolucao parcial';
+    }
+    if (((method === 'POST' && isContractCollection) || ((method === 'PATCH' || method === 'PUT') && isContractItem)) &&
+      b.generateNextInvoiceOnSave !== undefined) {
+      if (typeof b.generateNextInvoiceOnSave !== 'boolean') {
+        return {
+          status: 400,
+          body: { error: 'O campo "generateNextInvoiceOnSave" deve ser booleano.', code: 'CONTRACT_FIELD_INVALID', fields: ['generateNextInvoiceOnSave'] },
+        };
+      }
+      if (b.generateNextInvoiceOnSave === true) {
+        reason = 'fatura gerada ao salvar o contrato (generateNextInvoiceOnSave)';
+        autoOnSave = true;
+      }
+    }
+    if (!reason) return null;
+    const priv = this.fiscalIssuancePrivilege(query, ctx);
+    if (!priv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, priv, reason);
+    if (autoOnSave && this.repo.getErpOverview().gestaoClickConfig.autoGenerateMonthlyRentalInvoices === false) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: priv.email || 'sistema',
+          actorName: priv.name || 'Sistema STI-hub',
+          actorRole: priv.roleId || 'SYSTEM',
+          action: 'ERP_AUTO_INVOICE_DISABLED',
+          module: 'ERP',
+          resource: `${method} ${cleanPath}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: 'Geracao automatica de fatura ao salvar contrato recusada: autoGenerateMonthlyRentalInvoices=false. Use "Gerar fatura" (/generate-invoice).',
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+      return {
+        status: 409,
+        body: {
+          error: 'A geração automática de faturas mensais de locação está desligada na configuração do ERP. Salve o contrato sem "Gerar a próxima fatura" e use "Gerar fatura".',
+          code: 'ERP_AUTO_INVOICE_DISABLED',
+        },
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Pacote K (D-I2): journal do navegador com a alcada fiscal da sessao. Sem a alcada, faturas/NF
+   * NOVAS do journal sao descartadas (e auditadas); o journal nunca gera fatura de contrato.
+   */
+  private reconcileJournalForSession(
+    journal: ClientDurableJournal,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    resource: string
+  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number } {
+    const priv = this.fiscalIssuancePrivilege(query, ctx);
+    const rec = this.repo.reconcileClientState(journal, { canIssueFiscalDocuments: priv.allowed });
+    if (rec.fiscalDropped && rec.fiscalDropped > 0) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: priv.email || 'desconhecido',
+          actorName: priv.name || 'desconhecido',
+          actorRole: priv.roleId || 'desconhecido',
+          action: 'ERP_FISCAL_ISSUANCE_DENIED',
+          module: 'ERP',
+          resource: `journal ${resource}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: `Journal: ${rec.fiscalDropped} fatura(s)/NF nova(s) descartada(s): exige a alcada fiscal canIssueFiscalDocuments.`,
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+    }
+    return rec;
   }
 
   /**
@@ -1958,15 +2117,20 @@ export class CrmApiRouter {
             !resolvedSession.erpPermissions.canIssueFiscalDocuments &&
             !resolvedSession.effectiveActionGuards.canIssueFiscalDocuments
           ) {
-            return {
-              status: 403,
-              body: {
-                error: "Permissão negada (Painel ERP): seu usuário não possui alçada para emitir documentos fiscais (NF-e / NFS-e / Fatura SV 31).",
-                code: "ERP_FISCAL_ISSUANCE_FORBIDDEN",
-              },
-            };
+            // Pacote K: mesma resposta de antes, agora com auditoria da negativa.
+            const su = resolvedSession.user;
+            return this.denyFiscalIssuance(method, cleanPath, query, {
+              authenticated: true, email: su?.email, name: su?.name, roleId: su?.roleId,
+            }, 'emissao direta');
           }
         }
+      }
+
+      // Pacote K (D-I2): demais caminhos que geram fatura/NF (contrato com generateNextInvoiceOnSave,
+      // faturamento em lote, NF-e de importacao, devolucao parcial) exigem a mesma alcada fiscal.
+      {
+        const fiscalErr = this.checkFiscalIssuanceRoute(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (fiscalErr) return fiscalErr;
       }
       // ======================================================================
       // ATOMIC BOOTSTRAP & STATE RECONCILIATION (/api/bootstrap, /api/state)
@@ -1985,8 +2149,8 @@ export class CrmApiRouter {
         }
         let reconciliation = { reconciled: false, appliedCount: 0 };
         if (method === "POST" && body.reconcileJournal) {
-          reconciliation = this.repo.reconcileClientState(
-            body.reconcileJournal as ClientDurableJournal
+          reconciliation = this.reconcileJournalForSession(
+            body.reconcileJournal as ClientDurableJournal, query, ctx, cleanPath
           );
         }
         const question =
@@ -2004,7 +2168,7 @@ export class CrmApiRouter {
 
       if (cleanPath === "/api/state/reconcile" && method === "POST") {
         const journal = (body.journal || body.reconcileJournal || body) as ClientDurableJournal;
-        const reconciliation = this.repo.reconcileClientState(journal);
+        const reconciliation = this.reconcileJournalForSession(journal, query, ctx, cleanPath);
         return {
           status: 200,
           body: {
@@ -3602,6 +3766,10 @@ export class CrmApiRouter {
       // ======================================================================
       // SERVICE HUB — JIRA SERVICE MANAGEMENT STYLE TICKETS (/api/tickets)
       // ======================================================================
+      // Pacote K (documentado): POST /api/tickets NUNCA repassa o "id" do corpo ao repositorio. Um id
+      // ja existente (ou qualquer id) resulta em 201 com um id novo gerado pelo servidor (tkt-...), sem
+      // sombra e com o chamado original intacto. O 409 TICKET_ID_CONFLICT de createServiceTicket so
+      // vale para chamadores internos que informem id. Comportamento intencional (nao e 409).
       if (cleanPath === '/api/tickets') {
         if (method === 'GET') {
           const allRaw = this.repo.listServiceTickets();
@@ -6947,7 +7115,15 @@ export class CrmApiRouter {
         }
         if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
           if (body.companyEmitter && typeof body.companyEmitter === 'object') {
-            const incomingCnpj = (body.companyEmitter as Record<string, unknown>).cnpj;
+            const incomingEmitter = { ...(body.companyEmitter as Record<string, unknown>) };
+            const incomingCnpj = incomingEmitter.cnpj;
+            // Pacote K: cnpj presente precisa ser texto nao vazio (antes numero/objeto/"" passavam sem validacao).
+            if (Object.prototype.hasOwnProperty.call(incomingEmitter, 'cnpj') && (typeof incomingCnpj !== 'string' || !incomingCnpj.trim())) {
+              return {
+                status: 400,
+                body: { error: 'O CNPJ do emitente deve ser informado como texto.', code: 'COMPANY_EMITTER_CNPJ_INVALID' },
+              };
+            }
             if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
               const cnpjCheck = validateCnpj(incomingCnpj);
               if (!cnpjCheck.isValid || !cnpjCheck.digits?.startsWith('14806925')) {
@@ -6967,9 +7143,13 @@ export class CrmApiRouter {
                 };
               }
             }
+            if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
+              // Pacote K (D-I3): grava so os digitos, como PATCH /api/erp/gestaoclick/config.
+              incomingEmitter.cnpj = String(validateCnpj(incomingCnpj).digits || incomingCnpj.replace(/\D+/g, ''));
+            }
             this.companyEmitter = {
               ...this.companyEmitter,
-              ...(body.companyEmitter as Record<string, unknown>),
+              ...incomingEmitter,
             };
             this.repo.updateGestaoClickConfig({
               companyLegalName: this.companyEmitter.legalName,

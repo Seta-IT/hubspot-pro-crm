@@ -184,7 +184,7 @@ A operação do **STI-hub** é coordenada pelo **Supervisor** junto aos líderes
 
 ### 5.3 Service Desk (JSM) & SLA (`/api/tickets`, `/api/tickets/:id`, `/api/tickets/:id/comments`)
 - `GET /api/tickets`: Retorna `{ data: EnrichedServiceTicket[], total, kpis: { totalTickets, openCount, criticalCount, onTrackCount, atRiskCount, breachedCount, slaComplianceRate, avgFirstResponseMinutes, avgCsat } }`.
-- `POST /api/tickets`: Abre chamado com chave sequencial (`JSM-101`, etc.) e prazos de SLA calculados conforme a prioridade (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+- `POST /api/tickets`: Abre chamado com chave sequencial (`JSM-101`, etc.) e prazos de SLA calculados conforme a prioridade (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`). O `id` do corpo é sempre ignorado: mesmo um id já existente resulta em `201` com um id novo gerado pelo servidor (`tkt-…`), e o chamado original não é alterado (não há `409` nesta rota).
 - `POST /api/tickets/:id/comments`: Adiciona comentário público (`isInternal: false`) ou nota técnica interna (`isInternal: true`) e atualiza opcionalmente `newStatus` (`IN_PROGRESS`, `WAITING_CUSTOMER`, `RESOLVED`, `CLOSED`).
 
 ### 5.4 Migração Nativa HubSpot CRM v3 (`POST /api/migration/hubspot`)
