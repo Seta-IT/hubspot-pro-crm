@@ -1329,3 +1329,122 @@ describe('A5/A6: status em lista fechada e justificativa visivel', () => {
     assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${acentos.id}`, sa, { status: 'APROVADA', approvalJustification: 'Aprovação ok' })).status, 200);
   });
 });
+
+describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral, inclusive nas rotas publicas', () => {
+  const RESERVED_BODIES = (): Array<[string, Record<string, unknown>]> => [
+    ['__proto__ topo', JSON.parse(`{"__proto__": {"acceptedTerms": true}, ${JSON.stringify(SIGNER).slice(1)}`)],
+    ['__proto__ aninhado', { ...SIGNER, extra: JSON.parse('{"a": {"__proto__": {"x": 1}}}') }],
+    ['constructor aninhado', { ...SIGNER, meta: JSON.parse('{"b": [{"constructor": {"prototype": {"x": 1}}}]}') }],
+    ['prototype em array', { ...SIGNER, list: JSON.parse('[1, {"prototype": 1}]') }],
+  ];
+  const repoProto = Object.getPrototypeOf(createInMemoryRepository()) as Record<string, unknown>;
+  const SPIED_REPO = ['syncFromDisk', 'appendSecurityAuditLog', 'reconcileClientState', 'approveProposalAndConvertToContract', 'createTimelineEvent', 'updateProposal', 'createProposal'];
+  const SPIED_ROUTER = ['handleRoute', 'dispatchSalesAgent', 'approveProposalViaLink'];
+  async function withSpies(fn: (calls: string[]) => Promise<void>) {
+    const calls: string[] = [];
+    const restore: Array<() => void> = [];
+    const routerProto = CrmApiRouter.prototype as unknown as Record<string, unknown>;
+    for (const [proto, names] of [[repoProto, SPIED_REPO], [routerProto, SPIED_ROUTER]] as const) {
+      for (const n of names) {
+        const orig = proto[n] as ((...a: unknown[]) => unknown) | undefined;
+        if (typeof orig !== 'function') continue;
+        proto[n] = function (this: unknown, ...a: unknown[]) { calls.push(n); return orig.apply(this, a); };
+        restore.push(() => { proto[n] = orig; });
+      }
+    }
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (u: unknown) => { calls.push(`fetch:${String(u)}`); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    const realConsole = { log: console.log, info: console.info, warn: console.warn, error: console.error };
+    for (const m of ['log', 'info', 'warn', 'error'] as const) console[m] = (...a: unknown[]) => { calls.push(`console.${m}:${a.map(String).join(' ').slice(0, 80)}`); };
+    try {
+      await fn(calls);
+    } finally {
+      for (const r of restore) r();
+      globalThis.fetch = realFetch;
+      Object.assign(console, realConsole);
+    }
+  }
+
+  it('rotas Next publicas (POST /approve e POST do portal /api/erp/proposals/[id]) recusam antes de tudo', async () => {
+    const { POST: approvePOST } = await import('../src/app/api/erp/proposals/[id]/approve/route');
+    const portal = await import('../src/app/api/erp/proposals/[id]/route');
+    const tok = linkFor('prop-seta-001', 2);
+    await withSpies(async (calls) => {
+      for (const [name, body] of RESERVED_BODIES()) {
+        for (const [label, handler, path] of [
+          ['approve', approvePOST, '/api/erp/proposals/prop-seta-001/approve'],
+          ['portal POST', portal.POST, '/api/erp/proposals/prop-seta-001'],
+          ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-seta-001'],
+        ] as const) {
+          const res = await handler(new NextRequest(`https://sti-hub.example.invalid${path}`, {
+            method: label === 'portal PATCH' ? 'PATCH' : 'POST',
+            headers: { 'content-type': 'application/json', 'x-proposal-token': tok, 'idempotency-key': 'idem-reservada-0001', 'x-forwarded-for': '203.0.113.9' },
+            body: JSON.stringify(body),
+          }));
+          assert.equal(res.status, 400, `${label} / ${name}`);
+          const j = (await res.json()) as { code: string };
+          assert.equal(j.code, 'BODY_RESERVED_KEY', `${label} / ${name}`);
+          assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+        }
+      }
+      assert.deepEqual(calls, [], `nada pode rodar antes da recusa: ${calls.join(', ')}`);
+      // Controle: os espioes funcionam (um corpo sem chave reservada chega a handleRoute).
+      await fresh().router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/approve', query: { ...HTTP, _clientIp: '203.0.113.10' }, body: SIGNER });
+      assert.ok((calls as string[]).includes('handleRoute'), (calls as string[]).join(', '));
+    });
+  });
+
+  it('JSON.stringify de corpo com __proto__ proprio chega intacto ao handler (o teste de cima nao e vacuo)', () => {
+    const b = RESERVED_BODIES()[0][1];
+    assert.ok(Object.keys(b).includes('__proto__'));
+    assert.match(JSON.stringify(b), /"__proto__"/);
+  });
+
+  it('dispatch: approve com token/Idempotency-Key, send-email, journal e conta de servico => 400 sem gravar, auditar, contar rate-limit nem idempotencia', async () => {
+    const { repo, router } = fresh();
+    const p = repo.createProposal({
+      title: 'Aceite fail-closed', companyName: 'Cliente', companyCnpj: '00.000.000/0001-00', status: 'ENVIADA',
+      contractMonths: 12, items: [{ id: 'i1', description: 'Roteador', quantity: 1, unitPrice: 100, itemType: 'PRODUTO' }],
+    } as never);
+    const tok = linkFor(p.id, p.version || 1);
+    const sa = sessionFor(repo, 'usr-seta-01');
+    // getState() re-semeia segredos TOTP de usuarios seed a cada leitura (nao deterministico):
+    // compara tudo menos rbac.users; a trilha de auditoria (rbac.auditLogs) entra na comparacao.
+    const snap = () => {
+      const st = JSON.parse(JSON.stringify(repo.getState())) as { rbac?: Record<string, unknown> };
+      if (st.rbac) delete st.rbac.users;
+      return JSON.stringify(st);
+    };
+    const auditBefore = repo.listSecurityAuditLogs(1000).logs.length;
+    const before = snap();
+    const ip = '203.0.113.77';
+    await withSpies(async (calls) => {
+      for (let i = 0; i < 12; i++) {
+        for (const [name, body] of RESERVED_BODIES()) {
+          const r = await approve(router, p.id, tok, body, { ip, idem: 'idem-reservada-0001' });
+          assert.equal(r.status, 400, name);
+          assert.equal((r.body as { code: string }).code, 'BODY_RESERVED_KEY');
+        }
+      }
+      const portal = await router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _clientIp: ip, proposalLinkToken: tok }, body: { title: 'x', meta: JSON.parse('{"constructor": 1}') } });
+      assert.equal(portal.status, 400);
+      const mail = await router.dispatch({ method: 'POST', path: '/api/communications/send-email', query: { ...HTTP, _clientIp: ip, _sessionToken: sa }, body: { to: 'c@exemplo.invalid', subject: 's', body: `#t=${tok}`, x: JSON.parse('{"__proto__": {}}') } });
+      assert.equal(mail.status, 400);
+      const jr = await router.dispatch({ method: 'POST', path: '/api/tasks', query: { ...HTTP, _clientIp: ip, _sessionToken: sa }, body: { title: 't', _reconcileJournal: { upsertedTasks: [JSON.parse('{"id": "tj-res", "title": "j", "prototype": 1}')] } } });
+      assert.equal(jr.status, 400);
+      const svc = await router.dispatch({ method: 'POST', path: '/api/contacts', query: { _fromHttpBridge: '1', _svcBearer: '1', _svcTokenSha256: 'x', _clientIp: ip }, body: { firstName: 'S', n: JSON.parse('{"__proto__": 1}') } });
+      assert.equal(svc.status, 400);
+      assert.deepEqual(calls, [], calls.join(', '));
+    });
+    assert.ok(snap() === before, 'estado (inclusive auditoria) identico');
+    assert.equal(repo.listSecurityAuditLogs(1000).logs.length, auditBefore, 'nenhuma auditoria');
+    // Rate-limit (10/IP, 5/proposta) e Idempotency-Key nao foram consumidos: o 1o aceite valido,
+    // do mesmo IP e com a mesma chave, e o primeiro de verdade (cria o contrato, sem replay).
+    const contracts = repo.listRentalContracts().length;
+    const ok = await approve(router, p.id, tok, SIGNER, { ip, idem: 'idem-reservada-0001' });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body).slice(0, 200));
+    assert.notEqual((ok.body as { idempotentReplay?: boolean }).idempotentReplay, true);
+    assert.equal(repo.listRentalContracts().length, contracts + 1);
+    assert.equal(repo.listTasks({}).some((t) => (t as { id: string }).id === 'tj-res'), false);
+  });
+});
