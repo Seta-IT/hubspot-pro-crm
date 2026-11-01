@@ -105,7 +105,7 @@ import {
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
 } from '../app/lib/proposal-link';
-import { deepRedactProposalLinkTokens, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { deepRedactProposalLinkTokens, hasDangerousBodyKey, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -947,6 +947,14 @@ export class CrmApiRouter {
     // solto) em TODO corpo que entra no roteador - qualquer rota que grave (timeline, notas,
     // tarefas, chamados, journal, registros genericos) ja recebe o texto redigido. O link
     // completo so segue para o Resend (send-email recebe o corpo bruto apenas para o envio).
+    // A4: corpo com chave propria __proto__/constructor/prototype (qualquer nivel) => 400. A copia
+    // redigida descarta essas chaves; recusar aqui mantem o 400 das validacoes .strict() (H/I).
+    if (hasDangerousBodyKey(rawBody)) {
+      return {
+        status: 400,
+        body: { error: 'Corpo da requisição com chave reservada (__proto__, constructor ou prototype).', code: 'BODY_RESERVED_KEY' },
+      };
+    }
     const body = deepRedactProposalLinkTokens(rawBody) as Record<string, unknown>;
     const mailerRawBody =
       method === "POST" && cleanPath === "/api/communications/send-email" ? rawBody : undefined;

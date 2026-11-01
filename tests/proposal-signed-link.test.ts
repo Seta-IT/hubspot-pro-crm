@@ -1125,3 +1125,108 @@ describe('Item 4: allowlist de campos, ncm vazio, sem-ip', () => {
     assert.match(src, /return await this\.approveProposalViaLink\(/);
   });
 });
+
+describe('A4: deepRedact descarta __proto__/constructor/prototype (redacao central x .strict() dos pacotes H/I)', () => {
+  it('copia sem as chaves perigosas, prototipo intacto, nada herdado', () => {
+    const o = JSON.parse('{"__proto__": {"isInternal": true}, "constructor": {"x": 1}, "prototype": 1, "a": "x #t=abc.def", "n": {"__proto__": {"p": 1}, "k": 1}}');
+    const r = deepRedactProposalLinkTokens(o) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(r), ['a', 'n']);
+    assert.equal(Object.getPrototypeOf(r), Object.prototype);
+    assert.equal((r as { isInternal?: unknown }).isInternal, undefined);
+    assert.deepEqual(r.n, { k: 1 });
+    assert.equal(Object.getPrototypeOf(r.n), Object.prototype);
+    assert.equal(r.a, 'x #t=[REDACTED]');
+    assert.equal(({} as Record<string, unknown>).isInternal, undefined);
+  });
+
+  it('sync GestaoClick com credencial so dentro de "__proto__" => 400 (nada herdado chega a rota); credencial visivel continua 400', async () => {
+    const { repo, router } = fresh();
+    const q = { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') };
+    const visible = await router.dispatch({ method: 'POST', path: '/api/erp/gestaoclick/sync', query: q, body: { accessToken: 'x', apiBaseUrl: 'https://evil.example' } });
+    assert.equal(visible.status, 400);
+    const proto = await router.dispatch({ method: 'POST', path: '/api/erp/gestaoclick/sync', query: q, body: JSON.parse('{"__proto__": {"accessToken": "x", "apiBaseUrl": "https://evil.example"}}') });
+    assert.equal(proto.status, 400, 'chave reservada no corpo => 400 no dispatch');
+    assert.equal((proto.body as { code: string }).code, 'BODY_RESERVED_KEY');
+    const nested = await router.dispatch({ method: 'POST', path: '/api/tasks', query: q, body: JSON.parse('{"title": "t", "meta": [{"constructor": {"prototype": 1}}]}') });
+    assert.equal(nested.status, 400);
+    const plain = await router.dispatch({ method: 'POST', path: '/api/erp/gestaoclick/sync', query: q, body: {} });
+    assert.equal(plain.status, 200);
+    assert.ok(!JSON.stringify(proto.body).includes('evil.example'));
+    assert.ok(!JSON.stringify(repo.getState()).includes('evil.example'));
+  });
+
+  it('PATCH de chamado com chave fora da allowlist continua 400 via dispatch (.strict() do H)', async () => {
+    const { repo, router } = fresh();
+    const t = (repo.listServiceTickets() as Array<{ id: string }>)[0];
+    assert.ok(t, 'seed com chamado');
+    const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: `/api/tickets/${t.id}`, body: JSON.parse('{"__proto__": {"x": 1}, "subject": "ok", "csatScore": 5}') });
+    assert.equal(r.status, 400);
+  });
+});
+
+describe('A3: redacao normalizada do payload do token', () => {
+  const variants = (tok: string) => {
+    const [P, S] = tok.split('.');
+    return {
+      quebraNoMeio: `${P}\n.${S}`,
+      quebraDepoisDoPonto: `${P}.\r\n${S}`,
+      espacosNoPonto: `${P} . ${S}`,
+      fragmentoQuebrado: `https://h/proposta/p#t=${P.slice(0, 30)}\n${P.slice(30)}.${S}`,
+      coladoAntesEDepois: `x_${tok}_y abc${tok}abc`,
+      pontoPct2E: `${P}%2E${S}`,
+      pontoPct2e: `#t%3D${P}%2e${S}`,
+      pontoEntidade: `${P}&#46;${S}`,
+      pontoUnicodeEscapado: `{"t":"${P}\\u002e${S}"}`,
+      zwspNoPayload: `${P.slice(0, 20)}\u200b${P.slice(20)}.${S}`,
+      zwjENbspEBom: `${P.slice(0, 10)}\u200d${P.slice(10, 40)}\u00a0${P.slice(40)}\ufeff.${S}`,
+      softHyphen: `${P.slice(0, 50)}\u00ad${P.slice(50)}.${S}`,
+      base64Padrao: `${P.replace(/-/g, '+').replace(/_/g, '/')}.${S.replace(/-/g, '+').replace(/_/g, '/')}`,
+      padding: `${P}==.${S}=`,
+    };
+  };
+  it('cada variante: payload e assinatura somem; texto em volta preservado', () => {
+    for (let i = 0; i < 4; i++) {
+      const tok = linkFor(`prop-a3-${i}`, 1 + i);
+      const [P, S] = tok.split('.');
+      const Pstd = P.replace(/-/g, '+').replace(/_/g, '/');
+      for (const [name, txt] of Object.entries(variants(tok))) {
+        const out = redactProposalLinkTokens(`ANTES ${txt} DEPOIS`);
+        const flat = out.replace(/[\s\u200b\u200d\u00a0\ufeff\u00ad]/g, '');
+        assert.ok(!flat.includes(P.slice(20, 60)) && !flat.includes(Pstd.slice(20, 60)), `${name}: payload sobreviveu: ${out}`);
+        assert.ok(!flat.includes(S.slice(5, 35)), `${name}: assinatura sobreviveu: ${out}`);
+        assert.ok(out.startsWith('ANTES ') && out.endsWith(' DEPOIS'), `${name}: ${out}`);
+        assert.match(out, /\[REDACTED\]/, name);
+      }
+    }
+  });
+  it('tokens de sessao, convite e reset (e JSON sem pid/jti) ficam intactos', () => {
+    const { repo } = fresh();
+    const sess = sessionFor(repo, 'usr-seta-01');
+    assert.equal(redactProposalLinkTokens(`x ${sess} y`), `x ${sess} y`);
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const inviteLike = `${b64({ v: 1, uid: 'usr-seta-03', email: 'm@x', jti: 'abc', exp: Date.now() + 1e6 })}.${'A'.repeat(43)}`;
+    const resetLike = `${b64({ uid: 'usr-seta-03', email: 'm@x', pv: '1', exp: Date.now() + 1e6 })}.${'B'.repeat(43)}`;
+    const pidSemJti = `${b64({ v: 1, pid: 'prop-x', ver: 1, iat: 1, exp: 2 })}.${'C'.repeat(43)}`;
+    for (const t of [inviteLike, resetLike, pidSemJti]) assert.equal(redactProposalLinkTokens(`x ${t}\n.y`), `x ${t}\n.y`);
+  });
+  it('via dispatch: variantes gravadas em tarefa/notas da proposta nao deixam payload no estado', async () => {
+    const { repo, router } = fresh();
+    const tok = linkFor('prop-seta-001', 2);
+    const [P] = tok.split('.');
+    const v = variants(tok);
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tasks', body: { title: 'A3', description: Object.values(v).join(' | '), notes: v.zwspNoPayload } });
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-seta-002', body: { commercialNotes: v.quebraNoMeio, internalNotes: v.pontoEntidade } });
+    const state = JSON.stringify(repo.getState()).replace(/\\n|\\r|\\u200b|\s/g, '');
+    assert.ok(!state.includes(P.slice(20, 60)));
+  });
+  it('token como CHAVE de objeto e aninhamento acima de 40 niveis', () => {
+    const tok = linkFor('prop-k');
+    const S = tok.split('.')[1];
+    const r = deepRedactProposalLinkTokens({ [tok]: 'v' }) as Record<string, unknown>;
+    assert.ok(!Object.keys(r).some((k) => k.includes(S)));
+    let deep: unknown = { x: `#t=${tok}` };
+    for (let i = 0; i < 45; i++) deep = { n: deep };
+    assert.ok(!JSON.stringify(deepRedactProposalLinkTokens(deep)).includes(S));
+  });
+});
+
