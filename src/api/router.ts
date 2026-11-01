@@ -2192,6 +2192,54 @@ export class CrmApiRouter {
   /** Status "travados": sair deles para outro status, por sessao, so admin (auditado). */
   static readonly PROPOSAL_LOCKED_STATUSES: readonly string[] = ['APROVADA', 'CONVERTIDA_CONTRATO'];
   static readonly PROPOSAL_APPROVAL_JUSTIFICATION_MIN = 10;
+  /** A5: lista FECHADA (= ErpProposalStatus). */
+  static readonly PROPOSAL_STATUSES: readonly ErpCommercialProposal['status'][] = [
+    'RASCUNHO',
+    'ENVIADA',
+    'EM_NEGOCIACAO',
+    'APROVADA',
+    'CONVERTIDA_CONTRATO',
+    'RECUSADA',
+  ];
+  /** Invisiveis: \p{Cf} (ZWSP, ZWNJ, ZWJ, BOM, word joiner, soft hyphen...), CGJ e fillers Hangul. */
+  private static readonly INVISIBLE_CHARS_RE = /[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu;
+
+  /**
+   * A5: status do corpo -> valor canonico. NFKC (largura total etc.), sem invisiveis, trim e
+   * maiusculas; so vale se estiver na lista fechada. Nao-string (objeto, array, numero) = invalido.
+   */
+  static normalizeProposalStatus(
+    raw: unknown
+  ): { kind: 'absent' } | { kind: 'invalid' } | { kind: 'ok'; value: ErpCommercialProposal['status'] } {
+    if (raw === undefined || raw === null) return { kind: 'absent' };
+    if (typeof raw !== 'string') return { kind: 'invalid' };
+    const s = raw.normalize('NFKC').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').trim().toUpperCase();
+    if (!s) return { kind: 'absent' };
+    const hit = CrmApiRouter.PROPOSAL_STATUSES.find((x) => x === s);
+    return hit ? { kind: 'ok', value: hit } : { kind: 'invalid' };
+  }
+
+  /**
+   * A6: caracteres VISIVEIS da justificativa: tira invisiveis (\p{Cf}, fillers), espacos (NBSP,
+   * U+3000...) e marcas combinantes soltas (\p{M}); conta so letras e numeros.
+   */
+  static visibleJustificationLength(raw: string): number {
+    const cleaned = raw.normalize('NFKC').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').replace(/\p{M}/gu, '');
+    let n = 0;
+    for (const ch of cleaned) if (/[\p{L}\p{N}]/u.test(ch)) n++;
+    return n;
+  }
+
+  private static proposalStatusInvalid(): ApiResponse {
+    return {
+      status: 400,
+      body: {
+        error: `Situação inválida. Use uma de: ${CrmApiRouter.PROPOSAL_STATUSES.join(', ')}.`,
+        code: 'PROPOSAL_STATUS_INVALID',
+        fields: ['status'],
+      },
+    };
+  }
 
   /**
    * Regras 1-4 para chamadas que NAO sao TRUSTED_INTERNAL_CONTEXT. Devolve os campos que o
@@ -2208,11 +2256,17 @@ export class CrmApiRouter {
     | { ok: false; response: ApiResponse } {
     const none = { ok: true as const, transition: false, serverFields: {} };
     if (ctx.trustedInternal) return none;
-    if (requestedRaw === undefined || requestedRaw === null || String(requestedRaw).trim() === '') return none;
-    const requested = String(requestedRaw).trim().toUpperCase();
-    const from = current ? String(current.status || '').toUpperCase() : '';
+    // A5: lista fechada depois de normalizar; nao-string/fora da lista => 400 (nunca 500).
+    const norm = CrmApiRouter.normalizeProposalStatus(requestedRaw);
+    if (norm.kind === 'absent') return none;
+    if (norm.kind === 'invalid') return { ok: false, response: CrmApiRouter.proposalStatusInvalid() };
+    const requested: string = norm.value;
+    const curNorm = current ? CrmApiRouter.normalizeProposalStatus(current.status) : null;
+    const from = curNorm && curNorm.kind === 'ok' ? curNorm.value : current ? String(current.status || '').toUpperCase() : '';
+    // O valor gravado e sempre o canonico.
+    const canon = { status: norm.value };
     // Regra 4: reenviar o mesmo status nao e transicao.
-    if (current && requested === from) return none;
+    if (current && requested === from) return { ...none, serverFields: canon };
     const scope = this.proposalScope(query, ctx);
     const access = scope.kind === 'session' ? scope.access : null;
     const isAdmin = Boolean(access?.isAdmin);
@@ -2242,7 +2296,7 @@ export class CrmApiRouter {
         return {
           ok: true,
           transition: true,
-          serverFields: {},
+          serverFields: canon,
           audit: { action: 'PROPOSAL_STATUS_REOPEN', details: `Situação alterada por administrador: ${from} -> ${requested}` },
         };
       }
@@ -2256,8 +2310,23 @@ export class CrmApiRouter {
           'Somente administradores ou perfis com acesso total (FULL/TODOS) podem aprovar uma proposta manualmente. Envie o link assinado para o cliente aceitar.'
         );
       }
-      const justification = String(justificationRaw ?? '').trim();
-      if (justification.length < CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN) {
+      // A6: justificativa precisa ser texto; contam so caracteres visiveis (letras/numeros).
+      if (justificationRaw !== undefined && justificationRaw !== null && typeof justificationRaw !== 'string') {
+        this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_MANUAL_APPROVAL', 'BLOCKED', 'justificativa nao textual (400)');
+        return {
+          ok: false,
+          response: {
+            status: 400,
+            body: {
+              error: 'A justificativa da aprovação manual deve ser um texto.',
+              code: 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED',
+              fields: ['approvalJustification'],
+            },
+          },
+        };
+      }
+      const justification = String(justificationRaw ?? '').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').trim();
+      if (CrmApiRouter.visibleJustificationLength(justification) < CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN) {
         this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_MANUAL_APPROVAL', 'BLOCKED', 'justificativa ausente ou curta (400)');
         return {
           ok: false,
@@ -2276,6 +2345,7 @@ export class CrmApiRouter {
         ok: true,
         transition: true,
         serverFields: {
+          ...canon,
           approvalMode: 'MANUAL',
           approvalJustification: clipped,
           approvedBy: this.sessionActorName(query),
@@ -2285,7 +2355,7 @@ export class CrmApiRouter {
         audit: { action: 'PROPOSAL_MANUAL_APPROVAL', details: `Aprovação manual (${from || 'nova'} -> APROVADA). Justificativa: ${clipped}` },
       };
     }
-    return { ok: true, transition: true, serverFields: {} };
+    return { ok: true, transition: true, serverFields: canon };
   }
 
   private proposalStatusAudit(
@@ -2486,19 +2556,28 @@ export class CrmApiRouter {
           }
           // Status (CISO 30/10): o journal nunca muda situacao para/de APROVADA/CONVERTIDA (nem
           // admin: isso exige PATCH com justificativa/auditoria). Demais transicoes seguem.
+          // A5: status normalizado (NFKC, sem invisiveis, maiusculas) e da lista fechada; o journal
+          // nunca grava minusculas nem valor fora da lista (existente: mantem o atual; nova: RASCUNHO).
           if (scope.kind === 'session') {
-            const st = rest.status === undefined ? undefined : String(rest.status);
+            const norm = CrmApiRouter.normalizeProposalStatus(rest.status);
             if (cur) {
-              const curSt = String(cur.status || '');
-              if (
-                st !== undefined &&
-                st !== curSt &&
-                (CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(st) || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(curSt))
+              const curNorm = CrmApiRouter.normalizeProposalStatus(cur.status);
+              const curSt = curNorm.kind === 'ok' ? curNorm.value : String(cur.status || '');
+              if (norm.kind === 'absent') {
+                delete rest.status;
+              } else if (
+                norm.kind === 'invalid' ||
+                (norm.value !== curSt &&
+                  (CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(norm.value) || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(curSt)))
               ) {
-                rest.status = curSt;
+                rest.status = cur.status;
+              } else {
+                rest.status = norm.value;
               }
-            } else if (st !== undefined && CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(st)) {
+            } else if (norm.kind !== 'ok' || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(norm.value)) {
               rest.status = 'RASCUNHO';
+            } else {
+              rest.status = norm.value;
             }
           }
           return (cur
@@ -5570,8 +5649,14 @@ export class CrmApiRouter {
         let restoreStatusAudit: { action: string; details: string } | undefined;
         if (current && !ctx.trustedInternal) {
           const snapStatus = (current.versionHistory || []).find((v) => Number(v.version) === targetVersion)?.snapshot?.status;
-          if (snapStatus && String(snapStatus) !== String(current.status)) {
-            if (String(snapStatus) === 'APROVADA' || CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(String(snapStatus))) {
+          // A5: compara pelo valor canonico (snapshot gravado em minusculas/ZWSP nao escapa).
+          const snapNorm = CrmApiRouter.normalizeProposalStatus(snapStatus);
+          const curRNorm = CrmApiRouter.normalizeProposalStatus(current.status);
+          if (snapNorm.kind === 'invalid') return CrmApiRouter.proposalStatusInvalid();
+          const snapCanon = snapNorm.kind === 'ok' ? snapNorm.value : undefined;
+          const curCanon = curRNorm.kind === 'ok' ? curRNorm.value : String(current.status || '');
+          if (snapCanon && snapCanon !== curCanon) {
+            if (snapCanon === 'APROVADA' || CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(snapCanon)) {
               this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, current.id, 'PROPOSAL_STATUS_CHANGE', 'BLOCKED', `restauracao para ${String(snapStatus)} (403)`);
               return {
                 status: 403,
@@ -5581,7 +5666,7 @@ export class CrmApiRouter {
                 },
               };
             }
-            const chk = this.checkProposalStatusChange(query, ctx, current, snapStatus, undefined);
+            const chk = this.checkProposalStatusChange(query, ctx, current, snapCanon, undefined);
             if (!chk.ok) return chk.response;
             restoreStatusAudit = chk.audit;
           }
