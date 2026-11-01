@@ -6,7 +6,8 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository, SERVICE_TICKET_EDITABLE_FIELDS } from '../src/db/repository';
+import { TicketTeamPatchSchema } from '../src/api/ticket-guards';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import {
   portalActionErrorMessage,
@@ -144,7 +145,7 @@ function enrichWithSetaDeskFields(repo: ReturnType<typeof createInMemoryReposito
     jiraId: '99999',
     source: 'EMAIL',
   });
-  repo.updateServiceTicket(t.id, { assigneeAgent: 'tecnico.oculto@setatelecom.com.br' });
+  repo.setServiceTicketSystemFields(t.id, { assigneeAgent: 'tecnico.oculto@setatelecom.com.br' });
   return { key: repo.getServiceTicketById(t.id)!.key, email };
 }
 
@@ -271,16 +272,41 @@ describe('SetaDesk - updateServiceTicket com allowlist (defesa no repository)', 
     assert.equal(out.subject, 'Novo assunto');
   });
 
-  it('campos editaveis continuam funcionando (status, prioridade com SLA recalculado, fila, agente)', () => {
+  it('campos editaveis continuam funcionando (status, prioridade com SLA recalculado, fila)', () => {
     const { repo, id, before } = setup();
     const out = repo.updateServiceTicket(id, {
       status: 'WAITING_CUSTOMER', priority: before.priority === 'LOW' ? 'CRITICAL' : 'LOW',
-      assignee: 'N2', queue: 'N2', assigneeAgent: 'agente@setatelecom.com.br', description: 'desc',
+      assignee: 'N2', description: 'desc',
     })!;
     assert.equal(out.status, 'WAITING_CUSTOMER');
     assert.ok(out.slaPausedAt, 'pausa de SLA calculada pelo servidor');
     assert.notEqual(out.slaResolutionDueAt, before.slaResolutionDueAt);
     assert.equal(out.assignee, 'N2');
+  });
+
+  it('allowlist do repository = campos do TicketTeamPatchSchema (pacote H)', () => {
+    assert.deepEqual([...SERVICE_TICKET_EDITABLE_FIELDS].sort(), Object.keys(TicketTeamPatchSchema.shape).sort());
+  });
+
+  for (const [field, value] of [
+    ['queue', 'N2'],
+    ['assigneeAgent', 'agente@setatelecom.com.br'],
+    ['companyId', 'empresa-de-outro-cliente'],
+    ['dealId', 'negocio-de-outro-cliente'],
+  ] as const) {
+    it(`fora da allowlist do repository: ${field} (so caminho proprio)`, () => {
+      const { repo, id, before } = setup();
+      repo.updateServiceTicket(id, { [field]: value, tags: ['triagem'] } as never);
+      const after = repo.getServiceTicketById(id)! as unknown as Record<string, unknown>;
+      assert.deepEqual(after[field] ?? null, before[field] ?? null);
+      assert.deepEqual(after.tags, ['triagem']);
+    });
+  }
+
+  it('queue/assigneeAgent so por setServiceTicketSystemFields', () => {
+    const { repo, id } = setup();
+    const out = repo.setServiceTicketSystemFields(id, { queue: 'N2', assigneeAgent: 'agente@setatelecom.com.br' })!;
+    assert.equal(out.queue, 'N2');
     assert.equal(out.assigneeAgent, 'agente@setatelecom.com.br');
   });
 
@@ -300,7 +326,7 @@ describe('SetaDesk - updateServiceTicket com allowlist (defesa no repository)', 
     assert.equal(out.comments.at(-1)!.authorRole, 'AGENT');
   });
 
-  it('PATCH /api/tickets/:id pelo router tambem passa pela allowlist', async () => {
+  it('PATCH /api/tickets/:id pelo router: campo fora do schema => 400 e nada muda (pacote H)', async () => {
     const { repo, id, before } = setup();
     const router = new CrmApiRouter(repo);
     const flipped = before.comments.map((c: Record<string, unknown>) => ({ ...c, isInternal: false }));
@@ -308,12 +334,65 @@ describe('SetaDesk - updateServiceTicket com allowlist (defesa no repository)', 
       method: 'PATCH', path: `/api/tickets/${before.key}`, query: {}, context: TRUSTED_INTERNAL_CONTEXT,
       body: { comments: flipped, contactId: 'outro', firstRespondedAt: '2020-01-01T00:00:00.000Z', priority: 'HIGH' },
     });
-    assert.equal(r.status, 200);
+    assert.equal(r.status, 400);
+    const rb = r.body as { code: string; fields: string[] };
+    assert.equal(rb.code, 'TICKET_PATCH_FIELD_NOT_ALLOWED');
+    assert.deepEqual([...rb.fields].sort(), ['comments', 'contactId', 'firstRespondedAt']);
     const after = repo.getServiceTicketById(id)!;
     assert.equal(after.contactId, before.contactId);
     assert.equal(after.firstRespondedAt ?? null, before.firstRespondedAt ?? null);
     assert.equal(after.comments.find((c) => c.body === 'SEGREDO INTERNO')!.isInternal, true);
+    assert.equal(after.priority, before.priority, 'patch recusado inteiro, inclusive o campo valido');
+  });
+
+  for (const field of ['queue', 'assigneeAgent', 'companyId', 'dealId']) {
+    it(`PATCH /api/tickets/:id pelo router: ${field} => 400 TICKET_PATCH_FIELD_NOT_ALLOWED`, async () => {
+      const { repo, before } = setup();
+      const r = await new CrmApiRouter(repo).dispatch({
+        method: 'PATCH', path: `/api/tickets/${before.key}`, query: {}, context: TRUSTED_INTERNAL_CONTEXT,
+        body: { [field]: 'x', priority: 'HIGH' },
+      });
+      assert.equal(r.status, 400);
+      assert.deepEqual((r.body as { fields: string[] }).fields, [field]);
+    });
+  }
+
+  it('PATCH /api/tickets/:id pelo router: campos que o ServiceDeskTab envia => 200', async () => {
+    const { repo, id, before } = setup();
+    const router = new CrmApiRouter(repo);
+    for (const body of [
+      { status: 'IN_PROGRESS' }, { assignee: 'N2' }, { priority: 'HIGH' },
+      { equipmentSerial: 'SN-TESTE-1' }, { equipmentSerial: null }, { contractId: null },
+    ]) {
+      const r = await router.dispatch({ method: 'PATCH', path: `/api/tickets/${before.key}`, query: {}, context: TRUSTED_INTERNAL_CONTEXT, body });
+      assert.equal(r.status, 200, JSON.stringify(body));
+    }
+    const after = repo.getServiceTicketById(id)!;
+    assert.equal(after.status, 'IN_PROGRESS');
+    assert.equal(after.assignee, 'N2');
     assert.equal(after.priority, 'HIGH');
+  });
+
+  it('comentario da equipe pelo router: interno por padrao; isInternal:false explicito publica e audita', async () => {
+    const { repo, id, before } = setup();
+    const router = new CrmApiRouter(repo);
+    const audits = () => repo.listSecurityAuditLogs(10000).logs.filter((l) => l.action === 'TICKET_COMMENT_PUBLIC').length;
+    const n0 = audits();
+    const r1 = await router.dispatch({
+      method: 'POST', path: `/api/tickets/${before.key}/comments`, query: {}, context: TRUSTED_INTERNAL_CONTEXT,
+      body: { body: 'SEM FLAG' },
+    });
+    assert.ok(r1.status >= 200 && r1.status < 300, String(r1.status));
+    const r2 = await router.dispatch({
+      method: 'POST', path: `/api/tickets/${before.key}/comments`, query: {}, context: TRUSTED_INTERNAL_CONTEXT,
+      body: { body: 'PUBLICO EXPLICITO', isInternal: false },
+    });
+    assert.ok(r2.status >= 200 && r2.status < 300, String(r2.status));
+    assert.equal(audits(), n0 + 1, 'so o publico explicito gera auditoria');
+    const cs = repo.getServiceTicketById(id)!.comments;
+    assert.equal(cs.find((c) => c.body === 'SEM FLAG')!.isInternal, true);
+    assert.equal(cs.find((c) => c.body === 'PUBLICO EXPLICITO')!.isInternal, false);
+    assert.equal(cs.find((c) => c.body === 'SEM FLAG')!.authorRole, 'AGENT');
   });
 });
 
@@ -461,7 +540,8 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
       requesterEmail: enriched.requesterEmail, ccEmails: enriched.ccEmails, jiraKey: enriched.jiraKey,
       jiraId: enriched.jiraId,
     });
-    seedRepo.updateServiceTicket(stored.id, { assigneeAgent: enriched.assigneeAgent, subject: 'Lido do Postgres' });
+    seedRepo.setServiceTicketSystemFields(stored.id, { assigneeAgent: enriched.assigneeAgent });
+    seedRepo.updateServiceTicket(stored.id, { subject: 'Lido do Postgres' });
     await store.syncSetaDeskTickets(seedRepo.getState().serviceTickets, base.baseline);
     const reread = (await store.loadSetaDeskTickets([]))!;
     const fromDb = reread.tickets.find((t) => t.key === key)!;

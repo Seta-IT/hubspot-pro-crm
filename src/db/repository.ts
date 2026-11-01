@@ -725,22 +725,22 @@ export interface StiHubAuthenticatedSession {
 /**
  * SetaDesk: campos que um agente pode alterar num chamado via PATCH/PUT.
  * Tudo fora desta lista e ignorado por updateServiceTicket.
+ * Coerente com TicketTeamPatchSchema (src/api/ticket-guards.ts, pacote H): mesmos campos,
+ * verificado em tests/setadesk.test.ts. queue e assigneeAgent ficam fora (so
+ * setServiceTicketSystemFields: importacao/roteamento); companyId e dealId ficam fora
+ * (nenhuma tela envia; vinculo comercial nao muda por PATCH de chamado).
  */
 export const SERVICE_TICKET_EDITABLE_FIELDS = [
+  'status',
+  'priority',
+  'category',
+  'assignee',
   'subject',
   'description',
-  'category',
-  'priority',
-  'status',
-  'assignee',
-  'queue',
-  'assigneeAgent',
-  'tags',
-  'equipmentSerial',
   'resolution',
-  'companyId',
-  'dealId',
+  'equipmentSerial',
   'contractId',
+  'tags',
 ] as const satisfies ReadonlyArray<keyof ServiceTicket>;
 
 export function pickEditableTicketFields(patch: unknown): Partial<ServiceTicket> {
@@ -3367,13 +3367,16 @@ export class CrmRepository {
     return this.applyServiceTicketUpdate(idOrKey, { csatScore: n });
   }
 
-  /** Campos de sistema do SetaDesk (e-mail de entrada, importacao Jira). Nunca exposto a PATCH. */
+  /** Campos de sistema do SetaDesk (e-mail de entrada, importacao Jira, fila/agente do roteamento). Nunca exposto a PATCH. */
   setServiceTicketSystemFields(
     idOrKey: string,
-    fields: Pick<Partial<ServiceTicket>, 'requesterEmail' | 'requesterName' | 'ccEmails' | 'jiraKey' | 'jiraId' | 'source' | 'legacyKey'>
+    fields: Pick<
+      Partial<ServiceTicket>,
+      'requesterEmail' | 'requesterName' | 'ccEmails' | 'jiraKey' | 'jiraId' | 'source' | 'legacyKey' | 'queue' | 'assigneeAgent'
+    >
   ): ServiceTicket | null {
     const clean: Partial<ServiceTicket> = {};
-    for (const k of ['requesterEmail', 'requesterName', 'ccEmails', 'jiraKey', 'jiraId', 'source', 'legacyKey'] as const) {
+    for (const k of ['requesterEmail', 'requesterName', 'ccEmails', 'jiraKey', 'jiraId', 'source', 'legacyKey', 'queue', 'assigneeAgent'] as const) {
       if (fields[k] !== undefined) (clean as Record<string, unknown>)[k] = fields[k];
     }
     if (typeof clean.requesterEmail === 'string') clean.requesterEmail = clean.requesterEmail.trim().toLowerCase();
