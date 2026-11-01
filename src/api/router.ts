@@ -369,6 +369,18 @@ export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; e
 export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInternalContext');
 
 /** Chaves internas que so o bridge (ou o proprio router) pode definir; nunca do cliente. */
+/**
+ * Pacote M (D1/D2): limites do aceite publico POST /api/erp/proposals/:id/approve (janela de 10 min).
+ * ip: toda tentativa anonima; ipPerProposal: toda tentativa de um IP contra uma proposta existente
+ * (id canonico); validPerProposal: so aceites que passaram na validacao (id canonico).
+ */
+export const PROPOSAL_APPROVE_LIMITS = Object.freeze({
+  windowMs: 10 * 60 * 1000,
+  ip: 30,
+  ipPerProposal: 10,
+  validPerProposal: 20,
+});
+
 export const BRIDGE_RESERVED_KEYS = [
   '_fromHttpBridge',
   '_cronAuthorized',
@@ -1520,8 +1532,15 @@ export class CrmApiRouter {
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
   // Pacote L (1): aceite publico (POST /api/erp/proposals/:id/approve) com limite por IP e por proposta.
-  private readonly proposalApproveIpLimiter = new SlidingWindowRateLimiter(30, 10 * 60 * 1000);
-  private readonly proposalApproveIdLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
+  // Pacote M (D1/D2):
+  // - por IP: TODA tentativa anonima conta (corpo invalido, 404, 409...), contra forca bruta;
+  // - por IP + proposta: toda tentativa contra uma proposta existente, chaveada pelo id CANONICO
+  //   (o mesmo balde para id, id em outra caixa e code);
+  // - por proposta (id canonico): so aceites que PASSARAM na validacao. Tentativas invalidas de
+  //   terceiros nao consomem este balde, entao nao travam o aceite legitimo do cliente.
+  private readonly proposalApproveIpLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ip, PROPOSAL_APPROVE_LIMITS.windowMs);
+  private readonly proposalApproveIpPropLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ipPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
+  private readonly proposalApproveIdLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.validPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
   /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
   // Pacote I (D3): falhas por IP + e-mail (ver src/api/login-ip-guard.ts).
   private readonly loginFailIpGuard = new LoginIpFailureGuard();
@@ -4596,16 +4615,14 @@ export class CrmApiRouter {
         // inexistente => o mesmo 404 do GET /api/erp/proposals/:id. Contrato e 1a fatura saem
         // exclusivamente dos dados do servidor.
         const approveId = decodeURIComponent(approvePropMatch[1]).trim();
-        if (!ctx.trustedInternal) {
-          const ipKey = rateLimitIpKey(query._clientIp || '');
-          const ipOk = this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`);
-          const idOk = ipOk ? this.proposalApproveIdLimiter.hit(`approve-id:${approveId.toLowerCase().slice(0, 128)}`) : true;
-          if (!ipOk || !idOk) {
-            return {
-              status: 429,
-              body: { error: 'Muitas tentativas de aceite. Aguarde alguns minutos e tente novamente.', code: 'PROPOSAL_APPROVE_RATE_LIMITED' },
-            };
-          }
+        const approveRateLimited = (): ApiResponse => ({
+          status: 429,
+          body: { error: 'Muitas tentativas de aceite. Aguarde alguns minutos e tente novamente.', code: 'PROPOSAL_APPROVE_RATE_LIMITED' },
+        });
+        const ipKey = rateLimitIpKey(query._clientIp || '');
+        // Pacote M (D1): toda tentativa anonima conta no limite por IP (forca bruta/enumeracao).
+        if (!ctx.trustedInternal && !this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
+          return approveRateLimited();
         }
         const existingProp = this.repo
           .listProposals()
@@ -4618,6 +4635,12 @@ export class CrmApiRouter {
           );
         if (!existingProp) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
+        // Pacote M (D2): os baldes por proposta usam o id CANONICO encontrado pelo servidor
+        // (id, id em outra caixa e code caem no mesmo balde).
+        const canonicalPropKey = String(existingProp.id).toLowerCase().slice(0, 128);
+        if (!ctx.trustedInternal && !this.proposalApproveIpPropLimiter.hit(`approve-ip-prop:${ipKey}|${canonicalPropKey}`)) {
+          return approveRateLimited();
         }
         if (existingProp.digitalSignature?.signedAt || existingProp.convertedInvoiceId) {
           // Aceite repetido (mesmo sem convertedContractId, ex.: dado legado) => 409.
@@ -4636,6 +4659,10 @@ export class CrmApiRouter {
             status: approval.status,
             body: { error: approval.error, code: approval.code, fields: approval.fields },
           };
+        }
+        // Pacote M (D1): o limite por proposta so conta aceites que passaram na validacao.
+        if (!ctx.trustedInternal && !this.proposalApproveIdLimiter.hit(`approve-id:${canonicalPropKey}`)) {
+          return approveRateLimited();
         }
         // Observacao de status (texto livre do historico) so para sessao autenticada/contexto interno.
         const sessionOk =

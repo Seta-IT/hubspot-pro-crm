@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveTrustedClientIp } from '../../api/client-ip';
 import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from '../lib/sensitive-paths';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from '../../api/router';
-import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE } from '../lib/auth';
+import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE, verifyStiHubSessionToken } from '../lib/auth';
+import {
+  BODY_TOO_LARGE_RESPONSE_BODY,
+  BRIDGE_LARGE_BODY_BYTES,
+  BRIDGE_MAX_BODY_BYTES,
+  isLargeBodyRoute,
+  parseJsonBodyLenient,
+  readBodyWithCap,
+} from '../lib/bridge-body-limit';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
 
 const router = new CrmApiRouter();
@@ -13,6 +21,16 @@ export function stripReservedBodyKeys(body: unknown): unknown {
   const out = { ...(body as Record<string, unknown>) };
   for (const k of BRIDGE_RESERVED_KEYS) delete out[k];
   return out;
+}
+
+/** Pacote M (3): teto de corpo do bridge para esta requisicao. */
+export function bridgeBodyCapFor(method: string, path: string, sessionToken: string | undefined): number {
+  if (!isLargeBodyRoute(method, path) || !sessionToken) return BRIDGE_MAX_BODY_BYTES;
+  try {
+    return verifyStiHubSessionToken(sessionToken).valid ? BRIDGE_LARGE_BODY_BYTES : BRIDGE_MAX_BODY_BYTES;
+  } catch {
+    return BRIDGE_MAX_BODY_BYTES;
+  }
 }
 
 export async function forwardToCrmRouter(
@@ -56,18 +74,15 @@ export async function forwardToCrmRouter(
     svcQuery._fromHttpBridge = '1';
     let svcBody: unknown = undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      const text = await req.text().catch(() => '');
-      if (text.length > SERVICE_MAX_BODY_BYTES) {
+      // Pacote M (3): stream com teto e cancelamento (antes: req.text() inteiro).
+      const capped = await readBodyWithCap(req, SERVICE_MAX_BODY_BYTES);
+      if (!capped.ok) {
         return NextResponse.json(
           { error: 'Corpo da requisição acima do limite permitido para a conta de serviço.', code: 'SVC_BODY_TOO_LARGE' },
           { status: 413, headers: { 'Cache-Control': 'no-store' } }
         );
       }
-      try {
-        svcBody = text ? JSON.parse(text) : {};
-      } catch {
-        svcBody = {};
-      }
+      svcBody = parseJsonBodyLenient(capped.text);
     }
     const svcRes = await router.dispatch({ method: req.method, path, query: svcQuery, body: stripReservedBodyKeys(svcBody) });
     const svcHeaders: Record<string, string> = {
@@ -108,11 +123,24 @@ export async function forwardToCrmRouter(
 
   let body: unknown = undefined;
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
+    // Pacote M (3): 413 BODY_TOO_LARGE acima de 1 MiB, ANTES de ler/interpretar o JSON.
+    // Teto maior so nas rotas listadas em BRIDGE_LARGE_BODY_ROUTES e com sessao assinada valida.
+    const maxBytes = bridgeBodyCapFor(req.method, path, sessionCookie);
+    const capped = await readBodyWithCap(req, maxBytes);
+    if (!capped.ok) {
+      return NextResponse.json(
+        { ...BODY_TOO_LARGE_RESPONSE_BODY, maxBytes },
+        {
+          status: 413,
+          headers: {
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+            ...(isSensitiveProposalPath(req.nextUrl.pathname) ? SENSITIVE_PROPOSAL_HEADERS : {}),
+          },
+        }
+      );
     }
+    body = parseJsonBodyLenient(capped.text);
   }
 
   // Headers x-stihub-iam-* sao apenas um canal alternativo ao corpo: o router so aceita
