@@ -241,6 +241,53 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
   };
 }
 
+/**
+ * D3 (checagem final v4): status em que o aceite publico pelo link assinado vale.
+ * Os demais status => o mesmo 404 generico do link (sem revelar o status).
+ */
+export const PROPOSAL_LINK_APPROVABLE_STATUSES = ['ENVIADA', 'EM_NEGOCIACAO'] as const;
+
+const PROPOSAL_STATUS_ONLY_VOLATILE_KEYS = new Set([
+  'status',
+  'statusHistory',
+  'statusObservation',
+  'updatedAt',
+  'updatedBy',
+  'versionChangeSummary',
+  'version',
+  'versionHistory',
+]);
+
+function stableProposalContent(v: unknown): string {
+  const walk = (x: unknown, top: boolean): unknown => {
+    if (Array.isArray(x)) return x.map((i) => walk(i, false));
+    if (x && typeof x === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(x as Record<string, unknown>).sort()) {
+        if (top && PROPOSAL_STATUS_ONLY_VOLATILE_KEYS.has(k)) continue;
+        const val = (x as Record<string, unknown>)[k];
+        if (val === undefined) continue;
+        out[k] = walk(val, false);
+      }
+      return out;
+    }
+    return x;
+  };
+  return JSON.stringify(walk(v, true));
+}
+
+/**
+ * D3: troca SO de status entre ENVIADA e EM_NEGOCIACAO (nenhum outro campo muda) nao cria
+ * versao nova: o conteudo que o cliente recebeu pelo link e o mesmo, entao o link continua
+ * valendo. Qualquer outra mudanca (inclusive status fora desse par) gera versao nova e o
+ * link anterior deixa de valer.
+ */
+export function isProposalLinkStableStatusOnlyChange(prev: ErpCommercialProposal, next: ErpCommercialProposal): boolean {
+  const ok = (st: unknown) => (PROPOSAL_LINK_APPROVABLE_STATUSES as readonly string[]).includes(String(st || ''));
+  if (!ok(prev.status) || !ok(next.status) || prev.status === next.status) return false;
+  return stableProposalContent(prev) === stableProposalContent(next);
+}
+
 export function computeProposalChangedFields(
   prev: ErpCommercialProposal,
   next: ErpCommercialProposal
@@ -4320,8 +4367,14 @@ export class CrmRepository {
       snapshot: buildProposalVersionSnapshot(candidate),
     };
 
-    candidate.version = nextVersion;
-    candidate.versionHistory = [...prevHistory, versionEntry];
+    if (isProposalLinkStableStatusOnlyChange(current, candidate)) {
+      // D3: so o status mudou (ENVIADA <-> EM_NEGOCIACAO): mesma versao, link continua valendo.
+      candidate.version = Math.max(1, Number(current.version || 1));
+      candidate.versionHistory = prevHistory;
+    } else {
+      candidate.version = nextVersion;
+      candidate.versionHistory = [...prevHistory, versionEntry];
+    }
 
     const prevStatusHistory = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
     const statusObs = typeof (patch as Record<string, unknown>).statusObservation === "string"

@@ -87,7 +87,7 @@ import {
   SERVICE_MAX_BODY_BYTES,
   SERVICE_RATE_PER_MINUTE,
 } from '../app/lib/service-account';
-import { isServiceAccountIdentity } from '../db/repository';
+import { isServiceAccountIdentity, PROPOSAL_LINK_APPROVABLE_STATUSES } from '../db/repository';
 import { pickProposalApprovalFields, validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import {
   buildSignedProposalUrl,
@@ -2231,6 +2231,12 @@ export class CrmApiRouter {
    * A5: status do corpo -> valor canonico. NFKC (largura total etc.), sem invisiveis, trim e
    * maiusculas; so vale se estiver na lista fechada. Nao-string (objeto, array, numero) = invalido.
    */
+  /** D3: status (canonico, A5) em que o aceite publico pelo link vale. */
+  static isProposalLinkApprovableStatus(raw: unknown): boolean {
+    const n = CrmApiRouter.normalizeProposalStatus(raw);
+    return n.kind === 'ok' && (PROPOSAL_LINK_APPROVABLE_STATUSES as readonly string[]).includes(n.value);
+  }
+
   static normalizeProposalStatus(
     raw: unknown
   ): { kind: 'absent' } | { kind: 'invalid' } | { kind: 'ok'; value: ErpCommercialProposal['status'] } {
@@ -2751,15 +2757,28 @@ export class CrmApiRouter {
       };
     }
 
-    // B1: aceite publico nunca aprova RASCUNHO (proposta ainda nao enviada ao cliente).
-    if (!trusted && String(existing.status || '') === 'RASCUNHO') {
-      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'proposta em RASCUNHO (409)', undefined, jti);
-      return {
-        status: 409,
-        body: { error: 'Esta proposta ainda não foi liberada para aceite. Fale com o seu consultor Seta Telecom.', code: 'PROPOSAL_NOT_SENT' },
-      };
+    // D3 (checagem final v4): aceite publico so em ENVIADA ou EM_NEGOCIACAO. Qualquer outro
+    // status (RASCUNHO, APROVADA, CONVERTIDA_CONTRATO, RECUSADA, invalido) => o MESMO 404
+    // generico do link, sem revelar o status (a repeticao idempotente acima nao e novo aceite).
+    if (!trusted && !CrmApiRouter.isProposalLinkApprovableStatus(existing.status)) {
+      this.proposalLinkAudit(
+        'PROPOSAL_PUBLIC_APPROVE',
+        'BLOCKED',
+        ip,
+        existing.id,
+        `status ${String(existing.status || '').slice(0, 40)} fora de ENVIADA/EM_NEGOCIACAO (404 generico)`,
+        undefined,
+        jti
+      );
+      return proposalNotFoundResponse();
     }
-    const approval = validateProposalApprovalInput(parsed.data, existing.status, existing.convertedContractId || null);
+    // A5/D3: valida pelo status canonico (caixa/invisiveis nao mudam a decisao do gate acima).
+    const existingStatusNorm = CrmApiRouter.normalizeProposalStatus(existing.status);
+    const approval = validateProposalApprovalInput(
+      parsed.data,
+      existingStatusNorm.kind === 'ok' ? existingStatusNorm.value : existing.status,
+      existing.convertedContractId || null
+    );
     if (!approval.ok) {
       this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, `${approval.code} (${approval.status})`, undefined, jti);
       return {
@@ -2876,11 +2895,48 @@ export class CrmApiRouter {
         },
       };
     }
-    const version = Math.max(1, Number(found.version || 1));
-    // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link.
+    // D3 (checagem final v4): so emite para RASCUNHO (passa a ENVIADA abaixo), ENVIADA ou
+    // EM_NEGOCIACAO. APROVADA, CONVERTIDA_CONTRATO, RECUSADA ou qualquer outro => 409, sem emitir.
+    const statusNorm = CrmApiRouter.normalizeProposalStatus(found.status);
+    const statusCanon = statusNorm.kind === 'ok' ? statusNorm.value : null;
+    const isDraft = statusCanon === 'RASCUNHO';
+    if (!isDraft && !CrmApiRouter.isProposalLinkApprovableStatus(found.status)) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `status ${String(found.status || '').slice(0, 40)} nao admite link (409)`, actor);
+      return {
+        status: 409,
+        body: {
+          error:
+            'O link para o cliente só pode ser gerado para propostas em Rascunho, Enviada ou Em negociação. Esta proposta está em outra situação.',
+          code: 'PROPOSAL_LINK_STATUS_INVALID',
+        },
+      };
+    }
+    // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link (e, se
+    // for RASCUNHO, sem mudar o status: a assinatura e testada ANTES da transicao).
     let signed: ReturnType<typeof signProposalLinkToken>;
+    let target = found;
     try {
-      signed = signProposalLinkToken({ proposalId: found.id, version, notAfterMs: proposalValidUntilEndMs(found.validUntil) });
+      signed = signProposalLinkToken({ proposalId: found.id, version: Math.max(1, Number(found.version || 1)), notAfterMs: proposalValidUntilEndMs(found.validUntil) });
+      if (isDraft) {
+        // D3: RASCUNHO -> ENVIADA na emissao, com o mesmo escopo/sessao ja conferidos acima,
+        // historico de status e auditoria. A transicao cria versao nova: o link sai dela.
+        const sent = this.repo.updateProposal(found.id, {
+          status: 'ENVIADA',
+          statusObservation: 'Enviada ao cliente (link assinado emitido)',
+          updatedBy: sess.user.name || sess.user.email,
+        } as Partial<ErpCommercialProposal>);
+        if (!sent) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        target = sent;
+        this.proposalStatusAudit(
+          query,
+          { user: { email: String(sess.user.email || ''), name: String(sess.user.name || ''), roleId } },
+          sent.id,
+          'PROPOSAL_STATUS_CHANGE',
+          'SUCCESS',
+          `RASCUNHO -> ENVIADA na emissao do link assinado (versao ${Math.max(1, Number(sent.version || 1))})`
+        );
+        signed = signProposalLinkToken({ proposalId: sent.id, version: Math.max(1, Number(sent.version || 1)), notAfterMs: proposalValidUntilEndMs(sent.validUntil) });
+      }
     } catch (err) {
       if (err instanceof ProposalLinkExpiredProposalError) {
         this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'validade da proposta vencida (409)', actor);
@@ -2891,6 +2947,7 @@ export class CrmApiRouter {
       }
       throw err;
     }
+    const version = Math.max(1, Number(target.version || 1));
     // Checagem final v4: STI_HUB_PUBLIC_ORIGIN (validado, so a origem) quando existir.
     const origin = resolveProposalLinkOrigin(query._origin);
     this.proposalLinkAudit(
@@ -2910,6 +2967,8 @@ export class CrmApiRouter {
           version,
           expiresAt: new Date(signed.claims.exp).toISOString(),
           publicApproveEnabled: isProposalPublicApproveEnabled(),
+          // D3: situacao apos a emissao (RASCUNHO vira ENVIADA), para a tela atualizar.
+          proposalStatus: target.status,
         },
       },
     };

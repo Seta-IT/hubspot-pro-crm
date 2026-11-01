@@ -306,7 +306,7 @@ describe('Link assinado de proposta: POST /approve', () => {
     } as unknown as { title: string });
   }
 
-  it('sem token => 404 (nada muda); com token => 200 com DTO publico; repetido => 409; mesma Idempotency-Key => mesmo resultado sem duplicar', async () => {
+  it('sem token => 404 (nada muda); com token => 200 com DTO publico; repetido => 404 (D3); mesma Idempotency-Key => mesmo resultado sem duplicar', async () => {
     const { repo, router } = fresh();
     const p = rentalProposal(repo);
     const contractsBefore = repo.listRentalContracts().length;
@@ -331,10 +331,12 @@ describe('Link assinado de proposta: POST /approve', () => {
     assert.equal(replay.status, 200);
     assert.equal((replay.body as { idempotentReplay?: boolean }).idempotentReplay, true);
     assert.equal((replay.body as { data: { contractNumber: string } }).data.contractNumber, data.contractNumber);
+    // D3: proposta ja CONVERTIDA_CONTRATO => o mesmo 404 generico (sem revelar o status).
     const again = await approve(router, p.id, tok, SIGNER, { idem: 'outra-chave-0002' });
-    assert.equal(again.status, 409);
+    assert.equal(again.status, 404);
+    assert.deepEqual(again.body, noTok.body);
     const againNoKey = await approve(router, p.id, tok);
-    assert.equal(againNoKey.status, 409);
+    assert.equal(againNoKey.status, 404);
     assert.equal(repo.listRentalContracts().length, contractsBefore + 1, 'sem contrato duplicado');
     // GET depois do aceite: mesma versao, status atualizado, sem CPF completo.
     const g = await getPublic(router, p.id, tok);
@@ -668,7 +670,7 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     await new Promise((res) => setTimeout(res, 5));
     const draft = repo.createProposal({ title: 'Rascunho', companyName: 'C', status: 'RASCUNHO', items: [] } as never);
     const a = await approve(router, draft.id, linkFor(draft.id, draft.version || 1));
-    assert.equal(a.status, 409);
+    assert.equal(a.status, 404); // D3: RASCUNHO => o mesmo 404 generico
     assert.equal(repo.listProposals().find((x) => x.id === draft.id)!.status, 'RASCUNHO');
   });
 
@@ -1595,5 +1597,184 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
     assert.notEqual((ok.body as { idempotentReplay?: boolean }).idempotentReplay, true);
     assert.equal(repo.listRentalContracts().length, contracts + 1);
     assert.equal(repo.listTasks({}).some((t) => (t as { id: string }).id === 'tj-deep'), false);
+  });
+});
+
+
+// ============================================================================
+// D3 (checagem final da v4, 01/11/2026): aceite pelo link so em ENVIADA/EM_NEGOCIACAO;
+// emissao: RASCUNHO -> ENVIADA (auditado), ENVIADA/EM_NEGOCIACAO ficam, demais => 409.
+// ============================================================================
+describe('D3: status no aceite publico e na emissao do link', () => {
+  const ITEMS = [
+    { id: 'it-d3', sku: 'GC-D3', description: 'PABX IP', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: 'NCM 8517.62.14', quantity: 1, unitPrice: 300, discountPercent: 0, isRecurring: true, totalMonthly: 300 },
+  ];
+  const ALL = ['RASCUNHO', 'ENVIADA', 'EM_NEGOCIACAO', 'APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA', 'STATUS_DESCONHECIDO'] as const;
+  type Repo = ReturnType<typeof createInMemoryRepository>;
+
+  function withStatus(repo: Repo, status: string, extra: Record<string, unknown> = {}) {
+    const p = repo.createProposal({ title: `D3 ${status}`, companyName: 'Cliente D3', contractMonths: 12, items: ITEMS, ...extra } as never);
+    // Status gravado direto (sem passar pelas regras do PATCH), inclusive um fora do enum.
+    const ref = repo.listProposals().find((x) => x.id === p.id)! as { status: string };
+    ref.status = status;
+    return repo.listProposals().find((x) => x.id === p.id)!;
+  }
+  const issue = (router: CrmApiRouter, id: string, session: string) =>
+    router.dispatch({ method: 'POST', path: `/api/erp/proposals/${encodeURIComponent(id)}/public-link`, query: { ...HTTP, _sessionToken: session }, body: {} });
+  const tokenOf = (r: { body: unknown }) => {
+    const url = (r.body as { data: { url: string } }).data.url;
+    return decodeURIComponent(url.split('#t=')[1]);
+  };
+  const cur = (repo: Repo, id: string) => repo.listProposals().find((x) => x.id === id)!;
+
+  it('aceite em cada status: so ENVIADA/EM_NEGOCIACAO aprovam; os demais => o mesmo 404, sem efeito', async () => {
+    for (const st of ALL) {
+      const { repo, router } = fresh();
+      const ref404 = await getPublic(router, 'prop-nao-existe');
+      const p = withStatus(repo, st);
+      const contracts = repo.listRentalContracts().length;
+      const invoices = repo.listInvoices().length;
+      const r = await approve(router, p.id, linkFor(p.id, p.version || 1));
+      if (st === 'ENVIADA' || st === 'EM_NEGOCIACAO') {
+        assert.equal(r.status, 200, st);
+        assert.equal(cur(repo, p.id).status, 'CONVERTIDA_CONTRATO', st);
+        assert.equal(repo.listRentalContracts().length, contracts + 1, st);
+      } else {
+        assert.equal(r.status, 404, st);
+        assert.deepEqual(r.body, ref404.body, st);
+        assert.doesNotMatch(JSON.stringify(r.body), new RegExp(st, 'i'));
+        assert.equal(cur(repo, p.id).status, st, st);
+        assert.equal(repo.listRentalContracts().length, contracts, st);
+        assert.equal(repo.listInvoices().length, invoices, st);
+      }
+    }
+    // Status com caixa/invisiveis (A5) conta pelo valor canonico.
+    const { repo, router } = fresh();
+    const p = withStatus(repo, 'em_negocia\u200bcao');
+    assert.equal((await approve(router, p.id, linkFor(p.id, p.version || 1))).status, 200);
+  });
+
+  it('emissao em cada status: RASCUNHO -> ENVIADA (auditado, versao nova); ENVIADA/EM_NEGOCIACAO ficam; demais => 409 sem emitir', async () => {
+    for (const st of ALL) {
+      const { repo, router } = fresh();
+      const admin = sessionFor(repo, 'usr-seta-01');
+      const p = withStatus(repo, st);
+      const v0 = p.version || 1;
+      const auditBefore = repo.listSecurityAuditLogs(1000).logs.length;
+      const r = await issue(router, p.id, admin);
+      const after = cur(repo, p.id);
+      if (st === 'RASCUNHO') {
+        assert.equal(r.status, 200);
+        assert.equal(after.status, 'ENVIADA');
+        assert.ok((after.version || 1) > v0, 'transicao cria versao nova');
+        assert.equal((r.body as { data: { version: number; proposalStatus: string } }).data.version, after.version);
+        assert.equal((r.body as { data: { proposalStatus: string } }).data.proposalStatus, 'ENVIADA');
+        assert.equal(after.statusHistory!.at(-1)!.status, 'ENVIADA');
+        const logs = repo.listSecurityAuditLogs(1000).logs as unknown as Array<{ action: string; status: string; details: string }>;
+        assert.ok(logs.some((l) => l.action === 'PROPOSAL_STATUS_CHANGE' && l.status === 'SUCCESS' && /RASCUNHO -> ENVIADA/.test(l.details)));
+        // O link emitido vale para a versao nova (GET e aceite).
+        const t = tokenOf(r);
+        assert.equal((await getPublic(router, p.id, t)).status, 200);
+        assert.equal((await approve(router, p.id, t)).status, 200);
+      } else if (st === 'ENVIADA' || st === 'EM_NEGOCIACAO') {
+        assert.equal(r.status, 200, st);
+        assert.equal(after.status, st);
+        assert.equal(after.version || 1, v0, st);
+        assert.equal((await getPublic(router, p.id, tokenOf(r))).status, 200, st);
+      } else {
+        assert.equal(r.status, 409, st);
+        assert.equal((r.body as { code: string }).code, 'PROPOSAL_LINK_STATUS_INVALID', st);
+        assert.equal((r.body as { data?: unknown }).data, undefined, st);
+        assert.doesNotMatch(JSON.stringify(r.body), /#t=/);
+        assert.equal(after.status, st, st);
+        assert.equal(after.version || 1, v0, st);
+        const logs = repo.listSecurityAuditLogs(1000).logs.slice(0, repo.listSecurityAuditLogs(1000).logs.length - auditBefore) as unknown as Array<{ action: string; status: string }>;
+        assert.ok(!logs.some((l) => l.status === 'SUCCESS'), st);
+      }
+    }
+  });
+
+  it('RASCUNHO -> ENVIADA respeita escopo, sessao, segredo e validade (nada muda quando a emissao falha)', async () => {
+    // Producao (sem segredo de desenvolvimento): segredo do link e da sessao explicitos.
+    process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'c'.repeat(48);
+    process.env.STI_HUB_SESSION_SECRET = 's'.repeat(48);
+    (process.env as Record<string, string>).NODE_ENV = 'production';
+    const { repo, router } = fresh();
+    const evelyn = repo.findRbacUserRecord('usr-seta-02', '')!;
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const mariaSess = sessionFor(repo, 'usr-seta-03');
+    // Rascunho de outra vendedora (escopo PROPRIOS) => 403, continua RASCUNHO.
+    const other = withStatus(repo, 'RASCUNHO', { sellerName: evelyn.name, sellerEmail: evelyn.email });
+    assert.equal((await issue(router, other.id, mariaSess)).status, 403);
+    assert.equal(cur(repo, other.id).status, 'RASCUNHO');
+    // Sem sessao => 401, continua RASCUNHO.
+    const r401 = await router.dispatch({ method: 'POST', path: `/api/erp/proposals/${other.id}/public-link`, query: { ...HTTP }, body: {} });
+    assert.equal(r401.status, 401);
+    assert.equal(cur(repo, other.id).status, 'RASCUNHO');
+    // Validade vencida => 409 PROPOSAL_EXPIRED, continua RASCUNHO (assinatura testada antes).
+    const old = withStatus(repo, 'RASCUNHO', { sellerEmail: maria.email, validUntil: '2020-01-01' });
+    const rOld = await issue(router, old.id, mariaSess);
+    assert.equal(rOld.status, 409);
+    assert.equal((rOld.body as { code: string }).code, 'PROPOSAL_EXPIRED');
+    assert.equal(cur(repo, old.id).status, 'RASCUNHO');
+    // Segredo ausente => 503, continua RASCUNHO.
+    const mine = withStatus(repo, 'RASCUNHO', { sellerEmail: maria.email });
+    delete process.env.STI_HUB_PROPOSAL_LINK_SECRET;
+    assert.equal((await issue(router, mine.id, mariaSess)).status, 503);
+    process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'c'.repeat(48);
+    assert.equal(cur(repo, mine.id).status, 'RASCUNHO');
+    // Dona da proposta, com tudo certo => 200 e ENVIADA.
+    assert.equal((await issue(router, mine.id, mariaSess)).status, 200);
+    assert.equal(cur(repo, mine.id).status, 'ENVIADA');
+  });
+
+  it('link emitido em ENVIADA continua valendo depois de ENVIADA -> EM_NEGOCIACAO (so o status mudou)', async () => {
+    const { repo, router } = fresh();
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const p = withStatus(repo, 'ENVIADA');
+    const r = await issue(router, p.id, admin);
+    assert.equal(r.status, 200);
+    const t = tokenOf(r);
+    const v0 = cur(repo, p.id).version || 1;
+    const patch = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _sessionToken: admin }, body: { status: 'EM_NEGOCIACAO' } });
+    assert.equal(patch.status, 200);
+    const after = cur(repo, p.id);
+    assert.equal(after.status, 'EM_NEGOCIACAO');
+    assert.equal(after.version || 1, v0, 'status-only nao cria versao');
+    assert.equal(after.statusHistory!.at(-1)!.status, 'EM_NEGOCIACAO');
+    assert.equal((await getPublic(router, p.id, t)).status, 200);
+    assert.equal((await approve(router, p.id, t)).status, 200);
+    assert.equal(cur(repo, p.id).status, 'CONVERTIDA_CONTRATO');
+  });
+
+  it('status + conteudo na mesma edicao => versao nova (o link anterior deixa de valer)', async () => {
+    const { repo, router } = fresh();
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const p = withStatus(repo, 'ENVIADA');
+    const t = tokenOf(await issue(router, p.id, admin));
+    const patch = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _sessionToken: admin }, body: { status: 'EM_NEGOCIACAO', paymentCondition: 'Boleto 30 dias' } });
+    assert.equal(patch.status, 200);
+    assert.ok((cur(repo, p.id).version || 1) > (p.version || 1));
+    assert.equal((await getPublic(router, p.id, t)).status, 404);
+    assert.equal((await approve(router, p.id, t)).status, 404);
+  });
+
+  it('link para de valer quando o admin volta a proposta para RASCUNHO (GET e aceite => 404)', async () => {
+    const { repo, router } = fresh();
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const p = withStatus(repo, 'ENVIADA');
+    const t = tokenOf(await issue(router, p.id, admin));
+    assert.equal((await getPublic(router, p.id, t)).status, 200);
+    const patch = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _sessionToken: admin }, body: { status: 'RASCUNHO' } });
+    assert.equal(patch.status, 200);
+    assert.equal(cur(repo, p.id).status, 'RASCUNHO');
+    const ref404 = await getPublic(router, 'prop-nao-existe');
+    const g = await getPublic(router, p.id, t);
+    assert.equal(g.status, 404);
+    const a = await approve(router, p.id, t);
+    assert.equal(a.status, 404);
+    assert.deepEqual(a.body, ref404.body);
+    assert.equal(cur(repo, p.id).status, 'RASCUNHO');
+    assert.equal(repo.listRentalContracts().filter((c) => (c as { proposalId?: string }).proposalId === p.id).length, 0);
   });
 });
