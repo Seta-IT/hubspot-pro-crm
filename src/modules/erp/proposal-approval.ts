@@ -123,3 +123,27 @@ export function validateProposalApprovalInput(
     },
   };
 }
+
+/** Pacote L (1): unicos campos do corpo do aceite que o servidor le (nunca dados comerciais). */
+export const PROPOSAL_APPROVAL_BODY_KEYS = Object.freeze([
+  'signerName',
+  'signerCpf',
+  'signerRole',
+  'signerEmail',
+  'modality',
+  'acceptedTerms',
+  'statusObservation',
+] as const);
+
+/**
+ * Pacote L (1): copia do corpo SO os campos do aceite (quem aceita, documento, e-mail, modalidade
+ * e consentimento). body.proposal, itens, valores, cliente e qualquer outra chave sao descartados.
+ */
+export function pickProposalApprovalFields(body: unknown): Record<string, unknown> {
+  const src = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+  const out: Record<string, unknown> = {};
+  for (const k of PROPOSAL_APPROVAL_BODY_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+  }
+  return out;
+}

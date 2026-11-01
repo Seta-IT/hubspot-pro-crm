@@ -88,7 +88,7 @@ import {
   SERVICE_RATE_PER_MINUTE,
 } from '../app/lib/service-account';
 import { isServiceAccountIdentity } from '../db/repository';
-import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
+import { pickProposalApprovalFields, validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
@@ -1184,6 +1184,85 @@ export class CrmApiRouter {
   }
 
   /**
+   * Pacote L (3): alcada FINANCEIRA para dar baixa (pagamento) em fatura: sessao com 2FA e
+   * Financeiro/Bancos EDIT ou FULL (perfil Financeiro) ou administrador. Contexto interno passa;
+   * conta de servico nunca.
+   */
+  private financePaymentPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    if (ctx.serviceAccount) return { allowed: false, authenticated: true, email: 'conta-de-servico', name: 'Conta de serviço', roleId: 'SERVICE' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const finAccess = String(sess.erpPermissions?.financeBanksAccess || 'NONE');
+    const allowed = Boolean(
+      sess.mfaVerified && (sess.effectiveActionGuards?.canManageUsersRbac || finAccess === 'FULL' || finAccess === 'EDIT')
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /** Pacote L (3): negativa de baixa de pagamento, auditada como ERP_FINANCE_PAYMENT_DENIED. */
+  private denyInvoiceChange(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    priv: { authenticated: boolean; email?: string; name?: string; roleId?: string },
+    reason: string,
+    code: string
+  ): ApiResponse {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: priv.email || 'desconhecido',
+        actorName: priv.name || 'desconhecido',
+        actorRole: priv.roleId || 'desconhecido',
+        action: 'ERP_FINANCE_PAYMENT_DENIED',
+        module: 'ERP',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: 'BLOCKED',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Negado (${reason}): exige 2FA e a alcada financeira (Financeiro/Bancos EDIT ou FULL) ou administrador.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+    return {
+      status: priv.authenticated ? 403 : 401,
+      body: {
+        error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para dar baixa em faturas.',
+        code,
+      },
+    };
+  }
+
+  /**
+   * Pacote L (2): equipments do contrato (POST/PATCH/PUT) precisa ser uma lista de objetos.
+   * [null], [1], ["x"], [[...]] ou um valor nao-lista => 400 antes de gravar.
+   */
+  private checkContractEquipmentsInput(method: string, cleanPath: string, body: Record<string, unknown>): ApiResponse | null {
+    const isContractCollection = cleanPath === '/api/erp/rental-contracts' || cleanPath === '/api/erp/contracts';
+    const isContractItem = /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+$/.test(cleanPath) &&
+      cleanPath !== '/api/erp/rental-contracts/batch-billing' && cleanPath !== '/api/erp/rental-contracts/batch-email';
+    if (!((method === 'POST' && isContractCollection) || ((method === 'PATCH' || method === 'PUT') && isContractItem))) return null;
+    const b = body && typeof body === 'object' ? body : {};
+    if (!Object.prototype.hasOwnProperty.call(b, 'equipments') || b.equipments === undefined) return null;
+    const eq = b.equipments;
+    if (!Array.isArray(eq) || eq.length > 2000 || eq.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+      return {
+        status: 400,
+        body: {
+          error: 'O campo "equipments" deve ser uma lista de equipamentos (objetos).',
+          code: 'CONTRACT_FIELD_INVALID',
+          fields: ['equipments'],
+        },
+      };
+    }
+    return null;
+  }
+
+  /**
    * Pacote K (D-I2): toda rota que GERA fatura/NF exige a alcada fiscal; a geracao automatica ao
    * salvar contrato (generateNextInvoiceOnSave) tambem respeita a flag global
    * autoGenerateMonthlyRentalInvoices. Devolve a resposta de erro ou null (segue o fluxo).
@@ -1280,7 +1359,7 @@ export class CrmApiRouter {
           resource: `journal ${resource}`.slice(0, 200),
           status: 'BLOCKED',
           ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
-          details: `Journal: ${rec.fiscalDropped} fatura(s)/NF nova(s) descartada(s): exige a alcada fiscal canIssueFiscalDocuments.`,
+          details: `Journal: ${rec.fiscalDropped} fatura(s)/NF nova(s), alterada(s) ou excluida(s) descartada(s): exige a alcada fiscal canIssueFiscalDocuments.`,
         });
       } catch {
         // auditoria nunca derruba a resposta
@@ -1440,6 +1519,9 @@ export class CrmApiRouter {
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
+  // Pacote L (1): aceite publico (POST /api/erp/proposals/:id/approve) com limite por IP e por proposta.
+  private readonly proposalApproveIpLimiter = new SlidingWindowRateLimiter(30, 10 * 60 * 1000);
+  private readonly proposalApproveIdLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
   /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
   // Pacote I (D3): falhas por IP + e-mail (ver src/api/login-ip-guard.ts).
   private readonly loginFailIpGuard = new LoginIpFailureGuard();
@@ -2129,6 +2211,8 @@ export class CrmApiRouter {
       // Pacote K (D-I2): demais caminhos que geram fatura/NF (contrato com generateNextInvoiceOnSave,
       // faturamento em lote, NF-e de importacao, devolucao parcial) exigem a mesma alcada fiscal.
       {
+        const eqErr = this.checkContractEquipmentsInput(method, cleanPath, body as Record<string, unknown>);
+        if (eqErr) return eqErr;
         const fiscalErr = this.checkFiscalIssuanceRoute(method, cleanPath, query, body as Record<string, unknown>, ctx);
         if (fiscalErr) return fiscalErr;
       }
@@ -4505,9 +4589,24 @@ export class CrmApiRouter {
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        // Aceite publico do cliente: dados da assinatura e do aceite chegam no corpo do POST.
-        // Nenhum PATCH previo e necessario. Validacao de campos obrigatorios e status permitido.
+        // Aceite publico do cliente (link antigo sem token segue valido ate a v4).
+        // Pacote L (1): so uma proposta que JA EXISTE no servidor pode ser aceita. body.proposal
+        // (payload ?d=) e qualquer dado comercial do corpo sao IGNORADOS; do corpo so entram os
+        // campos do aceite (signatario, documento, e-mail, modalidade e consentimento). Proposta
+        // inexistente => o mesmo 404 do GET /api/erp/proposals/:id. Contrato e 1a fatura saem
+        // exclusivamente dos dados do servidor.
         const approveId = decodeURIComponent(approvePropMatch[1]).trim();
+        if (!ctx.trustedInternal) {
+          const ipKey = rateLimitIpKey(query._clientIp || '');
+          const ipOk = this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`);
+          const idOk = ipOk ? this.proposalApproveIdLimiter.hit(`approve-id:${approveId.toLowerCase().slice(0, 128)}`) : true;
+          if (!ipOk || !idOk) {
+            return {
+              status: 429,
+              body: { error: 'Muitas tentativas de aceite. Aguarde alguns minutos e tente novamente.', code: 'PROPOSAL_APPROVE_RATE_LIMITED' },
+            };
+          }
+        }
         const existingProp = this.repo
           .listProposals()
           .find(
@@ -4517,18 +4616,20 @@ export class CrmApiRouter {
               p.code === approveId ||
               String(p.code || '').toLowerCase() === approveId.toLowerCase()
           );
-        const incomingProp =
-          !existingProp && body.proposal && typeof body.proposal === 'object'
-            ? (body.proposal as Record<string, unknown>)
-            : null;
+        if (!existingProp) {
+          return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
+        if (existingProp.digitalSignature?.signedAt || existingProp.convertedInvoiceId) {
+          // Aceite repetido (mesmo sem convertedContractId, ex.: dado legado) => 409.
+          return {
+            status: 409,
+            body: { error: 'Esta proposta já foi aceita e convertida em contrato.', code: 'PROPOSAL_ALREADY_APPROVED' },
+          };
+        }
         const approval = validateProposalApprovalInput(
-          body,
-          existingProp ? existingProp.status : incomingProp ? String(incomingProp.status || '') : null,
-          existingProp
-            ? existingProp.convertedContractId || null
-            : incomingProp && typeof incomingProp.convertedContractId === 'string'
-              ? incomingProp.convertedContractId
-              : null
+          pickProposalApprovalFields(body),
+          existingProp.status || 'RASCUNHO',
+          existingProp.convertedContractId || null
         );
         if (!approval.ok) {
           return {
@@ -4536,13 +4637,16 @@ export class CrmApiRouter {
             body: { error: approval.error, code: approval.code, fields: approval.fields },
           };
         }
-        const res = this.repo.approveProposalAndConvertToContract(approveId, {
-          ...approval.data,
+        // Observacao de status (texto livre do historico) so para sessao autenticada/contexto interno.
+        const sessionOk =
+          ctx.trustedInternal ||
+          Boolean(query._sessionToken && this.repo.resolveSessionFromToken(query._sessionToken).authenticated);
+        const { statusObservation, ...acceptance } = approval.data;
+        const res = this.repo.approveProposalAndConvertToContract(existingProp.id, {
+          ...acceptance,
+          ...(sessionOk && statusObservation ? { statusObservation } : {}),
           ipAddress: query._clientIp || undefined,
-          // O payload completo da proposta so e usado quando ela ainda nao existe nesta instancia
-          // (link compartilhado ?d=); uma proposta existente no servidor nunca e sobrescrita.
-          ...(incomingProp ? { proposal: incomingProp } : {}),
-        } as Record<string, unknown>);
+        });
         if (!res) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         }
@@ -4651,9 +4755,14 @@ export class CrmApiRouter {
               body: { error: 'Os campos "title" e "companyName" são obrigatórios.' },
             };
           }
-          const created = this.repo.createRentalContract(
-            body as { title: string; companyName: string; monthlyValue: number }
-          );
+          // Pacote L (5): POST grava so as chaves conhecidas do contrato (mesma allowlist do PATCH);
+          // chaves desconhecidas, variantes de caixa/ZWSP e invoices embutidas sao descartadas.
+          // O id do cliente segue aceito (validado contra colisao no repositorio, Pacote J).
+          const { patch: ctrCreate } = pickRentalContractPatch(body);
+          const created = this.repo.createRentalContract({
+            ...ctrCreate,
+            ...(typeof body.id === 'string' && body.id.trim() ? { id: body.id } : {}),
+          } as { title: string; companyName: string; monthlyValue: number });
           return { status: 201, body: { data: created } };
         }
       }
@@ -5051,6 +5160,10 @@ export class CrmApiRouter {
 
       const payInvoiceMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/pay$/);
       if (payInvoiceMatch && method === 'POST') {
+        // Pacote L (3): baixa de pagamento exige a alcada FINANCEIRA (2FA + Financeiro/Bancos EDIT
+        // ou FULL, ou administrador), com auditoria da negativa.
+        const finPriv = this.financePaymentPrivilege(query, ctx);
+        if (!finPriv.allowed) return this.denyInvoiceChange(method, cleanPath, query, finPriv, 'baixa de pagamento', 'ERP_FINANCE_PAYMENT_FORBIDDEN');
         const paid = this.repo.markInvoicePaid(payInvoiceMatch[1]);
         if (!paid) {
           return { status: 404, body: { error: 'Fatura ou nota fiscal não encontrada.' } };
@@ -5064,6 +5177,9 @@ export class CrmApiRouter {
       if (invoiceIdMatch) {
         const invId = decodeURIComponent(invoiceIdMatch[1]);
         if (method === 'PATCH' || method === 'PUT') {
+          // Pacote L (3): alterar fatura/NF existente exige a alcada fiscal (a mesma do /generate-invoice).
+          const fisPriv = this.fiscalIssuancePrivilege(query, ctx);
+          if (!fisPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, fisPriv, 'alteracao de fatura/NF existente');
           const updated = this.repo.updateInvoice(invId, body);
           if (!updated) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
           return { status: 200, body: { data: updated } };

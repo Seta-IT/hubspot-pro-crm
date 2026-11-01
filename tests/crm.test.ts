@@ -3224,7 +3224,25 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(pageSrc.includes("Investimento Mensal (MRR)"), false);
     assert.ok(pageSrc.includes("Valor Mensal"));
 
-    // 8. Validação completa do processo de Assinatura Digital (inclusive para proposta compartilhada via ?d=)
+    // 8. Validação completa do processo de Assinatura Digital.
+    // Pacote L (1): o aceite nunca cria a proposta a partir do payload ?d= (body.proposal); proposta
+    // inexistente no servidor => 404 (mesmo do GET), sem contrato nem fatura.
+    const sharedMissing = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: "POST",
+      path: "/api/erp/proposals/prop-shared-custom-99/approve",
+      body: { signerName: "Roberto Carlos Diretor", signerCpf: "529.982.247-25", signerRole: "Diretor Executivo", modality: "ICP_BRASIL_A1", acceptedTerms: true, proposal: { id: "prop-shared-custom-99", title: "x", items: [] } },
+    });
+    assert.equal(sharedMissing.status, 404);
+    const sharedCreated = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: "POST",
+      path: "/api/erp/proposals",
+      body: {
+        id: "prop-shared-custom-99", code: "PROP-CUSTOM-99", title: "Proposta Comercial Customizada Teste Assinatura",
+        companyName: "Cliente Assinatura", status: "ENVIADA", contractMonths: 24, monthlyRecurringTotal: 4500,
+        items: [{ id: "it-sig-1", sku: "SL-44-SEC-K9", description: "Licença Telecom", fiscalNature: "LOCACAO_BENS_MOVEIS", ncmOrServiceCode: "NCM 8517.62.59", quantity: 1, unitPrice: 4500, discountPercent: 0, isRecurring: true, totalMonthly: 4500 }],
+      },
+    });
+    assert.equal(sharedCreated.status, 201, JSON.stringify(sharedCreated.body));
     const approveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/erp/proposals/prop-shared-custom-99/approve",

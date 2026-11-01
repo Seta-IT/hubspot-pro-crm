@@ -183,6 +183,19 @@ import {
   normalizeAndClassifyJobTitle,
 } from '../modules/enrichment/enrichment-service';
 
+/** Pacote L (2): item de equipamento de contrato precisa ser um objeto (nao null/array/primitivo). */
+export function isPlainEquipmentItem(eq: unknown): boolean {
+  return Boolean(eq) && typeof eq === 'object' && !Array.isArray(eq);
+}
+
+/** Pacote L (3): o registro do journal so repete o que o servidor ja tem (todas as chaves iguais)? */
+function journalRecordMatches(cur: Record<string, unknown>, inc: Record<string, unknown>): boolean {
+  for (const k of Object.keys(inc)) {
+    if (JSON.stringify(cur[k] ?? null) !== JSON.stringify(inc[k] ?? null)) return false;
+  }
+  return true;
+}
+
 export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpProposalVersionSnapshot {
   return {
     title: p.title || '',
@@ -1191,6 +1204,7 @@ export class CrmRepository {
       // Contrato minimo/mal formado do journal (sem equipments, valor nao numerico) derrubava o
       // /api/bootstrap e o overview do ERP para todos (500). Normaliza sem inventar dados.
       if (!Array.isArray(next.equipments)) next.equipments = cur && Array.isArray(cur.equipments) ? cur.equipments : [];
+      else next.equipments = next.equipments.filter((eq) => isPlainEquipmentItem(eq)); // Pacote L (2): [null] etc.
       if (!Number.isFinite(Number(next.monthlyValue))) next.monthlyValue = cur ? cur.monthlyValue : 0;
       else next.monthlyValue = Number(next.monthlyValue);
       const incNum = typeof inc.contractNumber === 'string' ? inc.contractNumber.trim() : '';
@@ -1339,7 +1353,13 @@ export class CrmRepository {
       );
       appliedCount += before - erp.rentalContracts.length;
     }
-    const deletedInvoices = new Set(journal.deletedInvoiceIds || []);
+    // Pacote L (3): exclusao de fatura/NF pelo journal so com a alcada fiscal.
+    const deletedInvoices = new Set(Array.isArray(journal.deletedInvoiceIds) ? journal.deletedInvoiceIds : []);
+    if (!canIssueFiscal && deletedInvoices.size > 0) {
+      const existingRefs = new Set(erp.invoices.flatMap((i) => [i.id, i.documentNumber]));
+      for (const ref of deletedInvoices) if (existingRefs.has(ref)) fiscalDropped++;
+      deletedInvoices.clear();
+    }
     if (deletedInvoices.size > 0) {
       const before = erp.invoices.length;
       erp.invoices = erp.invoices.filter(
@@ -1406,12 +1426,20 @@ export class CrmRepository {
     );
     {
       // Pacote K (D-I2): fatura/NF NOVA pelo journal so com a alcada fiscal.
+      // Pacote L (3): sem a alcada, o journal tambem NAO altera fatura/NF existente (valor, numero,
+      // status...), inclusive com id em outra caixa (ja canonizado acima). Copia identica ao que o
+      // servidor ja tem (eco do proprio navegador) e ignorada sem contar como tentativa.
       let incomingInvoices = this.canonicalizeJournalIds(erp.invoices, journal.upsertedInvoices);
       if (!canIssueFiscal && Array.isArray(incomingInvoices)) {
-        const existingInvIds = new Set(erp.invoices.map((i) => i.id));
-        const kept = incomingInvoices.filter((i) => existingInvIds.has(i.id));
-        fiscalDropped += incomingInvoices.length - kept.length;
-        incomingInvoices = kept;
+        const byId = new Map(erp.invoices.map((i) => [i.id, i] as const));
+        for (const inc of incomingInvoices) {
+          if (!inc || typeof inc !== 'object' || !inc.id) continue;
+          const cur = byId.get(inc.id);
+          if (!cur || !journalRecordMatches(cur as unknown as Record<string, unknown>, inc as unknown as Record<string, unknown>)) {
+            fiscalDropped++;
+          }
+        }
+        incomingInvoices = [];
       }
       upsertCollection(erp.invoices, incomingInvoices, deletedInvoices);
     }
@@ -3776,6 +3804,22 @@ export class CrmRepository {
     ) {
       this.state.erp.gestaoClickConfig.companyCnpj = '14.806.925/0001-32';
     }
+    // Pacote L (2): dado legado de contrato com equipments nao-array ou com itens nao-objeto
+    // (ex.: [null]) derrubava /api/bootstrap e /api/erp/overview para todos (500). Leitura tolerante:
+    // descarta so os itens invalidos (objetos validos ficam intactos).
+    if (Array.isArray(this.state.erp.rentalContracts)) {
+      for (const ctr of this.state.erp.rentalContracts) {
+        if (!ctr || typeof ctr !== 'object') continue;
+        if (!Array.isArray(ctr.equipments)) {
+          (ctr as { equipments: unknown }).equipments = [];
+        } else if (ctr.equipments.some((eq) => !isPlainEquipmentItem(eq))) {
+          ctr.equipments = ctr.equipments.filter((eq) => isPlainEquipmentItem(eq));
+        }
+      }
+      if (this.state.erp.rentalContracts.some((c) => !c || typeof c !== 'object')) {
+        this.state.erp.rentalContracts = this.state.erp.rentalContracts.filter((c) => c && typeof c === 'object');
+      }
+    }
     if (Array.isArray(this.state.erp.proposals)) {
       this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
       // Pacote J (A2): proposta sem code (journal antigo) recebe um codigo livre do servidor, para
@@ -3798,7 +3842,7 @@ export class CrmRepository {
       0
     );
     const totalRentedEquipments = activeContracts.reduce(
-      (s, c) => s + (Array.isArray(c.equipments) ? c.equipments : []).reduce((acc, eq) => acc + eq.quantity, 0), // Pacote K: dado legado sem equipments nao derruba o overview
+      (s, c) => s + (Array.isArray(c.equipments) ? c.equipments : []).reduce((acc, eq) => acc + (eq && typeof eq === 'object' ? Number(eq.quantity) || 0 : 0), 0), // Pacote K/L: dado legado sem equipments ou com item nao-objeto nao derruba o overview
       0
     );
 
@@ -5260,22 +5304,14 @@ export class CrmRepository {
         p.code === cleanId ||
         String(p.code || '').toLowerCase() === cleanId.toLowerCase()
     );
-    if (!proposal && signatureInput && typeof signatureInput === "object") {
-      const incoming = (signatureInput.proposal && typeof signatureInput.proposal === "object"
-        ? signatureInput.proposal
-        : signatureInput.title
-          ? signatureInput
-          : null) as Partial<ErpCommercialProposal> | null;
-      if (incoming) {
-        proposal =
-          this.updateProposal(cleanId, {
-            ...incoming,
-            id: incoming.id || cleanId,
-            title: incoming.title || `Proposta Comercial ${cleanId}`,
-          }) || undefined;
-      }
-    }
+    // Pacote L (1): o aceite NUNCA cria nem altera a proposta a partir do corpo (body.proposal /
+    // payload ?d=). So uma proposta que ja existe no estado do servidor pode ser aceita; todo dado
+    // comercial (itens, valores, cliente) do contrato e da fatura vem do servidor.
     if (!proposal) return null;
+    // Pacote L (4): item legado sem ncmOrServiceCode (ou nao-objeto) nao derruba o aceite (500).
+    const proposalItems = (Array.isArray(proposal.items) ? proposal.items : []).filter(
+      (i): i is ErpCommercialProposal["items"][number] => Boolean(i) && typeof i === "object" && !Array.isArray(i)
+    );
 
     const now = new Date();
     const nowIso = now.toISOString();
@@ -5284,9 +5320,9 @@ export class CrmRepository {
     const contractNumber = `LOC-${now.getFullYear()}-${100 + erp.rentalContracts.length + 1}`;
     const remessaNfeNumber = `000.419.${100 + erp.invoices.length + 1}`;
 
-    const hasLocacao = proposal.items.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
-    const hasServico = proposal.items.some((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM');
-    const hasScm = proposal.items.some((i) => i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
+    const hasLocacao = proposalItems.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
+    const hasServico = proposalItems.some((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM');
+    const hasScm = proposalItems.some((i) => i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
     const mappedModality =
       proposal.modality === 'SERVICE'
         ? 'SERVICO'
@@ -5302,20 +5338,20 @@ export class CrmRepository {
                   ? 'SERVICO'
                   : 'LOCACAO';
 
-    const equipments = proposal.items.map((item, idx) => ({
+    const equipments = proposalItems.map((item, idx) => ({
       id: `eq-${Date.now()}-${idx + 1}`,
       skuGestaoClick: item.sku || `GC-EQ-00${idx + 1}`,
-      description: item.description,
+      description: String(item.description || ''),
       serialNumber:
-        item.serialNumber && item.serialNumber.trim()
+        typeof item.serialNumber === 'string' && item.serialNumber.trim()
           ? item.serialNumber.trim()
           : `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       assetTag: `PAT-SETA-${1000 + erp.rentalContracts.length * 10 + idx + 1}`,
       assetStatus: 'EM_CLIENTE' as const,
-      ncm: item.ncmOrServiceCode.replace('NCM ', '') || '8517.62.14',
-      quantity: item.quantity,
-      unitMonthlyRent: item.unitPrice,
-      assetValueBrl: item.unitPrice * 6 * item.quantity,
+      ncm: String(item.ncmOrServiceCode || '').replace('NCM ', '') || '8517.62.14',
+      quantity: Number(item.quantity) || 0,
+      unitMonthlyRent: Number(item.unitPrice) || 0,
+      assetValueBrl: (Number(item.unitPrice) || 0) * 6 * (Number(item.quantity) || 0),
       remessaCfop: '5.908' as const,
       remessaNfeKey: `3526101845678900019055001000419${100 + idx}1000419991`,
     }));
