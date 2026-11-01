@@ -1447,4 +1447,87 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
     assert.equal(repo.listRentalContracts().length, contracts + 1);
     assert.equal(repo.listTasks({}).some((t) => (t as { id: string }).id === 'tj-res'), false);
   });
+
+  // BODY_TOO_DEEP: corpo acima de 40 niveis (raiz = 0) => 400 antes de qualquer efeito.
+  const nest = (levels: number, leaf: unknown = 'x') => {
+    let v: unknown = leaf;
+    for (let i = 0; i < levels; i++) v = { n: v };
+    return v as Record<string, unknown>;
+  };
+  const deepJson = (levels: number) => JSON.parse('{"n":'.repeat(levels) + '"x"' + '}'.repeat(levels)) as Record<string, unknown>;
+
+  it('BODY_TOO_DEEP: 40 niveis passam, 41 (objeto, array ou misto) e 10.000 niveis => 400 sem estourar a pilha', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const q = { ...HTTP, _clientIp: '203.0.113.88', _sessionToken: sa };
+    const ok = await router.dispatch({ method: 'POST', path: '/api/tasks', query: q, body: { title: 'raso', meta: nest(39) } });
+    assert.notEqual((ok.body as { code?: string }).code, 'BODY_TOO_DEEP', 'raiz + meta + 39 = 40 niveis');
+    let arr: unknown = 'x';
+    for (let i = 0; i < 41; i++) arr = i % 2 ? [arr] : { a: arr };
+    for (const [name, body] of [
+      ['objeto 41', { title: 't', meta: nest(40) }],
+      ['array/misto 41', { title: 't', meta: arr }],
+      ['10.000 niveis', deepJson(10_000)],
+      ['array topo', JSON.parse('['.repeat(60) + '1' + ']'.repeat(60))],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const r = await router.dispatch({ method: 'POST', path: '/api/tasks', query: q, body });
+      assert.equal(r.status, 400, name);
+      assert.equal((r.body as { code: string }).code, 'BODY_TOO_DEEP', name);
+    }
+  });
+
+  it('BODY_TOO_DEEP nas rotas Next publicas (/approve e portal) e no dispatch: nada gravado, auditado, contado nem enviado', async () => {
+    const { POST: approvePOST } = await import('../src/app/api/erp/proposals/[id]/approve/route');
+    const portal = await import('../src/app/api/erp/proposals/[id]/route');
+    const tokSeed = linkFor('prop-seta-001', 2);
+    const { repo, router } = fresh();
+    const p = repo.createProposal({
+      title: 'Aceite profundo', companyName: 'Cliente', companyCnpj: '00.000.000/0001-00', status: 'ENVIADA',
+      contractMonths: 12, items: [{ id: 'i1', description: 'Roteador', quantity: 1, unitPrice: 100, itemType: 'PRODUTO' }],
+    } as never);
+    const tok = linkFor(p.id, p.version || 1);
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const snap = () => {
+      const st = JSON.parse(JSON.stringify(repo.getState())) as { rbac?: Record<string, unknown> };
+      if (st.rbac) delete st.rbac.users;
+      return JSON.stringify(st);
+    };
+    const before = snap();
+    const auditBefore = repo.listSecurityAuditLogs(1000).logs.length;
+    const ip = '203.0.113.99';
+    await withSpies(async (calls) => {
+      for (const [label, handler, path, method] of [
+        ['approve', approvePOST, '/api/erp/proposals/prop-seta-001/approve', 'POST'],
+        ['portal POST', portal.POST, '/api/erp/proposals/prop-seta-001', 'POST'],
+        ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-seta-001', 'PATCH'],
+      ] as const) {
+        const res = await handler(new NextRequest(`https://sti-hub.example.invalid${path}`, {
+          method,
+          headers: { 'content-type': 'application/json', 'x-proposal-token': tokSeed, 'idempotency-key': 'idem-profundo-0001' },
+          body: JSON.stringify({ ...SIGNER, extra: nest(45) }),
+        }));
+        assert.equal(res.status, 400, label);
+        assert.equal(((await res.json()) as { code: string }).code, 'BODY_TOO_DEEP', label);
+      }
+      for (let i = 0; i < 12; i++) {
+        const r = await approve(router, p.id, tok, { ...SIGNER, extra: nest(41) }, { ip, idem: 'idem-profundo-0001' });
+        assert.equal((r.body as { code: string }).code, 'BODY_TOO_DEEP');
+      }
+      const mail = await router.dispatch({ method: 'POST', path: '/api/communications/send-email', query: { ...HTTP, _clientIp: ip, _sessionToken: sa }, body: { to: 'c@exemplo.invalid', subject: 's', body: 'b', x: nest(41) } });
+      assert.equal((mail.body as { code: string }).code, 'BODY_TOO_DEEP');
+      const jr = await router.dispatch({ method: 'POST', path: '/api/tasks', query: { ...HTTP, _clientIp: ip, _sessionToken: sa }, body: { title: 't', _reconcileJournal: { upsertedTasks: [{ id: 'tj-deep', title: 'j', meta: nest(40) }] } } });
+      assert.equal((jr.body as { code: string }).code, 'BODY_TOO_DEEP');
+      const svc = await router.dispatch({ method: 'POST', path: '/api/contacts', query: { _fromHttpBridge: '1', _svcBearer: '1', _svcTokenSha256: 'x', _clientIp: ip }, body: { firstName: 'S', n: nest(41) } });
+      assert.equal((svc.body as { code: string }).code, 'BODY_TOO_DEEP');
+      assert.deepEqual(calls, [], calls.join(', '));
+    });
+    assert.ok(snap() === before, 'estado (inclusive auditoria) identico');
+    assert.equal(repo.listSecurityAuditLogs(1000).logs.length, auditBefore);
+    const contracts = repo.listRentalContracts().length;
+    const ok = await approve(router, p.id, tok, SIGNER, { ip, idem: 'idem-profundo-0001' });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body).slice(0, 200));
+    assert.notEqual((ok.body as { idempotentReplay?: boolean }).idempotentReplay, true);
+    assert.equal(repo.listRentalContracts().length, contracts + 1);
+    assert.equal(repo.listTasks({}).some((t) => (t as { id: string }).id === 'tj-deep'), false);
+  });
 });

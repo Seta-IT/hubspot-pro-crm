@@ -183,6 +183,27 @@ export function redactProposalLinkTokens(text: unknown): unknown {
   return out;
 }
 
+/** Profundidade maxima aceita num corpo (a raiz e o nivel 0). Acima disso o dispatch recusa (400). */
+export const MAX_BODY_DEPTH = MAX_DEPTH;
+
+/**
+ * true se algum valor do corpo esta ABAIXO de MAX_BODY_DEPTH niveis (raiz = 0). Iterativo (pilha
+ * explicita): um corpo com milhares de niveis nao estoura a pilha de chamadas.
+ */
+export function bodyExceedsMaxDepth(value: unknown, maxDepth = MAX_BODY_DEPTH): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const stack: Array<[unknown, number]> = [[value, 0]];
+  while (stack.length) {
+    const [v, d] = stack.pop()!;
+    if (!v || typeof v !== 'object') continue;
+    const children = Array.isArray(v) ? v : Object.values(v as Record<string, unknown>);
+    if (children.length === 0) continue;
+    if (d + 1 > maxDepth) return true;
+    for (const c of children) if (c && typeof c === 'object') stack.push([c, d + 1]);
+  }
+  return false;
+}
+
 /**
  * A4: true se o valor (JSON) tem, em qualquer nivel, uma chave PROPRIA `__proto__`,
  * `constructor` ou `prototype`. O dispatch recusa esses corpos (400) antes de redigir: a copia
