@@ -1230,3 +1230,102 @@ describe('A3: redacao normalizada do payload do token', () => {
   });
 });
 
+describe('A5/A6: status em lista fechada e justificativa visivel', () => {
+  const call = (router: CrmApiRouter, method: string, path: string, session: string, body: Record<string, unknown> = {}) =>
+    router.dispatch({ method, path, query: { ...HTTP, _clientIp: '192.0.2.50', _sessionToken: session }, body });
+  const J = 'Cliente aceitou por telefone com o diretor';
+
+  it('ZWSP, largura total e minusculas sao normalizados antes das regras (sem escapar) e gravados canonicos', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const p = repo.createProposal({ title: 'S', companyName: 'C', status: 'ENVIADA', items: [] } as never);
+    for (const st of ['CONVERTIDA_CONTRATO\u200b', '\uFF23\uFF2F\uFF2E\uFF36\uFF25\uFF32\uFF34\uFF29\uFF24\uFF21_CONTRATO', 'convertida_contrato', ' Convertida_Contrato\u2060 ']) {
+      const r = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: st });
+      assert.equal(r.status, 403, JSON.stringify(st));
+      assert.equal((r.body as { code: string }).code, 'PROPOSAL_STATUS_CONVERSION_FORBIDDEN');
+    }
+    const semJust = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: 'APROVADA\u200b' });
+    assert.equal(semJust.status, 400);
+    assert.equal((semJust.body as { code: string }).code, 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED');
+    const ok = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: 'em_negociacao' });
+    assert.equal(ok.status, 200);
+    assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'EM_NEGOCIACAO');
+    const ap = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: 'aprovada', approvalJustification: J });
+    assert.equal(ap.status, 200);
+    assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'APROVADA');
+  });
+
+  it('fora da lista e nao-string => 400 (PATCH, PUT, POST), nunca 500, e nada gravado', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const p = repo.createProposal({ title: 'S', companyName: 'C', status: 'ENVIADA', items: [] } as never);
+    const bad: unknown[] = ['HACKED_STATUS', 'EM NEGOCIACAO', { toString: null }, ['APROVADA'], 42, true, JSON.parse('{"toString":"x"}')];
+    for (const st of bad) {
+      for (const m of ['PATCH', 'PUT']) {
+        const r = await call(router, m, `/api/erp/proposals/${p.id}`, sa, { status: st as never });
+        assert.equal(r.status, 400, `${m} ${JSON.stringify(st)}`);
+        assert.equal((r.body as { code: string }).code, 'PROPOSAL_STATUS_INVALID');
+      }
+      const c = await call(router, 'POST', '/api/erp/proposals', sa, { title: 'N', status: st as never });
+      assert.equal(c.status, 400, `POST ${JSON.stringify(st)}`);
+    }
+    assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'ENVIADA');
+  });
+
+  it('journal nunca grava minusculas nem status fora da lista (nova e existente)', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const cur = repo.listProposals().find((x) => x.id === 'prop-seta-002')!;
+    const later = (n: number) => new Date(Date.now() + n * 60_000).toISOString();
+    const send = (ups: unknown[]) => call(router, 'POST', '/api/state/reconcile', sa, { journal: { upsertedProposals: ups } });
+    await send([
+      { id: 'prop-jn-1', code: 'PROP-JN-1', title: 'j', status: 'convertida_contrato', items: [], updatedAt: later(1) },
+      { id: 'prop-jn-2', code: 'PROP-JN-2', title: 'j', status: 'aprovada\u200b', items: [], updatedAt: later(1) },
+      { id: 'prop-jn-3', code: 'PROP-JN-3', title: 'j', status: 'HACKED_STATUS', items: [], updatedAt: later(1) },
+      { id: 'prop-jn-4', code: 'PROP-JN-4', title: 'j', status: 'em_negociacao', items: [], updatedAt: later(1) },
+      { id: 'prop-jn-5', code: 'PROP-JN-5', title: 'j', status: { toString: null }, items: [], updatedAt: later(1) },
+    ]);
+    const st = (id: string) => repo.listProposals().find((x) => x.id === id)!.status;
+    assert.equal(st('prop-jn-1'), 'RASCUNHO');
+    assert.equal(st('prop-jn-2'), 'RASCUNHO');
+    assert.equal(st('prop-jn-3'), 'RASCUNHO');
+    assert.equal(st('prop-jn-4'), 'EM_NEGOCIACAO');
+    assert.equal(st('prop-jn-5'), 'RASCUNHO');
+    const before = cur.status;
+    for (const [i, s] of ['convertida_contrato', 'CONVERTIDA_CONTRATO ', 'aprovada', 'hacked'].entries()) {
+      await send([{ ...cur, status: s, updatedAt: later(2 + i) }]);
+      assert.equal(st('prop-seta-002'), before, s);
+    }
+    if (!CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(before)) {
+      await send([{ ...cur, status: 'recusada', updatedAt: later(10) }]);
+      assert.equal(st('prop-seta-002'), 'RECUSADA');
+    }
+    for (const p of repo.listProposals()) assert.ok(CrmApiRouter.PROPOSAL_STATUSES.includes(p.status), `${p.id}: ${p.status}`);
+  });
+
+  it('A6: justificativa nao-string => 400; invisiveis, diacriticos soltos, fillers e emojis nao contam; minimo 10 visiveis', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const p = repo.createProposal({ title: 'S', companyName: 'C', status: 'ENVIADA', items: [] } as never);
+    const bad: unknown[] = [
+      1234567890, ['Cliente aceitou por telefone'], { toString: 'x' }, true,
+      '\u200b'.repeat(10), '\u200d'.repeat(12), '\u3164'.repeat(10), '\u115f\u1160'.repeat(6),
+      'a' + '\u0301'.repeat(9), '\u0301'.repeat(12), '\ud83d\ude00'.repeat(5), '\u00a0'.repeat(12), '\u3000'.repeat(12),
+      'abc\u200b\u200b\u200b\u200b\u200b\u200b\u200bd', 'a b c d e f g h i', '!!!!!!!!!!!!',
+    ];
+    for (const j of bad) {
+      const r = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: 'APROVADA', approvalJustification: j as never });
+      assert.equal(r.status, 400, JSON.stringify(j));
+      assert.equal((r.body as { code: string }).code, 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED', JSON.stringify(j));
+    }
+    assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'ENVIADA');
+    assert.equal((await call(router, 'POST', '/api/erp/proposals', sa, { title: 'N', status: 'APROVADA', approvalJustification: 1234567890 as never })).status, 400);
+    const ok = await call(router, 'PATCH', `/api/erp/proposals/${p.id}`, sa, { status: 'APROVADA', approvalJustification: 'Aceite\u200b ok 30/10 por telefone' });
+    assert.equal(ok.status, 200);
+    const saved = repo.listProposals().find((x) => x.id === p.id)!;
+    assert.equal(saved.approvalMode, 'MANUAL');
+    assert.ok(!String(saved.approvalJustification).includes('\u200b'));
+    const acentos = repo.createProposal({ title: 'S2', companyName: 'C', status: 'ENVIADA', items: [] } as never);
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${acentos.id}`, sa, { status: 'APROVADA', approvalJustification: 'Aprovação ok' })).status, 200);
+  });
+});
