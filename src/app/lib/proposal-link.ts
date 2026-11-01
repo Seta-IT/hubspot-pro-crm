@@ -210,6 +210,28 @@ export function describeProposalLinkInText(text: unknown): { jti: string; exp: s
 export { redactProposalLinkTokens, deepRedactProposalLinkTokens, PROPOSAL_LINK_TOKEN_REDACTED } from './proposal-link-redact';
 
 /** URL para o cliente: o token vai no FRAGMENTO (#t=), que nao e enviado ao servidor nem ao Referer. */
+/**
+ * Origem do link assinado (checagem final v4, 01/11/2026): STI_HUB_PUBLIC_ORIGIN quando
+ * configurado e valido (http/https absoluto; so a origem, sem caminho/consulta/fragmento), para
+ * o link nao depender do host da requisicao (Preview, alias, Host forjado). Sem o env (ou
+ * invalido) => origem da requisicao; sem ela => https://sti-hub.vercel.app.
+ */
+export function resolveProposalLinkOrigin(requestOrigin?: string | null): string {
+  const pick = (raw: unknown): string | null => {
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    if (!v) return null;
+    try {
+      const u = new URL(v);
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+      if (u.username || u.password) return null;
+      return u.origin;
+    } catch {
+      return null;
+    }
+  };
+  return pick(process.env.STI_HUB_PUBLIC_ORIGIN) || pick(requestOrigin) || 'https://sti-hub.vercel.app';
+}
+
 export function buildSignedProposalUrl(origin: string, proposalId: string, token: string): string {
   const base = String(origin || '').replace(/\/+$/, '');
   return `${base}/proposta/${encodeURIComponent(proposalId)}#t=${token}`;

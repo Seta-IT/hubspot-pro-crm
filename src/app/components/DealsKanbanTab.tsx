@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { Company, Contact, Deal, DealBusinessType, DealPriority, ErpCommercialProposal, ErpRentalContract, PipelineStage, TimelineEvent } from '../../db/types';
 import { formatBRL, formatDateTimeBR } from './ui-helpers';
-import { buildPublicProposalUrl } from '../lib/proposal-share';
+import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
@@ -295,8 +295,8 @@ export default function DealsKanbanTab({
         const created: ErpCommercialProposal = json.data;
         if (created) {
           recordUpsertedProposal(created);
-          const publicUrl = buildPublicProposalUrl(created);
-          const printUrl = buildPublicProposalUrl(created, { autoPrint: true });
+          const publicUrl = buildInternalProposalUrl(created);
+          const printUrl = buildInternalProposalUrl(created, { autoPrint: true });
           setCreatedProposalBanner({
             dealTitle: deal.title,
             proposal: created,
@@ -304,7 +304,7 @@ export default function DealsKanbanTab({
             printUrl,
           });
           onShowToast?.(
-            `Proposta ${created.code} gerada com link público de PDF pronto para o cliente!`
+            `Proposta ${created.code} gerada! Para enviar ao cliente use "Copiar link para o cliente" (link assinado).`
           );
           if (onRefreshAll) await onRefreshAll();
         }
@@ -589,7 +589,7 @@ export default function DealsKanbanTab({
               </span>
             </div>
             <div className="text-xs text-slate-200">
-              Link Público p/ Cliente Imprimir PDF:{" "}
+              Visualização interna (exige login no STI-hub; para o cliente use o link assinado):{" "}
               <a
                 href={createdProposalBanner.publicUrl}
                 target="_blank"
@@ -2513,8 +2513,8 @@ export default function DealsKanbanTab({
                   {associatedProposals.length > 0 ? (
                     <div className="space-y-2">
                       {associatedProposals.map((prop) => {
-                        const pubUrl = buildPublicProposalUrl(prop);
-                        const prtUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+                        const pubUrl = buildInternalProposalUrl(prop);
+                        const prtUrl = buildInternalProposalUrl(prop, { autoPrint: true });
                         return (
                           <div
                             key={prop.id}

@@ -93,7 +93,7 @@ import {
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
 } from '../lib/durable-storage';
-import { appendClientProposalVersion, buildProposalVersionShortUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
@@ -1004,15 +1004,15 @@ export default function ErpGestaoClickTab({
       const j = await res.json();
       if (j.data) {
         recordUpsertedProposal(j.data);
-        const publicUrl = buildPublicProposalUrl(j.data);
-        const printUrl = buildPublicProposalUrl(j.data, { autoPrint: true });
+        const publicUrl = buildInternalProposalUrl(j.data);
+        const printUrl = buildInternalProposalUrl(j.data, { autoPrint: true });
         setCreatedProposalBanner({
           proposal: j.data,
           publicUrl,
           printUrl,
         });
       }
-      onShowToast("Proposta Comercial criada com Link Público de PDF para o Cliente!");
+      onShowToast("Proposta Comercial criada! Para enviar ao cliente use \"Copiar link para o cliente\" (link assinado).");
       setShowNewProposalModal(false);
       setPropTitle("");
       setPropCustomCompanyName("");
@@ -1100,8 +1100,8 @@ export default function ErpGestaoClickTab({
     }
     const saved: ErpCommercialProposal = (await res.json().catch(() => null))?.data || updated;
     recordUpsertedProposal(saved);
-    const publicUrl = buildPublicProposalUrl(saved);
-    const printUrl = buildPublicProposalUrl(saved, { autoPrint: true });
+    const publicUrl = buildInternalProposalUrl(saved);
+    const printUrl = buildInternalProposalUrl(saved, { autoPrint: true });
     setCreatedProposalBanner({
       proposal: saved,
       publicUrl,
@@ -1114,7 +1114,7 @@ export default function ErpGestaoClickTab({
     const revCount = Array.isArray(saved.versionHistory) ? saved.versionHistory.length : 1;
     onShowToast(
       isNew
-        ? `Orçamento ${saved.code} criado na Versão v${verNum}.0 e Link PDF A4 gerado!`
+        ? `Orçamento ${saved.code} criado na Versão v${verNum}.0 ! Para o cliente, use o link assinado.`
         : `Orçamento ${saved.code} salvo na Versão v${verNum}.0 (${revCount} revisão(ões) registradas no histórico)!`
     );
     await onRefresh();
@@ -1264,11 +1264,16 @@ export default function ErpGestaoClickTab({
   ) => {
     setOpenProposalMenuId(null);
     setExpandedProposalSubmenu(null);
-    const publicUrl = buildPublicProposalUrl(prop);
 
     if (target === "E_ASSINATURA") {
-      window.open(publicUrl, "_blank", "noopener,noreferrer");
-      onShowToast(`Proposta ${prop.code} aberta para e-Assinatura ICP-Brasil / Gov.br!`);
+      // Checagem final v4: a e-Assinatura e feita pelo cliente no link ASSINADO (o link interno
+      // sem token nao abre para o cliente). Abre o link assinado e o copia para enviar.
+      const r = await openWithSignedProposalLink(prop.id, (signedUrl) => signedUrl);
+      onShowToast(
+        r.ok
+          ? `Link assinado da proposta ${prop.code} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil / Gov.br).`
+          : `Não foi possível gerar o link assinado: ${r.error}`
+      );
       return;
     }
     if (target === "COPIA") {
@@ -2132,7 +2137,7 @@ export default function ErpGestaoClickTab({
                 Orçamentos &amp; Propostas Comerciais ({filteredProposals.length} de {proposals.length})
               </h2>
               <p className="text-xs text-slate-500">
-                Gestão completa de orçamentos de Produtos (786 itens), Serviços (39 itens), frete, descontos, parcelas e link público PDF A4.
+                Gestão completa de orçamentos de Produtos (786 itens), Serviços (39 itens), frete, descontos, parcelas e link assinado do cliente (PDF A4).
               </p>
             </div>
 
@@ -2266,7 +2271,7 @@ export default function ErpGestaoClickTab({
               <div className="space-y-2 text-xs">
                 {[
                   { code: 'RASCUNHO', name: 'Em Aberto (Rascunho Comercial)', color: 'bg-slate-200 text-slate-800' },
-                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Público PDF Ativo)', color: 'bg-blue-100 text-blue-800' },
+                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Assinado)', color: 'bg-blue-100 text-blue-800' },
                   { code: 'EM_NEGOCIACAO', name: 'Em Negociação / Revisão de Escopo', color: 'bg-amber-100 text-amber-800' },
                   { code: 'APROVADA', name: 'Aprovado pelo Decisor', color: 'bg-emerald-100 text-emerald-800' },
                   { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-600 text-white' },
@@ -2512,8 +2517,8 @@ export default function ErpGestaoClickTab({
                   {filteredProposals.map((prop) => {
                     const isConverted =
                       prop.status === "CONVERTIDA_CONTRATO" || Boolean(prop.convertedContractId);
-                    const publicUrl = buildPublicProposalUrl(prop);
-                    const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+                    const publicUrl = buildInternalProposalUrl(prop);
+                    const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
                     const stBadge = getStatusBadge(prop);
                     const isProdProp = prop.budgetType === "PRODUTOS";
                     return (
@@ -2651,8 +2656,8 @@ export default function ErpGestaoClickTab({
             );
             const isHighlighted =
               highlightedProposalId === prop.id || highlightedProposalId === prop.code;
-            const publicUrl = buildPublicProposalUrl(prop);
-            const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+            const publicUrl = buildInternalProposalUrl(prop);
+            const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
             const stBadge = getStatusBadge(prop);
 
             return (
@@ -2716,7 +2721,7 @@ export default function ErpGestaoClickTab({
 
                 <div className="p-2.5 rounded bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <span className="text-emerald-900 truncate max-w-2xl">
-                    <strong>Link Público do Cliente (PDF A4):</strong>{' '}
+                    <strong>Visualização interna (exige login; para o cliente use o link assinado):</strong>{' '}
                     <a
                       href={publicUrl}
                       target="_blank"
@@ -4918,7 +4923,7 @@ export default function ErpGestaoClickTab({
         {/* CONTEÚDO PRINCIPAL */}
         <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-x-hidden">
 
-          {/* BANNER DE PROPOSTA RECÉM-CRIADA COM LINK PÚBLICO */}
+          {/* BANNER DE PROPOSTA RECÉM-CRIADA (visualização interna + link assinado p/ o cliente) */}
           {createdProposalBanner && (
             <div className="bg-emerald-950 text-white rounded-md p-4 border border-emerald-500 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="space-y-1">
@@ -4931,7 +4936,7 @@ export default function ErpGestaoClickTab({
                   </span>
                 </div>
                 <div className="text-xs text-slate-200">
-                  Link de Acesso Público p/ Imprimir PDF:{' '}
+                  Visualização interna (exige login no STI-hub):{' '}
                   <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="underline font-mono text-emerald-300">
                     {createdProposalBanner.publicUrl.slice(0, 95)}...
                   </a>
@@ -7745,7 +7750,7 @@ export default function ErpGestaoClickTab({
 
               <div className="flex items-center gap-2">
                 <a
-                  href={buildPublicProposalUrl(statusModalProposal)}
+                  href={buildInternalProposalUrl(statusModalProposal)}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3.5 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-xs font-bold inline-flex items-center gap-1.5"
@@ -7832,7 +7837,7 @@ export default function ErpGestaoClickTab({
         </div>
       )}
 
-      {/* MODAL: NOVA PROPOSTA COMERCIAL (COM LINK PÚBLICO DE PDF) */}
+      {/* MODAL: NOVA PROPOSTA COMERCIAL */}
       {showNewProposalModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-2xl w-full overflow-hidden my-8">
@@ -7842,7 +7847,7 @@ export default function ErpGestaoClickTab({
                   Seta Telecom • Orçamentos &amp; Propostas Comerciais
                 </span>
                 <h3 className="text-sm font-extrabold">
-                  Criar Nova Proposta Comercial (Gera Link Público de Impressão PDF A4)
+                  Criar Nova Proposta Comercial (PDF A4; link assinado para o cliente)
                 </h3>
               </div>
               <button

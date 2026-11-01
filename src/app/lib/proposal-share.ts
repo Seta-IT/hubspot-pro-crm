@@ -984,19 +984,30 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
   }
 }
 
-export function buildPublicProposalUrl(
-  prop: ErpCommercialProposal,
+/**
+ * URL INTERNA de visualizacao/impressao da proposta (`/proposta/<id>[?print=1]`), para usuario
+ * logado no STI-hub. Checagem final da v4 (01/11/2026): NAO carrega mais a proposta inteira em
+ * `?d=` (dados do cliente/valores legiveis por quem tiver a URL e sem revogacao) e NAO e link
+ * para o cliente: sem sessao a pagina mostra "link invalido". Para o cliente use o link
+ * ASSINADO (requestSignedProposalLink / copySignedProposalLink em proposal-link-client.ts).
+ */
+export function buildInternalProposalUrl(
+  prop: Pick<ErpCommercialProposal, 'id'>,
   options?: { autoPrint?: boolean; origin?: string }
 ): string {
   const baseOrigin =
     options?.origin ||
     (typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app');
-  const encoded = encodeProposalToQueryParam(prop);
-  const params = new URLSearchParams();
-  if (encoded) params.set('d', encoded);
-  if (options?.autoPrint) params.set('print', '1');
-  const qs = params.toString();
-  return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs ? `?${qs}` : ''}`;
+  const qs = options?.autoPrint ? '?print=1' : '';
+  return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs}`;
+}
+
+/** @deprecated nome legado: devolve a URL INTERNA (sem `?d=`); nao e link publico. */
+export function buildPublicProposalUrl(
+  prop: Pick<ErpCommercialProposal, 'id'>,
+  options?: { autoPrint?: boolean; origin?: string }
+): string {
+  return buildInternalProposalUrl(prop, options);
 }
 
 export const normalizeProposalTemplateStyle = resolveProposalLayoutKind;

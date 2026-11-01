@@ -104,6 +104,7 @@ import {
   describeProposalLinkInText,
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
+  resolveProposalLinkOrigin,
 } from '../app/lib/proposal-link';
 import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_BYTES, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
@@ -2890,7 +2891,8 @@ export class CrmApiRouter {
       }
       throw err;
     }
-    const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
+    // Checagem final v4: STI_HUB_PUBLIC_ORIGIN (validado, so a origem) quando existir.
+    const origin = resolveProposalLinkOrigin(query._origin);
     this.proposalLinkAudit(
       'PROPOSAL_LINK_ISSUE',
       'SUCCESS',

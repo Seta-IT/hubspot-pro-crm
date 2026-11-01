@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { requestSignedProposalLink } from '../lib/proposal-link-client';
+import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
 import {
   Mail,
   Send,
@@ -15,6 +15,7 @@ import {
   Landmark,
   Receipt,
   ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatBRL } from './ui-helpers';
 import { recordTimelineEvent } from '../lib/durable-storage';
@@ -241,35 +242,61 @@ export default function ClientEmailComposerModal({
   const [sentProtocol, setSentProtocol] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [signedProposalUrl, setSignedProposalUrl] = useState<string | null>(null);
+  const alreadySigned = Boolean(payload.publicPdfUrl && payload.publicPdfUrl.includes('#t='));
+  const [signedLink, setSignedLink] = useState<SignedLinkState>(() =>
+    alreadySigned ? { status: 'not-needed' } : { status: 'loading' }
+  );
+  const [linkAttempt, setLinkAttempt] = useState(0);
+  const [gateError, setGateError] = useState<string | null>(null);
 
   // Link assinado (29/10): proposta para o cliente so abre com o link gerado no servidor.
   // Se o corpo padrao trouxe o link antigo (sem assinatura), troca pelo link assinado.
+  // Checagem final v4: se a emissao falhar, o compositor mostra o erro e bloqueia o envio.
   useEffect(() => {
-    if (payload.docType !== 'PROPOSAL' || !payload.proposalId) return;
-    if (payload.publicPdfUrl && payload.publicPdfUrl.includes('#t=')) return;
+    if (docType !== 'PROPOSAL' || alreadySigned) return;
     let active = true;
-    requestSignedProposalLink(payload.proposalId).then((r) => {
-      if (!active || !r.ok) return;
+    setSignedLink({ status: 'loading' });
+    requestSignedProposalLink(payload.proposalId || '').then((r) => {
+      if (!active) return;
+      if (!r.ok) {
+        setSignedLink({ status: 'error', error: r.error });
+        return;
+      }
       setSignedProposalUrl(r.url);
+      setSignedLink({ status: 'ok', url: r.url });
+      setGateError(null);
       const unsigned = defaultProposalPdfLink(payload);
       setBody((prev) => (unsigned && prev.includes(unsigned) ? prev.split(unsigned).join(r.url) : prev));
     });
     return () => {
       active = false;
     };
-  }, [payload]);
+  }, [payload, docType, alreadySigned, linkAttempt]);
+
+  const linkGate = proposalEmailLinkGate({
+    isProposal: docType === 'PROPOSAL',
+    state: signedLink,
+    body,
+    unsignedUrl: alreadySigned ? undefined : defaultProposalPdfLink(payload),
+  });
 
   const handleSwitchDocType = (nextType: StiHubEmailDocType) => {
     setDocType(nextType);
     setCcEmail(DOC_TYPE_META[nextType].defaultCc);
     const updatedPayload = { ...payload, customSubject: undefined, customBody: undefined };
     setSubject(buildDefaultSubject(updatedPayload, nextType));
-    setBody(buildDefaultBody(updatedPayload, nextType));
+    const nextBody = buildDefaultBody(updatedPayload, nextType);
+    const unsigned = defaultProposalPdfLink(payload);
+    setBody(signedProposalUrl && unsigned && nextBody.includes(unsigned) ? nextBody.split(unsigned).join(signedProposalUrl) : nextBody);
   };
 
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!toEmail.trim()) return;
+    if (!linkGate.ok) {
+      setGateError(linkGate.error);
+      return;
+    }
     setSending(true);
     try {
       const res = await fetch('/api/communications/send-email', {
@@ -482,11 +509,40 @@ export default function ClientEmailComposerModal({
               />
             </div>
 
+            {docType === 'PROPOSAL' && signedLink.status === 'loading' && (
+              <div role="status" className="p-2.5 rounded border border-slate-200 bg-slate-50 text-slate-700">
+                Gerando o link assinado da proposta para o cliente…
+              </div>
+            )}
+            {docType === 'PROPOSAL' && (signedLink.status === 'error' || gateError) && !linkGate.ok && (
+              <div role="alert" className="p-3 rounded border border-red-300 bg-red-50 text-red-800 flex items-start justify-between gap-3">
+                <span className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{gateError || linkGate.error}</span>
+                </span>
+                {signedLink.status === 'error' && (
+                  <button
+                    type="button"
+                    onClick={() => { setGateError(null); setLinkAttempt((n) => n + 1); }}
+                    className="px-3 py-1.5 rounded border border-red-300 bg-white text-red-800 font-semibold cursor-pointer shrink-0"
+                  >
+                    Tentar de novo
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  disabled={!linkGate.ok}
+                  title={linkGate.ok ? undefined : linkGate.error}
                   onClick={() => {
+                    if (!linkGate.ok) {
+                      setGateError(linkGate.error);
+                      return;
+                    }
                     navigator.clipboard?.writeText(`Assunto: ${subject}\n\n${body}`);
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2500);
@@ -497,8 +553,15 @@ export default function ClientEmailComposerModal({
                   {copied ? 'Copiado!' : 'Copiar Texto + Link'}
                 </button>
                 <a
-                  href={mailtoHref}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 font-semibold text-slate-700"
+                  href={linkGate.ok ? mailtoHref : undefined}
+                  aria-disabled={!linkGate.ok}
+                  onClick={(ev) => {
+                    if (!linkGate.ok) {
+                      ev.preventDefault();
+                      setGateError(linkGate.error);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 font-semibold text-slate-700 ${linkGate.ok ? '' : 'opacity-50 cursor-not-allowed'}`}
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   Abrir no Cliente de E-mail
@@ -515,7 +578,8 @@ export default function ClientEmailComposerModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={sending}
+                  disabled={sending || !linkGate.ok}
+                  title={linkGate.ok ? undefined : linkGate.error}
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />

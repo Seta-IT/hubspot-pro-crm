@@ -79,3 +79,39 @@ export async function openWithSignedProposalLink(
   }
   return r;
 }
+
+/** Estado do link assinado no compositor de e-mail de proposta. */
+export type SignedLinkState =
+  | { status: 'not-needed' }
+  | { status: 'loading' }
+  | { status: 'ok'; url: string }
+  | { status: 'error'; error: string };
+
+/**
+ * Checagem final da v4 (01/11/2026): o e-mail de PROPOSTA so sai com o link ASSINADO. Se a
+ * emissao falhou (403/503/409/rede) ou ainda nao terminou, o envio (e copiar/abrir no app de
+ * e-mail) fica bloqueado com a mensagem de erro, em vez de mandar o link sem token em silencio.
+ * Tambem bloqueia se o corpo ainda contem o link interno sem token.
+ */
+export function proposalEmailLinkGate(input: {
+  isProposal: boolean;
+  state: SignedLinkState;
+  body: string;
+  unsignedUrl?: string;
+}): { ok: true } | { ok: false; error: string } {
+  if (!input.isProposal || input.state.status === 'not-needed') return { ok: true };
+  if (input.state.status === 'loading') {
+    return { ok: false, error: 'Gerando o link assinado da proposta… aguarde para enviar.' };
+  }
+  if (input.state.status === 'error') {
+    return {
+      ok: false,
+      error: `Não foi possível gerar o link assinado da proposta (${input.state.error}). O e-mail não foi enviado: sem o link assinado o cliente não consegue abrir a proposta.`,
+    };
+  }
+  const unsigned = String(input.unsignedUrl || '');
+  if (unsigned && !unsigned.includes('#t=') && input.body.includes(unsigned) && !input.body.includes(input.state.url)) {
+    return { ok: false, error: 'O corpo do e-mail ainda tem o link interno da proposta (sem assinatura). Use o link assinado.' };
+  }
+  return { ok: true };
+}
