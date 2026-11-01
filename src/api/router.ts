@@ -105,7 +105,7 @@ import {
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
 } from '../app/lib/proposal-link';
-import { deepRedactProposalLinkTokens, hasDangerousBodyKey, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -949,6 +949,14 @@ export class CrmApiRouter {
     // completo so segue para o Resend (send-email recebe o corpo bruto apenas para o envio).
     // A4: corpo com chave propria __proto__/constructor/prototype (qualquer nivel) => 400. A copia
     // redigida descarta essas chaves; recusar aqui mantem o 400 das validacoes .strict() (H/I).
+    // Corpo acima de 40 niveis => 400 (fail-closed; a redacao e a checagem de chaves reservadas
+    // examinam ate essa profundidade). Antes de qualquer efeito, como o A4.
+    if (bodyExceedsMaxDepth(rawBody)) {
+      return {
+        status: 400,
+        body: { error: `Corpo da requisição aninhado demais (máximo de ${MAX_BODY_DEPTH} níveis).`, code: 'BODY_TOO_DEEP' },
+      };
+    }
     if (hasDangerousBodyKey(rawBody)) {
       return {
         status: 400,
