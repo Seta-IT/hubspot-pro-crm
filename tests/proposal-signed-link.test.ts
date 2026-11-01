@@ -919,3 +919,95 @@ describe('D2: autoria de proposta vem da sessao (CISO 30/10)', () => {
     assert.equal(p.versionHistory![p.versionHistory!.length - 1].savedBy, 'Sync GestaoClick');
   });
 });
+
+describe('Mudanca de status por sessao (CISO 30/10)', () => {
+  const call = (router: CrmApiRouter, method: string, path: string, session: string, body: Record<string, unknown> = {}) =>
+    router.dispatch({ method, path, query: { ...HTTP, _clientIp: '192.0.2.30', _sessionToken: session }, body });
+  const audits = (repo: ReturnType<typeof createInMemoryRepository>) =>
+    repo.listSecurityAuditLogs(500).logs as unknown as Array<{ action: string; status: string; details: string; resource: string }>;
+
+  it('conversao nunca por sessao; APROVADA so admin/FULL-TODOS com justificativa (sem contrato); vendedor 403', async () => {
+    const { repo, router } = fresh();
+    const maria = repo.findRbacUserRecord('usr-seta-03', '')!;
+    const admin = repo.findRbacUserRecord('usr-seta-01', '')!;
+    const sm = sessionFor(repo, 'usr-seta-03');
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const own = repo.createProposal({ title: 'S', companyName: 'C', sellerEmail: maria.email, status: 'ENVIADA', items: [] } as never);
+    const contracts = repo.listRentalContracts().length;
+    let r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sm, { status: 'APROVADA', approvalJustification: 'cliente aceitou por telefone' });
+    assert.equal(r.status, 403);
+    assert.equal((r.body as { code: string }).code, 'PROPOSAL_MANUAL_APPROVAL_FORBIDDEN');
+    r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sa, { status: 'CONVERTIDA_CONTRATO' });
+    assert.equal(r.status, 403);
+    assert.equal((r.body as { code: string }).code, 'PROPOSAL_STATUS_CONVERSION_FORBIDDEN');
+    r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sa, { status: 'APROVADA', approvalJustification: 'curta' });
+    assert.equal(r.status, 400);
+    assert.equal(repo.listProposals().find((p) => p.id === own.id)!.status, 'ENVIADA');
+    r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sa, { status: 'APROVADA', approvalJustification: 'Cliente aceitou por telefone com o diretor', approvedBy: 'Forjado', approvalMode: 'X' });
+    assert.equal(r.status, 200);
+    const p = repo.listProposals().find((x) => x.id === own.id)!;
+    assert.equal(p.status, 'APROVADA');
+    assert.equal(p.approvalMode, 'MANUAL');
+    assert.equal(p.approvedBy, admin.name);
+    assert.equal(p.approvalJustification, 'Cliente aceitou por telefone com o diretor');
+    assert.equal(p.convertedContractId ?? null, null);
+    assert.equal(repo.listRentalContracts().length, contracts, 'aprovacao manual nao gera contrato');
+    assert.ok(audits(repo).some((l) => l.action === 'PROPOSAL_MANUAL_APPROVAL' && l.status === 'SUCCESS' && l.resource.endsWith(own.id)));
+    // Mesmo status reenviado (editor da UI) nao e transicao: vendedora dona edita o titulo.
+    r = await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sm, { title: 'S editada', status: 'APROVADA' });
+    assert.equal(r.status, 200);
+    // Sair de APROVADA: vendedora e gerente FULL/TODOS 403; admin 200 auditado.
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sm, { status: 'ENVIADA' })).status, 403);
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sessionFor(repo, 'usr-seta-02'), { status: 'ENVIADA' })).status, 403);
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sa, { status: 'EM_NEGOCIACAO' })).status, 200);
+    assert.ok(audits(repo).some((l) => l.action === 'PROPOSAL_STATUS_REOPEN' && l.resource.endsWith(own.id)));
+    // Gerente FULL/TODOS pode aprovar manualmente.
+    assert.equal((await call(router, 'PATCH', `/api/erp/proposals/${own.id}`, sessionFor(repo, 'usr-seta-02'), { status: 'APROVADA', approvalJustification: 'Aceite formal recebido por e-mail' })).status, 200);
+  });
+
+  it('proposta NOVA ja APROVADA/CONVERTIDA via POST ou journal segue as regras', async () => {
+    const { repo, router } = fresh();
+    const sm = sessionFor(repo, 'usr-seta-03');
+    const sa = sessionFor(repo, 'usr-seta-01');
+    assert.equal((await call(router, 'POST', '/api/erp/proposals', sm, { title: 'N', status: 'APROVADA', approvalJustification: 'cliente aceitou por telefone' })).status, 403);
+    assert.equal((await call(router, 'POST', '/api/erp/proposals', sa, { title: 'N', status: 'CONVERTIDA_CONTRATO' })).status, 403);
+    assert.equal((await call(router, 'POST', '/api/erp/proposals', sa, { title: 'N', status: 'APROVADA' })).status, 400);
+    const ok = await call(router, 'POST', '/api/erp/proposals', sa, { title: 'N', status: 'APROVADA', approvalJustification: 'Cliente aceitou na reuniao de 30/10' });
+    assert.equal(ok.status, 201);
+    assert.equal((ok.body as { data: { approvalMode: string } }).data.approvalMode, 'MANUAL');
+    // Upsert via PATCH (proposta so no navegador) ja APROVADA: mesma regra.
+    assert.equal((await call(router, 'PATCH', '/api/erp/proposals/prop-nav-aprovada', sm, { title: 'N', status: 'APROVADA' })).status, 403);
+    // Journal: nova APROVADA/CONVERTIDA entra como RASCUNHO; existente nao muda de/para travado.
+    const cur = repo.listProposals().find((p) => p.id === 'prop-seta-002')!;
+    await call(router, 'POST', '/api/state/reconcile', sa, {
+      journal: {
+        upsertedProposals: [
+          { id: 'prop-j-aprov', code: 'PROP-J-A', title: 'j', status: 'APROVADA', items: [], updatedAt: new Date().toISOString() },
+          { id: 'prop-j-conv', code: 'PROP-J-C', title: 'j', status: 'CONVERTIDA_CONTRATO', items: [], updatedAt: new Date().toISOString() },
+          { ...cur, status: 'CONVERTIDA_CONTRATO', updatedAt: new Date(Date.now() + 60_000).toISOString() },
+        ],
+      },
+    });
+    assert.equal(repo.listProposals().find((p) => p.id === 'prop-j-aprov')!.status, 'RASCUNHO');
+    assert.equal(repo.listProposals().find((p) => p.id === 'prop-j-conv')!.status, 'RASCUNHO');
+    assert.equal(repo.listProposals().find((p) => p.id === 'prop-seta-002')!.status, cur.status);
+    // Contexto interno confiavel mantem o comportamento.
+    const internal = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/proposals', body: { title: 'sync', status: 'APROVADA' } });
+    assert.equal(internal.status, 201);
+  });
+
+  it('restore-version para revisao APROVADA/CONVERTIDA por sessao => 403', async () => {
+    const { repo, router } = fresh();
+    const sa = sessionFor(repo, 'usr-seta-01');
+    const p = repo.createProposal({ title: 'R', companyName: 'C', status: 'ENVIADA', items: [] } as never);
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: `/api/erp/proposals/${p.id}`, body: { status: 'APROVADA' } });
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: `/api/erp/proposals/${p.id}`, body: { status: 'ENVIADA' } });
+    const hist = repo.listProposals().find((x) => x.id === p.id)!.versionHistory || [];
+    const approvedRev = hist.find((v) => (v.snapshot as { status?: string })?.status === 'APROVADA');
+    assert.ok(approvedRev);
+    const r = await call(router, 'POST', `/api/erp/proposals/${p.id}/restore-version`, sa, { targetVersion: approvedRev!.version });
+    assert.equal(r.status, 403);
+    assert.equal((r.body as { code: string }).code, 'PROPOSAL_STATUS_RESTORE_FORBIDDEN');
+    assert.equal(repo.listProposals().find((x) => x.id === p.id)!.status, 'ENVIADA');
+  });
+});

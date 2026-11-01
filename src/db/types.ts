@@ -990,6 +990,11 @@ export interface ErpCommercialProposal {
   digitalSignature?: ErpProposalDigitalSignature | null;
   /** SHA-256 da Idempotency-Key do aceite pelo link (repeticao devolve o mesmo resultado). */
   approvalIdempotencyKeySha256?: string;
+  /** Status (CISO 30/10): 'MANUAL' = aprovada por sessao admin/FULL-TODOS com justificativa (sem conversao). Gravado so pelo servidor. */
+  approvalMode?: 'MANUAL';
+  approvalJustification?: string;
+  approvedBy?: string;
+  approvedAt?: string;
   /** M2 (CISO 30/10): id do usuario vendedor dono, gravado SOMENTE pelo servidor na criacao; imutavel. */
   sellerUserId?: string;
   version?: number;
