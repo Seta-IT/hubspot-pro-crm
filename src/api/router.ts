@@ -887,10 +887,17 @@ export class CrmApiRouter {
       delete query._sessionToken;
     }
 
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
+    const rawBody = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
       string,
       unknown
     >;
+    // Item 2 (CISO 30/10): redacao CENTRAL do token do link assinado (#t=, %23t%3D e o token
+    // solto) em TODO corpo que entra no roteador - qualquer rota que grave (timeline, notas,
+    // tarefas, chamados, journal, registros genericos) ja recebe o texto redigido. O link
+    // completo so segue para o Resend (send-email recebe o corpo bruto apenas para o envio).
+    const body = deepRedactProposalLinkTokens(rawBody) as Record<string, unknown>;
+    const mailerRawBody =
+      method === "POST" && cleanPath === "/api/communications/send-email" ? rawBody : undefined;
 
     if (this.isSingletonRepo) {
       this.repo.syncFromDisk();
@@ -932,7 +939,7 @@ export class CrmApiRouter {
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal });
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -1996,13 +2003,50 @@ export class CrmApiRouter {
     }
   }
 
+  /**
+   * Item 4 (CISO 30/10): ALLOWLIST dos campos que o navegador pode gravar numa proposta (PATCH/PUT,
+   * POST e journal). Tudo fora dela (chaves desconhecidas, id/createdAt num PATCH, campos do
+   * servidor acima) e descartado em chamadas de sessao. Contexto interno confiavel nao passa aqui.
+   */
+  private static readonly CLIENT_EDITABLE_PROPOSAL_FIELDS: ReadonlySet<string> = new Set([
+    'code', 'title', 'serviceType', 'budgetType', 'storeName', 'salesChannel', 'costCenter',
+    'proposalDate', 'deliveryLeadTime', 'deliveryForecast', 'careOf', 'introductionText', 'internalNotes',
+    'shippingCost', 'shippingCarrier', 'deliveryAddress', 'discountPercentGlobal', 'productsSubtotal',
+    'servicesSubtotal', 'installments', 'companyId', 'companyName', 'companyCnpj', 'contactId',
+    'contactName', 'contactEmail', 'dealId', 'sellerName', 'sellerEmail', 'sellerPhone', 'status',
+    'modality', 'templateStyle', 'setupFee', 'slaTier', 'slaResponseHours', 'slaAvailabilityPercent',
+    'deliveryDays', 'warrantyTerms', 'technicalScopeNotes', 'readjustmentIndex', 'discountAmount',
+    'contractMonths', 'paymentCondition', 'validUntil', 'items', 'monthlyRecurringTotal',
+    'oneTimeSetupTotal', 'totalContractValue', 'commercialNotes', 'technicalClauses',
+  ]);
+  /** Entradas de controle (nao sao colunas): observacao do historico e resumo da versao. */
+  private static readonly CLIENT_PROPOSAL_CONTROL_FIELDS: ReadonlySet<string> = new Set([
+    'statusObservation',
+    'versionChangeSummary',
+  ]);
+
+  private static pickClientProposalFields(
+    input: Record<string, unknown>,
+    extra: readonly string[] = []
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input || {})) {
+      if (CrmApiRouter.CLIENT_EDITABLE_PROPOSAL_FIELDS.has(k) || extra.includes(k)) out[k] = v;
+    }
+    return out;
+  }
+
   private stripServerOnlyProposalFields(
     input: Record<string, unknown>,
     query: Record<string, string | undefined>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    mode: 'create' | 'patch' = 'patch'
   ): Record<string, unknown> {
     if (ctx.trustedInternal) return input;
-    const out: Record<string, unknown> = { ...input };
+    const out = CrmApiRouter.pickClientProposalFields(input, [
+      ...CrmApiRouter.CLIENT_PROPOSAL_CONTROL_FIELDS,
+      ...(mode === 'create' ? ['id'] : []),
+    ]);
     for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete out[k];
     out.updatedBy = this.sessionActorName(query);
     return out;
@@ -2120,7 +2164,11 @@ export class CrmApiRouter {
           const cur = byId.get(inc.id);
           // D2: o journal nunca grava autoria, historico, versao nem aceite/assinatura; o upsert
           // (merge) mantem os valores do servidor. Proposta nova: autor = sessao.
-          const rest: Record<string, unknown> = { ...(inc as unknown as Record<string, unknown>) };
+          // Item 4: allowlist (id/updatedAt para o merge; createdAt so em proposta nova).
+          const rest: Record<string, unknown> = CrmApiRouter.pickClientProposalFields(
+            inc as unknown as Record<string, unknown>,
+            cur ? ['id', 'updatedAt'] : ['id', 'updatedAt', 'createdAt']
+          );
           for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete rest[k];
           delete rest.version;
           if (!cur) {
@@ -2459,7 +2507,7 @@ export class CrmApiRouter {
     cleanPath: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean } = { trustedInternal: false }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown> } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -5127,7 +5175,7 @@ export class CrmApiRouter {
           if (!createStatus.ok) return createStatus.response;
           // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
           const created = this.repo.createProposal({
-            ...this.stripServerOnlyProposalFields(createInput, query, ctx),
+            ...this.stripServerOnlyProposalFields(createInput, query, ctx, 'create'),
             ...createStatus.serverFields,
           } as { title: string; [k: string]: unknown });
           if (createStatus.audit) {
@@ -5154,7 +5202,7 @@ export class CrmApiRouter {
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        return this.approveProposalViaLink(decodeURIComponent(approvePropMatch[1]).trim(), query, body, ctx);
+        return await this.approveProposalViaLink(decodeURIComponent(approvePropMatch[1]).trim(), query, body, ctx);
       }
 
       const restorePropVerMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/restore-version$/);
@@ -6100,7 +6148,9 @@ export class CrmApiRouter {
           }
         }
         const cfg = await this.repo.syncLiveGestaoClick({ forceRefresh: true });
-        const syncOv = this.repo.getErpOverview();
+        // CISO 30/10 (item 1): o overview devolvido passa pelo mesmo escopo PROPRIOS/EQUIPE do
+        // bootstrap; a visao da config GestaoClick (pacote I) e aplicada sobre o erp ja filtrado.
+        const syncOv = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;
         return {
           status: 200,
           body: {
@@ -6183,6 +6233,11 @@ export class CrmApiRouter {
       // ======================================================================
       if (cleanPath === '/api/communications/send-email' && method === 'POST') {
         const to = String(body.to || '').trim();
+        // Item 2: `body` ja chega redigido do dispatch; o texto com o link completo (rawMail) e
+        // usado SO no payload do Resend e para extrair jti/exp. Nada de rawMail e gravado.
+        const rawMail = ctx.mailerRawBody || body;
+        const rawSubject = String(rawMail.subject || '').trim();
+        const rawEmailBody = String(rawMail.body || '').trim();
         const subject = String(body.subject || '').trim();
         const emailBody = String(body.body || '').trim();
         const docType = String(body.docType || 'PROPOSAL').trim();
@@ -6213,8 +6268,8 @@ export class CrmApiRouter {
                 cc: body.cc
                   ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
                   : undefined,
-                subject,
-                text: emailBody,
+                subject: rawSubject,
+                text: rawEmailBody,
               }),
             });
             if (res.ok) externalRelay = 'SENT_VIA_RESEND';
@@ -6227,8 +6282,8 @@ export class CrmApiRouter {
         // GRAVADO (timeline, metadata, comentario de chamado) leva #t=[REDACTED]. Na metadata,
         // do link assinado ficam so jti e exp.
         const linkInfo =
-          describeProposalLinkInText(typeof body.publicPdfUrl === 'string' ? body.publicPdfUrl : '') ||
-          describeProposalLinkInText(emailBody);
+          describeProposalLinkInText(typeof rawMail.publicPdfUrl === 'string' ? rawMail.publicPdfUrl : '') ||
+          describeProposalLinkInText(rawEmailBody);
         const storedEmailBody = redactProposalLinkTokens(emailBody);
         const storedSubject = redactProposalLinkTokens(subject);
         const storedPublicPdfUrl = body.publicPdfUrl ? redactProposalLinkTokens(String(body.publicPdfUrl)) : null;
