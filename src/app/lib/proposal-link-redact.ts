@@ -240,14 +240,26 @@ export const MAX_BODY_BYTES = 1024 * 1024;
  * chaves, numeros e separadores). Iterativo e com saida antecipada: custo <= tamanho do limite.
  */
 export function bodyExceedsMaxBytes(value: unknown, maxBytes = MAX_BODY_BYTES): boolean {
+  // Estimativa que NUNCA passa do tamanho real de JSON.stringify(value) em UTF-8 (cota inferior):
+  // um corpo legitimo abaixo do teto nunca recebe 413 por erro de conta. Escapes (\", \n, \uXXXX)
+  // so aumentam o real. Primitivos pelo tamanho exato (antes: 5 bytes fixos => um array de
+  // numeros pequenos era superestimado em ~3x).
   let total = 0;
   const strBytes = (x: string): number => {
     let b = x.length + 2;
     for (let i = 0; i < x.length && b <= maxBytes; i++) {
       const c = x.charCodeAt(i);
-      if (c >= 0x80) b += c >= 0x800 ? 2 : 1;
+      if (c < 0x80) continue;
+      if (c >= 0xd800 && c <= 0xdfff) b += 1; // par substituto: 2 unidades => 4 bytes UTF-8
+      else b += c >= 0x800 ? 2 : 1;
     }
     return b;
+  };
+  const primBytes = (v: unknown): number => {
+    if (typeof v === 'number') return Number.isFinite(v) ? String(v).length : 4;
+    if (typeof v === 'boolean') return v ? 4 : 5;
+    if (typeof v === 'bigint') return String(v).length;
+    return 4; // null (undefined/funcoes nao existem num corpo JSON parseado)
   };
   const stack: unknown[] = [value];
   while (stack.length) {
@@ -255,16 +267,17 @@ export function bodyExceedsMaxBytes(value: unknown, maxBytes = MAX_BODY_BYTES): 
     if (typeof v === 'string') total += strBytes(v);
     else if (v && typeof v === 'object') {
       if (Array.isArray(v)) {
-        total += 2 + v.length;
+        total += 2 + Math.max(0, v.length - 1);
         for (const c of v) stack.push(c);
       } else {
-        total += 2;
-        for (const [k, c] of Object.entries(v as Record<string, unknown>)) {
-          total += strBytes(k) + 2;
+        const entries = Object.entries(v as Record<string, unknown>);
+        total += 2 + Math.max(0, entries.length - 1);
+        for (const [k, c] of entries) {
+          total += strBytes(k) + 1;
           stack.push(c);
         }
       }
-    } else total += 5;
+    } else total += primBytes(v);
     if (total > maxBytes) return true;
   }
   return false;

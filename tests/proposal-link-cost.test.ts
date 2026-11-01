@@ -143,6 +143,43 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
     assert.equal(bodyExceedsMaxBytes({ a: 'x'.repeat(MAX_BODY_BYTES) }), true);
   });
 
+  it('estimativa do tamanho nunca passa do JSON real (corpo legitimo < 1 MiB nunca recebe 413 por conta)', async () => {
+    const exact = (v: unknown) => {
+      // menor teto em que bodyExceedsMaxBytes da false = a estimativa
+      let lo = 0;
+      let hi = 1e8;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (bodyExceedsMaxBytes(v, mid)) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    };
+    const samples: unknown[] = [
+      { a: [0, 1, 2, true, false, null, -1.5e-7, 123456789012] },
+      ['héllo😀"\n', [], {}, [{}]],
+      { 'k😀': 'v', x: { y: [1, 2, { z: 'ç' }] } },
+      Array(10_000).fill(0),
+    ];
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const gen = (d: number): unknown => {
+      const t = rnd();
+      if (d > 3 || t < 0.3) return [0, 1, -3.25, true, false, null, 'x', 'é😀\\"', 12345678901234][Math.floor(rnd() * 9)];
+      if (t < 0.65) return Array.from({ length: Math.floor(rnd() * 5) }, () => gen(d + 1));
+      return Object.fromEntries(Array.from({ length: Math.floor(rnd() * 5) }, (_, i) => [`k${i}${i % 2 ? 'ç' : ''}`, gen(d + 1)]));
+    };
+    for (let i = 0; i < 2000; i++) samples.push(gen(0));
+    for (const v of samples) assert.ok(exact(v) <= Buffer.byteLength(JSON.stringify(v)), JSON.stringify(v));
+    // ~900 KB de numeros pequenos (antes superestimado em ~3x => 413 indevido) passa o dispatch.
+    const nums = { valores: Array(450_000).fill(0) };
+    assert.ok(Buffer.byteLength(JSON.stringify(nums)) < MAX_BODY_BYTES);
+    assert.equal(bodyExceedsMaxBytes(nums), false);
+    const router = new CrmApiRouter(createInMemoryRepository());
+    const r = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-002/approve', query: { ...HTTP, _clientIp: nextIp() }, body: nums });
+    assert.notEqual(r.status, 413);
+  });
+
   it('readBodyCapped para no limite (stream) e devolve o texto abaixo dele', async () => {
     assert.equal(await readBodyCapped(new Request('http://x/', { method: 'POST', body: 'a'.repeat(MAX_BODY_BYTES + 1) })), null);
     assert.equal(await readBodyCapped(new Request('http://x/', { method: 'POST', body: 'olá' })), 'olá');
