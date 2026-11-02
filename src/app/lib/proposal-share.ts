@@ -1112,24 +1112,6 @@ export function proposalFromVersionSnapshot(
   });
 }
 
-export function buildProposalVersionUrl(
-  baseProposal: ErpCommercialProposal,
-  entry: ErpProposalVersionEntry,
-  options?: { autoPrint?: boolean; origin?: string }
-): string {
-  const baseOrigin =
-    options?.origin ||
-    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
-  const snapProposal = proposalFromVersionSnapshot(baseProposal, entry);
-  const encoded = encodeProposalToQueryParam(snapProposal);
-  const params = new URLSearchParams();
-  if (encoded) params.set("d", encoded);
-  params.set("v", String(entry.version));
-  if (options?.autoPrint) params.set("print", "1");
-  return `${baseOrigin}/proposta/${encodeURIComponent(baseProposal.id)}?${params.toString()}`;
-}
-
-
 export function appendClientProposalVersion(
   prev: ErpCommercialProposal,
   next: ErpCommercialProposal,

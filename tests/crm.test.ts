@@ -3618,7 +3618,8 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(srvHead.serviceTypeLabel.includes("Spare Parts / Hard Parts"));
     assert.ok(srvHead.serviceTypeLabel.includes("Configuração"));
     assert.ok(srvHead.serviceTypeLabel.includes("Instalação"));
-    assert.equal(typeof share.buildProposalVersionUrl, "function");
+    // Pacote N (R2): buildProposalVersionUrl (montava ?d=) foi removida por nao ter chamadores.
+    assert.equal((share as Record<string, unknown>).buildProposalVersionUrl, undefined);
     assert.equal(typeof share.proposalFromVersionSnapshot, "function");
   });
   it("valida fluxo stateless completo de EMAIL_OTP entre /api/auth/send-email-otp e /api/auth/verify-mfa (mesmo quando verify-mfa cai em outra instância Lambda sem estado em memória) e exibe devOtpPreview na tela de login em modo contingência", async () => {

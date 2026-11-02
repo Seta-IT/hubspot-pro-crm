@@ -34,7 +34,6 @@ import {
   proposalFromVersionSnapshot,
   computeProposalTotals,
   decodeProposalFromQueryParam,
-  encodeProposalToQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
   cleanProposalTechnicalClauses,
@@ -391,9 +390,9 @@ function PublicProposalPrintContent() {
     setIsEditing(false);
 
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(finalProposal);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       url.searchParams.delete("v");
       window.history.replaceState({}, "", url.toString());
     }
@@ -463,9 +462,9 @@ function PublicProposalPrintContent() {
       setShowInternalVersionsModal(false);
 
       if (typeof window !== "undefined") {
-        const newEncoded = encodeProposalToQueryParam(restoredProposal);
+        // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
         const url = new URL(window.location.href);
-        if (newEncoded) url.searchParams.set("d", newEncoded);
+        url.searchParams.delete("d");
         url.searchParams.delete("v");
         window.history.replaceState({}, "", url.toString());
       }
@@ -492,9 +491,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
@@ -533,9 +532,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
@@ -558,9 +557,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
