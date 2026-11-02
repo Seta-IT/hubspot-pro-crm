@@ -82,6 +82,10 @@ function baseItem(overrides: Partial<RawImportItemDraft> = {}): RawImportItemDra
   };
 }
 
+function adminQuery() {
+  return { _sessionToken: sessionFor('usr-seta-01', 'marcelo.mira@setatelecom.com.br', 'SUPER_ADMIN') };
+}
+
 function emitBody(overrides: Record<string, unknown> = {}) {
   return {
     serie: '1',
@@ -181,7 +185,7 @@ describe('Revisão Fiscal #21 / #16 — ICMS por dentro (caso controlado)', () =
   it('PATCH na NF-e de importação não recalcula nem corrompe os tributos (#16)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    const res = await router.dispatch({
+    const res = await router.dispatch({ query: adminQuery(),
       method: 'POST',
       path: '/api/erp/nfe-importacao/emit',
       body: emitBody({ di: baseDi(), rawItems: [baseItem()] }),
@@ -310,7 +314,7 @@ describe('Revisão Fiscal #8 / #23 — parser XML seguro, XML malicioso e XML gr
   it('rejeita arquivo acima de 2 MB (413 na rota) e processa XML grande válido em tempo linear', async () => {
     const huge = '<NFe>' + ' '.repeat(MAX_IMPORT_FILE_BYTES + 10) + '</NFe>';
     const router = new CrmApiRouter(createInMemoryRepository());
-    const res = await router.dispatch({
+    const res = await router.dispatch({ query: adminQuery(),
       method: 'POST',
       path: '/api/erp/nfe-importacao/parse-file',
       body: { filename: 'grande.xml', content: huge },
@@ -377,7 +381,7 @@ describe('Revisão Fiscal #5 — trava de CNPJ na importação', () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const configured = repo.getErpOverview().gestaoClickConfig.companyCnpj;
-    const res = await router.dispatch({
+    const res = await router.dispatch({ query: adminQuery(),
       method: 'POST',
       path: '/api/erp/nfe-importacao/parse-file',
       body: { filename: 'NE000007.txt', content: SEBRAE_REFERENCE_CASES.NE000007.txt },
@@ -391,7 +395,7 @@ describe('Revisão Fiscal #5 — trava de CNPJ na importação', () => {
     assert.ok(logs.some((l) => l.action === 'NFE_IMPORT_CNPJ_MISMATCH_BLOCKED' && l.status === 'BLOCKED'));
     assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, configured);
 
-    const emitRes = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
+    const emitRes = await router.dispatch({ query: adminQuery(), method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
     assert.equal(emitRes.status, 201);
     const inv = (emitRes.body as { data: { companyCnpj: string; counterpartyForeignId: string } }).data;
     assert.equal(inv.companyCnpj, '');
@@ -440,7 +444,7 @@ describe('Revisão Fiscal #10 / #11 — validação de entrada, numerador e stat
     ];
     for (const body of cases) {
       for (const p of ['/api/erp/nfe-importacao/calculate', '/api/erp/nfe-importacao/emit']) {
-        const res = await router.dispatch({ method: 'POST', path: p, body });
+        const res = await router.dispatch({ query: adminQuery(), method: 'POST', path: p, body });
         assert.equal(res.status, 400, `${p} com ${JSON.stringify(body).slice(0, 120)}`);
       }
     }
@@ -453,18 +457,18 @@ describe('Revisão Fiscal #10 / #11 — validação de entrada, numerador e stat
   it('numerador atômico por série: números sequenciais sem repetição e 409 para número já usado', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    const r1 = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
-    const r2 = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
+    const r1 = await router.dispatch({ query: adminQuery(), method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
+    const r2 = await router.dispatch({ query: adminQuery(), method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody() });
     assert.equal(r1.status, 201);
     assert.equal(r2.status, 201);
     const n1 = Number((r1.body as { importMetadata: { nNF: string } }).importMetadata.nNF);
     const n2 = Number((r2.body as { importMetadata: { nNF: string } }).importMetadata.nNF);
     assert.ok(n1 > 12, 'não reaproveita o nNF 12 do exemplo já emitido');
     assert.equal(n2, n1 + 1);
-    const dup = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody({ nNF: String(n1) }) });
+    const dup = await router.dispatch({ query: adminQuery(), method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody({ nNF: String(n1) }) });
     assert.equal(dup.status, 409);
     assert.equal((dup.body as { nextAvailable: number }).nextAvailable, n2 + 1);
-    const serie2 = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody({ serie: '2' }) });
+    const serie2 = await router.dispatch({ query: adminQuery(), method: 'POST', path: '/api/erp/nfe-importacao/emit', body: emitBody({ serie: '2' }) });
     assert.equal((serie2.body as { importMetadata: { nNF: string } }).importMetadata.nNF, '1');
 
     const inv = (r1.body as { data: { status: string; paymentMethod: string; paidAt: string | null; verificationCodeOrKey: string } }).data;

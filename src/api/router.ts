@@ -6292,8 +6292,7 @@ export class CrmApiRouter {
           }
           if (err instanceof ImportCnpjMismatchError) {
             // #5: trava de CNPJ => 409 + trilha de auditoria
-            const token =
-              query._sessionToken || (typeof body._sessionToken === 'string' ? body._sessionToken : undefined);
+            const token = query._sessionToken;
             const actor = token ? this.repo.resolveSessionFromToken(token) : null;
             this.repo.appendSecurityAuditLog({
               ...(actor?.authenticated
