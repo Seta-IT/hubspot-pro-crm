@@ -2255,7 +2255,7 @@ export function ContractEditModal({
   };
   const renderContractDataBlock = () => (
     <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
-      <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+      <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
         1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)
       </span>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -2453,7 +2453,7 @@ export function ContractEditModal({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   act
                     ? 'bg-[#1e3a6e] text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
@@ -2496,7 +2496,7 @@ export function ContractEditModal({
                     onChange={(e) =>
                       setDraft({ ...draft, modality: e.target.value as ErpContractModality })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-indigo-950"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
                   >
                     <option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
                     <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
@@ -2620,7 +2620,7 @@ export function ContractEditModal({
                       setAutoSyncMonthly(false);
                       setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
                     }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-extrabold text-emerald-700"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
                   />
                 </div>
               </div>
@@ -2670,17 +2670,17 @@ export function ContractEditModal({
 
           {activeTab === 'RENOVAR_VIGENCIA' && (
             <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <span className="text-[10px] font-black uppercase text-emerald-800 block">
+                    <span className="text-[10px] font-semibold uppercase text-slate-800 block">
                       PASSO 1 • ESCOLHA O PRAZO DE RENOVAÇÃO DE VIGÊNCIA (PADRÃO OU FORA DO PADRÃO DE MERCADO)
                     </span>
-                    <h4 className="text-sm font-extrabold text-slate-900">
+                    <h4 className="text-sm font-semibold text-slate-900">
                       Selecione o tempo de renovação ou adicione um prazo personalizado fora do padrão:
                     </h4>
                   </div>
-                  <span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-extrabold text-xs">
+                  <span className="px-2.5 py-1 rounded font-semibold text-xs bg-slate-100 text-slate-700">
                     Nova Vigência: {draft.startDate} até {draft.endDate} ({draft.contractMonths} meses)
                   </span>
                 </div>
@@ -2710,7 +2710,7 @@ export function ContractEditModal({
                             customDaysValue
                           );
                         }}
-                        className={`p-2.5 rounded-lg border text-xs font-extrabold transition cursor-pointer ${
+                        className={`p-2.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
                           isSel
                             ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
                             : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
@@ -2723,8 +2723,8 @@ export function ContractEditModal({
                 </div>
 
                 {renewalPresetMode === 'CUSTOM' && (
-                  <div className="p-3.5 rounded-lg bg-white border border-emerald-300 space-y-3">
-                    <div className="font-extrabold text-slate-800">
+                  <div className="p-3.5 rounded-lg bg-white border border-slate-200 space-y-3">
+                    <div className="font-semibold text-slate-800">
                       Configurar Tempo Fora do Padrão do Mercado (Meses, Dias Corridos ou Datas Específicas):
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
@@ -2811,7 +2811,7 @@ export function ContractEditModal({
                           type="date"
                           value={(draft.endDate || '').slice(0, 10)}
                           onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-emerald-800"
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-800"
                         />
                       </div>
                     </div>
@@ -2821,10 +2821,10 @@ export function ContractEditModal({
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <div>
-                  <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+                  <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                     PASSO 2 • REVISÃO E CONFIRMAÇÃO DE TODAS AS INFORMAÇÕES DO CONTRATO (EDITÁVEL SE NECESSÁRIO)
                   </span>
-                  <h4 className="text-sm font-extrabold text-slate-900">
+                  <h4 className="text-sm font-semibold text-slate-900">
                     Confirme ou edite qualquer cláusula, cliente, valor mensal, reajuste ou SLA antes de efetivar a renovação:
                   </h4>
                 </div>
@@ -2869,7 +2869,7 @@ export function ContractEditModal({
                       onChange={(e) =>
                         setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
                     />
                   </div>
                   <div>
@@ -2951,11 +2951,11 @@ export function ContractEditModal({
           {activeTab === 'FATURAMENTO_RECIBOS' && (
             <div className="space-y-4" data-testid="contract-billing-tab">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
+                <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                   FATURAMENTO DO CONTRATO — FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF), NFS-E OU NF-E REMESSA
                 </span>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-extrabold text-slate-900">
+                  <h4 className="text-sm font-semibold text-slate-900">
                     Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
                   </h4>
                   <ReceiptDraftPreviewButton onClick={() => setReceiptDraftOpen(true)} />
@@ -2975,7 +2975,7 @@ export function ContractEditModal({
               {renderContractDataBlock()}
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
                   2. Confira o Total da Locação / Faturamento (Produtos, Acréscimo, Desconto e Frete)
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -3035,14 +3035,14 @@ export function ContractEditModal({
                   </label>
                   <div className="ml-auto">
                     <label className={lblCls}>Valor Líquido / Total da Fatura (R$)</label>
-                    <input type="number" step="0.01" value={draft.monthlyValue} onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })} className={`${inpCls} font-extrabold text-emerald-700`} />
+                    <input type="number" step="0.01" value={draft.monthlyValue} onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })} className={`${inpCls} font-semibold text-slate-800`} />
                     <span className="text-[10px] text-slate-500">Calculado: {formatBRL(computedInvoiceTotal(draft))}</span>
                   </div>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
                   3. Regra de Vencimento Customizada, Recorrência, Forma de Pagamento e Automação de E-mails
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -3082,8 +3082,8 @@ export function ContractEditModal({
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/60 space-y-2">
-                  <label className="inline-flex items-center gap-2 font-extrabold text-slate-800">
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2">
+                  <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
                     <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
                     Ativar Regra de Vencimento Customizada (ex.: 45 dias + próxima quarta-feira)
                   </label>
@@ -3111,9 +3111,9 @@ export function ContractEditModal({
                           <option value="FRIDAY">Sexta-feira</option>
                         </select>
                       </div>
-                      <div className="p-2 rounded bg-white border border-amber-300">
+                      <div className="p-2 rounded bg-white border border-slate-200">
                         <div className="text-[10px] font-black uppercase text-amber-800">Vencimento calculado</div>
-                        <div className="font-extrabold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
+                        <div className="font-semibold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
                         <div className="text-[10px] text-slate-600">{dueRulePreview.ruleLabel}</div>
                         <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[10px] font-semibold cursor-pointer">
                           Aplicar no Próximo Vencimento
@@ -3142,7 +3142,7 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
+                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
                   4. Logística de Entrega e Retirada e Observações Impressas na Fatura
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -3158,8 +3158,8 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-                  5. Próximos Ciclos Previstos e Histórico de Faturas do Contrato (PDF / CSV sob demanda — 0 MB em disco)
+                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
+                  5. Próximos ciclos e faturas do contrato
                 </span>
                 <table className="w-full text-left text-xs">
                   <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Parcela</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Regra</th><th className="text-right">Valor</th></tr></thead>
@@ -3188,7 +3188,7 @@ export function ContractEditModal({
                           <td>{inv.status}</td>
                           <td className="text-right font-bold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
                           <td className="text-right whitespace-nowrap">
-                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-bold cursor-pointer mr-1">Imprimir / PDF Fatura A4</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-bold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Imprimir / PDF Fatura A4</button>
                             <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-bold cursor-pointer">Baixar Fatura HTML</button>
                           </td>
                         </tr>
@@ -3235,10 +3235,10 @@ export function ContractEditModal({
           {activeTab === 'REAJUSTE_ADITIVOS' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-indigo-800 block">
+                <span className="text-[10px] font-semibold uppercase text-slate-800 block">
                   APLICAÇÃO DE REAJUSTE ANUAL (IPCA / IGP-M / PERSONALIZADO) &amp; ADITIVOS CONTRATUAIS
                 </span>
-                <h4 className="text-sm font-extrabold text-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900">
                   Revise as informações do contrato e confirme o percentual de reajuste ou devolução parcial pro-rata:
                 </h4>
 
@@ -3284,7 +3284,7 @@ export function ContractEditModal({
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
-                    <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 font-black text-emerald-800">
+                    <div className="px-3 py-2 rounded bg-slate-50 border border-slate-200 font-semibold text-slate-800">
                       {formatBRL(
                         Math.round(
                           draft.monthlyValue * (1 + (Number(readjPercentInput) || 0) / 100) * 100
@@ -3310,7 +3310,7 @@ export function ContractEditModal({
                     type="button"
                     disabled={saving}
                     onClick={handleApplyReadjustmentInsideTab}
-                    className="px-5 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold cursor-pointer"
+                    className="px-5 py-2.5 rounded-lg font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     Confirmar Reajuste Anual e Atualizar Contrato
                   </button>
@@ -3322,7 +3322,7 @@ export function ContractEditModal({
                         onClose();
                         onOpenPartialReturn(draft);
                       }}
-                      className="px-4 py-2.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2.5 rounded-lg font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
                       Abrir Devolução Parcial de Equipamentos &amp; Rateio Pro-Rata
                     </button>
@@ -3336,11 +3336,11 @@ export function ContractEditModal({
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
+                  <span className="font-semibold text-slate-800 uppercase text-[11px] block">
                     Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
+                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-slate-800">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
                   </span>
                 </div>
                 <button
@@ -3362,7 +3362,7 @@ export function ContractEditModal({
                     };
                     updateEquipments([...draft.equipments, eq]);
                   }}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-semibold cursor-pointer"
                 >
                   + Adicionar Equipamento / Patrimônio (S/N)
                 </button>
@@ -3411,7 +3411,7 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], serialNumber: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-mono font-bold text-indigo-950 text-xs"
+                          className="w-full px-2 py-1 rounded border font-mono font-bold text-slate-800 text-xs"
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -3424,7 +3424,7 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-bold text-emerald-700 text-xs"
+                          className="w-full px-2 py-1 rounded border font-bold text-slate-800 text-xs"
                         />
                       </div>
                       <div className="sm:col-span-1 flex items-end justify-end pt-3">
@@ -3448,13 +3448,13 @@ export function ContractEditModal({
           {activeTab === 'DOCUMENTO_HISTORICO' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
-                <h4 className="text-sm font-extrabold text-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900">
                   Minuta Contratual &amp; Histórico de Reajustes / Devoluções Parciais
                 </h4>
                 <p className="text-xs text-slate-600">
                   Contrato <strong>{draft.contractNumber}</strong> firmado com <strong>{draft.companyName}</strong> ({draft.companyCnpj}), vigência de <strong>{draft.startDate}</strong> a <strong>{draft.endDate}</strong> ({draft.contractMonths} meses), valor mensal de <strong>{formatBRL(draft.monthlyValue)}</strong>.
                 </p>
-                <p className="text-xs text-emerald-800 font-semibold">
+                <p className="text-xs text-slate-800 font-semibold">
                   Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
                 </p>
               </div>
@@ -3578,8 +3578,8 @@ export function InvoiceEditModal({
       <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-8">
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-[#ff7a59]" />
-            <h3 className="text-sm font-extrabold">
+            <Receipt className="w-5 h-5 text-slate-900" />
+            <h3 className="text-sm font-semibold">
               Editar Documento Fiscal — {draft.documentNumber}
             </h3>
           </div>
@@ -3662,7 +3662,7 @@ export function InvoiceEditModal({
                 step="0.01"
                 value={draft.grossAmount}
                 onChange={(e) => setDraft({ ...draft, grossAmount: Number(e.target.value) || 0 })}
-                className="w-full px-3 py-2 rounded border font-extrabold text-slate-900"
+                className="w-full px-3 py-2 rounded border font-semibold text-slate-900"
               />
             </div>
             <div>
@@ -3708,7 +3708,7 @@ export function InvoiceEditModal({
             <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
               Cancelar
             </button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer">
+            <button type="submit" disabled={saving} className="px-5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
               {saving ? 'Salvando...' : 'Salvar Documento Fiscal'}
             </button>
           </div>
@@ -3870,8 +3870,8 @@ export function GenericRecordEditModal({
       >
         <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-emerald-300" />
-            <h3 className="text-sm font-extrabold">
+            <Edit3 className="w-4 h-4 text-slate-200" />
+            <h3 className="text-sm font-semibold">
               {isReadOnly ? title.replace(/^Editar/i, 'Consultar') : title}
             </h3>
           </div>
@@ -3880,7 +3880,7 @@ export function GenericRecordEditModal({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="px-2.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                className="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 Habilitar Edição
               </button>
@@ -3958,7 +3958,7 @@ export function GenericRecordEditModal({
                         className={`w-full px-3 py-2 rounded border ${
                           /cnpj|cpf/i.test(f.key) && docFeedback
                             ? docFeedback.isValid
-                              ? 'border-emerald-500 bg-emerald-50/20 font-mono'
+                              ? 'border-slate-200 bg-slate-50 font-mono'
                               : 'border-rose-500 bg-rose-50/40 text-rose-900 font-mono'
                             : 'border-slate-300'
                         }`}
@@ -3966,7 +3966,7 @@ export function GenericRecordEditModal({
                       {/cnpj|cpf/i.test(f.key) && docFeedback && (
                         <span
                           className={`block text-[10px] font-bold mt-1 ${
-                            docFeedback.isValid ? 'text-emerald-700' : 'text-rose-600'
+                            docFeedback.isValid ? 'text-slate-800' : 'text-rose-600'
                           }`}
                         >
                           {docFeedback.message}
@@ -4033,12 +4033,12 @@ export function GenericRecordEditModal({
                 <button
                   type="button"
                   onClick={() => setIsReadOnly(false)}
-                  className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
                   Editar Registro
                 </button>
               ) : (
-                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
                   {saving ? 'Salvando...' : 'Salvar Registro'}
                 </button>
               )}

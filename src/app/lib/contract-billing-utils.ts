@@ -445,8 +445,8 @@ export function buildStandaloneInvoiceHtml(
 </head>
 <body>
   ${isDraft ? '' : `<div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:7px 12px;border-radius:5px;">
-    <span><strong>Recibo / Fatura de Locação ${invoice.documentNumber}</strong> — Formato Compacto: 1 Página A4 Única (0 MB em disco)</span>
-    <button onclick="window.print()" style="background:#ff7a59;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-weight:bold;cursor:pointer;">Imprimir em 1 Página A4 / Salvar PDF</button>
+    <span><strong>Recibo / Fatura de Locação ${invoice.documentNumber}</strong> </span>
+    <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-weight:600;cursor:pointer;">Imprimir em 1 Página A4 / Salvar PDF</button>
   </div>`}
   <div class="page">
     ${isDraft ? `<div class="draft-watermark" aria-hidden="true">RASCUNHO<small>NÃO É DOCUMENTO FISCAL</small></div>
@@ -895,8 +895,8 @@ export function downloadContractBillingHistoryReportOnDemand(
 </head>
 <body>
   <div class="no-print" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:10px 14px;border-radius:6px;">
-    <span><strong>Histórico Completo de Faturas — Contrato ${contract.contractNumber}</strong> (Gerado sob demanda — 0 MB em disco)</span>
-    <button onclick="window.print()" style="background:#ff7a59;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:bold;cursor:pointer;">Imprimir / Salvar PDF</button>
+    <span><strong>Histórico Completo de Faturas — Contrato ${contract.contractNumber}</strong></span>
+    <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:600;cursor:pointer;">Imprimir / Salvar PDF</button>
   </div>
   <h2 style="margin:0 0 4px 0;color:#0d2b4e;">Extrato de Faturamentos &amp; Notas do Contrato ${contract.contractNumber}</h2>
   <p style="margin:0 0 12px 0;color:#475569;">
@@ -1039,7 +1039,7 @@ export function buildStandaloneContractA4Html(
     .join('');
   const extra = (customClauses ?? contract.customClausesText ?? '').trim();
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>${escHtml(docTitle)} — Nº ${escHtml(contract.contractNumber)}</title>
-<style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;font-size:12px;line-height:1.5}h1{font-size:17px;color:#0d2b4e;border-bottom:3px solid #ff7a59;padding-bottom:6px}h2{font-size:13px;color:#1e3a6e;margin-top:18px}.basis{font-style:italic;color:#475569}table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#1e3a6e;color:#fff}.sig{display:flex;gap:40px;margin-top:50px}.sig div{flex:1;border-top:1px solid #0f172a;text-align:center;padding-top:4px}</style></head><body>
+<style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;font-size:12px;line-height:1.5}h1{font-size:17px;color:#0d2b4e;border-bottom:3px solid #1e3a6e;padding-bottom:6px}h2{font-size:13px;color:#1e3a6e;margin-top:18px}.basis{font-style:italic;color:#475569}table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#1e3a6e;color:#fff}.sig{display:flex;gap:40px;margin-top:50px}.sig div{flex:1;border-top:1px solid #0f172a;text-align:center;padding-top:4px}</style></head><body>
 <h1>${escHtml(docTitle)}</h1>
 <p><strong>Contrato Nº:</strong> ${escHtml(contract.contractNumber)} &nbsp; <strong>Tipo:</strong> ${escHtml(templates.map((t) => t.shortLabel).join(' / '))}</p>
 <table><tr><th colspan="2">Partes</th></tr>
