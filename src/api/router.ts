@@ -109,6 +109,8 @@ import {
 } from '../app/lib/proposal-link';
 import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { requestBodyCapFor } from '../app/lib/request-body-cap';
+import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
+import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -705,9 +707,16 @@ export class CrmApiRouter {
   private certificateSettings = structuredClone(DEFAULT_CERTIFICATE_SERIES_SETTINGS);
   private generalParameters = structuredClone(DEFAULT_GENERAL_PARAMETERS);
 
-  constructor(repo?: CrmRepository) {
+  /** Pacote N: certificado A1 em linha propria do crm_kv_store (nunca no estado crm_state_v1). */
+  private readonly certificateStore: CertificateStore;
+  private readonly certUploadFailureLimiter = new SlidingWindowRateLimiter(CERT_UPLOAD_FAILURE_LIMIT.max, CERT_UPLOAD_FAILURE_LIMIT.windowMs);
+
+  constructor(repo?: CrmRepository, options?: { certificateStore?: CertificateStore }) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
+    this.certificateStore =
+      options?.certificateStore ||
+      (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
   }
 
   getRepository(): CrmRepository {
@@ -987,6 +996,8 @@ export class CrmApiRouter {
     const body = deepRedactProposalLinkTokens(rawBody) as Record<string, unknown>;
     const mailerRawBody =
       method === "POST" && cleanPath === "/api/communications/send-email" ? rawBody : undefined;
+    // Pacote N: o .pfx em base64 segue sem a redacao do token do link (nunca e gravado em claro).
+    const certRawBody = method === "POST" && isCertificateRoute(cleanPath) ? rawBody : undefined;
 
     if (this.isSingletonRepo) {
       this.repo.syncFromDisk();
@@ -1025,7 +1036,7 @@ export class CrmApiRouter {
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody });
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -3016,7 +3027,7 @@ export class CrmApiRouter {
     cleanPath: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown> } = { trustedInternal: false }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown>; certRawBody?: Record<string, unknown> } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -3129,7 +3140,19 @@ export class CrmApiRouter {
       // ja validado + allowlist) e o cron autenticado pelo bridge. Sessao so via query._sessionToken
       // (definida pelo bridge a partir do cookie/header); body._sessionToken nunca e lido.
       if (!ctx.trustedInternal && !ctx.serviceAccount && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
-        if (!requestSessionToken || !verifyStiHubSessionToken(requestSessionToken).valid) {
+        const gateCheck = requestSessionToken ? verifyStiHubSessionToken(requestSessionToken) : null;
+        if (!requestSessionToken || !gateCheck?.valid) {
+          // Pacote N: POST/DELETE do certificado A1 com sessao assinada sem 2FA => recusa auditada.
+          if (gateCheck?.reason === 'MFA_NOT_VERIFIED_IN_CLAIMS' && isCertificateMutation(method, cleanPath)) {
+            let who: { email?: string; name?: string; roleId?: string } = {};
+            try {
+              const c = JSON.parse(Buffer.from(String(requestSessionToken).split('.')[0], 'base64url').toString('utf8')) as Record<string, unknown>;
+              who = { email: String(c.email || '').slice(0, 120), name: String(c.name || '').slice(0, 120), roleId: String(c.roleId || '').slice(0, 60) };
+            } catch {
+              who = {};
+            }
+            auditCertificateMutationDenied(this.repo, who, method, String(query._clientIp || 'sem-ip').slice(0, 64), 'sessao sem 2FA');
+          }
           return {
             status: 401,
             body: {
@@ -3158,6 +3181,16 @@ export class CrmApiRouter {
           };
         }
         if (!resolvedSession.authenticated || !resolvedSession.mfaVerified) {
+          // Pacote N: POST/DELETE do certificado A1 com sessao sem 2FA => recusa auditada.
+          if (resolvedSession.authenticated && isCertificateMutation(method, cleanPath)) {
+            auditCertificateMutationDenied(
+              this.repo,
+              { email: resolvedSession.user?.email, name: resolvedSession.user?.name, roleId: resolvedSession.user?.roleId },
+              method,
+              String(query._clientIp || 'sem-ip').slice(0, 64),
+              'sessao sem 2FA'
+            );
+          }
           return {
             status: 401,
             body: {
@@ -3243,7 +3276,8 @@ export class CrmApiRouter {
         }
 
         if (method === "DELETE") {
-          if (cleanPath.startsWith("/api/erp/")) {
+          // Pacote N: o DELETE do certificado A1 tem guarda propria (2FA + admin, com auditoria).
+          if (cleanPath.startsWith("/api/erp/") && !isCertificateRoute(cleanPath)) {
             if (
               !resolvedSession.erpPermissions.canDeleteErpRecords &&
               !resolvedSession.effectiveActionGuards.canDeleteRecords
@@ -3329,6 +3363,23 @@ export class CrmApiRouter {
         const fiscalErr = this.checkFiscalIssuanceRoute(method, cleanPath, query, body as Record<string, unknown>, ctx);
         if (fiscalErr) return fiscalErr;
       }
+      // ======================================================================
+      // Pacote N: CERTIFICADO DIGITAL A1 (/api/erp/certificate) — so metadados nas respostas.
+      // ======================================================================
+      if (isCertificateRoute(cleanPath)) {
+        return await handleCertificateRoute(
+          {
+            repo: this.repo,
+            store: this.certificateStore,
+            failureLimiter: this.certUploadFailureLimiter,
+          },
+          method,
+          query,
+          ctx.certRawBody || body,
+          { trustedInternal: ctx.trustedInternal }
+        );
+      }
+
       // ======================================================================
       // ATOMIC BOOTSTRAP & STATE RECONCILIATION (/api/bootstrap, /api/state)
       // ======================================================================
