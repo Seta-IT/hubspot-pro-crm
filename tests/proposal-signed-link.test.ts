@@ -398,12 +398,14 @@ describe('Link assinado de proposta: POST /approve', () => {
     // D1 por proposta: so aceites validados contam (conversao simulada falhando => 404).
     const { repo: repo2, router: router2 } = fresh();
     const p2 = rentalProposal(repo2);
-    const t2 = linkFor(p2.id, p2.version || 1);
-    for (let i = 0; i < 25; i++) assert.equal((await approve(router2, p2.id, t2, { ...SIGNER, acceptedTerms: false })).status, 400);
+    // Pacote N (R1): cada token valido tem balde proprio (jti + proposta, 30); aqui um token novo por
+    // tentativa isola o balde por proposta (validos).
+    const t2 = () => linkFor(p2.id, p2.version || 1);
+    for (let i = 0; i < 25; i++) assert.equal((await approve(router2, p2.id, t2(), { ...SIGNER, acceptedTerms: false })).status, 400);
     const orig = repo2.approveProposalAndConvertToContract.bind(repo2);
     (repo2 as unknown as { approveProposalAndConvertToContract: unknown }).approveProposalAndConvertToContract = () => null;
-    for (let i = 0; i < PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max; i++) assert.equal((await approve(router2, p2.id, t2)).status, 404);
-    assert.equal((await approve(router2, p2.id, t2)).status, 429);
+    for (let i = 0; i < PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max; i++) assert.equal((await approve(router2, p2.id, t2())).status, 404);
+    assert.equal((await approve(router2, p2.id, t2())).status, 429);
     (repo2 as unknown as { approveProposalAndConvertToContract: unknown }).approveProposalAndConvertToContract = orig;
     // Sem token, estranhos nao consomem os baldes da proposta (evita bloquear o cliente).
     const { repo: repo3, router: router3 } = fresh();

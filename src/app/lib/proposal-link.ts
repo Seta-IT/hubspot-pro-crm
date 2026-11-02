@@ -287,6 +287,8 @@ export const PROPOSAL_APPROVE_LIMITS = Object.freeze({
   ip: 30,
   ipPerProposal: 10,
   validPerProposal: 20,
+  /** Pacote N (R1): com token VALIDO, balde proprio por jti + proposta (no lugar do balde por IP). */
+  perToken: 30,
 });
 /** Atalhos (compatibilidade dos testes da v4): mesmos valores do pacote M. */
 export const PROPOSAL_APPROVE_IP_LIMIT = Object.freeze({ max: PROPOSAL_APPROVE_LIMITS.ip, windowMs: PROPOSAL_APPROVE_LIMITS.windowMs });

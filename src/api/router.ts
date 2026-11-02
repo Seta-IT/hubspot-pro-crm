@@ -1650,6 +1650,8 @@ export class CrmApiRouter {
   private readonly proposalApproveIpLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ip, PROPOSAL_APPROVE_LIMITS.windowMs);
   private readonly proposalApproveIpPropLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ipPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
   private readonly proposalApproveIdLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.validPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
+  /** Pacote N (R1): balde por jti + proposta, so para quem apresenta token valido. */
+  private readonly proposalApproveTokenLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.perToken, PROPOSAL_APPROVE_LIMITS.windowMs);
   /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
   // Pacote I (D3): falhas por IP + e-mail (ver src/api/login-ip-guard.ts).
   private readonly loginFailIpGuard = new LoginIpFailureGuard();
@@ -2670,7 +2672,8 @@ export class CrmApiRouter {
    * POST /approve: exige o mesmo token do link (exceto contexto interno confiavel), corpo zod
    * .strict(), idempotente (Idempotency-Key opcional, presa a proposta) e NUNCA cria proposta.
    * Rebase v5 sobre o pacote M (D1/D2) e o L:
-   * - D1 por IP (30/10 min): TODA tentativa anonima conta (404, 400, 409...);
+   * - D1 por IP (30/10 min): toda tentativa SEM token valido (Pacote N, R1: o HMAC e verificado antes);
+   * - R1 por token (30/10 min, jti + proposta): tentativas com token valido (no lugar do balde por IP);
    * - D2 por IP + proposta (10/10 min): toda tentativa contra a proposta existente, pelo id
    *   CANONICO (na v4 o id do caminho tem de ser exatamente o do token; caixa/code dao 404 antes);
    * - D1 por proposta (20/10 min): so aceites que passaram na validacao;
@@ -2694,17 +2697,24 @@ export class CrmApiRouter {
     let tokenVersion: number | null = null;
 
     if (!trusted) {
-      // Pacote M (D1): toda tentativa anonima conta no limite por IP (forca bruta/enumeracao).
-      if (!this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
-        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
-        return rateLimited;
-      }
+      // Pacote N (R1): o HMAC do token e verificado PRIMEIRO (custo constante, sempre executado).
+      // Sem token ou com token invalido => balde de 30 por IP (Pacote M, D1) e o 404 generico.
+      // Com token valido => balde proprio por jti + proposta, e NAO o balde por IP: quem divide o IP
+      // do cliente (NAT, Wi-Fi) sem o token nao consegue travar o aceite dele.
       const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
       if (!v.valid) {
+        if (!this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
+          this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
+          return rateLimited;
+        }
         this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'token ausente ou invalido (404 generico)');
         return proposalNotFoundResponse();
       }
       jti = v.claims.jti;
+      if (!this.proposalApproveTokenLimiter.hit(`approve-tok:${String(jti).slice(0, 128)}|${String(v.claims.pid).toLowerCase().slice(0, 128)}`)) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por token + proposta (429)', undefined, jti);
+        return rateLimited;
+      }
       tokenVersion = v.claims.ver;
       if (!isProposalPublicApproveEnabled()) {
         this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'aceite pelo link desativado (403)', undefined, jti);

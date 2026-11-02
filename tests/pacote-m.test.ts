@@ -80,11 +80,15 @@ describe('Pacote M (D1): tentativas invalidas nao travam o aceite legitimo', () 
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
   });
 
-  it('forca bruta segue limitada: 31a tentativa do mesmo IP => 429 (inclusive 404)', async () => {
+  it('forca bruta segue limitada: 31a tentativa do mesmo IP SEM token valido => 429 (inclusive 404)', async () => {
     const E = mk();
     const fixed = '203.0.113.90';
     const st: number[] = [];
-    for (let i = 0; i < 31; i++) st.push((await approve(E, `prop-nao-existe-${i}`, sig, fixed)).status);
+    // Pacote N (R1): o balde por IP vale para quem nao tem token valido (o token so o servidor emite).
+    for (let i = 0; i < 31; i++) {
+      const tok = i % 2 === 0 ? undefined : 'eyJ2IjoxfQ.' + 'A'.repeat(43);
+      st.push((await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/prop-nao-existe-${i}/approve`, query: { _fromHttpBridge: '1', _clientIp: fixed, ...(tok ? { proposalLinkToken: tok } : {}) }, body: sig })).status);
+    }
     assert.deepEqual(st.slice(0, 30), Array(30).fill(404));
     assert.equal(st[30], 429);
   });
