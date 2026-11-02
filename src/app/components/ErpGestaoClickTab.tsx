@@ -116,6 +116,17 @@ import FiscalSettingsPanel from './FiscalSettingsPanel';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import { lastNumberFromCodes } from '../lib/erp-general-settings';
+
+/** Fiscal: nome curto de cada subtela (mesmos rótulos da sidebar, sem CFOP nem legislação). */
+const FISCAL_SUBSCREEN_TITLES: Record<string, string> = {
+  FIS_TODAS: 'Todas as notas e faturas',
+  FIS_PRODUTOS: 'Notas de produtos',
+  FIS_SERVICOS: 'Notas de serviços',
+  FIS_CONSUMIDOR: 'Notas do consumidor',
+  FIS_IMPORTACAO: 'NF-e de importação',
+  FIS_COMPRAS: 'Notas de compras',
+  FIS_AUXILIARES: 'Opções auxiliares',
+};
 import {
   type ErpConfigAccess,
   type ErpConfigSessionLike,
@@ -538,6 +549,8 @@ export default function ErpGestaoClickTab({
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] =
     useState<ErpPurchaseOrder | null>(null);
   const [servicosSubFilter, setServicosSubFilter] = useState<"TODOS" | "FATURA_LOCACAO" | "NFSE_SERVICO">("TODOS");
+  // Fiscal: menu único "+ Emitir nota ▾" (só UI; as ações são as mesmas dos antigos botões)
+  const [fiscalEmitMenuOpen, setFiscalEmitMenuOpen] = useState(false);
   const [globalUploadedImportFile, setGlobalUploadedImportFile] = useState<{
     content: string;
     fileName: string;
@@ -3724,7 +3737,8 @@ export default function ErpGestaoClickTab({
     { key: "nfeAccessKey", label: "Chave de Acesso NF-e (44 dígitos)" },
   ];
 
-  const renderPurchasesTable = (breadcrumbLabel: string) => {
+  const renderPurchasesTable = (breadcrumbLabel: string, context: "FISCAL" | "ESTOQUE" = "ESTOQUE") => {
+    const isFiscalContext = context === "FISCAL";
     const totalComprasVal = purchaseOrders.reduce((s, p) => s + Number(p.totalAmount || 0), 0);
     const totalIcmsCred = purchaseOrders.reduce(
       (s, p) => s + Number(p.icmsCreditAmount ?? Math.round(Number(p.totalAmount || 0) * 0.18 * 100) / 100),
@@ -3749,26 +3763,22 @@ export default function ErpGestaoClickTab({
             </div>
           ) : (
           <div>
-            <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-              {breadcrumbLabel}
-            </span>
-            <h2 className="text-base font-extrabold text-slate-900">
-              Notas Fiscais de Compras &amp; Entrada de Ativo Imobilizado ({purchaseOrders.length})
+            {/* No Fiscal o título já está no cabeçalho; o breadcrumb fica só na barra global */}
+            <h2 className="text-sm font-semibold text-slate-900" title={breadcrumbLabel}>
+              {isFiscalContext ? `${purchaseOrders.length} notas de compra` : "Notas de compras"}
             </h2>
-            <p className="text-xs text-slate-500">
-              Escrituração de NF-e de entrada de fornecedores: CAPEX Parque de Locação (CFOP 1.551 / 2.551) e Revenda de Hardware (CFOP 1.102).
-            </p>
           </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Fiscal > Notas de compras: o envio de TXT/XML fica aqui (o cabeçalho do Fiscal esconde o dele nesta subtela); em Estoque não aparece */}
             {!isEstoqueContext && (
-            <ImportFilePicker
-              testId="upload-nfe-importacao-compras"
-              onFileSelected={handleGlobalImportFileUpload}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs"
-            >
-              Enviar Arquivo .TXT / .XML (NF-e Importação)
-            </ImportFilePicker>
+              <ImportFilePicker
+                testId="upload-nfe-importacao-compras"
+                onFileSelected={handleGlobalImportFileUpload}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+              >
+                Importar XML
+              </ImportFilePicker>
             )}
             <button
               type="button"
@@ -3796,40 +3806,35 @@ export default function ErpGestaoClickTab({
                 purchaseOrderEditorFields
               )
             }
-            className={
-              isEstoqueContext
-                ? "inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
-                : "inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer shadow-xs"
-            }
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> + Nova Nota de Compra (NF-e Entrada)
+            <Plus className="w-4 h-4" /> Nova nota de compra
             </button>
           </div>
         </div>
 
+        {/* Totais de crédito (imobilizado / ICMS / PIS-COFINS) só em Fiscal > Notas de compras */}
         {!isEstoqueContext && (
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded border border-slate-200 bg-slate-50">
-            <span className="text-[10px] font-bold uppercase text-slate-500 block">Total NF-e de Compras</span>
-            <strong className="text-base font-black text-slate-900">{formatBRL(totalComprasVal)}</strong>
-            <span className="text-[11px] text-slate-500 block">{purchaseOrders.length} notas escrituradas</span>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">Total de compras</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalComprasVal)}</strong>
+              <span className="text-[11px] text-slate-500 block">{purchaseOrders.length} notas</span>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">Ativo imobilizado</span>
+              <strong className="text-sm font-semibold text-slate-900">CFOP 1.551 / 2.551</strong>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">ICMS nas entradas</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalIcmsCred)}</strong>
+              <span className="text-[11px] text-slate-500 block">CIAP / crédito de ICMS</span>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">PIS/COFINS nas aquisições</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalPisCofinsCred)}</strong>
+            </div>
           </div>
-          <div className="p-3.5 rounded border border-indigo-200 bg-indigo-50/60">
-            <span className="text-[10px] font-bold uppercase text-indigo-700 block">Ativo Imobilizado Locação</span>
-            <strong className="text-base font-black text-indigo-900">CFOP 1.551 / 2.551</strong>
-            <span className="text-[11px] text-indigo-700 block">CAPEX Seta Telecom</span>
-          </div>
-          <div className="p-3.5 rounded border border-emerald-200 bg-emerald-50/60">
-            <span className="text-[10px] font-bold uppercase text-emerald-700 block">ICMS Destacado nas Entradas</span>
-            <strong className="text-base font-black text-emerald-900">{formatBRL(totalIcmsCred)}</strong>
-            <span className="text-[11px] text-emerald-700 block">CIAP / Crédito Fiscal ICMS</span>
-          </div>
-          <div className="p-3.5 rounded border border-amber-200 bg-amber-50/60">
-            <span className="text-[10px] font-bold uppercase text-amber-800 block">PIS/COFINS s/ Aquisições</span>
-            <strong className="text-base font-black text-amber-900">{formatBRL(totalPisCofinsCred)}</strong>
-            <span className="text-[11px] text-amber-800 block">Base de insumos / ativo</span>
-          </div>
-        </div>
         )}
 
         <div className="overflow-x-auto border border-slate-200 rounded">
@@ -3972,50 +3977,51 @@ export default function ErpGestaoClickTab({
   };
 
   const getDocTypeBadge = (docType: ErpFiscalDocumentType) => {
+    // Só rótulo curto e pílula neutra; a base legal fica em Fiscal > Opções auxiliares.
     switch (docType) {
       case "FATURA_LOCACAO":
         return {
-          label: "FATURA DE LOCAÇÃO (0% ISS — SV 31 STF)",
-          className: "bg-emerald-100 text-emerald-900 border border-emerald-300",
+          label: "Fatura de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFSE_SERVICO":
         return {
-          label: "NFS-e SERVIÇO (LC 116 01.07 • IRRF 1,5% + CSRF 4,65%)",
-          className: "bg-blue-100 text-blue-900 border border-blue-300",
+          label: "NFS-e",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_REMESSA_LOCACAO":
         return {
-          label: "NF-e REMESSA EM LOCAÇÃO (CFOP 5.908 / 6.908)",
-          className: "bg-indigo-100 text-indigo-900 border border-indigo-300",
+          label: "NF-e remessa de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_VENDA_PRODUTO":
         return {
-          label: "NF-e VENDA DE PRODUTO (MOD. 55 • CFOP 5.102)",
-          className: "bg-amber-100 text-amber-900 border border-amber-300",
+          label: "NF-e venda",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFCE_CONSUMIDOR":
         return {
-          label: "NFC-e CONSUMIDOR FINAL (MOD. 65 • BALCÃO)",
-          className: "bg-purple-100 text-purple-900 border border-purple-300",
+          label: "NFC-e",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFCOM_TELECOM":
         return {
-          label: "NFCom TELECOM (MOD. 62 • CFOP 5.303 SCM)",
-          className: "bg-cyan-100 text-cyan-900 border border-cyan-300",
+          label: "NFCom",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_IMPORTACAO":
         return {
-          label: "NF-e IMPORTAÇÃO SIMPLES NACIONAL (SEBRAE 4.01 • CSOSN 900)",
-          className: "bg-teal-100 text-teal-950 border border-teal-300",
+          label: "NF-e importação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_RETORNO_LOCACAO":
         return {
-          label: "NF-e ENTRADA — RETORNO DE LOCAÇÃO (CFOP 1.909 / 2.909)",
-          className: "bg-slate-100 text-slate-900 border border-slate-300",
+          label: "NF-e retorno de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       default:
         return {
-          label: "DOCUMENTO FISCAL",
+          label: "Documento fiscal",
           className: "bg-slate-100 text-slate-900 border border-slate-300",
         };
     }
@@ -4096,182 +4102,142 @@ export default function ErpGestaoClickTab({
 
     return (
       <div className="space-y-4">
-        {/* BARRA SUPERIOR DE SUB-ABAS DO MÓDULO FISCAL (SINCRONIZADA COM SIDEBAR) */}
+        {/* CABEÇALHO DO FISCAL: título curto + um único "+ Emitir nota ▾" e "Importar XML" */}
         <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                Módulo Fiscal &amp; Tributário Seta Telecom • Regime: {gestaoClickConfig.taxRegime}
-              </span>
-              <h2 className="text-base font-extrabold text-slate-900">
-                Central Fiscal GestãoClick — NF-e Produtos, Remessa CFOP 5.908, NFS-e, Locação SV 31 STF &amp; Compras
+              <h2 className="text-base font-semibold text-slate-900">
+                Fiscal <span className="text-slate-400 font-normal">/</span> {FISCAL_SUBSCREEN_TITLES[effectiveFiscalTab] || "Todas as notas e faturas"}
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("FATURA_LOCACAO")}
-                className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Fatura Locação (0% ISS)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("NFSE_SERVICO")}
-                className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Emitir NFS-e Serviço
-              </button>
-              <ImportFilePicker
-                testId="upload-nfe-importacao-fiscal"
-                onFileSelected={handleGlobalImportFileUpload}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer"
-              >
-                Enviar Arquivo .TXT / .XML (NF-e Importação)
-              </ImportFilePicker>
-              <button
-                type="button"
-                onClick={() => setActiveSubId("FIS_IMPORTACAO")}
-                className="px-3.5 py-2 rounded bg-indigo-950 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer"
-              >
-                Abrir Emissor Importação (Sebrae 4.0)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO")}
-                className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Emitir NF-e / NFC-e
-              </button>
+              {effectiveFiscalTab !== "FIS_COMPRAS" && (
+                <ImportFilePicker
+                  testId="upload-nfe-importacao-fiscal"
+                  onFileSelected={handleGlobalImportFileUpload}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Importar XML
+                </ImportFilePicker>
+              )}
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={fiscalEmitMenuOpen}
+                  data-testid="fiscal-emitir-nota"
+                  onClick={() => setFiscalEmitMenuOpen((v) => !v)}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
+                >
+                  + Emitir nota <span aria-hidden="true">▾</span>
+                </button>
+                {fiscalEmitMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Fechar menu"
+                      className="fixed inset-0 z-30 cursor-default"
+                      onClick={() => setFiscalEmitMenuOpen(false)}
+                    />
+                    <div role="menu" className="absolute right-0 z-40 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 text-xs shadow-sm">
+                      {[
+                        { label: "NF-e de venda", run: () => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO") },
+                        { label: "NF-e de remessa de locação", run: () => openNewInvoiceWithPreset("NFE_REMESSA_LOCACAO") },
+                        { label: "NFS-e", run: () => openNewInvoiceWithPreset("NFSE_SERVICO") },
+                        { label: "Fatura de locação", run: () => openNewInvoiceWithPreset("FATURA_LOCACAO") },
+                        { label: "NFC-e", run: () => openNewInvoiceWithPreset("NFCE_CONSUMIDOR") },
+                        { label: "NF-e de importação", run: () => setActiveSubId("FIS_IMPORTACAO") },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setFiscalEmitMenuOpen(false);
+                            item.run();
+                          }}
+                          className="block w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 hover:text-[#1e3a6e] cursor-pointer"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
           {/* #22: a navegação entre sub-abas do Fiscal fica somente na sidebar (sem abas duplicadas nem contadores) */}
         </div>
 
-        {/* SUB-ABA 1: NOTAS DE PRODUTOS (NF-e Venda 5.102 + NF-e Remessa Locação 5.908/6.908 + NFCom) */}
+        {/* SUB-ABA 1: NOTAS DE PRODUTOS — só o filtro por espécie; emissão pelo "+ Emitir nota ▾" */}
         {effectiveFiscalTab === "FIS_PRODUTOS" && (
-          <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Fiscal &gt; Notas de Produtos (NF-e Modelo 55 — Venda CFOP 5.102/6.102 &amp; Remessa em Locação CFOP 5.908/6.908)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Remessas de locação circulam com suspensão/não-incidência de ICMS (CST 041) e PIS/COFINS (CST 08). Vendas de equipamentos destacam ICMS 18% e PIS/COFINS 3,65%.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO", "5.102 — Venda de mercadoria adquirida ou recebida de terceiros")}
-                  className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NF-e Venda (CFOP 5.102)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFE_REMESSA_LOCACAO", "5.908 — Remessa de bem por conta de contrato de locação")}
-                  className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NF-e Remessa Locação (CFOP 5.908 / 6.908)
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                { id: "TODOS", label: "Todas NF-e de Produtos" },
-                { id: "NFE_VENDA_PRODUTO", label: "NF-e Venda de Equipamentos (CFOP 5.102 / 6.102)" },
-                { id: "NFE_REMESSA_LOCACAO", label: "NF-e Remessa em Locação (CFOP 5.908 / 6.908)" },
-                { id: "NFE_RETORNO_LOCACAO", label: "NF-e Entrada Retorno de Locação (CFOP 1.909 / 2.909)" },
-                { id: "NFCOM_TELECOM", label: "NFCom Telecom Mod. 62 (CFOP 5.303)" },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setProdutosSubFilter(f.id as typeof produtosSubFilter)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer ${
-                    produtosSubFilter === f.id
-                      ? "bg-indigo-950 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+          <div className="bg-white rounded-md border border-slate-200 p-3 flex flex-wrap items-center gap-1.5">
+            {[
+              { id: "TODOS", label: "Todas" },
+              { id: "NFE_VENDA_PRODUTO", label: "Venda" },
+              { id: "NFE_REMESSA_LOCACAO", label: "Remessa de locação" },
+              { id: "NFE_RETORNO_LOCACAO", label: "Retorno de locação" },
+              { id: "NFCOM_TELECOM", label: "NFCom" },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setProdutosSubFilter(f.id as typeof produtosSubFilter)}
+                className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer ${
+                  produtosSubFilter === f.id
+                    ? "bg-[#1e3a6e] text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <span
+              className="ml-auto inline-flex items-center text-slate-400"
+              title="Venda: CFOP 5.102/6.102 (ICMS e PIS/COFINS destacados). Remessa de locação: CFOP 5.908/6.908, ICMS CST 041 e PIS/COFINS CST 08. Retorno: CFOP 1.909/2.909. NFCom: modelo 62, CFOP 5.303. Detalhes em Opções auxiliares."
+            >
+              <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de produtos" />
+            </span>
           </div>
         )}
 
-        {/* SUB-ABA 2: NOTAS DE SERVIÇOS & FATURAS DE LOCAÇÃO (NFS-e Retenções IRRF 1,5% + CSRF 4,65% e Locação 0% ISS) */}
+        {/* SUB-ABA 2: NOTAS DE SERVIÇOS & FATURAS DE LOCAÇÃO — totais em cartões brancos + filtro */}
         {effectiveFiscalTab === "FIS_SERVICOS" && (
           <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Fiscal &gt; Notas de Serviços (NFS-e LC 116 Item 01.07) &amp; Faturas de Locação (0% ISS — Súmula Vinculante 31 STF)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Segregação tributária automática: Locação Pura de Bens Móveis com dispensa de ISSQN (Veto 3.01 LC 116/03 + SV 31 STF) e Serviços Técnicos com retenção automática de IRRF (1,5%) e CSRF (4,65% — PIS 0,65% + COFINS 3,0% + CSLL 1,0%).
-                </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">Faturas de locação</span>
+                <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalLocacaoGross)}</strong>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("FATURA_LOCACAO")}
-                  className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir Fatura de Locação (0% ISS)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFSE_SERVICO")}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NFS-e (Ret. IRRF 1,5% + CSRF 4,65%)
-                </button>
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">NFS-e de serviços</span>
+                <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalNfseGross)}</strong>
+                <span className="text-[11px] text-slate-500 block">ISS {gestaoClickConfig.defaultIssRatePercent}%</span>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
-              <div className="p-3 rounded border border-emerald-200 bg-emerald-50/70">
-                <span className="text-[10px] font-bold uppercase text-emerald-800 block">Faturas Locação (0% ISS)</span>
-                <strong className="text-sm font-black text-emerald-950">{formatBRL(totalLocacaoGross)}</strong>
-                <span className="text-[10px] text-emerald-700 block">Súmula Vinculante 31 STF</span>
-              </div>
-              <div className="p-3 rounded border border-emerald-200 bg-emerald-50/40">
-                <span className="text-[10px] font-bold uppercase text-emerald-800 block">Economia Real de ISSQN</span>
-                <strong className="text-sm font-black text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong>
-                <span className="text-[10px] text-emerald-700 block">Veto Item 3.01 LC 116/2003</span>
-              </div>
-              <div className="p-3 rounded border border-blue-200 bg-blue-50/60">
-                <span className="text-[10px] font-bold uppercase text-blue-800 block">Faturamento NFS-e Serviços</span>
-                <strong className="text-sm font-black text-blue-950">{formatBRL(totalNfseGross)}</strong>
-                <span className="text-[10px] text-blue-700 block">ISS Municipal {gestaoClickConfig.defaultIssRatePercent}% (Item 01.07)</span>
-              </div>
-              <div className="p-3 rounded border border-amber-200 bg-amber-50/60">
-                <span className="text-[10px] font-bold uppercase text-amber-900 block">Retenções Federais (NFS-e)</span>
-                <strong className="text-sm font-black text-amber-950">
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">Retenções federais</span>
+                <strong className="text-sm font-semibold text-slate-900">
                   {formatBRL(totalIrrfWithheld + totalCsrfWithheld)}
                 </strong>
-                <span className="text-[10px] text-amber-800 block">
-                  IRRF 1,5%: {formatBRL(totalIrrfWithheld)} | CSRF 4,65%: {formatBRL(totalCsrfWithheld)}
+                <span className="text-[11px] text-slate-500 block">
+                  IRRF {formatBRL(totalIrrfWithheld)} · CSRF {formatBRL(totalCsrfWithheld)}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
               {[
-                { id: "TODOS", label: "Todos (Faturas de Locação + NFS-e Serviços)" },
-                { id: "FATURA_LOCACAO", label: "Apenas Faturas de Locação (0% ISS — SV 31 STF)" },
-                { id: "NFSE_SERVICO", label: "Apenas NFS-e Serviços (IRRF 1,5% + CSRF 4,65%)" },
+                { id: "TODOS", label: "Todos" },
+                { id: "FATURA_LOCACAO", label: "Faturas de locação" },
+                { id: "NFSE_SERVICO", label: "NFS-e" },
               ].map((f) => (
                 <button
                   key={f.id}
                   type="button"
                   onClick={() => setServicosSubFilter(f.id as typeof servicosSubFilter)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer ${
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer ${
                     servicosSubFilter === f.id
                       ? "bg-[#1e3a6e] text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -4280,30 +4246,17 @@ export default function ErpGestaoClickTab({
                   {f.label}
                 </button>
               ))}
+              <span
+                className="ml-auto inline-flex items-center text-slate-400"
+                title="Locação pura de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
+              >
+                <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de serviços" />
+              </span>
             </div>
           </div>
         )}
 
-        {/* SUB-ABA 3: NOTAS DO CONSUMIDOR (NFC-e Modelo 65) */}
-        {effectiveFiscalTab === "FIS_CONSUMIDOR" && (
-          <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900">
-                Fiscal &gt; Notas do Consumidor (NFC-e Modelo 65 — Venda Balcão / PDV Matriz #118887)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Emissão instantânea de DANFE NFC-e (Ajuste SINIEF 19/16, CFOP 5.102) para vendas presenciais de cabos, fontes PoE, headsets e acessórios com cálculo IBPT (Lei 12.741/2012).
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => openNewInvoiceWithPreset("NFCE_CONSUMIDOR")}
-              className="px-4 py-2 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold cursor-pointer"
-            >
-              + Emitir NFC-e Consumidor (Mod. 65)
-            </button>
-          </div>
-        )}
+        {/* SUB-ABA 3: NOTAS DO CONSUMIDOR (NFC-e) — emissão pelo "+ Emitir nota ▾"; só a lista abaixo */}
 
         {/* SUB-ABA: NF-E DE IMPORTAÇÃO (SIMPLES NACIONAL — EMISSOR SEBRAE 4.01 & FIREWALL FISCAL) */}
         {effectiveFiscalTab === "FIS_IMPORTACAO" && (
@@ -4323,18 +4276,15 @@ export default function ErpGestaoClickTab({
         )}
 
         {/* SUB-ABA 4: NOTAS DE COMPRAS / ENTRADA */}
-        {effectiveFiscalTab === "FIS_COMPRAS" && renderPurchasesTable("Fiscal > Notas de Compras / Entrada")}
+        {effectiveFiscalTab === "FIS_COMPRAS" && renderPurchasesTable("Fiscal > Notas de Compras / Entrada", "FISCAL")}
 
         {/* SUB-ABA 5: OPÇÕES AUXILIARES & PARÂMETROS TRIBUTÁRIOS */}
         {effectiveFiscalTab === "FIS_AUXILIARES" && (
           <div className="bg-white rounded-md border border-slate-200 p-5 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                  Fiscal &gt; Opções Auxiliares &amp; Regras Tributárias
-                </span>
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Parâmetros Fiscais &amp; Matriz CFOP / LC 116 / Súmula Vinculante 31 STF — {gestaoClickConfig.companyLegalName}
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Parâmetros fiscais — {gestaoClickConfig.companyLegalName}
                 </h3>
                 <p className="text-xs text-slate-500">
                   CNPJ: {gestaoClickConfig.companyCnpj} • IM: {gestaoClickConfig.municipalRegistration} • IE: {gestaoClickConfig.stateRegistration}
@@ -4385,50 +4335,56 @@ export default function ErpGestaoClickTab({
                       },
                     })
                   }
-                  className="px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
                   Editar Parâmetros Fiscais
                 </button>
               </div>
             </div>
 
+            {/* Base legal e tabela CFOP: só aqui em Opções auxiliares, recolhidas */}
+            <details className="group border border-slate-200 rounded-md">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                Base legal e tabela de CFOP
+              </summary>
+              <div className="p-4 pt-2 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="p-4 rounded border border-emerald-200 bg-emerald-50/70 space-y-1">
-                <div className="font-extrabold text-emerald-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   1. Locação Pura de Bens Móveis (0% ISS)
                 </div>
-                <p className="text-emerald-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> Veto Presidencial ao item 3.01 da LC 116/2003 + Súmula Vinculante nº 31 do STF + Lei 8.846/1994 art. 1º.
                 </p>
-                <p className="text-emerald-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • ISSQN: <strong>0,00% (Não Incidência)</strong><br />
                   • Retenção IRRF / CSRF: <strong>0,00% (IN RFB 1.234/12)</strong><br />
                   • PIS (0,65%) + COFINS (3,00%) Cumulativo
                 </p>
               </div>
 
-              <div className="p-4 rounded border border-blue-200 bg-blue-50/70 space-y-1">
-                <div className="font-extrabold text-blue-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   2. Serviços Técnicos TI / NOC (NFS-e)
                 </div>
-                <p className="text-blue-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> LC 116/2003 Item 01.07 (Suporte técnico, instalação, configuração e manutenção) e Art. 30/31 da Lei 10.833/2003.
                 </p>
-                <p className="text-blue-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • ISSQN Municipal: <strong>{gestaoClickConfig.defaultIssRatePercent}%</strong><br />
                   • IRRF Retido na Fonte: <strong>1,50%</strong> (dispensa &lt; R$ 10,00)<br />
                   • CSRF Retida na Fonte: <strong>4,65%</strong> (PIS 0,65% + COFINS 3% + CSLL 1% p/ NF &gt; R$ 215,05)
                 </p>
               </div>
 
-              <div className="p-4 rounded border border-indigo-200 bg-indigo-50/70 space-y-1">
-                <div className="font-extrabold text-indigo-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   3. Circulação de Equipamentos (NF-e Mod. 55)
                 </div>
-                <p className="text-indigo-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> Art. 7º, IX do RICMS/SP (Remessa de Locação) e Tributação Comercial de Revenda.
                 </p>
-                <p className="text-indigo-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • Remessa Locação: <strong>CFOP 5.908 / 6.908</strong> (CST ICMS 041 / PIS-COFINS 08 — R$ 0 impostos)<br />
                   • Venda Equipamento: <strong>CFOP 5.102 / 6.102</strong> (ICMS 18% SP, IRPJ 1,20%, CSLL 1,08%)
                 </p>
@@ -4436,8 +4392,8 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="border border-slate-200 rounded overflow-hidden">
-              <div className="bg-slate-900 text-white px-4 py-2.5 text-xs font-extrabold">
-                Tabela Oficial de CFOPs e Naturezas de Operação — Seta Telecom (GestãoClick #118887)
+              <div className="bg-slate-50 text-slate-700 border-b border-slate-200 px-4 py-2.5 text-xs font-semibold">
+                CFOPs e naturezas de operação
               </div>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
@@ -4452,7 +4408,7 @@ export default function ErpGestaoClickTab({
                 </thead>
                 <tbody className="divide-y">
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-indigo-800">5.908 / 6.908</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.908 / 6.908</td>
                     <td className="py-2 px-3 font-bold">NF-e Mod. 55</td>
                     <td className="py-2 px-3">Remessa de bem por conta de contrato de locação</td>
                     <td className="py-2 px-3">CST 041 (Não tributada)</td>
@@ -4460,56 +4416,58 @@ export default function ErpGestaoClickTab({
                     <td className="py-2 px-3 text-slate-600">Transporte Patrimonial (Sem cobrança)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-emerald-800">N/A (SV 31 STF)</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">N/A (SV 31 STF)</td>
                     <td className="py-2 px-3 font-bold">Fatura Locação</td>
                     <td className="py-2 px-3">Locação pura de bens móveis (Dispensa NFS-e — LC 116/03)</td>
                     <td className="py-2 px-3">0% ISSQN (SV 31 STF)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
-                    <td className="py-2 px-3 text-emerald-700 font-bold">Gera Contas a Receber MRR (100% Líquido)</td>
+                    <td className="py-2 px-3 text-slate-700">Gera Contas a Receber MRR (100% Líquido)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-blue-800">5.933 / 6.933</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.933 / 6.933</td>
                     <td className="py-2 px-3 font-bold">NFS-e Nacional</td>
                     <td className="py-2 px-3">Prestação de serviço técnico TI/Telecom (LC 116 Item 01.07)</td>
                     <td className="py-2 px-3">ISS {gestaoClickConfig.defaultIssRatePercent}%</td>
                     <td className="py-2 px-3">Ret. IRRF 1,5% + CSRF 4,65%</td>
-                    <td className="py-2 px-3 text-blue-700 font-bold">Gera Recebível Líquido (Bruto - 6,15%)</td>
+                    <td className="py-2 px-3 text-slate-700">Gera Recebível Líquido (Bruto - 6,15%)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-amber-800">5.102 / 6.102</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.102 / 6.102</td>
                     <td className="py-2 px-3 font-bold">NF-e / NFC-e</td>
                     <td className="py-2 px-3">Venda de mercadoria/equipamento adquirido de terceiros</td>
                     <td className="py-2 px-3">CST 000 (ICMS 18% / 12%)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
-                    <td className="py-2 px-3 text-amber-800 font-bold">Gera Contas a Receber Venda</td>
+                    <td className="py-2 px-3 text-slate-700">Gera Contas a Receber Venda</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-purple-800">1.551 / 2.551</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">1.551 / 2.551</td>
                     <td className="py-2 px-3 font-bold">NF-e Entrada</td>
                     <td className="py-2 px-3">Compra de bem para o Ativo Imobilizado (Parque de Locação)</td>
                     <td className="py-2 px-3">Crédito CIAP / ICMS</td>
                     <td className="py-2 px-3">CST 50 / 70 Entrada</td>
-                    <td className="py-2 px-3 text-rose-700 font-bold">CAPEX Contas a Pagar Fornecedor</td>
+                    <td className="py-2 px-3 text-slate-700">CAPEX Contas a Pagar Fornecedor</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-slate-800">1.102 / 2.102</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">1.102 / 2.102</td>
                     <td className="py-2 px-3 font-bold">NF-e Entrada</td>
                     <td className="py-2 px-3">Compra de mercadoria para comercialização / revenda</td>
                     <td className="py-2 px-3">Crédito ICMS 18%</td>
                     <td className="py-2 px-3">CST 50 / 70 Entrada</td>
-                    <td className="py-2 px-3 text-rose-700 font-bold">Estoque Comercialização</td>
+                    <td className="py-2 px-3 text-slate-700">Estoque Comercialização</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+              </div>
+            </details>
           </div>
         )}
 
         {/* BARRA DE BUSCA E FILTRO DE STATUS FISCAL */}
         {effectiveFiscalTab !== "FIS_COMPRAS" && effectiveFiscalTab !== "FIS_AUXILIARES" && (
           <div className="bg-white rounded-md border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-extrabold text-[#0d2b4e]">
-              Documentos Fiscais Exibidos ({filteredInvoices.length} de {invoices.length})
+            <span className="font-semibold text-slate-600">
+              {filteredInvoices.length} de {invoices.length} documentos
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -4539,7 +4497,7 @@ export default function ErpGestaoClickTab({
                     setInvoicesStatusFilter("TODOS");
                     setActiveSubId("FIS_TODAS");
                   }}
-                  className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                  className="px-1.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
                 >
                   Limpar filtros
                 </button>
@@ -4559,21 +4517,21 @@ export default function ErpGestaoClickTab({
             return (
               <div
                 key={inv.id}
-                className="bg-white rounded-md border border-slate-200 p-5 shadow-xs space-y-3"
+                className="bg-white rounded-md border border-slate-200 p-4 space-y-3"
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded text-xs font-black bg-slate-900 text-white font-mono">
+                      <span className="text-xs font-semibold text-slate-900 font-mono">
                         {inv.documentNumber}
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${badge.className}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${badge.className}`}>
                         {badge.label}
                       </span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
                           isPaid
-                            ? "bg-emerald-600 text-white"
+                            ? "bg-emerald-100 text-emerald-800"
                             : inv.status === "ENTRADA_REGISTRADA"
                               ? "bg-slate-200 text-slate-800"
                               : "bg-amber-100 text-amber-800"
@@ -4582,7 +4540,7 @@ export default function ErpGestaoClickTab({
                         {inv.status === "ENTRADA_REGISTRADA" ? "ENTRADA REGISTRADA" : inv.status}
                       </span>
                     </div>
-                    <h3 className="text-base font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => handleOpenErpCustomerByCompany(inv.companyId, inv.companyName, inv.companyCnpj)}
@@ -4592,7 +4550,7 @@ export default function ErpGestaoClickTab({
                         {inv.companyName}
                       </button>
                       <span>—</span>
-                      <span className="font-mono text-sm">CNPJ {inv.companyCnpj}</span>
+                      <span className="font-mono text-xs font-normal text-slate-500">CNPJ {inv.companyCnpj}</span>
                     </h3>
                     <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span>Competência: <strong>{inv.competenceMonth}</strong></span>
@@ -4610,7 +4568,7 @@ export default function ErpGestaoClickTab({
                           <button
                             type="button"
                             onClick={() => handleNavigateToContractFromDoc(linkedCtr.id, linkedCtr.companyName)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-[#1e3a6e] border border-indigo-200 font-mono text-[10px] font-extrabold cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline font-mono text-[11px] font-semibold cursor-pointer"
                             title="Abrir Contrato vinculado (Navegação Cruzada)"
                           >
                             Contrato {linkedCtr.contractNumber} &rarr;
@@ -4621,7 +4579,7 @@ export default function ErpGestaoClickTab({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
+                    <div className="text-right px-2 py-1">
                       <span className="text-[10px] text-slate-500 block">
                         Bruto: <strong>{formatBRL(inv.grossAmount)}</strong> | ISS: {tb.issRatePercent}% | ICMS: {tb.icmsRatePercent}%
                       </span>
@@ -4630,14 +4588,14 @@ export default function ErpGestaoClickTab({
                           Retenções: IRRF {formatBRL(tb.irrfWithheldAmount)} + CSRF {formatBRL(tb.csrfWithheldAmount)}
                         </span>
                       )}
-                      <strong className="text-sm text-emerald-800">
+                      <strong className="text-sm font-semibold text-slate-900">
                         Líquido: {formatBRL(inv.netAmount)}
                       </strong>
                     </div>
                     <button
                       type="button"
                       onClick={() => setEditingInvoice(inv)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" /> Editar
                     </button>
@@ -4655,32 +4613,32 @@ export default function ErpGestaoClickTab({
                           pixCode: inv.pixCopyPaste,
                         })
                       }
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
-                      <Mail className="w-3.5 h-3.5" /> Enviar p/ Cliente
+                      <Mail className="w-3.5 h-3.5" /> Enviar
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDeleteInvoice(inv)}
                       title="Excluir Documento Fiscal"
-                      className="p-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
+                      className="p-1.5 rounded border border-slate-300 bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-700 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setSelectedInvoiceForPrint(inv)}
-                      className="px-3.5 py-2 rounded bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
+                      <Printer className="w-3.5 h-3.5" /> Imprimir
                     </button>
                     {!isPaid && inv.status !== "ENTRADA_REGISTRADA" && inv.documentType !== "NFE_REMESSA_LOCACAO" && inv.documentType !== "NFE_RETORNO_LOCACAO" && (
                       <button
                         type="button"
                         onClick={() => handleMarkInvoicePaid(inv.id)}
-                        className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                        className="px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
                       >
-                        Confirmar Recebimento
+                        Confirmar recebimento
                       </button>
                     )}
                   </div>
