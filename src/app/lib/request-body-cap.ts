@@ -9,9 +9,12 @@
 // ============================================================================
 import { verifyStiHubSessionToken } from './auth';
 import { BRIDGE_LARGE_BODY_BYTES, BRIDGE_MAX_BODY_BYTES, isLargeBodyRoute } from './bridge-body-limit';
+import { isSessionTokenRevoked } from './session-revocation';
 
 export function requestBodyCapFor(method: string, path: string, sessionToken: string | null | undefined): number {
   if (!isLargeBodyRoute(method, String(path || '').split('?')[0]) || !sessionToken) return BRIDGE_MAX_BODY_BYTES;
+  // Pacote N (D-M2): sessao revogada no logout (nesta instancia) fica no teto de 1 MiB.
+  if (isSessionTokenRevoked(String(sessionToken))) return BRIDGE_MAX_BODY_BYTES;
   try {
     return verifyStiHubSessionToken(String(sessionToken)).valid ? BRIDGE_LARGE_BODY_BYTES : BRIDGE_MAX_BODY_BYTES;
   } catch {

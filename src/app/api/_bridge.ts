@@ -12,6 +12,7 @@ import {
   readBodyWithCap,
 } from '../lib/bridge-body-limit';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
+import { isSessionTokenRevoked } from '../lib/session-revocation';
 
 const router = new CrmApiRouter();
 
@@ -26,6 +27,8 @@ export function stripReservedBodyKeys(body: unknown): unknown {
 /** Pacote M (3): teto de corpo do bridge para esta requisicao. */
 export function bridgeBodyCapFor(method: string, path: string, sessionToken: string | undefined): number {
   if (!isLargeBodyRoute(method, path) || !sessionToken) return BRIDGE_MAX_BODY_BYTES;
+  // Pacote N (D-M2): sessao revogada no logout (lista desta instancia) fica no teto de 1 MiB.
+  if (isSessionTokenRevoked(sessionToken)) return BRIDGE_MAX_BODY_BYTES;
   try {
     return verifyStiHubSessionToken(sessionToken).valid ? BRIDGE_LARGE_BODY_BYTES : BRIDGE_MAX_BODY_BYTES;
   } catch {

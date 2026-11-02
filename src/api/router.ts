@@ -212,32 +212,10 @@ export function buildClearSessionCookie(): string {
 // o middleware (Edge) tambem nao. O token revogado continua valido ali ate expirar (24 h)
 // ou ate a troca de senha. Mitigacao: o cookie e apagado no navegador no logout.
 // ---------------------------------------------------------------------------
-const REVOKED_SESSION_MAX_ENTRIES = 10_000;
-const revokedSessionTokenHashes = new Map<string, number>();
-function sessionTokenHash(token: string): string {
-  return createHash('sha256').update(String(token)).digest('hex');
-}
-export function revokeSessionTokenBestEffort(token: string | null | undefined, expMs: number): void {
-  if (!token) return;
-  const now = Date.now();
-  for (const [h, exp] of revokedSessionTokenHashes) if (exp <= now) revokedSessionTokenHashes.delete(h);
-  if (revokedSessionTokenHashes.size >= REVOKED_SESSION_MAX_ENTRIES) {
-    const oldest = revokedSessionTokenHashes.keys().next().value;
-    if (oldest) revokedSessionTokenHashes.delete(oldest);
-  }
-  revokedSessionTokenHashes.set(sessionTokenHash(token), Number.isFinite(expMs) && expMs > now ? expMs : now + 24 * 3600 * 1000);
-}
-export function isSessionTokenRevoked(token: string | null | undefined): boolean {
-  if (!token) return false;
-  const h = sessionTokenHash(token);
-  const exp = revokedSessionTokenHashes.get(h);
-  if (exp === undefined) return false;
-  if (exp <= Date.now()) {
-    revokedSessionTokenHashes.delete(h);
-    return false;
-  }
-  return true;
-}
+// Pacote N (D-M2): implementacao movida para src/app/lib/session-revocation.ts (mesmo estado,
+// tambem lido pelo teto de corpo do bridge/dispatch). Reexportada aqui para os chamadores antigos.
+export { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
+import { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
