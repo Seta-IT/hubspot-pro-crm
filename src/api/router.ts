@@ -88,10 +88,11 @@ import {
   SERVICE_RATE_PER_MINUTE,
 } from '../app/lib/service-account';
 import { isServiceAccountIdentity, PROPOSAL_LINK_APPROVABLE_STATUSES } from '../db/repository';
-import { pickProposalApprovalFields, validateProposalApprovalInput } from '../modules/erp/proposal-approval';
+import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
 import {
   buildSignedProposalUrl,
   hashIdempotencyKey,
+  PROPOSAL_APPROVE_LIMITS,
   isProposalLinkConfigured,
   isProposalPublicApproveEnabled,
   normalizeIdempotencyKey,
@@ -106,7 +107,8 @@ import {
   ProposalLinkExpiredProposalError,
   resolveProposalLinkOrigin,
 } from '../app/lib/proposal-link';
-import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_BYTES, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
@@ -394,12 +396,8 @@ export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInt
  * ip: toda tentativa anonima; ipPerProposal: toda tentativa de um IP contra uma proposta existente
  * (id canonico); validPerProposal: so aceites que passaram na validacao (id canonico).
  */
-export const PROPOSAL_APPROVE_LIMITS = Object.freeze({
-  windowMs: 10 * 60 * 1000,
-  ip: 30,
-  ipPerProposal: 10,
-  validPerProposal: 20,
-});
+// Rebase v5: a constante vive em src/app/lib/proposal-link.ts (fonte unica com o aceite pelo link).
+export { PROPOSAL_APPROVE_LIMITS };
 
 export const BRIDGE_RESERVED_KEYS = [
   '_fromHttpBridge',
@@ -954,16 +952,19 @@ export class CrmApiRouter {
     // redigida descarta essas chaves; recusar aqui mantem o 400 das validacoes .strict() (H/I).
     // Corpo acima de 40 niveis => 400 (fail-closed; a redacao e a checagem de chaves reservadas
     // examinam ate essa profundidade). Antes de qualquer efeito, como o A4.
-    // B-V4-1: corpo acima de 1 MiB => 413 ANTES da redacao (custo de CPU pre-sessao/rate-limit).
-    // Usa o tamanho informado pelo canal (server.ts standalone) e, sempre, a estimativa do
-    // corpo ja parseado (o bridge do Next nao informa o tamanho).
+    // B-V4-1: corpo acima do teto => 413 ANTES da redacao (custo de CPU pre-sessao/rate-limit).
+    // Rebase v5 (pacote M): teto com a MESMA regra do bridge (requestBodyCapFor): 4 MiB so nas
+    // rotas de BRIDGE_LARGE_BODY_ROUTES com sessao assinada valida; 1 MiB no resto. Usa o tamanho
+    // informado pelo canal (server.ts standalone) e, sempre, a estimativa do corpo parseado
+    // (cota inferior exata do JSON: nunca recusa o que o bridge aceitou).
+    const bodyCap = requestBodyCapFor(method, cleanPath, query._sessionToken);
     if (
-      (typeof req.bodyBytes === 'number' && Number.isFinite(req.bodyBytes) && req.bodyBytes > MAX_BODY_BYTES) ||
-      bodyExceedsMaxBytes(req.body)
+      (typeof req.bodyBytes === 'number' && Number.isFinite(req.bodyBytes) && req.bodyBytes > bodyCap) ||
+      bodyExceedsMaxBytes(req.body, bodyCap)
     ) {
       return {
         status: 413,
-        body: { error: `Corpo da requisição acima do limite permitido (${MAX_BODY_BYTES} bytes).`, code: 'BODY_TOO_LARGE' },
+        body: { error: 'Corpo da requisição acima do limite permitido.', code: 'BODY_TOO_LARGE', maxBytes: bodyCap },
       };
     }
     if (bodyExceedsMaxDepth(rawBody)) {
@@ -2651,8 +2652,14 @@ export class CrmApiRouter {
 
   /**
    * POST /approve: exige o mesmo token do link (exceto contexto interno confiavel), corpo zod
-   * .strict(), rate-limit por IP e por proposta, idempotente (Idempotency-Key opcional) e
-   * NUNCA cria proposta (o upsert antigo por payload do cliente foi removido).
+   * .strict(), idempotente (Idempotency-Key opcional, presa a proposta) e NUNCA cria proposta.
+   * Rebase v5 sobre o pacote M (D1/D2) e o L:
+   * - D1 por IP (30/10 min): TODA tentativa anonima conta (404, 400, 409...);
+   * - D2 por IP + proposta (10/10 min): toda tentativa contra a proposta existente, pelo id
+   *   CANONICO (na v4 o id do caminho tem de ser exatamente o do token; caixa/code dao 404 antes);
+   * - D1 por proposta (20/10 min): so aceites que passaram na validacao;
+   * - L: aceite repetido (assinatura ou fatura ja geradas) => 409 PROPOSAL_ALREADY_APPROVED;
+   * - D3: fora de ENVIADA/EM_NEGOCIACAO => o mesmo 404 generico (publico).
    */
   private async approveProposalViaLink(
     pathId: string,
@@ -2662,14 +2669,19 @@ export class CrmApiRouter {
   ): Promise<ApiResponse> {
     const trusted = ctx.trustedInternal === true;
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-    const tooMany: ApiResponse = { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    const ipKey = rateLimitIpKey(query._clientIp || '');
+    const rateLimited: ApiResponse = {
+      status: 429,
+      body: { error: 'Muitas tentativas de aceite. Aguarde alguns minutos e tente novamente.', code: 'PROPOSAL_APPROVE_RATE_LIMITED' },
+    };
     let jti: string | undefined;
     let tokenVersion: number | null = null;
 
     if (!trusted) {
-      if (!this.proposalLinkLimiters.approveIp.hit(`ip:${ip}`)) {
+      // Pacote M (D1): toda tentativa anonima conta no limite por IP (forca bruta/enumeracao).
+      if (!this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
         this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
-        return tooMany;
+        return rateLimited;
       }
       const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
       if (!v.valid) {
@@ -2678,10 +2690,6 @@ export class CrmApiRouter {
       }
       jti = v.claims.jti;
       tokenVersion = v.claims.ver;
-      if (!this.proposalLinkLimiters.approveProposal.hit(`p:${pathId}`)) {
-        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por proposta (429)', undefined, jti);
-        return tooMany;
-      }
       if (!isProposalPublicApproveEnabled()) {
         this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'aceite pelo link desativado (403)', undefined, jti);
         return {
@@ -2694,6 +2702,28 @@ export class CrmApiRouter {
       }
     }
 
+    const existing = trusted
+      ? this.repo
+          .listProposals()
+          .find(
+            (p) =>
+              p.id === pathId ||
+              p.id.toLowerCase() === pathId.toLowerCase() ||
+              p.code === pathId ||
+              String(p.code || '').toLowerCase() === pathId.toLowerCase()
+          )
+      : this.findProposalExact(pathId);
+    if (!existing || (tokenVersion !== null && Math.max(1, Number(existing.version || 1)) !== tokenVersion)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou versao diferente (404, nada criado)', undefined, jti);
+      return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
+    }
+    // Pacote M (D2): baldes por proposta pelo id CANONICO encontrado pelo servidor.
+    const canonicalPropKey = String(existing.id).toLowerCase().slice(0, 128);
+    if (!trusted && !this.proposalApproveIpPropLimiter.hit(`approve-ip-prop:${ipKey}|${canonicalPropKey}`)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'rate-limit por IP + proposta (429)', undefined, jti);
+      return rateLimited;
+    }
+
     const parsed = publicProposalApproveSchema.safeParse(body || {});
     if (!parsed.success) {
       const fields = Array.from(
@@ -2703,7 +2733,7 @@ export class CrmApiRouter {
           )
         )
       ).filter(Boolean);
-      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'corpo invalido (400)', undefined, jti);
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'corpo invalido (400)', undefined, jti);
       return {
         status: 400,
         body: {
@@ -2722,44 +2752,37 @@ export class CrmApiRouter {
       };
     }
 
-    const existing = trusted
-      ? this.repo
-          .listProposals()
-          .find(
-            (p) =>
-              p.id === pathId ||
-              p.id.toLowerCase() === pathId.toLowerCase() ||
-              p.code === pathId ||
-              String(p.code || '').toLowerCase() === pathId.toLowerCase()
-          )
-      : this.findProposalExact(pathId);
-    if (!existing || (tokenVersion !== null && Math.max(1, Number(existing.version || 1)) !== tokenVersion)) {
-      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou versao diferente (404, nada criado)', undefined, jti);
-      return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
-    }
-
-    // Repeticao com a MESMA Idempotency-Key: devolve o mesmo resultado, sem novo efeito.
+    // Repeticao com a MESMA Idempotency-Key NESTA proposta (o hash inclui o id da proposta):
+    // devolve exatamente o corpo do primeiro aceite, sem novo efeito e sem dado a mais.
     if (
       idem.key &&
       existing.approvalIdempotencyKeySha256 &&
-      existing.approvalIdempotencyKeySha256 === hashIdempotencyKey(idem.key) &&
+      existing.approvalIdempotencyKeySha256 === hashIdempotencyKey(idem.key, existing.id) &&
       (existing.status === 'CONVERTIDA_CONTRATO' || existing.convertedContractId)
     ) {
       const contract = this.repo.listRentalContracts().find((c) => c.id === existing.convertedContractId);
       const invoice = this.repo.listInvoices().find((i) => i.id === existing.convertedInvoiceId);
       this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'SUCCESS', ip, existing.id, 'repeticao idempotente (mesma Idempotency-Key, sem novo efeito)', undefined, jti);
+      if (trusted) return { status: 200, body: { data: { proposal: existing, contract, invoice } } };
       return {
         status: 200,
-        body: {
-          data: this.publicApprovalResult(existing, contract?.contractNumber || null, invoice?.documentNumber || null),
-          idempotentReplay: true,
-        },
+        body: { data: this.publicApprovalResult(existing, contract?.contractNumber || null, invoice?.documentNumber || null) },
+      };
+    }
+
+    // Pacote L (1): aceite repetido (assinatura ou fatura ja geradas, mesmo sem convertedContractId,
+    // ex.: dado legado) => 409, nenhum contrato/fatura a mais.
+    if (existing.digitalSignature?.signedAt || existing.convertedInvoiceId) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'aceite repetido (409)', undefined, jti);
+      return {
+        status: 409,
+        body: { error: 'Esta proposta já foi aceita e convertida em contrato.', code: 'PROPOSAL_ALREADY_APPROVED' },
       };
     }
 
     // D3 (checagem final v4): aceite publico so em ENVIADA ou EM_NEGOCIACAO. Qualquer outro
     // status (RASCUNHO, APROVADA, CONVERTIDA_CONTRATO, RECUSADA, invalido) => o MESMO 404
-    // generico do link, sem revelar o status (a repeticao idempotente acima nao e novo aceite).
+    // generico do link, sem revelar o status.
     if (!trusted && !CrmApiRouter.isProposalLinkApprovableStatus(existing.status)) {
       this.proposalLinkAudit(
         'PROPOSAL_PUBLIC_APPROVE',
@@ -2785,6 +2808,11 @@ export class CrmApiRouter {
         status: approval.status,
         body: { error: approval.error, code: approval.code, fields: approval.fields },
       };
+    }
+    // Pacote M (D1): o limite por proposta so conta aceites que passaram na validacao.
+    if (!trusted && !this.proposalApproveIdLimiter.hit(`approve-id:${canonicalPropKey}`)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'rate-limit por proposta (aceites validados, 429)', undefined, jti);
+      return rateLimited;
     }
     // M3: antes de converter, rele a proposta (memoria e, se houver, o estado persistido no
     // PostgreSQL) e confere de novo convertedContractId. Reduz, mas NAO elimina, a corrida entre
@@ -2813,7 +2841,11 @@ export class CrmApiRouter {
       ipAddress: query._clientIp || undefined,
     } as Record<string, unknown>);
     if (!res) return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
-    if (idem.key) res.proposal.approvalIdempotencyKeySha256 = hashIdempotencyKey(idem.key);
+    if (idem.key) {
+      const h = hashIdempotencyKey(idem.key, res.proposal.id);
+      res.proposal.approvalIdempotencyKeySha256 = h;
+      this.repo.setProposalApprovalIdempotencyHash(res.proposal.id, h);
+    }
     this.proposalLinkAudit(
       'PROPOSAL_PUBLIC_APPROVE',
       'SUCCESS',

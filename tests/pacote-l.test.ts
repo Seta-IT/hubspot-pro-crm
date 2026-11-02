@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { createInMemoryRepository, CrmRepository } from '../src/db/repository';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
+import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 import type { ErpRentalContract } from '../src/db/types';
 
 let ipn = 1;
@@ -28,8 +29,13 @@ const mk = () => {
   const router = new CrmApiRouter(repo);
   const q = (uid: string, extra?: Record<string, unknown>) => ({ _fromHttpBridge: '1', _clientIp: ip(), _sessionToken: tokFor(repo, uid, extra) });
   const anon = () => ({ _fromHttpBridge: '1', _clientIp: ip() });
+  // Rebase v5: aceite publico com o token do link assinado (id exato + versao atual).
+  const anonLink = (id: string) => {
+    const p = repo.listProposals().find((x) => x.id === id);
+    return { ...anon(), proposalLinkToken: signProposalLinkToken({ proposalId: id, version: Math.max(1, Number(p?.version || 1)) }).token };
+  };
   const audits = (a: string) => repo.listSecurityAuditLogs(10000).logs.filter((l) => l.action === a).length;
-  return { repo, router, q, anon, audits };
+  return { repo, router, q, anon, anonLink, audits };
 };
 type E = ReturnType<typeof mk>;
 type Body = { code?: string; error?: string; data?: Record<string, any> };
@@ -78,42 +84,51 @@ describe('Pacote L (1): /approve publico so aceita proposta existente', () => {
     assert.deepEqual(counts(E), c0);
   });
 
-  it('aceite legitimo (link antigo, sem token) de proposta existente continua: 200, contrato + 1a fatura com dados do SERVIDOR; body.proposal e valores do corpo ignorados', async () => {
+  it('aceite legitimo pelo link assinado: 200, contrato + 1a fatura com dados do SERVIDOR; body.proposal/valores do corpo => 400 (zod strict) e nada gravado; sem token => 404', async () => {
     const E = mk();
     const p = await mkProp(E);
     const c0 = counts(E);
-    const r = await E.router.dispatch({
-      method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(),
-      body: { ...sig, proposal: { ...p, companyName: 'Empresa Forjada', monthlyRecurringTotal: 99999, items: [{ id: 'z', description: 'z', quantity: 1, unitPrice: 50000 }] }, monthlyRecurringTotal: 99999, companyName: 'Empresa Forjada', items: [{ unitPrice: 50000 }] },
-    });
+    // v5: o corpo do aceite publico e .strict() (B2): payload comercial no corpo => 400, nada criado.
+    const forgedBody = { ...sig, proposal: { ...p, companyName: 'Empresa Forjada', monthlyRecurringTotal: 99999, items: [{ id: 'z', description: 'z', quantity: 1, unitPrice: 50000 }] }, monthlyRecurringTotal: 99999, companyName: 'Empresa Forjada', items: [{ unitPrice: 50000 }] };
+    const rf = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: forgedBody });
+    assert.equal(rf.status, 400, JSON.stringify(rf.body));
+    assert.deepEqual(counts(E), c0);
+    // Sem token (link antigo) => 404 identico ao GET.
+    const noTok = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: sig });
+    assert.equal(noTok.status, 404);
+    const r = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: sig });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const d = b(r).data!;
-    assert.equal(d.contract.companyName, 'L SA');
-    assert.equal(d.contract.monthlyValue, p.monthlyRecurringTotal);
-    assert.equal(d.contract.equipments.length, 1);
-    assert.equal(d.contract.equipments[0].unitMonthlyRent, 100);
-    assert.notEqual(d.invoice.companyName, 'Empresa Forjada');
     assert.equal(d.proposal.status, 'CONVERTIDA_CONTRATO');
-    assert.equal(d.digitalSignature.signerName, 'Fulano de Tal');
+    assert.match(String(d.contractNumber), /^LOC-/);
+    const stored = E.repo.listProposals().find((x) => x.id === p.id)!;
+    const contract = E.repo.listRentalContracts().find((c) => c.id === stored.convertedContractId)!;
+    const invoice = E.repo.listInvoices().find((i) => i.id === stored.convertedInvoiceId)!;
+    assert.equal(contract.companyName, 'L SA');
+    assert.equal(contract.monthlyValue, p.monthlyRecurringTotal);
+    assert.equal(contract.equipments.length, 1);
+    assert.equal(contract.equipments[0].unitMonthlyRent, 100);
+    assert.notEqual(invoice.companyName, 'Empresa Forjada');
+    assert.equal(stored.digitalSignature?.signerName, 'Fulano de Tal');
     const after = counts(E);
     assert.equal(after.ctr, c0.ctr + 1);
     assert.equal(after.inv, c0.inv + 1, '1a fatura gerada no aceite (comportamento atual mantido)');
     assert.equal(after.props, c0.props);
-    const stored = E.repo.listProposals().find((x) => x.id === p.id)!;
     assert.equal(stored.companyName, 'L SA', 'proposta do servidor nao foi sobrescrita');
-    // aceite pelo codigo da proposta (link antigo por codigo) tambem resolve a existente
+    // v5: pelo codigo da proposta o link nao resolve (token preso ao id exato) => 404, nada criado.
     const p2 = await mkProp(E);
-    const r3 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${encodeURIComponent(String(p2.code).toLowerCase())}/approve`, query: E.anon(), body: sig });
-    assert.equal(r3.status, 200, JSON.stringify(r3.body));
+    const code = String(p2.code).toLowerCase();
+    const r3 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${encodeURIComponent(code)}/approve`, query: E.anonLink(code), body: sig });
+    assert.equal(r3.status, 404, JSON.stringify(r3.body));
   });
 
-  it('sem aceite repetido: 2o aceite => 409 e nenhum contrato/fatura a mais; status nao aceitavel => 409', async () => {
+  it('sem aceite repetido: 2o aceite => 409 e nenhum contrato/fatura a mais; status nao aceitavel => 404 generico (D3)', async () => {
     const E = mk();
     const p = await mkProp(E);
-    const r1 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: sig });
+    const r1 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: sig });
     assert.equal(r1.status, 200);
     const c1 = counts(E);
-    const r2 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: sig });
+    const r2 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: sig });
     assert.equal(r2.status, 409);
     assert.equal(b(r2).code, 'PROPOSAL_ALREADY_APPROVED');
     assert.deepEqual(counts(E), c1);
@@ -121,23 +136,29 @@ describe('Pacote L (1): /approve publico so aceita proposta existente', () => {
     const p3 = await mkProp(E);
     const st = E.repo.listProposals().find((x) => x.id === p3.id)!;
     (st as any).digitalSignature = { signedAt: new Date().toISOString() };
-    const r4 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p3.id}/approve`, query: E.anon(), body: sig });
+    const r4 = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p3.id}/approve`, query: E.anonLink(p3.id), body: sig });
     assert.equal(r4.status, 409);
+    // D3 (aprovado pelo CISO): fora de ENVIADA/EM_NEGOCIACAO => o mesmo 404 do GET (sem revelar o status).
+    const g404 = await E.router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-nao-existe', query: E.anon() });
     for (const status of ['RECUSADA', 'CANCELADA', 'EXPIRADA']) {
       const px = await mkProp(E, { status });
       const stx = E.repo.listProposals().find((x) => x.id === px.id)!;
       (stx as any).status = status;
-      const rx = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${px.id}/approve`, query: E.anon(), body: sig });
-      assert.equal(rx.status, 409, `${status}: ${JSON.stringify(rx.body)}`);
+      const rx = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${px.id}/approve`, query: E.anonLink(px.id), body: sig });
+      assert.equal(rx.status, 404, `${status}: ${JSON.stringify(rx.body)}`);
+      assert.deepEqual(rx.body, g404.body);
     }
+    assert.deepEqual(counts(E).ctr, c1.ctr);
   });
 
-  it('do corpo so entram os campos do aceite: statusObservation anonima e descartada; validacao continua (400)', async () => {
+  it('do corpo so entram os campos do aceite: statusObservation anonima => 400 (zod strict, B2) e nada no historico; validacao continua (400)', async () => {
     const E = mk();
     const p = await mkProp(E);
-    const bad = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: { ...sig, acceptedTerms: 'true' } });
+    const bad = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: { ...sig, acceptedTerms: 'true' } });
     assert.equal(bad.status, 400);
-    const r = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: { ...sig, statusObservation: 'texto injetado pelo anonimo' } });
+    const inj = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: { ...sig, statusObservation: 'texto injetado pelo anonimo' } });
+    assert.equal(inj.status, 400);
+    const r = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: sig });
     assert.equal(r.status, 200);
     const hist = E.repo.listProposals().find((x) => x.id === p.id)!.statusHistory || [];
     assert.equal(hist.some((h) => /injetado/.test(String(h.notes))), false);
@@ -163,9 +184,11 @@ describe('Pacote L (4): item da proposta sem ncmOrServiceCode nao derruba o acei
     const p = await mkProp(E, { items: [{ id: 'i1', description: 'Sem NCM', quantity: 1, unitPrice: 10, isRecurring: true }] });
     const st = E.repo.listProposals().find((x) => x.id === p.id)!;
     for (const it of st.items) delete (it as any).ncmOrServiceCode;
-    const r = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anon(), body: sig });
+    const r = await E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${p.id}/approve`, query: E.anonLink(p.id), body: sig });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(b(r).data!.contract.equipments[0].ncm, '8517.62.14');
+    const conv = E.repo.listProposals().find((x) => x.id === p.id)!;
+    const ctr = E.repo.listRentalContracts().find((c) => c.id === conv.convertedContractId)!;
+    assert.equal(ctr.equipments[0].ncm, '8517.62.14');
   });
 });
 

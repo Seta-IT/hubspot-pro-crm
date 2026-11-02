@@ -4,16 +4,19 @@
 // MAX_BODY_BYTES => 413 BODY_TOO_LARGE ANTES de ler o resto, de parsear, de redigir e de
 // chegar ao bridge/dispatch: confere o content-length declarado e conta os bytes lidos do
 // stream (corpo chunked/sem content-length tambem para no limite). O dispatch repete a
-// checagem para as demais rotas (o _bridge.ts nao e alterado).
+// checagem para as demais rotas (o _bridge.ts nao e alterado). Depois do rebase sobre o pacote M,
+// o bridge tambem le com teto; este wrapper mantem o 413 antes de reconstruir a requisicao.
 // ============================================================================
 import { NextRequest, NextResponse } from 'next/server';
 import { forwardToCrmRouter } from '../api/_bridge';
+import { BODY_TOO_LARGE_RESPONSE_BODY } from './bridge-body-limit';
 import { MAX_BODY_BYTES } from './proposal-link-redact';
 import { buildProposalLinkRequest } from './proposal-link-request';
 
 export function bodyTooLargeResponse(): NextResponse {
   return NextResponse.json(
-    { error: `Corpo da requisição acima do limite permitido (${MAX_BODY_BYTES} bytes).`, code: 'BODY_TOO_LARGE' },
+    // Rebase v5: mesmo corpo do 413 do bridge do pacote M.
+    { ...BODY_TOO_LARGE_RESPONSE_BODY, maxBytes: MAX_BODY_BYTES },
     {
       status: 413,
       headers: {

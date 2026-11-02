@@ -4,7 +4,7 @@
 
 import http from 'node:http';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from './router';
-import { MAX_BODY_BYTES } from '../app/lib/proposal-link-redact';
+import { requestBodyCapFor } from '../app/lib/request-body-cap';
 
 const ALLOWED_CORS_ORIGINS = new Set([
   'https://sti-hub.vercel.app',
@@ -34,13 +34,20 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
       return;
     }
 
-    // B-V4-1: corpo acima de MAX_BODY_BYTES => 413 antes de ler o resto/parsear/redigir.
+    // Pacote A (29/10): o servidor standalone e um canal HTTP como o bridge do Next. Nada de
+    // chaves internas vindas do cliente (query/corpo); sessao so pelo header x-stihub-session.
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
+    const sessionHeader = req.headers['x-stihub-session'];
+    const sessionToken = Array.isArray(sessionHeader) ? sessionHeader[0] : sessionHeader;
+    // B-V4-1 + rebase v5 (pacote M): teto pela mesma regra do bridge (4 MiB so nas rotas grandes
+    // com sessao assinada valida; 1 MiB no resto) => 413 antes de ler o resto/parsear/redigir.
+    const maxBytes = requestBodyCapFor(req.method || 'GET', reqUrl.pathname, sessionToken);
     const tooLarge = () => {
       res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: `Corpo da requisição acima do limite permitido (${MAX_BODY_BYTES} bytes).`, code: 'BODY_TOO_LARGE' }));
+      res.end(JSON.stringify({ error: 'Corpo da requisição acima do limite permitido.', code: 'BODY_TOO_LARGE', maxBytes }));
     };
     const declaredLen = Number(req.headers['content-length'] || '0');
-    if (!Number.isFinite(declaredLen) || declaredLen > MAX_BODY_BYTES) {
+    if (!Number.isFinite(declaredLen) || declaredLen > maxBytes) {
       tooLarge();
       req.destroy();
       return;
@@ -50,7 +57,7 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
     for await (const chunk of req) {
       const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       readBytes += b.length;
-      if (readBytes > MAX_BODY_BYTES) {
+      if (readBytes > maxBytes) {
         tooLarge();
         req.destroy();
         return;
@@ -67,15 +74,10 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
       }
     }
 
-    // Pacote A (29/10): o servidor standalone e um canal HTTP como o bridge do Next. Nada de
-    // chaves internas vindas do cliente (query/corpo); sessao so pelo header x-stihub-session.
-    const reqUrl = new URL(req.url || '/', 'http://localhost');
     const query: Record<string, string | undefined> = {};
     reqUrl.searchParams.forEach((v, k) => {
       if (!k.startsWith('_')) query[k] = v;
     });
-    const sessionHeader = req.headers['x-stihub-session'];
-    const sessionToken = Array.isArray(sessionHeader) ? sessionHeader[0] : sessionHeader;
     if (sessionToken) query._sessionToken = sessionToken;
     query._fromHttpBridge = '1';
     const cleanBody =

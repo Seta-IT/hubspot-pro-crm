@@ -8,6 +8,7 @@
 // ============================================================================
 
 /** Regex definido pelo CISO: `#t=<payload>[.<assinatura>]`. Sempre criar uma instancia nova (flag g). */
+import { BRIDGE_MAX_BODY_BYTES } from './bridge-body-limit';
 export const PROPOSAL_LINK_TOKEN_PATTERN = /#t=[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)?/g;
 export const PROPOSAL_LINK_TOKEN_REDACTED = '#t=[REDACTED]';
 
@@ -233,7 +234,8 @@ export function redactProposalLinkTokens(text: unknown): unknown {
 }
 
 /** B-V4-1: tamanho maximo de corpo (1 MiB). Acima disso => 413 BODY_TOO_LARGE (rotas do link e dispatch). */
-export const MAX_BODY_BYTES = 1024 * 1024;
+// Rebase v5: a MESMA constante do bridge do pacote M (fonte unica).
+export const MAX_BODY_BYTES = BRIDGE_MAX_BODY_BYTES;
 
 /**
  * B-V4-1: true se o corpo JA PARSEADO excede maxBytes (estimativa do JSON: strings em UTF-8,

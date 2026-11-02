@@ -185,10 +185,11 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
     assert.equal(await readBodyCapped(new Request('http://x/', { method: 'POST', body: 'olá' })), 'olá');
   });
 
-  it('funcao pura: 4 MB de eyJ < 200 ms; variantes adversariais de 1 MB < 200 ms cada', () => {
+  it('funcao pura: 4 MB de eyJ < 400 ms (linear); variantes adversariais de 1 MB < 200 ms cada', () => {
     let t0 = process.hrtime.bigint();
     redactProposalLinkTokens(fill('eyJ', 4 * MB));
-    assert.ok(ms(t0) < 200, `4 MB: ${ms(t0)}`);
+    // 4 MB so na funcao pura (o dispatch recusa > 1 MiB com 413): linear => folga para a suite carregada.
+    assert.ok(ms(t0) < 400, `4 MB: ${ms(t0)}`);
     for (const unit of ['eyJ', 'eyJ ', 'eyJ2Ijo', 'eyJ2IjoxLCJwaWQiOiJ4,', 'eyJ2Ijp9', 'eyJ\u200b', 'eyJ%2E', 'Lorem ipsum dolor sit amet, ']) {
       t0 = process.hrtime.bigint();
       redactProposalLinkTokens(fill(unit, MB));

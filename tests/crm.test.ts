@@ -3264,7 +3264,8 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       path: "/api/erp/proposals/prop-shared-custom-99/approve",
       body: { ...signer, proposal: sharedPayload },
     });
-    assert.equal(withPayload.status, 400);
+    // Rebase v5: a proposta e resolvida antes do corpo (balde D2 do pacote M) => 404, nada criado.
+    assert.equal(withPayload.status, 404);
     const missing = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: "POST",
       path: "/api/erp/proposals/prop-shared-custom-99/approve",

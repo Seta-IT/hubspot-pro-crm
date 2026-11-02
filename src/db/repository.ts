@@ -4421,6 +4421,14 @@ export class CrmRepository {
     } as Partial<ErpCommercialProposal>);
   }
 
+  /** Aceite pelo link: grava (e persiste) o hash da Idempotency-Key, preso a proposta. */
+  setProposalApprovalIdempotencyHash(proposalId: string, hash: string): void {
+    const p = this.ensureErp().proposals.find((x) => x.id === proposalId);
+    if (!p) return;
+    p.approvalIdempotencyKeySha256 = hash;
+    this.save();
+  }
+
   /** (c) Unico caminho para gravar sellerUserId (servidor; derivado do e-mail). undefined => remove. */
   setProposalSellerUserId(idOrCode: string, sellerUserId: string | undefined): ErpCommercialProposal | null {
     const erp = this.ensureErp();

@@ -11,6 +11,7 @@ import { NextRequest } from 'next/server';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { createInMemoryRepository, CrmRepository } from '../src/db/repository';
 import { CrmApiRouter, PROPOSAL_APPROVE_LIMITS, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
+import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 import {
   BRIDGE_LARGE_BODY_BYTES,
   BRIDGE_LARGE_BODY_ROUTES,
@@ -39,8 +40,15 @@ const mkProp = async (E: E) =>
       body: { title: 'M aprov', companyName: 'M SA', status: 'ENVIADA', contactName: 'Fulano', items: [{ id: 'i1', description: 'Item', quantity: 1, unitPrice: 100, isRecurring: true, ncmOrServiceCode: 'NCM 8517.62.14' }] },
     })).body as { data: { id: string; code: string } }
   ).data;
+// Rebase v5: o aceite publico exige o token do link assinado, emitido para o id EXATO do caminho
+// (na v4, code ou id em outra caixa nao resolvem a proposta: 404 antes de qualquer balde por proposta).
+const linkTokenFor = (E: E, key: string) => {
+  const k = key.trim();
+  const p = E.repo.listProposals().find((x) => x.id === k);
+  return signProposalLinkToken({ proposalId: k, version: Math.max(1, Number(p?.version || 1)) }).token;
+};
 const approve = (E: E, key: string, body: unknown, clientIp: string) =>
-  E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${encodeURIComponent(key)}/approve`, query: { _fromHttpBridge: '1', _clientIp: clientIp }, body });
+  E.router.dispatch({ method: 'POST', path: `/api/erp/proposals/${encodeURIComponent(key)}/approve`, query: { _fromHttpBridge: '1', _clientIp: clientIp, proposalLinkToken: linkTokenFor(E, key) }, body });
 const invalidBodies: unknown[] = [
   { ...sig, acceptedTerms: false },
   { ...sig, acceptedTerms: 'true' },
@@ -58,13 +66,15 @@ describe('Pacote M (D1): tentativas invalidas nao travam o aceite legitimo', () 
     assert.equal(PROPOSAL_APPROVE_LIMITS.ipPerProposal, 10);
   });
 
-  it('probe D1 do parecer L: 40 POSTs invalidos de IPs distintos (id, code, caixa) => todos 400; o aceite valido seguinte => 200', async () => {
+  it('probe D1 do parecer L: 40 POSTs invalidos de IPs distintos (id; code/caixa => 404) => o aceite valido seguinte => 200', async () => {
     const E = mk();
     const p = await mkProp(E);
     const keys = [p.id, p.code, p.id.toUpperCase(), String(p.code).toLowerCase()];
     for (let i = 0; i < 40; i++) {
-      const r = await approve(E, keys[i % keys.length], invalidBodies[i % invalidBodies.length], uniqIp());
-      assert.equal(r.status, 400, `tentativa ${i}: ${JSON.stringify(r.body)}`);
+      const k = keys[i % keys.length];
+      const r = await approve(E, k, invalidBodies[i % invalidBodies.length], uniqIp());
+      // v5: com o token do id exato => 400; code/caixa nao resolvem a proposta pelo link => 404.
+      assert.equal(r.status, k === p.id ? 400 : 404, `tentativa ${i}: ${JSON.stringify(r.body)}`);
     }
     const ok = await approve(E, p.id, sig, uniqIp());
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
@@ -114,26 +124,30 @@ describe('Pacote M (D1): tentativas invalidas nao travam o aceite legitimo', () 
 });
 
 describe('Pacote M (D2): baldes por proposta pelo id canonico', () => {
-  it('probe D2 do parecer L: esgotar o balde de validos pelo id => pelo code, code minusculo e id em outra caixa tambem 429', async () => {
+  it('probe D2 do parecer L: esgotar o balde de validos pelo id => id (com espacos) 429; code, code minusculo e id em outra caixa nem chegam a proposta (404)', async () => {
     const E = mk();
     const p = await mkProp(E);
     (E.repo as unknown as { approveProposalAndConvertToContract: unknown }).approveProposalAndConvertToContract = () => null;
     for (let i = 0; i < 20; i++) await approve(E, p.id, sig, uniqIp());
-    for (const k of [p.code, String(p.code).toLowerCase(), p.id.toUpperCase(), ` ${p.id} `]) {
-      assert.equal((await approve(E, k, sig, uniqIp())).status, 429, k);
+    assert.equal((await approve(E, ` ${p.id} `, sig, uniqIp())).status, 429);
+    for (const k of [p.code, String(p.code).toLowerCase(), p.id.toUpperCase()]) {
+      assert.equal((await approve(E, k, sig, uniqIp())).status, 404, k);
     }
   });
 
-  it('IP+proposta: esgotar pelo id bloqueia pelo code (mesmo IP), e o inverso', async () => {
+  it('IP+proposta: esgotar pelo id bloqueia o id (mesmo IP); code nao resolve pelo link (404) e nao consome o balde', async () => {
     const E = mk();
     const p = await mkProp(E);
     const a = '203.0.113.93';
-    for (let i = 0; i < 10; i++) await approve(E, p.id, {}, a);
-    assert.equal((await approve(E, p.code, sig, a)).status, 429);
+    for (let i = 0; i < 10; i++) assert.equal((await approve(E, p.id, {}, a)).status, 400);
+    // v5: pelo code nao resolve pelo link (404); pelo id, o mesmo IP ja esta no limite (429).
+    assert.equal((await approve(E, p.code, sig, a)).status, 404);
+    assert.equal((await approve(E, p.id, sig, a)).status, 429);
     const p2 = await mkProp(E);
     const b2 = '203.0.113.94';
-    for (let i = 0; i < 10; i++) await approve(E, String(p2.code).toLowerCase(), {}, b2);
-    assert.equal((await approve(E, p2.id, sig, b2)).status, 429);
+    // tentativas pelo code (404) nao chegam a proposta: nao consomem o balde IP+proposta.
+    for (let i = 0; i < 10; i++) assert.equal((await approve(E, String(p2.code).toLowerCase(), {}, b2)).status, 404);
+    assert.equal((await approve(E, p2.id, sig, b2)).status, 200);
   });
 
   it('proposta inexistente nao cria balde por proposta (so conta por IP)', async () => {

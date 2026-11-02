@@ -184,7 +184,7 @@ describe('Aceite publico da proposta (POST /approve)', () => {
     assert.equal(validateProposalApprovalInput(valid, 'ENVIADA', 'ctr-1').status, 409);
   });
 
-  it('roteador: approve com corpo invalido => 400 sem alterar a proposta; aceite valido persiste assinatura; segundo aceite => 404 (D3)', async () => {
+  it('roteador: approve com corpo invalido => 400 sem alterar a proposta; aceite valido persiste assinatura; segundo aceite => 409 (L)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const created = repo.createProposal({
@@ -255,7 +255,7 @@ describe('Aceite publico da proposta (POST /approve)', () => {
         acceptedTerms: true,
       },
     });
-    // D3 (checagem final v4): proposta ja CONVERTIDA_CONTRATO => o mesmo 404 generico do link.
-    assert.equal(again.status, 404);
+    // Pacote L (preservado no rebase v5): aceite repetido => 409 PROPOSAL_ALREADY_APPROVED.
+    assert.equal(again.status, 409);
   });
 });

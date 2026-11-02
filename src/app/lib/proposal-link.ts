@@ -267,25 +267,36 @@ export function normalizeIdempotencyKey(raw: unknown): { ok: true; key: string |
   return { ok: true, key: k };
 }
 
-export function hashIdempotencyKey(key: string): string {
-  return sha256(`stihub:proposal-approve-idem:v1:${key}`).toString('hex');
+/** Hash da Idempotency-Key PRESO a proposta (a mesma chave em outra proposta nao casa). */
+export function hashIdempotencyKey(key: string, proposalId: string): string {
+  return sha256(`stihub:proposal-approve-idem:v2:${String(proposalId)}:${key}`).toString('hex');
 }
 
 // ----------------------------------------------------------------------------
 // Rate-limit (por instancia serverless, best-effort).
 // ----------------------------------------------------------------------------
 export const PROPOSAL_PUBLIC_VIEW_IP_LIMIT = { max: 120, windowMs: 10 * 60 * 1000 };
-export const PROPOSAL_APPROVE_IP_LIMIT = { max: 10, windowMs: 10 * 60 * 1000 };
-export const PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT = { max: 5, windowMs: 10 * 60 * 1000 };
+/**
+ * Pacote M (D1/D2), adotado no rebase v5: limites do aceite publico (janela de 10 min).
+ * ip: toda tentativa anonima; ipPerProposal: toda tentativa de um IP contra uma proposta existente
+ * (id canonico); validPerProposal: so aceites que passaram na validacao (id canonico).
+ * Re-exportado por src/api/router.ts (PROPOSAL_APPROVE_LIMITS).
+ */
+export const PROPOSAL_APPROVE_LIMITS = Object.freeze({
+  windowMs: 10 * 60 * 1000,
+  ip: 30,
+  ipPerProposal: 10,
+  validPerProposal: 20,
+});
+/** Atalhos (compatibilidade dos testes da v4): mesmos valores do pacote M. */
+export const PROPOSAL_APPROVE_IP_LIMIT = Object.freeze({ max: PROPOSAL_APPROVE_LIMITS.ip, windowMs: PROPOSAL_APPROVE_LIMITS.windowMs });
+export const PROPOSAL_APPROVE_IP_PER_PROPOSAL_LIMIT = Object.freeze({ max: PROPOSAL_APPROVE_LIMITS.ipPerProposal, windowMs: PROPOSAL_APPROVE_LIMITS.windowMs });
+export const PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT = Object.freeze({ max: PROPOSAL_APPROVE_LIMITS.validPerProposal, windowMs: PROPOSAL_APPROVE_LIMITS.windowMs });
 export const PROPOSAL_LINK_ISSUE_PER_USER_LIMIT = { max: 30, windowMs: 10 * 60 * 1000 };
 
 export class ProposalPublicRateLimiters {
   readonly viewIp = new SlidingWindowRateLimiter(PROPOSAL_PUBLIC_VIEW_IP_LIMIT.max, PROPOSAL_PUBLIC_VIEW_IP_LIMIT.windowMs);
-  readonly approveIp = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_IP_LIMIT.max, PROPOSAL_APPROVE_IP_LIMIT.windowMs);
-  readonly approveProposal = new SlidingWindowRateLimiter(
-    PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max,
-    PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.windowMs
-  );
+  // (aceite: limiters do pacote M no router, PROPOSAL_APPROVE_LIMITS)
   readonly issuePerUser = new SlidingWindowRateLimiter(
     PROPOSAL_LINK_ISSUE_PER_USER_LIMIT.max,
     PROPOSAL_LINK_ISSUE_PER_USER_LIMIT.windowMs

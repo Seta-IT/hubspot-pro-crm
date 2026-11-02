@@ -306,7 +306,7 @@ describe('Link assinado de proposta: POST /approve', () => {
     } as unknown as { title: string });
   }
 
-  it('sem token => 404 (nada muda); com token => 200 com DTO publico; repetido => 404 (D3); mesma Idempotency-Key => mesmo resultado sem duplicar', async () => {
+  it('sem token => 404 (nada muda); com token => 200 com DTO publico; repetido => 409 (L); mesma Idempotency-Key => mesmo resultado sem duplicar', async () => {
     const { repo, router } = fresh();
     const p = rentalProposal(repo);
     const contractsBefore = repo.listRentalContracts().length;
@@ -329,14 +329,14 @@ describe('Link assinado de proposta: POST /approve', () => {
 
     const replay = await approve(router, p.id, tok, SIGNER, { idem: 'idem-chave-0001' });
     assert.equal(replay.status, 200);
-    assert.equal((replay.body as { idempotentReplay?: boolean }).idempotentReplay, true);
-    assert.equal((replay.body as { data: { contractNumber: string } }).data.contractNumber, data.contractNumber);
-    // D3: proposta ja CONVERTIDA_CONTRATO => o mesmo 404 generico (sem revelar o status).
+    // v5 (CISO): o replay devolve EXATAMENTE o corpo do primeiro aceite (nada a mais).
+    assert.deepEqual(replay.body, ok.body);
+    // Pacote L: aceite repetido com outra chave (ou sem chave) => 409, nada a mais.
     const again = await approve(router, p.id, tok, SIGNER, { idem: 'outra-chave-0002' });
-    assert.equal(again.status, 404);
-    assert.deepEqual(again.body, noTok.body);
+    assert.equal(again.status, 409);
+    assert.equal((again.body as { code: string }).code, 'PROPOSAL_ALREADY_APPROVED');
     const againNoKey = await approve(router, p.id, tok);
-    assert.equal(againNoKey.status, 404);
+    assert.equal(againNoKey.status, 409);
     assert.equal(repo.listRentalContracts().length, contractsBefore + 1, 'sem contrato duplicado');
     // GET depois do aceite: mesma versao, status atualizado, sem CPF completo.
     const g = await getPublic(router, p.id, tok);
@@ -350,7 +350,8 @@ describe('Link assinado de proposta: POST /approve', () => {
     const id = 'prop-inexistente-999';
     const t = linkFor(id, 1);
     assert.equal((await approve(router, id, t)).status, 404);
-    assert.equal((await approve(router, id, t, { ...SIGNER, proposal: { id, title: 'Forjada', items: [] } })).status, 400);
+    // v5: a proposta e resolvida antes do corpo (balde D2 do pacote M) => 404, nada criado.
+    assert.equal((await approve(router, id, t, { ...SIGNER, proposal: { id, title: 'Forjada', items: [] } })).status, 404);
     const internal = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: `/api/erp/proposals/${id}/approve`, body: SIGNER });
     assert.equal(internal.status, 404);
     assert.equal(repo.listProposals().length, before);
@@ -361,7 +362,7 @@ describe('Link assinado de proposta: POST /approve', () => {
     const { repo, router } = fresh();
     const p = rentalProposal(repo);
     const t = linkFor(p.id, p.version || 1);
-    // Limite por proposta = 5 tentativas com token valido / 10 min; 5 casos invalidos aqui.
+    // v5 (pacote M): tentativas invalidas nao consomem o balde de aceites validados.
     for (const extra of [{ status: 'APROVADA' }, { proposal: {} }, { _sessionToken: 'x' }, { ipAddress: '1.1.1.1' }, { acceptedTerms: false }]) {
       const r = await approve(router, p.id, t, { ...SIGNER, ...extra });
       assert.equal(r.status, 400, JSON.stringify(extra));
@@ -373,28 +374,78 @@ describe('Link assinado de proposta: POST /approve', () => {
     assert.equal(repo2.listProposals().find((x) => x.id === p2.id)!.status, p2.status);
   });
 
-  it('rate-limit por IP e por proposta => 429', async () => {
+  it('rate-limit (pacote M): IP 30; IP+proposta 10; por proposta so aceites validados 20 => 429 PROPOSAL_APPROVE_RATE_LIMITED', async () => {
+    assert.equal(PROPOSAL_APPROVE_IP_LIMIT.max, 30);
+    assert.equal(PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max, 20);
     const { repo, router } = fresh();
     const p = rentalProposal(repo);
     const t = linkFor(p.id, p.version || 1);
+    // D1 por IP: toda tentativa conta (inclusive 404 sem token).
     const ip = '203.0.113.200';
     let firstIp429 = 0;
     for (let i = 1; i <= PROPOSAL_APPROVE_IP_LIMIT.max + 2; i++) {
       const r = await approve(router, 'prop-qualquer', undefined, SIGNER, { ip });
-      if (r.status === 429 && !firstIp429) firstIp429 = i;
+      if (r.status === 429 && !firstIp429) {
+        firstIp429 = i;
+        assert.equal((r.body as { code: string }).code, 'PROPOSAL_APPROVE_RATE_LIMITED');
+      }
     }
     assert.equal(firstIp429, PROPOSAL_APPROVE_IP_LIMIT.max + 1);
-    let firstP429 = 0;
-    for (let i = 1; i <= PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max + 2; i++) {
-      const r = await approve(router, p.id, t, { ...SIGNER, extra: 1 });
-      if (r.status === 429 && !firstP429) firstP429 = i;
-    }
-    assert.equal(firstP429, PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max + 1);
-    // Sem token, estranhos nao consomem o limite da proposta (evita bloquear o cliente).
+    // D2 por IP + proposta: 10 tentativas invalidas do mesmo IP => a 11a (ate valida) 429; outro IP aceita.
+    const ip2 = '203.0.113.201';
+    for (let i = 0; i < 10; i++) assert.equal((await approve(router, p.id, t, { ...SIGNER, extra: 1 }, { ip: ip2 })).status, 400);
+    assert.equal((await approve(router, p.id, t, SIGNER, { ip: ip2 })).status, 429);
+    // D1 por proposta: so aceites validados contam (conversao simulada falhando => 404).
     const { repo: repo2, router: router2 } = fresh();
     const p2 = rentalProposal(repo2);
-    for (let i = 0; i < 20; i++) await approve(router2, p2.id, undefined);
-    assert.equal((await approve(router2, p2.id, linkFor(p2.id, p2.version || 1))).status, 200);
+    const t2 = linkFor(p2.id, p2.version || 1);
+    for (let i = 0; i < 25; i++) assert.equal((await approve(router2, p2.id, t2, { ...SIGNER, acceptedTerms: false })).status, 400);
+    const orig = repo2.approveProposalAndConvertToContract.bind(repo2);
+    (repo2 as unknown as { approveProposalAndConvertToContract: unknown }).approveProposalAndConvertToContract = () => null;
+    for (let i = 0; i < PROPOSAL_APPROVE_PER_PROPOSAL_LIMIT.max; i++) assert.equal((await approve(router2, p2.id, t2)).status, 404);
+    assert.equal((await approve(router2, p2.id, t2)).status, 429);
+    (repo2 as unknown as { approveProposalAndConvertToContract: unknown }).approveProposalAndConvertToContract = orig;
+    // Sem token, estranhos nao consomem os baldes da proposta (evita bloquear o cliente).
+    const { repo: repo3, router: router3 } = fresh();
+    const p3 = rentalProposal(repo3);
+    for (let i = 0; i < 25; i++) await approve(router3, p3.id, undefined);
+    assert.equal((await approve(router3, p3.id, linkFor(p3.id, p3.version || 1))).status, 200);
+  });
+
+  it('replay da Idempotency-Key (CISO): preso a proposta; mesma chave em outra proposta nao devolve o resultado da primeira; corpo identico ao do primeiro aceite', async () => {
+    const { repo, router } = fresh();
+    const a = rentalProposal(repo);
+    await new Promise((r) => setTimeout(r, 3));
+    const b = rentalProposal(repo);
+    assert.notEqual(a.id, b.id);
+    const key = 'idem-compartilhada-01';
+    const ta = linkFor(a.id, a.version || 1);
+    const tb = linkFor(b.id, b.version || 1);
+    const first = await approve(router, a.id, ta, SIGNER, { idem: key });
+    assert.equal(first.status, 200);
+    const firstText = JSON.stringify(first.body);
+    // Mesma chave na proposta B: novo aceite DE B (outro contrato), nunca o resultado de A.
+    const onB = await approve(router, b.id, tb, SIGNER, { idem: key });
+    assert.equal(onB.status, 200);
+    assert.notDeepEqual(onB.body, first.body);
+    const dA = (first.body as { data: { contractNumber: string; proposal: { code?: string } } }).data;
+    const dB = (onB.body as { data: { contractNumber: string } }).data;
+    assert.notEqual(dB.contractNumber, dA.contractNumber);
+    assert.ok(!JSON.stringify(onB.body).includes(dA.contractNumber));
+    // Hash da chave diferente em cada proposta (preso ao id).
+    const ha = repo.listProposals().find((x) => x.id === a.id)!.approvalIdempotencyKeySha256;
+    const hb = repo.listProposals().find((x) => x.id === b.id)!.approvalIdempotencyKeySha256;
+    assert.ok(ha && hb && ha !== hb);
+    // Replay em A: corpo identico ao primeiro (sem flag nem dado a mais), sem novo contrato.
+    const contracts = repo.listRentalContracts().length;
+    const replay = await approve(router, a.id, ta, SIGNER, { idem: key });
+    assert.equal(replay.status, 200);
+    assert.equal(JSON.stringify(replay.body), firstText);
+    assert.equal(repo.listRentalContracts().length, contracts);
+    // Chave de A no caminho de B com o token de A => 404 (token preso ao id), sem vazar A.
+    const cross = await approve(router, b.id, ta, SIGNER, { idem: key });
+    assert.equal(cross.status, 404);
+    assert.ok(!JSON.stringify(cross.body).includes(dA.contractNumber));
   });
 
   it('flag STI_HUB_PROPOSAL_PUBLIC_APPROVE=false desliga o aceite (403) sem afetar a leitura', async () => {
