@@ -15,7 +15,7 @@ import {
   verifyCorporatePassword,
   verifyStiHubSessionToken,
 } from '../src/app/lib/auth';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 import { deriveServerTotpSecret, sealIamRecord } from '../src/db/iam-security';
 import { forwardToCrmRouter } from '../src/app/api/_bridge';
@@ -56,16 +56,16 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
       ['/api/contacts', 'GET'],
       ['/api/erp/proposals', 'GET'],
       ['/api/admin/security', 'GET'],
-      ['/api/erp/proposals/prop-seta-001', 'PATCH'],
-      ['/api/erp/proposals/prop-seta-001/restore-version', 'POST'],
+      ['/api/erp/proposals/prop-fixture-001', 'PATCH'],
+      ['/api/erp/proposals/prop-fixture-001/restore-version', 'POST'],
     ]) {
       const d = evaluateStiHubRouteProtection({ pathname: p, method: m, sessionToken: null, enforceStrictLock: false });
       assert.equal(d.allowed, false, `${m} ${p}`);
       assert.equal(d.statusCode, 401, `${m} ${p}`);
       assert.notEqual(d.reason, 'DEFAULT_ADMIN_SESSION_FALLBACK');
     }
-    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-seta-001', method: 'GET', sessionToken: null }).allowed, true);
-    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-seta-001/approve', method: 'POST', sessionToken: null }).allowed, true);
+    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-fixture-001', method: 'GET', sessionToken: null }).allowed, true);
+    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-fixture-001/approve', method: 'POST', sessionToken: null }).allowed, true);
   });
 
   it('middleware HTTP: referer de mesma origem nao concede acesso', () => {
@@ -82,8 +82,8 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
       ['/api/admin/users', 'GET'],
       ['/api/contacts', 'GET'],
       ['/api/erp/proposals', 'GET'],
-      ['/api/erp/proposals/prop-seta-001', 'PATCH'],
-      ['/api/erp/proposals/prop-seta-001/restore-version', 'POST'],
+      ['/api/erp/proposals/prop-fixture-001', 'PATCH'],
+      ['/api/erp/proposals/prop-fixture-001/restore-version', 'POST'],
     ]) {
       const res = await router.dispatch({ method: m, path: p, query: { ...HTTP }, body: {} });
       assert.equal(res.status, 401, `${m} ${p}`);
@@ -92,7 +92,7 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
     const forgedRes = await router.dispatch({ method: 'GET', path: '/api/admin/users', query: { ...HTTP, _sessionToken: forged } });
     assert.equal(forgedRes.status, 401);
     // Link assinado (29/10/2026): GET anonimo sem token => 404 generico (sem DTO parcial).
-    const pub = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP } });
+    const pub = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP } });
     assert.equal(pub.status, 404);
   });
 
@@ -107,11 +107,11 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
   it('PATCH/restore-version com sessao sem perfil ERP_ADMIN/ERP_COMMERCIAL => 403 tambem no router', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
     const finance = token({ uid: 'usr-fin-x', email: 'fin.x@setatelecom.com.br', roleId: 'FINANCEIRO_FATURAMENTO', erpRole: 'ERP_FINANCE' });
-    const patch = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
+    const patch = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
     assert.equal(patch.status, 403);
-    const put = await router.dispatch({ method: 'PUT', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
+    const put = await router.dispatch({ method: 'PUT', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
     assert.equal(put.status, 403);
-    const restore = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/restore-version', query: { ...HTTP, _sessionToken: finance }, body: { targetVersion: 1 } });
+    const restore = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-001/restore-version', query: { ...HTTP, _sessionToken: finance }, body: { targetVersion: 1 } });
     assert.equal(restore.status, 403);
   });
 });

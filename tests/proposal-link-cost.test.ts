@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server';
 import { signStiHubSessionToken, signUserInviteToken } from '../src/app/lib/auth';
 import { signPasswordResetToken } from '../src/api/password-reset';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 import {
@@ -57,10 +57,10 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
     const spy = spyAll();
     try {
       for (const [label, handler, path, method, withLen] of [
-        ['approve c/ content-length', approvePOST, '/api/erp/proposals/prop-seta-002/approve', 'POST', true],
-        ['approve sem content-length', approvePOST, '/api/erp/proposals/prop-seta-002/approve', 'POST', false],
-        ['portal POST', portal.POST, '/api/erp/proposals/prop-seta-002', 'POST', true],
-        ['portal PATCH sem content-length', portal.PATCH, '/api/erp/proposals/prop-seta-002', 'PATCH', false],
+        ['approve c/ content-length', approvePOST, '/api/erp/proposals/prop-fixture-002/approve', 'POST', true],
+        ['approve sem content-length', approvePOST, '/api/erp/proposals/prop-fixture-002/approve', 'POST', false],
+        ['portal POST', portal.POST, '/api/erp/proposals/prop-fixture-002', 'POST', true],
+        ['portal PATCH sem content-length', portal.PATCH, '/api/erp/proposals/prop-fixture-002', 'PATCH', false],
       ] as const) {
         const headers: Record<string, string> = { 'content-type': 'application/json', 'x-forwarded-for': nextIp() };
         if (withLen) headers['content-length'] = String(Buffer.byteLength(body));
@@ -75,7 +75,7 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
         assert.ok(took < 200, `${label}: ${took.toFixed(1)} ms`);
       }
       // content-length mentiroso/invalido tambem e recusado
-      const lie = await approvePOST(new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-seta-002/approve', {
+      const lie = await approvePOST(new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-fixture-002/approve', {
         method: 'POST', headers: { 'content-type': 'application/json', 'content-length': 'abc' }, body: '{}',
       }));
       assert.equal(lie.status, 413);
@@ -90,7 +90,7 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
     const body = JSON.stringify({ note: fill('eyJ', MB) });
     assert.ok(Buffer.byteLength(body) < MAX_BODY_BYTES);
     const t0 = process.hrtime.bigint();
-    const res = await approvePOST(new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-seta-002/approve', {
+    const res = await approvePOST(new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-fixture-002/approve', {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': nextIp() }, body,
     }));
     const took = ms(t0);
@@ -101,12 +101,12 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
   it('1 MB so de eyJ no portal, no /approve e em rota qualquer (dispatch anonimo) responde em < 200 ms', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
     for (const [path, unit] of [
-      ['/api/erp/proposals/prop-seta-002/approve', 'eyJ'],
+      ['/api/erp/proposals/prop-fixture-002/approve', 'eyJ'],
       ['/api/portal/tickets', 'eyJ'],
       ['/api/auth/login', 'eyJ2IjoxLCJwaWQiOiJ4 '],
       ['/api/nao-existe', 'eyJ '],
       ['/api/portal/tickets', 'eyJ\u200b'],
-      ['/api/erp/proposals/prop-seta-002/approve', 'eyJ2Ijo'],
+      ['/api/erp/proposals/prop-fixture-002/approve', 'eyJ2Ijo'],
     ] as const) {
       const t0 = process.hrtime.bigint();
       const r = await router.dispatch({ method: 'POST', path, query: { ...HTTP, _clientIp: nextIp() }, body: { email: 'a@b.c', password: 'x', note: fill(unit, MB) } });
@@ -128,7 +128,7 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
         { acentos: 'ç'.repeat(600_000) },
       ]) {
         const t0 = process.hrtime.bigint();
-        const r = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-002/approve', query: { ...HTTP, _clientIp: nextIp() }, body });
+        const r = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-002/approve', query: { ...HTTP, _clientIp: nextIp() }, body });
         assert.equal(r.status, 413);
         assert.equal((r.body as { code: string }).code, 'BODY_TOO_LARGE');
         assert.ok(ms(t0) < 200);
@@ -176,7 +176,7 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
     assert.ok(Buffer.byteLength(JSON.stringify(nums)) < MAX_BODY_BYTES);
     assert.equal(bodyExceedsMaxBytes(nums), false);
     const router = new CrmApiRouter(createInMemoryRepository());
-    const r = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-002/approve', query: { ...HTTP, _clientIp: nextIp() }, body: nums });
+    const r = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-002/approve', query: { ...HTTP, _clientIp: nextIp() }, body: nums });
     assert.notEqual(r.status, 413);
   });
 
@@ -198,7 +198,7 @@ describe('B-V4-1: custo da redacao e limite de corpo (1 MiB => 413)', () => {
   });
 
   it('A3 continua: token colado, quebrado, com ZWSP, ponto escrito, base64 padrao e depois de lixo eyJ; sessao, convite e reset intactos', () => {
-    const tok = signProposalLinkToken({ proposalId: 'prop-seta-001', version: 2 }).token;
+    const tok = signProposalLinkToken({ proposalId: 'prop-fixture-001', version: 2 }).token;
     const [P, S] = tok.split('.');
     const std = (s: string) => s.replace(/-/g, '+').replace(/_/g, '/');
     for (const t of [

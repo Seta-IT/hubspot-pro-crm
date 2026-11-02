@@ -3,23 +3,20 @@
  * (ex.: "4695", exibido como "#4695" / "Orcamento 4695"), sem prefixo PROP-AAAA-.
  *
  * - Importados do GestaoClick ("GC-ORC-4696") => "4696".
- * - Seeds antigos sem numero GC (PROP-2026-001..005) => continuam a sequencia real
- *   do GestaoClick a partir do maior numero importado (4698): 4699..4703.
+ * - Seeds ficticios antigos (PROP-2026-001..005) foram removidos (t29u); o proximo numero
+ *   novo e max(GC)+1 (4699).
  * - Demais codigos legados PROP-AAAA-NNN (criados no STI-hub) => proximo numero livre (max+1),
  *   na ordem de criacao.
- * O id de rota (/proposta/prop-seta-001) nunca muda; so o campo `code`.
+ * O id de rota (/proposta/prop-gc-4695) nunca muda; so o campo `code`.
  */
 
 export const GESTAOCLICK_LAST_IMPORTED_PROPOSAL_NUMBER = 4698;
 
-/** Mapa fixo dos seeds antigos (sem numero real no GestaoClick) para a sequencia GC. */
-export const LEGACY_PROPOSAL_CODE_MAP: Readonly<Record<string, string>> = {
-  'PROP-2026-001': '4699',
-  'PROP-2026-002': '4700',
-  'PROP-2026-003': '4701',
-  'PROP-2026-004': '4702',
-  'PROP-2026-005': '4703',
-};
+/**
+ * Mapa fixo de codigos legados => numero GC. Vazio desde t29u: os seeds ficticios
+ * (PROP-2026-001..005 / 4699..4703) foram removidos; qualquer PROP-AAAA-NNN restante recebe max+1.
+ */
+export const LEGACY_PROPOSAL_CODE_MAP: Readonly<Record<string, string>> = {};
 
 const LEGACY_PROP_RE = /^PROP-\d{4}-\d+$/i;
 

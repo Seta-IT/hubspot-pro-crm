@@ -53,6 +53,7 @@ import {
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
+import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 
 /**
@@ -1376,9 +1377,31 @@ function PublicProposalPrintContent() {
                                       </span>
                                     </button>
                                   ) : (
-                                    <span className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                      Ativa
-                                    </span>
+                                    <>
+                                      {isInternalUser && (
+                                        <button
+                                          type="button"
+                                          data-testid="version-signed-link"
+                                          title="Copia o short link assinado desta versão para o cliente (abre sem login)"
+                                          onClick={async () => {
+                                            const r = await copySignedProposalVersionLink(proposal.id, ver.version);
+                                            if (r.ok) {
+                                              setCopied(true);
+                                              setTimeout(() => setCopied(false), 3000);
+                                            } else {
+                                              setAuthNotice(r.error);
+                                              setTimeout(() => setAuthNotice(null), 7000);
+                                            }
+                                          }}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 whitespace-nowrap border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 cursor-pointer"
+                                        >
+                                          <span>Link cliente</span>
+                                        </button>
+                                      )}
+                                      <span className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                        Ativa
+                                      </span>
+                                    </>
                                   )}
                                 </div>
                               </td>

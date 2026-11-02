@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import {
   PROPOSAL_APPROVE_IP_LIMIT,
@@ -94,24 +94,24 @@ afterEach(() => {
 
 describe('Link assinado de proposta: token HMAC', () => {
   it('escopo id + versao + exp; adulterado, expirado, de outra proposta => invalido; TTL com teto', () => {
-    const t = linkFor('prop-seta-001', 1);
-    const ok = verifyProposalLinkToken(t, { proposalId: 'prop-seta-001' });
+    const t = linkFor('prop-fixture-001', 1);
+    const ok = verifyProposalLinkToken(t, { proposalId: 'prop-fixture-001' });
     assert.equal(ok.valid, true);
     if (ok.valid) assert.equal(ok.claims.ver, 1);
-    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-seta-002' }).valid, false);
+    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-fixture-002' }).valid, false);
     const [payload, sig] = t.split('.');
     // Adulteracao deterministica (antes: troca dos 2 ultimos por 'AA', que era a propria
     // assinatura quando ela ja terminava em 'AA' => falha intermitente ~1/4096).
     const flip = (c: string) => (c === 'A' ? 'B' : 'A');
     const tampered = `${sig.slice(0, 20)}${flip(sig[20])}${sig.slice(21)}`;
     assert.notEqual(tampered, sig);
-    assert.equal(verifyProposalLinkToken(`${payload}.${tampered}`, { proposalId: 'prop-seta-001' }).valid, false);
-    const forgedPayload = Buffer.from(JSON.stringify({ v: 1, pid: 'prop-seta-001', ver: 9, iat: Date.now(), exp: Date.now() + 1e6, jti: 'x' })).toString('base64url');
-    assert.equal(verifyProposalLinkToken(`${forgedPayload}.${sig}`, { proposalId: 'prop-seta-001' }).valid, false);
-    const expired = linkFor('prop-seta-001', 1, { ttlDays: 1, nowMs: Date.now() - 2 * 86_400_000 });
-    assert.equal(verifyProposalLinkToken(expired, { proposalId: 'prop-seta-001' }).valid, false);
+    assert.equal(verifyProposalLinkToken(`${payload}.${tampered}`, { proposalId: 'prop-fixture-001' }).valid, false);
+    const forgedPayload = Buffer.from(JSON.stringify({ v: 1, pid: 'prop-fixture-001', ver: 9, iat: Date.now(), exp: Date.now() + 1e6, jti: 'x' })).toString('base64url');
+    assert.equal(verifyProposalLinkToken(`${forgedPayload}.${sig}`, { proposalId: 'prop-fixture-001' }).valid, false);
+    const expired = linkFor('prop-fixture-001', 1, { ttlDays: 1, nowMs: Date.now() - 2 * 86_400_000 });
+    assert.equal(verifyProposalLinkToken(expired, { proposalId: 'prop-fixture-001' }).valid, false);
     for (const junk of ['', 'lixo', 'a.b.c', null, undefined, 'x'.repeat(5000)]) {
-      assert.equal(verifyProposalLinkToken(junk, { proposalId: 'prop-seta-001' }).valid, false);
+      assert.equal(verifyProposalLinkToken(junk, { proposalId: 'prop-fixture-001' }).valid, false);
     }
     process.env.STI_HUB_PROPOSAL_LINK_TTL_DAYS = '9999';
     assert.equal(resolveProposalLinkTtlDays(), PROPOSAL_LINK_MAX_TTL_DAYS);
@@ -124,14 +124,14 @@ describe('Link assinado de proposta: token HMAC', () => {
 
   it('segredo proprio: token assinado com outro segredo nao vale; secret curto em producao => fail-closed', () => {
     process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'a'.repeat(40);
-    const t = linkFor('prop-seta-001');
+    const t = linkFor('prop-fixture-001');
     process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'b'.repeat(40);
-    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-seta-001' }).valid, false);
+    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-fixture-001' }).valid, false);
 
     (process.env as Record<string, string>).NODE_ENV = 'production';
     delete process.env.STI_HUB_PROPOSAL_LINK_SECRET;
     assert.equal(resolveProposalLinkSecret(), null);
-    assert.throws(() => linkFor('prop-seta-001'), /STI_HUB_PROPOSAL_LINK_SECRET/);
+    assert.throws(() => linkFor('prop-fixture-001'), /STI_HUB_PROPOSAL_LINK_SECRET/);
     process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'curto';
     assert.equal(resolveProposalLinkSecret(), null);
     (process.env as Record<string, string>).NODE_ENV = 'test';
@@ -144,16 +144,16 @@ describe('Link assinado de proposta: token HMAC', () => {
     process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'c'.repeat(48);
     process.env.STI_HUB_SESSION_SECRET = 's'.repeat(48);
     (process.env as Record<string, string>).NODE_ENV = 'production';
-    const ver = repo.listProposals().find((x) => x.id === 'prop-seta-001')!.version || 1;
-    const t = linkFor('prop-seta-001', ver);
-    assert.equal((await getPublic(router, 'prop-seta-001', t)).status, 200);
+    const ver = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!.version || 1;
+    const t = linkFor('prop-fixture-001', ver);
+    assert.equal((await getPublic(router, 'prop-fixture-001', t)).status, 200);
     delete process.env.STI_HUB_PROPOSAL_LINK_SECRET;
-    const g = await getPublic(router, 'prop-seta-001', t);
+    const g = await getPublic(router, 'prop-fixture-001', t);
     assert.equal(g.status, 404);
-    assert.equal((await approve(router, 'prop-seta-001', t)).status, 404);
+    assert.equal((await approve(router, 'prop-fixture-001', t)).status, 404);
     const issue = await router.dispatch({
       method: 'POST',
-      path: '/api/erp/proposals/prop-seta-001/public-link',
+      path: '/api/erp/proposals/prop-fixture-001/public-link',
       query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') },
       body: {},
     });
@@ -163,11 +163,11 @@ describe('Link assinado de proposta: token HMAC', () => {
 });
 
 describe('Link assinado de proposta: GET publico', () => {
-  it('enumeracao sem token (prop-seta-001..005, prop-gc-*) => 404 identico ao de id inexistente (corpo e headers)', async () => {
+  it('enumeracao sem token (prop-fixture-001..005, prop-gc-*) => 404 identico ao de id inexistente (corpo e headers)', async () => {
     const { router } = fresh();
     const ref = await getPublic(router, 'prop-nao-existe-123');
     assert.equal(ref.status, 404);
-    const ids = ['prop-seta-001', 'prop-seta-002', 'prop-seta-003', 'prop-seta-004', 'prop-seta-005', 'prop-gc-4695', 'prop-gc-1', 'prop-gc-4696', 'PROP-SETA-001'];
+    const ids = ['prop-fixture-001', 'prop-fixture-002', 'prop-fixture-003', 'prop-fixture-004', 'prop-fixture-005', 'prop-gc-4695', 'prop-gc-1', 'prop-gc-4696', 'PROP-FIXTURE-001'];
     for (const id of ids) {
       for (const tok of [undefined, '', 'lixo', linkFor('prop-outra')]) {
         const r = await getPublic(router, id, tok);
@@ -178,7 +178,7 @@ describe('Link assinado de proposta: GET publico', () => {
     }
     // B8: os headers sensiveis vem do middleware/bridge (pacote G), nao do router.
     assert.equal(ref.headers, undefined);
-    for (const pth of ['/api/erp/proposals/prop-seta-001', '/api/erp/proposals/x/approve', '/api/erp/proposals/x/public-link', '/proposta/prop-seta-001']) {
+    for (const pth of ['/api/erp/proposals/prop-fixture-001', '/api/erp/proposals/x/approve', '/api/erp/proposals/x/public-link', '/proposta/prop-fixture-001']) {
       assert.equal(isSensitiveProposalPath(pth), true, pth);
     }
     assert.deepEqual({ ...SENSITIVE_PROPOSAL_HEADERS }, { 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
@@ -186,14 +186,14 @@ describe('Link assinado de proposta: GET publico', () => {
 
   it('token adulterado, expirado, de outra proposta ou de outra versao => 404', async () => {
     const { repo, router } = fresh();
-    const p = repo.listProposals().find((x) => x.id === 'prop-seta-001')!;
+    const p = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!;
     const ver = p.version || 1;
     const good = linkFor(p.id, ver);
     assert.equal((await getPublic(router, p.id, good)).status, 200);
     const bad = [
       `${good.slice(0, -3)}AAA`,
       linkFor(p.id, ver, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 }),
-      linkFor('prop-seta-002', ver),
+      linkFor('prop-fixture-002', ver),
       linkFor(p.id, ver + 1),
     ];
     for (const t of bad) assert.equal((await getPublic(router, p.id, t)).status, 404);
@@ -205,7 +205,7 @@ describe('Link assinado de proposta: GET publico', () => {
 
   it('maleabilidade: so a forma canonica da assinatura e do payload vale (as outras grafias => o mesmo 404)', async () => {
     const { repo, router } = fresh();
-    const p = repo.listProposals().find((x) => x.id === 'prop-seta-001')!;
+    const p = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!;
     const ver = p.version || 1;
     const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
     const dec = (x: string) => Buffer.from(x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
@@ -286,10 +286,10 @@ describe('Link assinado de proposta: GET publico', () => {
     const r = await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${own.id}`, query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-03') } });
     assert.equal(r.status, 200);
     assert.equal((r.body as { data: { id: string } }).data.id, own.id);
-    const a = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') } });
+    const a = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') } });
     assert.equal(a.status, 200);
-    assert.equal((a.body as { data: { id: string } }).data.id, 'prop-seta-001');
-    const i = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/erp/proposals/prop-seta-001' });
+    assert.equal((a.body as { data: { id: string } }).data.id, 'prop-fixture-001');
+    const i = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/erp/proposals/prop-fixture-001' });
     assert.equal(i.status, 200);
   });
 });
@@ -486,12 +486,12 @@ describe('Link assinado de proposta: emissao (POST /api/erp/proposals/:id/public
 
   it('anonimo 401; sem permissao 403; vendedor de outra proposta 403; vendedor dono e admin 200 com link que abre', async () => {
     const { repo, router } = fresh();
-    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-seta-001/public-link', 'POST'), false);
-    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-seta-001/public-link', method: 'POST', sessionToken: null }).statusCode, 401);
-    assert.equal((await issue(router, 'prop-seta-001')).status, 401);
-    assert.equal((await issue(router, 'prop-seta-001', 'lixo')).status, 401);
+    assert.equal(isPublicStiHubPath('/api/erp/proposals/prop-fixture-001/public-link', 'POST'), false);
+    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-fixture-001/public-link', method: 'POST', sessionToken: null }).statusCode, 401);
+    assert.equal((await issue(router, 'prop-fixture-001')).status, 401);
+    assert.equal((await issue(router, 'prop-fixture-001', 'lixo')).status, 401);
 
-    const fin = await issue(router, 'prop-seta-001', sessionFor(repo, 'usr-seta-04'));
+    const fin = await issue(router, 'prop-fixture-001', sessionFor(repo, 'usr-seta-04'));
     assert.equal(fin.status, 403);
 
     const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
@@ -533,7 +533,7 @@ describe('Link assinado de proposta: emissao (POST /api/erp/proposals/:id/public
 
 describe('Link assinado de proposta: transporte do token', () => {
   it('header X-Proposal-Token vira parametro interno; o mesmo parametro vindo da URL e descartado', async () => {
-    const req = new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-seta-001?proposalLinkToken=da-url&x=1', {
+    const req = new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-fixture-001?proposalLinkToken=da-url&x=1', {
       headers: { 'x-proposal-token': 'do-header', 'idempotency-key': 'idem-12345678' },
     });
     const out = await withProposalLinkParams(req);
@@ -544,7 +544,7 @@ describe('Link assinado de proposta: transporte do token', () => {
     assert.equal(out.headers.get('x-proposal-token'), null);
 
     const urlOnly = await withProposalLinkParams(
-      new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-seta-001?proposalLinkToken=da-url')
+      new NextRequest('https://sti-hub.example.invalid/api/erp/proposals/prop-fixture-001?proposalLinkToken=da-url')
     );
     assert.equal(new URL(urlOnly.url).searchParams.get('proposalLinkToken'), null);
 
@@ -561,9 +561,9 @@ describe('Link assinado de proposta: transporte do token', () => {
 
 describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
   it('A1: redactProposalLinkTokens troca #t=<payload>.<assinatura> por #t=[REDACTED]', () => {
-    const t = linkFor('prop-seta-001', 2);
-    const url = `https://sti-hub.vercel.app/proposta/prop-seta-001#t=${t}`;
-    assert.equal(redactProposalLinkTokens(`Veja ${url} e ${url}.`), 'Veja https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED] e https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED].');
+    const t = linkFor('prop-fixture-001', 2);
+    const url = `https://sti-hub.vercel.app/proposta/prop-fixture-001#t=${t}`;
+    assert.equal(redactProposalLinkTokens(`Veja ${url} e ${url}.`), 'Veja https://sti-hub.vercel.app/proposta/prop-fixture-001#t=[REDACTED] e https://sti-hub.vercel.app/proposta/prop-fixture-001#t=[REDACTED].');
     assert.equal(redactProposalLinkTokens('#t=abc'), '#t=[REDACTED]');
     assert.equal(redactProposalLinkTokens('sem link'), 'sem link');
     const deep = deepRedactProposalLinkTokens({ a: [url, { b: url }], n: 1, z: null });
@@ -573,10 +573,10 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
 
   it('A1: depois do send-email, nenhum registro legivel contem o token; o Resend recebe o link completo; metadata so com jti e exp', async () => {
     const { repo, router } = fresh();
-    const ver = repo.listProposals().find((x) => x.id === 'prop-seta-001')!.version || 1;
-    const signed = signProposalLinkToken({ proposalId: 'prop-seta-001', version: ver });
+    const ver = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!.version || 1;
+    const signed = signProposalLinkToken({ proposalId: 'prop-fixture-001', version: ver });
     const t = signed.token;
-    const url = `https://sti-hub.vercel.app/proposta/prop-seta-001#t=${t}`;
+    const url = `https://sti-hub.vercel.app/proposta/prop-fixture-001#t=${t}`;
     const ticket = repo.listServiceTickets()[0];
     assert.ok(ticket, 'chamado seed');
     const realFetch = globalThis.fetch;
@@ -622,15 +622,15 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     assert.ok(evt);
     const meta = evt.metadata as Record<string, unknown>;
     assert.deepEqual(meta.proposalLink, { jti: signed.claims.jti, exp: new Date(signed.claims.exp).toISOString() });
-    assert.equal(meta.publicPdfUrl, 'https://sti-hub.vercel.app/proposta/prop-seta-001#t=[REDACTED]');
+    assert.equal(meta.publicPdfUrl, 'https://sti-hub.vercel.app/proposta/prop-fixture-001#t=[REDACTED]');
     const comments = JSON.stringify(repo.listServiceTickets().find((x) => x.id === ticket.id));
     assert.match(comments, /#t=\[REDACTED\]/);
   });
 
   it('A1: POST /api/timeline e journal reconciliado gravam #t=[REDACTED]', async () => {
     const { repo, router } = fresh();
-    const t = linkFor('prop-seta-001', 2);
-    const url = `https://x.invalid/proposta/prop-seta-001#t=${t}`;
+    const t = linkFor('prop-fixture-001', 2);
+    const url = `https://x.invalid/proposta/prop-fixture-001#t=${t}`;
     const tl = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/timeline', body: { type: 'NOTE', title: `Nota ${url}`, body: url, metadata: { link: url } } });
     assert.equal(tl.status, 201);
     const journal = {
@@ -646,17 +646,17 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
   it('M1: sessao MFA so com Chamados (ou sem acesso a propostas) => 404 do link; nao emite link', async () => {
     const { repo, router } = fresh();
     const onlyTickets = sessionFor(repo, 'usr-seta-02', { enabledModules: ['CHAMADOS'], moduleAccess: { crm: false, erp: false, chamados: true } });
-    const g = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: onlyTickets } });
+    const g = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: onlyTickets } });
     assert.equal(g.status, 404);
     assert.deepEqual(g.body, (await getPublic(router, 'prop-nao-existe')).body);
-    const iss = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/public-link', query: { ...HTTP, _sessionToken: onlyTickets }, body: {} });
+    const iss = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-001/public-link', query: { ...HTTP, _sessionToken: onlyTickets }, body: {} });
     assert.equal(iss.status, 403);
     const noProposals = sessionFor(repo, 'usr-seta-05');
-    const g2 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: noProposals } });
+    const g2 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: noProposals } });
     assert.equal(g2.status, 404);
     // Com o token do link, o mesmo usuario ve apenas o DTO publico.
-    const ver = repo.listProposals().find((x) => x.id === 'prop-seta-001')!.version || 1;
-    const g3 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _clientIp: nextIp(), _sessionToken: onlyTickets, proposalLinkToken: linkFor('prop-seta-001', ver) } });
+    const ver = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!.version || 1;
+    const g3 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _clientIp: nextIp(), _sessionToken: onlyTickets, proposalLinkToken: linkFor('prop-fixture-001', ver) } });
     assert.equal(g3.status, 200);
     assert.doesNotMatch(JSON.stringify(g3.body), FORBIDDEN_DTO);
   });
@@ -736,12 +736,12 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
   });
 
   it('B3: assinatura precisa ser ^[A-Za-z0-9_-]{43}$', () => {
-    const t = linkFor('prop-seta-001', 2);
+    const t = linkFor('prop-fixture-001', 2);
     const [payload, sig] = t.split('.');
     assert.equal(sig.length, 43);
-    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-seta-001' }).valid, true);
+    assert.equal(verifyProposalLinkToken(t, { proposalId: 'prop-fixture-001' }).valid, true);
     for (const bad of [`${payload}.${sig}=`, `${payload}.${sig}A`, `${payload}.${sig.replace(/-/g, '+').replace(/_/g, '/')}+`, `${payload}.${sig.slice(0, 42)}`, `${payload}=.${sig}`]) {
-      assert.equal(verifyProposalLinkToken(bad, { proposalId: 'prop-seta-001' }).valid, false, bad.slice(-6));
+      assert.equal(verifyProposalLinkToken(bad, { proposalId: 'prop-fixture-001' }).valid, false, bad.slice(-6));
     }
   });
 
@@ -843,9 +843,9 @@ describe('Escopo de propostas nas rotas autenticadas (CISO 30/10: PATCH e lista)
     assert.equal(la.status, 200);
     assert.ok(ids(la).includes(ofA.id));
     assert.equal(ids(la).includes(ofB.id), false);
-    assert.equal(ids(la).some((id) => id.startsWith('prop-seta-') || id.startsWith('prop-gc-')), false);
+    assert.equal(ids(la).some((id) => id.startsWith('prop-seta-') || id.startsWith('prop-fixture-') || id.startsWith('prop-gc-')), false);
     const ladm = await call(router, 'GET', '/api/erp/proposals', admin);
-    assert.ok(ids(ladm).includes(ofB.id) && ids(ladm).includes('prop-seta-001'));
+    assert.ok(ids(ladm).includes(ofB.id) && ids(ladm).includes('prop-fixture-001'));
     const ov = await call(router, 'GET', '/api/erp/overview', a);
     const ovIds = ((ov.body as { data: { proposals: ErpProposal[] } }).data.proposals || []).map((p) => p.id);
     assert.equal(ovIds.includes(ofB.id), false);
@@ -988,7 +988,7 @@ describe('D2: autoria de proposta vem da sessao (CISO 30/10)', () => {
   it('journal/reconcile de sessao nao grava autoria, historico, versao nem aceite', async () => {
     const { repo, router } = fresh();
     const s = sessionFor(repo, 'usr-seta-01');
-    const cur = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P;
+    const cur = repo.listProposals().find((x) => x.id === 'prop-fixture-002') as unknown as P;
     const before = JSON.stringify({ v: cur.version, vh: cur.versionHistory, sh: cur.statusHistory });
     await call(router, 'POST', '/api/state/reconcile', s, {
       journal: {
@@ -998,7 +998,7 @@ describe('D2: autoria de proposta vem da sessao (CISO 30/10)', () => {
         ],
       },
     });
-    const after = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P & { title: string };
+    const after = repo.listProposals().find((x) => x.id === 'prop-fixture-002') as unknown as P & { title: string };
     assert.equal(after.title, 'via journal', 'campos comuns continuam sincronizando');
     assert.equal(JSON.stringify({ v: after.version, vh: after.versionHistory, sh: after.statusHistory }), before);
     noForgery(after);
@@ -1034,9 +1034,9 @@ describe('D2: autoria de proposta vem da sessao (CISO 30/10)', () => {
 
   it('contexto interno confiavel mantem o comportamento atual (updatedBy do corpo vale)', async () => {
     const { repo, router } = fresh();
-    const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-seta-002', body: { title: 'sync', updatedBy: 'Sync GestaoClick', status: 'ENVIADA' } });
+    const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-fixture-002', body: { title: 'sync', updatedBy: 'Sync GestaoClick', status: 'ENVIADA' } });
     assert.equal(r.status, 200);
-    const p = repo.listProposals().find((x) => x.id === 'prop-seta-002') as unknown as P;
+    const p = repo.listProposals().find((x) => x.id === 'prop-fixture-002') as unknown as P;
     assert.equal(p.versionHistory![p.versionHistory!.length - 1].savedBy, 'Sync GestaoClick');
   });
 });
@@ -1099,7 +1099,7 @@ describe('Mudanca de status por sessao (CISO 30/10)', () => {
     // Upsert via PATCH (proposta so no navegador) ja APROVADA: mesma regra.
     assert.equal((await call(router, 'PATCH', '/api/erp/proposals/prop-nav-aprovada', sm, { title: 'N', status: 'APROVADA' })).status, 403);
     // Journal: nova APROVADA/CONVERTIDA entra como RASCUNHO; existente nao muda de/para travado.
-    const cur = repo.listProposals().find((p) => p.id === 'prop-seta-002')!;
+    const cur = repo.listProposals().find((p) => p.id === 'prop-fixture-002')!;
     await call(router, 'POST', '/api/state/reconcile', sa, {
       journal: {
         upsertedProposals: [
@@ -1111,7 +1111,7 @@ describe('Mudanca de status por sessao (CISO 30/10)', () => {
     });
     assert.equal(repo.listProposals().find((p) => p.id === 'prop-j-aprov')!.status, 'RASCUNHO');
     assert.equal(repo.listProposals().find((p) => p.id === 'prop-j-conv')!.status, 'RASCUNHO');
-    assert.equal(repo.listProposals().find((p) => p.id === 'prop-seta-002')!.status, cur.status);
+    assert.equal(repo.listProposals().find((p) => p.id === 'prop-fixture-002')!.status, cur.status);
     // Contexto interno confiavel mantem o comportamento.
     const internal = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/proposals', body: { title: 'sync', status: 'APROVADA' } });
     assert.equal(internal.status, 201);
@@ -1175,9 +1175,9 @@ describe('Item 2: redacao central (formato do token, forma codificada, todos os 
 
   it('dispatch redige o corpo de QUALQUER rota que grava (tarefa, timeline); Resend recebe o link completo', async () => {
     const { repo, router } = fresh();
-    const tok = linkFor('prop-seta-001', 2);
+    const tok = linkFor('prop-fixture-001', 2);
     const sig = tok.split('.')[1];
-    const enc = `https%3A%2F%2Fh%2Fproposta%2Fprop-seta-001%23t%3D${tok}`;
+    const enc = `https%3A%2F%2Fh%2Fproposta%2Fprop-fixture-001%23t%3D${tok}`;
     const t = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tasks', body: { title: `Ver ${enc}`, description: `token ${tok}`, notes: `#t=${tok}` } });
     assert.ok(t.status < 300, JSON.stringify(t.body).slice(0, 200));
     assert.ok(!JSON.stringify(repo.listTasks({})).includes(sig));
@@ -1192,7 +1192,7 @@ describe('Item 2: redacao central (formato do token, forma codificada, todos os 
     try {
       const r = await router.dispatch({
         context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/communications/send-email',
-        body: { to: 'cliente@exemplo.invalid', subject: 'Proposta', body: `Link: https://h/proposta/prop-seta-001#t=${tok}\nAlt: ${enc}`, docType: 'PROPOSAL', publicPdfUrl: `https://h/proposta/prop-seta-001#t=${tok}` },
+        body: { to: 'cliente@exemplo.invalid', subject: 'Proposta', body: `Link: https://h/proposta/prop-fixture-001#t=${tok}\nAlt: ${enc}`, docType: 'PROPOSAL', publicPdfUrl: `https://h/proposta/prop-fixture-001#t=${tok}` },
       });
       assert.equal(r.status < 300, true);
     } finally {
@@ -1332,11 +1332,11 @@ describe('A3: redacao normalizada do payload do token', () => {
   });
   it('via dispatch: variantes gravadas em tarefa/notas da proposta nao deixam payload no estado', async () => {
     const { repo, router } = fresh();
-    const tok = linkFor('prop-seta-001', 2);
+    const tok = linkFor('prop-fixture-001', 2);
     const [P] = tok.split('.');
     const v = variants(tok);
     await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tasks', body: { title: 'A3', description: Object.values(v).join(' | '), notes: v.zwspNoPayload } });
-    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-seta-002', body: { commercialNotes: v.quebraNoMeio, internalNotes: v.pontoEntidade } });
+    await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'PATCH', path: '/api/erp/proposals/prop-fixture-002', body: { commercialNotes: v.quebraNoMeio, internalNotes: v.pontoEntidade } });
     const state = JSON.stringify(repo.getState()).replace(/\\n|\\r|\\u200b|\s/g, '');
     assert.ok(!state.includes(P.slice(20, 60)));
   });
@@ -1396,7 +1396,7 @@ describe('A5/A6: status em lista fechada e justificativa visivel', () => {
   it('journal nunca grava minusculas nem status fora da lista (nova e existente)', async () => {
     const { repo, router } = fresh();
     const sa = sessionFor(repo, 'usr-seta-01');
-    const cur = repo.listProposals().find((x) => x.id === 'prop-seta-002')!;
+    const cur = repo.listProposals().find((x) => x.id === 'prop-fixture-002')!;
     const later = (n: number) => new Date(Date.now() + n * 60_000).toISOString();
     const send = (ups: unknown[]) => call(router, 'POST', '/api/state/reconcile', sa, { journal: { upsertedProposals: ups } });
     await send([
@@ -1415,11 +1415,11 @@ describe('A5/A6: status em lista fechada e justificativa visivel', () => {
     const before = cur.status;
     for (const [i, s] of ['convertida_contrato', 'CONVERTIDA_CONTRATO ', 'aprovada', 'hacked'].entries()) {
       await send([{ ...cur, status: s, updatedAt: later(2 + i) }]);
-      assert.equal(st('prop-seta-002'), before, s);
+      assert.equal(st('prop-fixture-002'), before, s);
     }
     if (!CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(before)) {
       await send([{ ...cur, status: 'recusada', updatedAt: later(10) }]);
-      assert.equal(st('prop-seta-002'), 'RECUSADA');
+      assert.equal(st('prop-fixture-002'), 'RECUSADA');
     }
     for (const p of repo.listProposals()) assert.ok(CrmApiRouter.PROPOSAL_STATUSES.includes(p.status), `${p.id}: ${p.status}`);
   });
@@ -1489,13 +1489,13 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
   it('rotas Next publicas (POST /approve e POST do portal /api/erp/proposals/[id]) recusam antes de tudo', async () => {
     const { POST: approvePOST } = await import('../src/app/api/erp/proposals/[id]/approve/route');
     const portal = await import('../src/app/api/erp/proposals/[id]/route');
-    const tok = linkFor('prop-seta-001', 2);
+    const tok = linkFor('prop-fixture-001', 2);
     await withSpies(async (calls) => {
       for (const [name, body] of RESERVED_BODIES()) {
         for (const [label, handler, path] of [
-          ['approve', approvePOST, '/api/erp/proposals/prop-seta-001/approve'],
-          ['portal POST', portal.POST, '/api/erp/proposals/prop-seta-001'],
-          ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-seta-001'],
+          ['approve', approvePOST, '/api/erp/proposals/prop-fixture-001/approve'],
+          ['portal POST', portal.POST, '/api/erp/proposals/prop-fixture-001'],
+          ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-fixture-001'],
         ] as const) {
           const res = await handler(new NextRequest(`https://sti-hub.example.invalid${path}`, {
             method: label === 'portal PATCH' ? 'PATCH' : 'POST',
@@ -1510,7 +1510,7 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
       }
       assert.deepEqual(calls, [], `nada pode rodar antes da recusa: ${calls.join(', ')}`);
       // Controle: os espioes funcionam (um corpo sem chave reservada chega a handleRoute).
-      await fresh().router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/approve', query: { ...HTTP, _clientIp: '203.0.113.10' }, body: SIGNER });
+      await fresh().router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-001/approve', query: { ...HTTP, _clientIp: '203.0.113.10' }, body: SIGNER });
       assert.ok((calls as string[]).includes('handleRoute'), (calls as string[]).join(', '));
     });
   });
@@ -1600,7 +1600,7 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
   it('BODY_TOO_DEEP nas rotas Next publicas (/approve e portal) e no dispatch: nada gravado, auditado, contado nem enviado', async () => {
     const { POST: approvePOST } = await import('../src/app/api/erp/proposals/[id]/approve/route');
     const portal = await import('../src/app/api/erp/proposals/[id]/route');
-    const tokSeed = linkFor('prop-seta-001', 2);
+    const tokSeed = linkFor('prop-fixture-001', 2);
     const { repo, router } = fresh();
     const p = repo.createProposal({
       title: 'Aceite profundo', companyName: 'Cliente', companyCnpj: '00.000.000/0001-00', status: 'ENVIADA',
@@ -1618,9 +1618,9 @@ describe('A4 (fail-closed): BODY_RESERVED_KEY antes de qualquer efeito colateral
     const ip = '203.0.113.99';
     await withSpies(async (calls) => {
       for (const [label, handler, path, method] of [
-        ['approve', approvePOST, '/api/erp/proposals/prop-seta-001/approve', 'POST'],
-        ['portal POST', portal.POST, '/api/erp/proposals/prop-seta-001', 'POST'],
-        ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-seta-001', 'PATCH'],
+        ['approve', approvePOST, '/api/erp/proposals/prop-fixture-001/approve', 'POST'],
+        ['portal POST', portal.POST, '/api/erp/proposals/prop-fixture-001', 'POST'],
+        ['portal PATCH', portal.PATCH, '/api/erp/proposals/prop-fixture-001', 'PATCH'],
       ] as const) {
         const res = await handler(new NextRequest(`https://sti-hub.example.invalid${path}`, {
           method,

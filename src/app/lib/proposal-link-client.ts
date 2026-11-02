@@ -115,3 +115,40 @@ export function proposalEmailLinkGate(input: {
   }
   return { ok: true };
 }
+
+/**
+ * t29u: short link ASSINADO de uma versao: /proposta/<id>/v/<n>#t=<token>. Reusa o mesmo
+ * emissor (POST /public-link) e a mesma validacao do servidor: o token continua valendo so
+ * para a versao ATUAL da proposta. Pedir o link de uma versao antiga => erro (409 local),
+ * sem emitir link novo.
+ */
+export function toSignedVersionShortUrl(signedUrl: string, proposalId: string, version: number): string {
+  const enc = encodeURIComponent(String(proposalId || '').trim());
+  const n = Math.max(1, Math.floor(Number(version) || 1));
+  const marker = `/proposta/${enc}#t=`;
+  const i = signedUrl.indexOf(marker);
+  if (i === -1) return signedUrl;
+  return `${signedUrl.slice(0, i)}/proposta/${enc}/v/${n}#t=${signedUrl.slice(i + marker.length)}`;
+}
+
+export async function copySignedProposalVersionLink(
+  proposalId: string,
+  version: number
+): Promise<SignedProposalLinkResult> {
+  const r = await requestSignedProposalLink(proposalId);
+  if (!r.ok) return r;
+  if (Number(version) !== r.version) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Só a versão atual (Versão ${r.version}) pode ser enviada ao cliente. Restaure a Versão ${version} para gerar o link dela.`,
+    };
+  }
+  const url = toSignedVersionShortUrl(r.url, proposalId, r.version);
+  try {
+    await navigator.clipboard?.writeText(url);
+  } catch {
+    // sem permissao de clipboard: o chamador pode exibir url
+  }
+  return { ...r, url };
+}

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 import { buildInternalProposalUrl, buildPublicProposalUrl } from '../src/app/lib/proposal-share';
 import { proposalEmailLinkGate } from '../src/app/lib/proposal-link-client';
@@ -26,15 +26,15 @@ afterEach(() => {
 
 describe('Checagem final v4: links ?d= fora da tela', () => {
   it('buildInternalProposalUrl/buildPublicProposalUrl nao embutem a proposta (sem ?d=, sem dados do cliente)', () => {
-    const prop = { id: 'prop-seta-001', code: 'PROP-2026-001', companyName: 'TOTVS S.A.', companyCnpj: '53.113.791/0001-22', contactEmail: 'cliente@exemplo.invalid', items: [{ unitPrice: 9500 }] };
+    const prop = { id: 'prop-fixture-001', code: 'PROP-2026-001', companyName: 'TOTVS S.A.', companyCnpj: '53.113.791/0001-22', contactEmail: 'cliente@exemplo.invalid', items: [{ unitPrice: 9500 }] };
     for (const url of [
       buildInternalProposalUrl(prop as never, { origin: 'https://sti-hub.vercel.app' }),
       buildPublicProposalUrl(prop as never, { origin: 'https://sti-hub.vercel.app' }),
     ]) {
-      assert.equal(url, 'https://sti-hub.vercel.app/proposta/prop-seta-001');
+      assert.equal(url, 'https://sti-hub.vercel.app/proposta/prop-fixture-001');
       assert.doesNotMatch(url, /[?&]d=|TOTVS|53\.113|cliente@|9500/);
     }
-    assert.equal(buildInternalProposalUrl(prop as never, { origin: 'https://h', autoPrint: true }), 'https://h/proposta/prop-seta-001?print=1');
+    assert.equal(buildInternalProposalUrl(prop as never, { origin: 'https://h', autoPrint: true }), 'https://h/proposta/prop-fixture-001?print=1');
   });
 
   it('telas (Negocios e ERP) nao montam ?d= nem chamam o link interno de "publico" para o cliente', () => {
@@ -50,8 +50,8 @@ describe('Checagem final v4: links ?d= fora da tela', () => {
 });
 
 describe('Checagem final v4: compositor de e-mail com o link assinado', () => {
-  const unsigned = 'https://sti-hub.vercel.app/proposta/prop-seta-001';
-  const signed = 'https://sti-hub.vercel.app/proposta/prop-seta-001#t=eyJ2IjoxfQ.sig';
+  const unsigned = 'https://sti-hub.vercel.app/proposta/prop-fixture-001';
+  const signed = 'https://sti-hub.vercel.app/proposta/prop-fixture-001#t=eyJ2IjoxfQ.sig';
   it('falha na emissao (403/503/409/rede) ou emissao pendente => envio bloqueado com erro', () => {
     for (const error of ['Seu perfil não tem permissão para gerar o link desta proposta.', 'STI_HUB_PROPOSAL_LINK_SECRET ausente', 'A validade desta proposta já venceu.', 'Falha de conexão']) {
       const g = proposalEmailLinkGate({ isProposal: true, state: { status: 'error', error }, body: `Link: ${unsigned}`, unsignedUrl: unsigned });
@@ -97,15 +97,15 @@ describe('Checagem final v4: STI_HUB_PUBLIC_ORIGIN no link assinado', () => {
     const router = new CrmApiRouter(repo);
     const rec = repo.findRbacUserRecord('usr-seta-01', '')!;
     const session = signStiHubSessionToken({ uid: rec.id, email: rec.email, name: rec.name, roleId: rec.roleId, scope: rec.scope, enabledModules: ['CRM', 'ERP', 'CHAMADOS'], moduleAccess: { crm: true, erp: true, chamados: true }, mfaVerified: true, mfaMethod: 'TOTP_AUTHENTICATOR', iat: Date.now() - 1000, exp: Date.now() + 3_600_000 } as Parameters<typeof signStiHubSessionToken>[0]);
-    // prop-seta-002 (EM_NEGOCIACAO): a 001 do seed e CONVERTIDA_CONTRATO => 409 pelo D3.
-    const issue = () => router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-002/public-link', query: { _fromHttpBridge: '1', _clientIp: '198.51.100.31', _origin: 'https://preview-xyz.vercel.app', _sessionToken: session }, body: {} });
+    // prop-fixture-002 (EM_NEGOCIACAO): a 001 do seed e CONVERTIDA_CONTRATO => 409 pelo D3.
+    const issue = () => router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-002/public-link', query: { _fromHttpBridge: '1', _clientIp: '198.51.100.31', _origin: 'https://preview-xyz.vercel.app', _sessionToken: session }, body: {} });
     process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br/';
     let r = await issue();
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/sti-hub\.setatelecom\.com\.br\/proposta\/prop-seta-002#t=/);
+    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/sti-hub\.setatelecom\.com\.br\/proposta\/prop-fixture-002#t=/);
     delete process.env.STI_HUB_PUBLIC_ORIGIN;
     r = await issue();
     assert.equal(r.status, 200);
-    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/preview-xyz\.vercel\.app\/proposta\/prop-seta-002#t=/);
+    assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/preview-xyz\.vercel\.app\/proposta\/prop-fixture-002#t=/);
   });
 });

@@ -9,7 +9,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
-import { createInMemoryRepository, CrmRepository } from '../src/db/repository';
+import { CrmRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter, PROPOSAL_APPROVE_LIMITS, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 import {
@@ -239,7 +240,7 @@ describe('Pacote M (3): teto de corpo no bridge', () => {
       const st = streamOf(4 * 1024 * 1024);
       const t0 = Date.now();
       const res = await forwardToCrmRouter(
-        reqWith('/api/erp/proposals/prop-seta-002/approve', st.s, withLen ? { 'content-length': String(4 * 1024 * 1024), 'content-type': 'application/json' } : { 'content-type': 'application/json' })
+        reqWith('/api/erp/proposals/prop-fixture-002/approve', st.s, withLen ? { 'content-length': String(4 * 1024 * 1024), 'content-type': 'application/json' } : { 'content-type': 'application/json' })
       );
       const ms = Date.now() - t0;
       assert.equal(res.status, 413);

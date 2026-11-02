@@ -401,6 +401,43 @@ export function mapProposalStatusToGcLabel(status: ErpCommercialProposal["status
   }
 }
 
+/**
+ * t29u: propostas que NAO existem no GestaoClick (seeds ficticios antigos: Nubank, TOTVS,
+ * Creditas, Wittel, Horizon). Removidas do seed e, no load, dos dados persistidos/journal.
+ * Contratos, faturas e pedidos de outros modulos nao sao apagados: so perdem o vinculo.
+ */
+export const REMOVED_FICTITIOUS_PROPOSAL_IDS: readonly string[] = [
+  'prop-seta-001',
+  'prop-seta-002',
+  'prop-seta-003',
+  'prop-seta-004',
+  'prop-seta-005',
+];
+
+export function isRemovedFictitiousProposalId(id: unknown): boolean {
+  const k = String(id ?? '').trim().toLowerCase();
+  return Boolean(k) && REMOVED_FICTITIOUS_PROPOSAL_IDS.includes(k);
+}
+
+export function removeFictitiousProposals(erp: ErpDatabaseState): string[] {
+  const proposals = Array.isArray(erp.proposals) ? erp.proposals : [];
+  const removed = proposals.filter((p) => p && isRemovedFictitiousProposalId(p.id)).map((p) => p.id);
+  if (removed.length === 0) return removed;
+  erp.proposals = proposals.filter((p) => !(p && isRemovedFictitiousProposalId(p.id)));
+  const unlink = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const rec of list as Array<Record<string, unknown>>) {
+      if (rec && isRemovedFictitiousProposalId(rec.proposalId)) rec.proposalId = null;
+    }
+  };
+  unlink(erp.rentalContracts);
+  unlink(erp.invoices);
+  unlink((erp as unknown as Record<string, unknown>).salesOrders);
+  unlink((erp as unknown as Record<string, unknown>).serviceOrders);
+  unlink((erp as unknown as Record<string, unknown>).financialEntries);
+  return removed;
+}
+
 export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): ErpCommercialProposal {
   if (p.slaTier === "NOC_24X7_ALTA_DISP_4H") {
     p.slaTier = "SEM_SLA_ESPECIFICO";
@@ -441,7 +478,7 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
       .trim();
   }
   if (
-    (p.id === "prop-seta-001" || p.id === "prop-gc-4695") &&
+    p.id === "prop-gc-4695" &&
     (!Array.isArray(p.versionHistory) || p.versionHistory.length < 2)
   ) {
     const currentSnap = buildProposalVersionSnapshot(p);
@@ -454,7 +491,7 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
       return structuredClone(it);
     });
     const v1Mrr = v1Items.reduce((acc, it) => acc + Number(it.totalMonthly || 0), 0);
-    const v1Months = p.id === "prop-seta-001" ? 12 : Number(p.contractMonths || 1);
+    const v1Months = Number(p.contractMonths || 1);
     const v1Snap = {
       ...structuredClone(currentSnap),
       contractMonths: v1Months,
@@ -1002,7 +1039,8 @@ export class CrmRepository {
         if (!parsed.erp || !Array.isArray(parsed.erp.proposals)) {
           return seedErp;
         }
-        const cleanedProposals = parsed.erp.proposals.map((p) => {
+        // t29u: propostas ficticias (nao existem no GestaoClick) saem dos dados persistidos.
+        const cleanedProposals = parsed.erp.proposals.filter((p) => !isRemovedFictitiousProposalId(p && p.id)).map((p) => {
           const cleanedTc = String(p.technicalClauses || "")
             .replace(
               /SLA\s*99,95%\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\s*\(Advance\s*Replacement\s*em\s*at[eé]\s*4h\s*na\s*Grande\s*SP\)\.\s*Vig[eê]ncia\s*de\s*24\s*meses\s*com\s*reajuste\s*anual\s*pelo\s*IPCA\.?/gi,
@@ -1015,11 +1053,9 @@ export class CrmRepository {
             .trim();
           return {
             ...p,
-            budgetType: p.id === "prop-gc-4695" ? "PRODUTOS" : p.id === "prop-seta-001" ? "LOCACAO" : p.id === "prop-seta-004" ? "SERVICOS" : p.budgetType,
-            serviceType: p.id === "prop-seta-004" || p.budgetType === "SERVICOS" ? (p.serviceType || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação") : p.serviceType,
-            slaTier: p.id === "prop-gc-4695" || p.budgetType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
-            deliveryLeadTime: p.id === "prop-seta-001" && (!p.deliveryLeadTime || p.deliveryLeadTime.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryLeadTime,
-            deliveryForecast: p.id === "prop-seta-001" && (!p.deliveryForecast || p.deliveryForecast.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryForecast,
+            budgetType: p.id === "prop-gc-4695" ? "PRODUTOS" : p.budgetType,
+            serviceType: p.budgetType === "SERVICOS" ? (p.serviceType || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação") : p.serviceType,
+            slaTier: p.id === "prop-gc-4695" || p.budgetType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : p.slaTier,
             technicalClauses: cleanedTc,
           };
         });
@@ -1154,6 +1190,7 @@ export class CrmRepository {
     const out: ErpCommercialProposal[] = [];
     for (const inc of incoming) {
       if (!inc || typeof inc !== 'object' || !inc.id || typeof inc.id !== 'string') continue;
+      if (isRemovedFictitiousProposalId(inc.id)) continue; // t29u: journal do navegador nao recria as ficticias
       const cur = byId.get(inc.id);
       const incCode = typeof inc.code === 'string' ? inc.code.trim() : '';
       if (cur) {
@@ -3884,6 +3921,8 @@ export class CrmRepository {
       // Pacote J (A2): proposta sem code (journal antigo) recebe um codigo livre do servidor, para
       // que buscas por id/codigo nunca derrubem as edicoes de todas as propostas.
       this.backfillMissingProposalCodes(this.state.erp.proposals);
+      // t29u: remove propostas ficticias (prop-seta-00N) e desvincula contratos/faturas delas.
+      removeFictitiousProposals(this.state.erp);
     }
     return this.state.erp;
   }

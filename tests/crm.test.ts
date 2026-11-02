@@ -47,7 +47,7 @@ import {
   jaroWinklerSimilarity,
   levenshteinSimilarity,
 } from '../src/modules/data-health/deduplication';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 
 describe('1. Validação & Padronização (validators.ts)', () => {
@@ -684,7 +684,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     // 2. Aprovar Proposta PROP-2026-002 -> Gera Contrato de Locação + Fatura de Locação automaticamente
     const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
-      path: '/api/erp/proposals/prop-seta-002/approve',
+      path: '/api/erp/proposals/prop-fixture-002/approve',
       body: {
         signerName: 'Carlos Eduardo Almeida',
         signerCpf: '529.982.247-25',
@@ -732,7 +732,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     // 1. Editar Proposta Comercial existente (PATCH /api/erp/proposals/:id)
     const editPropRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'PATCH',
-      path: '/api/erp/proposals/prop-seta-002',
+      path: '/api/erp/proposals/prop-fixture-002',
       body: {
         title: 'TOTVS S.A. — Proposta Revisada com 40 Terminais IP & SD-WAN',
         contractMonths: 36,
@@ -1290,10 +1290,10 @@ describe('11. Pacote Completo de Contratos & Locação (Modalidades, Patrimônio
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
-    // 1. Aprovar prop-seta-003 (que tem readjustmentIndex: IGP-M e S/N pré-alocados)
+    // 1. Aprovar prop-fixture-003 (que tem readjustmentIndex: IGP-M e S/N pré-alocados)
     const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
-      path: '/api/erp/proposals/prop-seta-003/approve',
+      path: '/api/erp/proposals/prop-fixture-003/approve',
       body: {
         signerName: 'Carlos Eduardo Almeida',
         signerCpf: '529.982.247-25',
@@ -1867,7 +1867,7 @@ DATA:OFXSGML
     // 4. Assinatura Eletrônica ICP-Brasil / Gov.br na aprovação de proposta (/api/erp/proposals/:id/approve)
     const approveRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
-      path: '/api/erp/proposals/prop-seta-002/approve',
+      path: '/api/erp/proposals/prop-fixture-002/approve',
       body: {
         signerName: 'Maria Luiza Fontes',
         signerCpf: '111.444.777-35',

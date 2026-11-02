@@ -150,7 +150,7 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
-import { copySignedProposalLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
+import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 import {
   BatchRentalBillingAndEmailModal,
@@ -2369,7 +2369,7 @@ export default function ErpGestaoClickTab({
                   {
                     id: "CLEAN_CORPORATE_LIGHT",
                     label: "Clean Corporate Light",
-                    exampleHref: "/proposta/prop-seta-001",
+                    exampleHref: "/proposta/prop-gc-4695",
                     budgetType: "LOCACAO",
                     preset: {
                       title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
@@ -2403,7 +2403,7 @@ export default function ErpGestaoClickTab({
                   {
                     id: "EXECUTIVE_SOFT_INDIGO",
                     label: "Executive Soft Indigo",
-                    exampleHref: "/proposta/prop-seta-002",
+                    exampleHref: "/proposta/prop-gc-4695",
                     budgetType: "CONJUNTO",
                     preset: {
                       title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
@@ -7526,9 +7526,24 @@ export default function ErpGestaoClickTab({
                                           <span>Restaurar</span>
                                         </button>
                                       ) : (
-                                        <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
-                                          Ativa
-                                        </span>
+                                        <>
+                                          <button
+                                            type="button"
+                                            data-testid="version-signed-link"
+                                            title="Copia o short link assinado desta versão para o cliente (abre sem login)"
+                                            onClick={async () => {
+                                              const r = await copySignedProposalVersionLink(statusModalProposal.id, ver.version);
+                                              onShowToast(r.ok ? `Link assinado da Versão ${ver.version} copiado (abre sem login).` : r.error);
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 text-[10px] font-extrabold cursor-pointer"
+                                          >
+                                            <Copy className="w-3 h-3" />
+                                            <span>Link cliente</span>
+                                          </button>
+                                          <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                                            Ativa
+                                          </span>
+                                        </>
                                       )}
                                     </div>
                                   </td>

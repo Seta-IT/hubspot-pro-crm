@@ -275,8 +275,6 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     targetDestination: 'ERP > 3. Propostas e Vendas & CRM > Sales Hub (Deals)',
     sampleRecords: [
       'Orçamento #4695 — MUNDIVOX COMUNICACOES LTDA (SL-44-SEC-K9 • R$ 4.320,00)',
-      'Orçamento #4699 — Nu Pagamentos S.A. (Cluster PABX IP & SD-WAN • R$ 12.000/mês)',
-      'Orçamento #4700 — TOTVS S.A. (Parque Telefonia IP Matriz • R$ 9.500/mês)',
     ],
     requiredFieldsVerified: ['Número (#4695)', 'Cliente & CNPJ', 'Vendedor (Marcelo Mira)', 'Itens & Descontos', 'Link Público PDF (/proposta/[id])'],
     cnpjFiscalLockCheck: 'CNPJ do destinatário validado e impresso no PDF A4 timbrado.',

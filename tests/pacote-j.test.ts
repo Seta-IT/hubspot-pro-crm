@@ -9,7 +9,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { signStiHubSessionToken, sanitizeActiveSessionForStorage } from '../src/app/lib/auth';
-import { createInMemoryRepository, CrmRepository } from '../src/db/repository';
+import { CrmRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import { buildFullControlForModule } from '../src/modules/erp/rbac-seed';
 import { RecordIdConflictError } from '../src/db/record-id-guard';
@@ -37,7 +38,7 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
   it('ataque exato do probe: vendedor POST com o id da proposta de outro => id ignorado; a original continua no link', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    const victim = props(repo, 'prop-seta-002')[0];
+    const victim = props(repo, 'prop-fixture-002')[0];
     const before = JSON.stringify(victim);
     const c = await router.dispatch({
       method: 'POST', path: '/api/erp/proposals', query: S(),
@@ -63,25 +64,25 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
   it('variacao de caixa do id e id = codigo de outra tambem nao criam sombra (POST de sessao)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const id of ['PROP-SETA-002', '4700', ' prop-seta-002 ']) {
+    for (const id of ['PROP-FIXTURE-002', '4700', ' prop-fixture-002 ']) {
       const c = await router.dispatch({ method: 'POST', path: '/api/erp/proposals', query: S(), body: { id, title: 'X', companyName: 'C' } });
       assert.equal(c.status, 201);
-      assert.ok(!['prop-seta-002', '4700'].includes(String(((c.body as Body).data as Record<string, unknown>).id).trim().toLowerCase()));
+      assert.ok(!['prop-fixture-002', '4700'].includes(String(((c.body as Body).data as Record<string, unknown>).id).trim().toLowerCase()));
     }
     const keys = repo.listProposals().flatMap((p) => [p.id.toLowerCase(), String(p.code).toLowerCase()]);
-    assert.equal(keys.filter((k) => k === 'prop-seta-002').length, 1);
+    assert.equal(keys.filter((k) => k === 'prop-fixture-002').length, 1);
     assert.equal(keys.filter((k) => k === '4700').length, 1);
   });
 
   it('contexto interno: id/codigo ja existente => 409 (repositorio lanca RecordIdConflictError)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const body of [{ id: 'prop-seta-002' }, { id: 'Prop-Seta-002' }, { id: '4699' }, { code: '4701' }, { code: 'prop-seta-004' }]) {
+    for (const body of [{ id: 'prop-fixture-002' }, { id: 'Prop-Fixture-002' }, { id: '4699' }, { code: '4701' }, { code: 'prop-fixture-004' }]) {
       const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/proposals', body: { ...body, title: 'T', companyName: 'C' } });
       assert.equal(r.status, 409, JSON.stringify(body));
       assert.match(String((r.body as Body).code), /^PROPOSAL_(ID|CODE)_CONFLICT$/);
     }
-    assert.throws(() => repo.createProposal({ id: 'prop-seta-001', title: 'x' }), RecordIdConflictError);
+    assert.throws(() => repo.createProposal({ id: 'prop-fixture-001', title: 'x' }), RecordIdConflictError);
     const ok = repo.createProposal({ title: 'Nova sem id' });
     assert.match(ok.id, /^prop-/);
     assert.ok(ok.code && repo.listProposals().filter((p) => p.code === ok.code).length === 1, 'codigo gerado unico');
@@ -94,20 +95,20 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const up = props(repo, 'prop-nova-upsert')[0];
     assert.ok(up && up.code.toLowerCase() !== '4700', 'codigo ocupado => servidor gera outro');
-    const r2 = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/PROP-SETA-002', query: A(), body: { title: 'Sombra por caixa' } });
+    const r2 = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/PROP-FIXTURE-002', query: A(), body: { title: 'Sombra por caixa' } });
     assert.equal(r2.status, 409);
-    assert.equal(props(repo, 'prop-seta-002')[0].title !== 'Sombra por caixa', true);
+    assert.equal(props(repo, 'prop-fixture-002')[0].title !== 'Sombra por caixa', true);
   });
 
   it('journal: proposta nova com id de outra (caixa/codigo) e descartada; codigo ocupado/ausente => codigo do servidor', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const fut = new Date(Date.now() + 60_000).toISOString();
-    const victimBefore = JSON.stringify(props(repo, 'prop-seta-002')[0]);
+    const victimBefore = JSON.stringify(props(repo, 'prop-fixture-002')[0]);
     const r = await router.dispatch({
       method: 'POST', path: '/api/state/reconcile', query: S(),
       body: { journal: { upsertedProposals: [
-        { id: 'PROP-SETA-002', title: 'Sombra caixa', updatedAt: fut },
+        { id: 'PROP-FIXTURE-002', title: 'Sombra caixa', updatedAt: fut },
         { id: '4700', title: 'Sombra codigo', updatedAt: fut },
         { id: 'jn-dup-code', code: '4700', title: 'Codigo da vitima', updatedAt: fut },
         { id: 'jn-ok', code: 'PROP-JN-1', title: 'Nova legitima', updatedAt: fut },
@@ -115,20 +116,20 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
     });
     assert.equal(r.status, 200);
     const all = repo.listProposals();
-    assert.ok(!all.some((p) => p.id === 'PROP-SETA-002' || p.id === '4700'), 'sombras descartadas');
+    assert.ok(!all.some((p) => p.id === 'PROP-FIXTURE-002' || p.id === '4700'), 'sombras descartadas');
     assert.equal(all.filter((p) => String(p.code).toLowerCase() === '4700').length, 1, 'codigo da vitima nao duplica');
     assert.ok(props(repo, 'jn-dup-code')[0].code && props(repo, 'jn-dup-code')[0].code !== '4700');
     assert.equal(props(repo, 'jn-ok')[0].code, 'PROP-JN-1');
-    assert.equal(JSON.stringify(props(repo, 'prop-seta-002')[0]), victimBefore);
+    assert.equal(JSON.stringify(props(repo, 'prop-fixture-002')[0]), victimBefore);
     // Existente: o journal nao troca o codigo para o de outra nem o apaga.
-    const cur = props(repo, 'prop-seta-004')[0];
+    const cur = props(repo, 'prop-fixture-004')[0];
     await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: '4700', updatedAt: new Date(Date.now() + 120_000).toISOString() }] } } });
-    assert.equal(props(repo, 'prop-seta-004')[0].code, cur.code);
+    assert.equal(props(repo, 'prop-fixture-004')[0].code, cur.code);
     await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: null, updatedAt: new Date(Date.now() + 180_000).toISOString() }] } } });
-    assert.equal(props(repo, 'prop-seta-004')[0].code, cur.code);
+    assert.equal(props(repo, 'prop-fixture-004')[0].code, cur.code);
     // Numeracao GestaoClick: codigo legado PROP-AAAA-NNN do navegador nao troca o numero do servidor.
     await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: 'PROP-2026-004', updatedAt: new Date(Date.now() + 240_000).toISOString() }] } } });
-    assert.equal(props(repo, 'prop-seta-004')[0].code, '4702');
+    assert.equal(props(repo, 'prop-fixture-004')[0].code, '4702');
   });
 
   it('contatos, empresas, negocios e contratos: POST com id existente => 409 e nada muda; numero de contrato nao duplica', async () => {
@@ -171,7 +172,7 @@ describe('Pacote J (A2): proposta sem code nao derruba as edicoes', () => {
     assert.equal(rj.status, 200);
     const nc = props(repo, 'jn-nocode')[0];
     assert.ok(nc && typeof nc.code === 'string' && nc.code.length > 0, 'code preenchido pelo servidor');
-    const p = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-seta-002', query: A(), body: { title: 'admin edita outra' } });
+    const p = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-fixture-002', query: A(), body: { title: 'admin edita outra' } });
     assert.equal(p.status, 200, JSON.stringify(p.body));
     const p2 = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/jn-nocode', query: A(), body: { title: 'edita a propria' } });
     assert.equal(p2.status, 200);
@@ -185,7 +186,7 @@ describe('Pacote J (A2): proposta sem code nao derruba as edicoes', () => {
     state.erp.proposals.push(legacy as unknown as ErpCommercialProposal);
     repo.loadState(state);
     const router = new CrmApiRouter(repo);
-    for (const [id, title] of [['prop-seta-002', 'ok 1'], ['legacy-nocode', 'ok 2']]) {
+    for (const [id, title] of [['prop-fixture-002', 'ok 1'], ['legacy-nocode', 'ok 2']]) {
       const r = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${id}`, query: A(), body: { title } });
       assert.equal(r.status, 200, `${id} ${JSON.stringify(r.body)}`);
     }

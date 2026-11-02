@@ -874,7 +874,7 @@ export default function StiHubAdminRbacPanel({
           to: testRecipient.trim(),
           cc: 'comercial@setatelecom.com.br',
           subject: '[STI-hub Mailer • Teste Validado] Proposta Comercial #4695 & Link PDF A4',
-          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-seta-001\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
+          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
           companyName: 'Seta Telecom Homologação',
           documentCode: '4695',
           amountBrl: 14800,
@@ -1352,7 +1352,7 @@ export default function StiHubAdminRbacPanel({
                 Testar Disparo de E-mail Transacional Agora
               </div>
               <p className="text-[11px] text-slate-600">
-                Envia um e-mail de validação com o link público de Proposta PDF A4 (`https://sti-hub.vercel.app/proposta/prop-seta-001`) e registra protocolo na Timeline.
+                Envia um e-mail de validação com o link público de Proposta PDF A4 (`https://sti-hub.vercel.app/proposta/prop-gc-4695`) e registra protocolo na Timeline.
               </p>
               <div className="flex gap-2">
                 <input

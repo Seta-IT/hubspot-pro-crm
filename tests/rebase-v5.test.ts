@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 import {
   BRIDGE_LARGE_BODY_BYTES,
@@ -76,7 +76,7 @@ describe('Rebase v5: teto de corpo do dispatch = regra do bridge (pacote M)', ()
     assert.equal((over.body as { maxBytes: number }).maxBytes, BRIDGE_LARGE_BODY_BYTES);
     const declared = await router.dispatch({ method: 'POST', path: '/api/erp/financial/reconcile-ofx', query: q(), body: { a: 1 }, bodyBytes: BRIDGE_LARGE_BODY_BYTES + 1 });
     assert.equal(declared.status, 413);
-    for (const path of ['/api/erp/proposals', '/api/erp/proposals/prop-seta-002/approve', '/api/portal/tickets']) {
+    for (const path of ['/api/erp/proposals', '/api/erp/proposals/prop-fixture-002/approve', '/api/portal/tickets']) {
       const r = await router.dispatch({ method: 'POST', path, query: q(), body: { conteudo: 'x'.repeat(MB3) } });
       assert.equal(r.status, 413, path);
     }
