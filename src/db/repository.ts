@@ -6835,6 +6835,7 @@ export class CrmRepository {
       subject: input.subject.trim(),
       body: input.body,
       createdBy: (input.createdBy || "Marcelo Lopes Mira").trim(),
+      ...(input.updatedBy ? { updatedBy: String(input.updatedBy).trim() } : {}),
       usageCount: input.usageCount ?? 0,
       createdAt: now,
       updatedAt: now,
@@ -6842,6 +6843,44 @@ export class CrmRepository {
     this.state.emailTemplates!.unshift(tpl);
     this.save();
     return tpl;
+  }
+
+  /** Pacote O: altera so name/category/subject/body; autoria da alteracao vem do chamador (sessao). */
+  updateEmailTemplate(
+    id: string,
+    patch: Partial<Pick<CrmEmailTemplate, "name" | "category" | "subject" | "body">>,
+    updatedBy: string
+  ): CrmEmailTemplate | null {
+    this.ensureTasksAndTemplates();
+    const idx = this.state.emailTemplates!.findIndex((t) => t.id === id);
+    if (idx === -1) return null;
+    const cur = this.state.emailTemplates![idx];
+    const next: CrmEmailTemplate = {
+      ...cur,
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.category !== undefined ? { category: patch.category } : {}),
+      ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
+      ...(patch.body !== undefined ? { body: patch.body } : {}),
+      id: cur.id,
+      createdBy: cur.createdBy,
+      createdAt: cur.createdAt,
+      usageCount: cur.usageCount,
+      updatedBy: String(updatedBy || "Sistema STI-hub").trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.emailTemplates![idx] = next;
+    this.save();
+    return next;
+  }
+
+  /** Pacote O: exclui um modelo pelo id exato. */
+  deleteEmailTemplate(id: string): boolean {
+    this.ensureTasksAndTemplates();
+    const before = this.state.emailTemplates!.length;
+    this.state.emailTemplates = this.state.emailTemplates!.filter((t) => t.id !== id);
+    if (this.state.emailTemplates.length === before) return false;
+    this.save();
+    return true;
   }
 
   listSnippets(): CrmSnippet[] {

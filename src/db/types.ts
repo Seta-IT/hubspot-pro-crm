@@ -1809,6 +1809,8 @@ export interface CrmEmailTemplate {
   subject: string;
   body: string;
   createdBy: string;
+  /** Pacote O: autor da ultima alteracao (sempre da sessao). */
+  updatedBy?: string;
   usageCount: number;
   createdAt: string;
   updatedAt: string;

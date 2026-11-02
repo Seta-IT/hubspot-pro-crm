@@ -168,6 +168,12 @@ import {
 } from './password-reset';
 import { hashPasswordScrypt, verifyStoredPassword } from '../db/password-hash';
 import { isRecordIdConflictError } from '../db/record-id-guard';
+import {
+  emailTemplateWritePrivilege,
+  handleEmailTemplateRoute,
+  isEmailTemplateRoute,
+  sanitizeEmailTemplateJournal,
+} from './email-template-routes';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -1416,10 +1422,31 @@ export class CrmApiRouter {
     const priv = this.fiscalIssuancePrivilege(query, ctx);
     // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
     // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).
-    const rec = this.repo.reconcileClientState(
-      this.sanitizeProposalJournal(deepRedactProposalLinkTokens(journal), query, ctx),
-      { canIssueFiscalDocuments: priv.allowed }
-    );
+    const sanitizedJournal = this.sanitizeProposalJournal(deepRedactProposalLinkTokens(journal), query, ctx);
+    // Pacote O: modelos de e-mail no journal so com a alcada do PUT; o journal nunca cria modelo.
+    if (Array.isArray(sanitizedJournal.upsertedEmailTemplates) && sanitizedJournal.upsertedEmailTemplates.length > 0) {
+      const tplPriv = emailTemplateWritePrivilege(this.repo, query, ctx);
+      const tplRes = sanitizeEmailTemplateJournal(this.repo, sanitizedJournal.upsertedEmailTemplates, tplPriv);
+      sanitizedJournal.upsertedEmailTemplates = tplRes.safe;
+      if (tplRes.denied > 0) {
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: tplPriv.email || 'desconhecido',
+            actorName: tplPriv.name || 'desconhecido',
+            actorRole: tplPriv.roleId || 'desconhecido',
+            action: 'EMAIL_TEMPLATE_WRITE_DENIED',
+            module: 'CRM',
+            resource: `journal ${resource}`.slice(0, 200),
+            status: 'BLOCKED',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `Journal: ${tplRes.denied} alteracao(oes) de modelo de e-mail descartada(s): exige 2FA e Marketing EDIT/FULL ou administrador.`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+      }
+    }
+    const rec = this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
     if (rec.fiscalDropped && rec.fiscalDropped > 0) {
       try {
         this.repo.appendSecurityAuditLog({
@@ -7170,26 +7197,9 @@ export class CrmApiRouter {
         }
       }
 
-      if (cleanPath === '/api/email-templates') {
-        if (method === 'GET') {
-          const list = this.repo.listEmailTemplates();
-          return { status: 200, body: { data: list, total: list.length } };
-        }
-        if (method === 'POST') {
-          if (!body.name || !body.subject || !body.body) {
-            return {
-              status: 400,
-              body: { error: 'Os campos "name", "subject" e "body" são obrigatórios.' },
-            };
-          }
-          const created = this.repo.createEmailTemplate({
-            ...(body as Record<string, unknown>),
-            name: String(body.name),
-            subject: String(body.subject),
-            body: String(body.body),
-          });
-          return { status: 201, body: { data: created } };
-        }
+      // Pacote O: modelos de e-mail (lista/leitura com sessao; escrita com 2FA + Marketing EDIT/FULL ou admin).
+      if (isEmailTemplateRoute(cleanPath)) {
+        return handleEmailTemplateRoute(this.repo, method, cleanPath, query, body, ctx);
       }
 
       if (cleanPath === '/api/snippets') {
