@@ -96,10 +96,14 @@ import {
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
+import { ProposalTemplateSelect } from './ProposalTemplateSelect';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
   buildStandaloneContractA4Html,
   downloadInvoicePdfOnDemand,
+  buildStandaloneInvoiceHtml,
+  loadReceiptTemplateStyle,
+  saveReceiptTemplateStyle,
   matchInvoicesForContract,
   printOrDownloadContractA4,
 } from '../lib/contract-billing-utils';
@@ -530,6 +534,8 @@ export default function ErpGestaoClickTab({
   const [syncingGc, setSyncingGc] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Modelo da folha do Recibo de Locação: mesmos modelos da proposta (padrão Clean Corporate Light).
+  const [invoiceSheetTemplate, setInvoiceSheetTemplate] = useState(() => loadReceiptTemplateStyle());
   const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] =
     useState<ErpFiscalInvoice | null>(null);
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] =
@@ -6774,6 +6780,27 @@ export default function ErpGestaoClickTab({
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO' && (
+                  <>
+                    <ProposalTemplateSelect
+                      value={invoiceSheetTemplate}
+                      onChange={(id) => {
+                        setInvoiceSheetTemplate(id);
+                        saveReceiptTemplateStyle(id);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(selectedInvoiceForPrint.pixCopyPaste);
+                        onShowToast('Código PIX Copia-e-Cola copiado!');
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copiar PIX
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -6782,7 +6809,7 @@ export default function ErpGestaoClickTab({
                         c.id === selectedInvoiceForPrint.rentalContractId ||
                         c.contractNumber === selectedInvoiceForPrint.contractNumber
                     );
-                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT');
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT', invoiceSheetTemplate);
                   }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
                 >
@@ -6797,7 +6824,7 @@ export default function ErpGestaoClickTab({
                         c.id === selectedInvoiceForPrint.rentalContractId ||
                         c.contractNumber === selectedInvoiceForPrint.contractNumber
                     );
-                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD');
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD', invoiceSheetTemplate);
                   }}
                   className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
@@ -6824,6 +6851,25 @@ export default function ErpGestaoClickTab({
               </div>
             </div>
 
+            {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO' ? (
+              <div className="bg-slate-100 p-3">
+                <iframe
+                  title="Fatura / Recibo de Locação A4"
+                  data-testid="rental-invoice-sheet-preview"
+                  srcDoc={buildStandaloneInvoiceHtml(
+                    selectedInvoiceForPrint,
+                    rentalContracts.find(
+                      (c) =>
+                        c.id === selectedInvoiceForPrint.rentalContractId ||
+                        c.contractNumber === selectedInvoiceForPrint.contractNumber
+                    ),
+                    { templateStyle: invoiceSheetTemplate, embedded: true }
+                  )}
+                  className="w-full bg-white block border-0 rounded"
+                  style={{ height: '78vh' }}
+                />
+              </div>
+            ) : (
             <div className="p-6 space-y-5 text-xs text-slate-800">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 pb-4 border-t-4 border-t-[#1e3a6e] border-b border-slate-200">
                 <div>
@@ -6841,7 +6887,7 @@ export default function ErpGestaoClickTab({
                 </div>
                 <div className="text-right">
                   <div className="inline-block px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-bold uppercase text-[#1e3a6e]">
-                    {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO'
+                    {(selectedInvoiceForPrint.documentType as string) === 'FATURA_LOCACAO'
                       ? 'FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)'
                       : selectedInvoiceForPrint.documentType === 'NFSE_SERVICO'
                         ? 'NOTA FISCAL DE SERVIÇOS ELETRÔNICA (NFS-e PADRÃO NACIONAL)'
@@ -7001,6 +7047,7 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
             </div>
+            )}
           </div>
         </div>
       )}

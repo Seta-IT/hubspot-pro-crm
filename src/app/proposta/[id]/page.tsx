@@ -1,6 +1,8 @@
 'use client';
 
 import React, { Suspense, useContext, useEffect, useRef, useState } from 'react';
+import { PROPOSAL_SHEET_TW } from '../../lib/proposal-sheet-theme';
+import { ProposalTemplateSelect } from '../../components/ProposalTemplateSelect';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Printer,
@@ -870,110 +872,26 @@ function PublicProposalPrintContent() {
     ? Math.round((productsSubtotal + servicesSubtotal - totalDiscounts + shippingCost + isolatedSetupTotal) * 100) / 100
     : proposal.monthlyRecurringTotal || proposal.totalContractValue;
 
-  const isOption2Swiss = activeLayout === "MINIMAL_SWISS_PAPER";
-  const isOption3Indigo = activeLayout === "EXECUTIVE_SOFT_INDIGO";
 
-  const pageOuterBgClass = isOption2Swiss
-    ? "bg-[#f3f4f6]"
-    : isOption3Indigo
-      ? "bg-[#eef2ff]"
-      : "bg-[#f1f5f9]";
-
-  const sheetBorderClass = isOption2Swiss
-    ? "border-slate-300 rounded-md"
-    : isOption3Indigo
-      ? "border-indigo-200 rounded-xl"
-      : "border-slate-300 rounded-lg";
-
-  const headerBgClass = isOption2Swiss
-    ? "bg-white text-slate-900 border-t-3 border-t-slate-900 border-b border-b-slate-200"
-    : isOption3Indigo
-      ? "bg-gradient-to-br from-[#f5f7ff] to-[#eef2ff] text-indigo-950 border-t-4 border-t-indigo-600 border-b border-b-indigo-200"
-      : "bg-gradient-to-b from-[#f0f6ff] to-white text-[#0d2b4e] border-t-4 border-t-[#1e3a6e] border-b border-b-blue-100";
-
-  const headerBadgeClass = isOption2Swiss
-    ? "bg-slate-50 text-slate-700 border border-slate-300"
-    : isOption3Indigo
-      ? "bg-white text-indigo-700 border border-indigo-200"
-      : "bg-blue-50 text-[#1e3a6e] border border-blue-200";
-
-  const metaBoxClass = isOption2Swiss
-    ? "bg-white border border-slate-200"
-    : isOption3Indigo
-      ? "bg-white border border-indigo-200"
-      : "bg-slate-50/90 border border-blue-100";
-
-  const instCardClass = isOption2Swiss
-    ? "bg-white border border-slate-200 border-l-3 border-l-emerald-500"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100 border-l-4 border-l-indigo-600"
-      : "bg-slate-50/90 border border-slate-200 border-l-4 border-l-[#f26522]";
-
-  const instEyebrowColorClass = isOption2Swiss
-    ? "text-emerald-600"
-    : isOption3Indigo
-      ? "text-indigo-600"
-      : "text-[#f26522]";
-
-  const bulletColorClass = isOption2Swiss
-    ? "text-emerald-500"
-    : isOption3Indigo
-      ? "text-indigo-600"
-      : "text-[#f26522]";
-
-  const softBoxClass = isOption2Swiss
-    ? "bg-[#fafafa] border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100"
-      : "bg-slate-50/90 border border-slate-200";
-
-  const stripBoxClass = isOption2Swiss
-    ? "bg-white border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#f5f7ff] border border-indigo-100"
-      : "bg-[#f0f7ff] border border-blue-100";
-
-  const scopeBorderClass = isOption2Swiss
-    ? "border-emerald-500"
-    : isOption3Indigo
-      ? "border-indigo-600"
-      : "border-[#1e3a6e]";
-
-  const tableCardBorderClass = isOption2Swiss
-    ? "border-slate-200"
-    : isOption3Indigo
-      ? "border-indigo-100"
-      : "border-slate-300";
-
-  const tableHeaderBgClass = isOption2Swiss
-    ? "bg-slate-50 text-slate-900 border-b border-slate-200"
-    : isOption3Indigo
-      ? "bg-indigo-50/90 text-indigo-950 border-b border-indigo-100"
-      : "bg-slate-100 text-[#1e3a6e] border-b border-slate-200";
-
-  const tableColHeadClass = isOption2Swiss
-    ? "bg-white text-slate-600 border-b border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] text-indigo-900/80 border-b border-indigo-100"
-      : "bg-slate-50 text-slate-600 border-b border-slate-200";
-
-  const totalBoxBgClass = isOption2Swiss
-    ? "bg-white text-slate-900 border border-slate-300"
-    : isOption3Indigo
-      ? "bg-[#f5f7ff] text-slate-900 border border-indigo-200"
-      : "bg-slate-50 text-slate-900 border border-slate-300";
-
-  const flowBoxClass = isOption2Swiss
-    ? "bg-[#fafafa] border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100"
-      : "bg-slate-50/90 border border-blue-100";
-
-  const stepBadgeClass = isOption2Swiss
-    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-    : isOption3Indigo
-      ? "bg-indigo-50 text-indigo-800 border border-indigo-200"
-      : "bg-blue-50 text-[#1e3a6e] border border-blue-200";
+  // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
+  const sheetTw = PROPOSAL_SHEET_TW[activeLayout];
+  const pageOuterBgClass = sheetTw.pageOuterBg;
+  const sheetBorderClass = sheetTw.sheetBorder;
+  const headerBgClass = sheetTw.headerBg;
+  const headerBadgeClass = sheetTw.headerBadge;
+  const metaBoxClass = sheetTw.metaBox;
+  const instCardClass = sheetTw.instCard;
+  const instEyebrowColorClass = sheetTw.instEyebrowColor;
+  const bulletColorClass = sheetTw.bulletColor;
+  const softBoxClass = sheetTw.softBox;
+  const stripBoxClass = sheetTw.stripBox;
+  const scopeBorderClass = sheetTw.scopeBorder;
+  const tableCardBorderClass = sheetTw.tableCardBorder;
+  const tableHeaderBgClass = sheetTw.tableHeaderBg;
+  const tableColHeadClass = sheetTw.tableColHead;
+  const totalBoxBgClass = sheetTw.totalBoxBg;
+  const flowBoxClass = sheetTw.flowBox;
+  const stepBadgeClass = sheetTw.stepBadge;
 
   const locacaoTotal = proposal.items
     .filter((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
@@ -1063,23 +981,12 @@ function PublicProposalPrintContent() {
             <span className="sr-only">Consultas Internas / Versões</span>
           </button>
 
-          <select
+          <ProposalTemplateSelect
             value={activeLayout}
-            onChange={(e) =>
-              handleTemplateStyleChange(
-                e.target.value as NonNullable<ErpCommercialProposal["templateStyle"]>
-              )
+            onChange={(id) =>
+              handleTemplateStyleChange(id as NonNullable<ErpCommercialProposal["templateStyle"]>)
             }
-            className="px-2.5 py-1.5 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer"
-            title="Escolher Template / Layout do Documento A4"
-            aria-label="Modelo do documento"
-          >
-            {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id} className="text-slate-900">
-                Modelo: {opt.shortLabel}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 

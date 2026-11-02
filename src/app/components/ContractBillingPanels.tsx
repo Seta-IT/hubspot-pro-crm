@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { Eye } from "lucide-react";
 import { ErpCatalogItem, ErpContractVersionEntry, ErpFiscalInvoice, ErpRentalContract, ErpRentalEquipmentItem } from "../../db/types";
 import { formatBRL } from "./ui-helpers";
-import { ContractAuxiliaryOptions, ContractBillingRunOptions, CustomDueDateRulePreset, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
+import { ContractAuxiliaryOptions, ContractBillingRunOptions, CustomDueDateRulePreset, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
+import { ProposalTemplateSelect } from "./ProposalTemplateSelect";
 
 type Weekday = 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY';
 
@@ -433,9 +434,11 @@ export function ReceiptDraftPreviewModal({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [finalizing, setFinalizing] = useState(false);
+  // Mesmo seletor/modelos da proposta; Clean Corporate Light é o padrão. Só UI (localStorage).
+  const [templateStyle, setTemplateStyle] = useState(() => loadReceiptTemplateStyle());
   const { invoice, html } = useMemo(
-    () => buildDraftReceiptHtml(contract, options, existingInvoicesCount),
-    [contract, options, existingInvoicesCount]
+    () => buildDraftReceiptHtml(contract, options, existingInvoicesCount, templateStyle),
+    [contract, options, existingInvoicesCount, templateStyle]
   );
   const print = () => {
     const w = iframeRef.current?.contentWindow;
@@ -463,6 +466,14 @@ export function ReceiptDraftPreviewModal({
           <iframe ref={iframeRef} title="Rascunho do recibo A4" srcDoc={html} className="w-full bg-white shadow mx-auto block" style={{ maxWidth: '230mm', height: '75vh', border: 0 }} />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50 text-xs">
+          <ProposalTemplateSelect
+            value={templateStyle}
+            onChange={(id) => {
+              setTemplateStyle(id);
+              saveReceiptTemplateStyle(id);
+            }}
+            className="mr-auto px-2.5 py-2 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer"
+          />
           <button type="button" onClick={print} className={`px-3 py-2 ${BTN_OUTLINE}`}>Imprimir / Baixar PDF</button>
           <button type="button" onClick={onClose} disabled={finalizing} className={`px-3 py-2 ${BTN_OUTLINE}`}>Voltar e editar</button>
           {onFinalize && (
