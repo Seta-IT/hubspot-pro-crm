@@ -51,18 +51,33 @@ describe('Certificado A1: mapeamento de códigos de erro (contrato final)', () =
     assert.equal(all.size, cases.length, 'mensagens distintas por código');
   });
 
-  it('CNPJ divergente mostra os dois CNPJs formatados a partir do cnpjCheck real', () => {
+  it('CNPJ divergente mostra só os CNPJs que vieram no cnpjCheck do servidor', () => {
     const m = certificateErrorMessage(422, 'CERT_CNPJ_MISMATCH', {
       certificateCnpj: '11222333000181',
       certificateCnpjSource: 'OID_2_16_76_1_3_3',
-      expectedCnpj: '14806925000132',
+      expectedCnpj: '11444777000161',
       expectedCnpjSource: 'companyEmitter',
       sameRoot: false,
     });
-    assert.match(m, /CNPJ do certificado: 11\.222\.333\/0001-81/);
-    assert.match(m, /CNPJ esperado: 14\.806\.925\/0001-32/);
-    assert.match(certificateErrorMessage(422, 'CERT_CNPJ_MISMATCH'), /Seta Telecom.*14\.806\.925\/0001-32/);
-    assert.equal(formatCnpj('14806925000132'), '14.806.925/0001-32');
+    assert.match(m, /CNPJ do certificado: 11\.222\.333\/0001-81\./);
+    assert.match(m, /CNPJ esperado: 11\.444\.777\/0001-61\./);
+    const soCert = certificateErrorMessage(422, 'CERT_CNPJ_MISMATCH', { certificateCnpj: '11222333000181' });
+    assert.match(soCert, /CNPJ do certificado: 11\.222\.333\/0001-81/);
+    assert.doesNotMatch(soCert, /CNPJ esperado/);
+    const soEsperado = certificateErrorMessage(422, 'CERT_CNPJ_MISMATCH', { expectedCnpj: '11444777000161' });
+    assert.match(soEsperado, /CNPJ esperado: 11\.444\.777\/0001-61/);
+    assert.doesNotMatch(soEsperado, /CNPJ do certificado:/);
+    const semCheck = certificateErrorMessage(422, 'CERT_CNPJ_MISMATCH');
+    assert.equal(semCheck, CERT_A1_ERROR_MESSAGES.CERT_CNPJ_MISMATCH);
+    assert.doesNotMatch(semCheck, /\d/);
+    assert.equal(formatCnpj('11444777000161'), '11.444.777/0001-61');
+  });
+
+  it('nenhum CNPJ fixo da empresa no código do cliente do certificado', () => {
+    for (const f of ['src/app/lib/certificate-a1-client.ts', 'src/app/components/CertificateA1UploadCard.tsx']) {
+      const code = src(f);
+      assert.doesNotMatch(code, /0001-32|14806925|14\.806\.925|SETA_TELECOM_CNPJ/, f);
+    }
   });
 
   it('senha errada e arquivo inválido usam a mesma mensagem genérica', () => {
@@ -84,7 +99,7 @@ describe('Certificado A1: mapeamento de códigos de erro (contrato final)', () =
   it('envelope de erro: code só no nível de cima (error.code é ignorado)', () => {
     assert.deepEqual(readCertificateError({ error: 'x', code: 'CERT_EXPIRED' }), { code: 'CERT_EXPIRED', cnpjCheck: undefined });
     assert.deepEqual(readCertificateError({ error: { code: 'CERT_EXPIRED' } }), { code: undefined, cnpjCheck: undefined });
-    assert.equal(readCertificateError({ code: 'CERT_CNPJ_MISMATCH', cnpjCheck: { expectedCnpj: '14806925000132' } }).cnpjCheck?.expectedCnpj, '14806925000132');
+    assert.equal(readCertificateError({ code: 'CERT_CNPJ_MISMATCH', cnpjCheck: { expectedCnpj: '11444777000161' } }).cnpjCheck?.expectedCnpj, '11444777000161');
     assert.deepEqual(readCertificateError(null), {});
   });
 

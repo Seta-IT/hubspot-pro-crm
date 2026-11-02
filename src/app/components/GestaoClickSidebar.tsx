@@ -237,6 +237,8 @@ interface GestaoClickSidebarProps {
   onToggleCollapse?: () => void;
   mobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
+  /** Árvore já filtrada por permissão (filterErpMenuTree). Padrão: árvore completa. */
+  menuTree?: GestaoClickNavGroup[];
 }
 
 export default function GestaoClickSidebar({
@@ -249,6 +251,7 @@ export default function GestaoClickSidebar({
   onToggleCollapse,
   mobileDrawerOpen = false,
   onCloseMobileDrawer,
+  menuTree = GESTAO_CLICK_MENU_TREE,
 }: GestaoClickSidebarProps) {
   const closeMobileIfOpen = () => {
     if (onCloseMobileDrawer) onCloseMobileDrawer();
@@ -329,7 +332,7 @@ export default function GestaoClickSidebar({
         {/* ÁRVORE VERTICAL EM 4 BLOCOS CORPORATIVOS + ACORDEÃO INTELIGENTE */}
         <nav className="px-2 py-2.5 space-y-3">
           {GESTAO_CLICK_CORPORATE_BLOCKS.map((blockName) => {
-            const groups = GESTAO_CLICK_MENU_TREE.filter((g) => g.category === blockName);
+            const groups = menuTree.filter((g) => g.category === blockName);
             return (
               <div key={blockName} className="space-y-0.5">
                 <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">

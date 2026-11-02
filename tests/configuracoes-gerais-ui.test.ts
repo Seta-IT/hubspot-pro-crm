@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ERP_GENERAL_HIDDEN_SECTIONS,
   ERP_GENERAL_SECTIONS,
   PRINT_FIELDS,
   buildDefaultErpGeneralSettings,
@@ -20,18 +21,23 @@ import {
 const src = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 
 describe('Configurações gerais: seções e busca', () => {
-  it('tem as 9 seções na ordem do GestãoClick', () => {
+  it('tem as 8 seções visíveis na ordem do GestãoClick (PDV oculto só na interface)', () => {
     assert.deepEqual(
       ERP_GENERAL_SECTIONS.map((s) => s.title),
-      ['Geral', 'Numerações', 'Impressão', 'Textos padrão', 'PDV', 'Compras', 'Fiscal', 'E-mails', 'Domínio próprio']
+      ['Geral', 'Numerações', 'Impressão', 'Textos padrão', 'Compras', 'Fiscal', 'E-mails', 'Domínio próprio']
     );
+    assert.deepEqual(ERP_GENERAL_HIDDEN_SECTIONS.map((s) => s.id), ['PDV']);
+    assert.ok(filterGeneralSections('balcão').every((s) => s.id !== 'PDV'));
+    assert.ok(filterGeneralSections('pdv').every((s) => s.id !== 'PDV'));
+    // dados e padrão do PDV continuam no modelo
+    assert.ok(buildDefaultErpGeneralSettings().pdv);
   });
   it('busca ignora acento e caixa e procura em palavras-chave', () => {
     assert.deepEqual(filterGeneralSections('xml').map((s) => s.id), ['COMPRAS']);
     assert.ok(filterGeneralSections('IMPRESSAO').some((s) => s.id === 'IMPRESSAO'));
     assert.ok(filterGeneralSections('smtp').some((s) => s.id === 'EMAILS'));
     assert.ok(filterGeneralSections('certificado').some((s) => s.id === 'FISCAL'));
-    assert.equal(filterGeneralSections('').length, 9);
+    assert.equal(filterGeneralSections('').length, 8);
     assert.equal(filterGeneralSections('zzzz').length, 0);
   });
 });

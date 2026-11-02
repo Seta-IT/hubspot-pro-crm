@@ -491,14 +491,17 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
         )
       )}
 
-      {/* Seção 3: ambiente de emissão (configuração já existente) */}
-      {environment && (
+      {/* Seção 3: ambiente de emissão (configuração já existente).
+          Gravar (PUT /api/admin/settings) exige admin com 2FA: o mesmo sinal do servidor
+          (data.canManage do GET /api/erp/certificate). Sem ele, select só leitura e sem Salvar. */}
+      {environment && loadState === 'ready' && (
         <SectionCard
           icon={Server}
           lead="Ambiente de"
           strong="emissão"
           subtitle="Define se as notas são emitidas com validade jurídica ou em testes na SEFAZ e na prefeitura."
           footer={
+            canManage ? (
             <div className="flex items-center justify-between gap-3">
               {onOpenFiscalSeries ? (
                 <button
@@ -520,13 +523,23 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
                 {environment.saving ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
+            ) : (
+              <div className="flex items-center gap-2 text-slate-500">
+                <Lock className="w-3.5 h-3.5" />
+                <span className="font-semibold">Somente administradores com 2FA podem alterar o ambiente de emissão.</span>
+              </div>
+            )
           }
         >
           <SettingRow icon={Server} title="Ambiente SEFAZ / Prefeitura" description="Produção para emissões reais; Homologação para testes.">
             <select
               value={environment.value}
-              onChange={(e) => environment.onChange(e.target.value as SefazEnvironment)}
-              className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+              onChange={(e) => {
+                if (canManage) environment.onChange(e.target.value as SefazEnvironment);
+              }}
+              disabled={!canManage}
+              aria-readonly={!canManage}
+              className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white font-semibold disabled:bg-slate-50 disabled:text-slate-600 disabled:cursor-not-allowed"
             >
               <option value="PRODUCAO">Produção (validade jurídica)</option>
               <option value="HOMOLOGACAO">Homologação (testes)</option>

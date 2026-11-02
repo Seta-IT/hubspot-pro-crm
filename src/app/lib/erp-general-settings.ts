@@ -25,12 +25,20 @@ export interface ErpGeneralSectionMeta {
   keywords: string[];
 }
 
+/**
+ * Seção PDV oculta na interface por decisão do Marcéllo (02/11/2026). O tipo, o
+ * renderizador e os dados salvos (pdv) continuam intactos; para reexibir, volte a
+ * incluir ERP_GENERAL_HIDDEN_SECTIONS na lista abaixo.
+ */
+export const ERP_GENERAL_HIDDEN_SECTIONS: ErpGeneralSectionMeta[] = [
+  { id: 'PDV', title: 'PDV', subtitle: 'Caixa e cupom das vendas de balcão', keywords: ['balcão', 'caixa', 'cupom'] },
+];
+
 export const ERP_GENERAL_SECTIONS: ErpGeneralSectionMeta[] = [
   { id: 'GERAL', title: 'Geral', subtitle: 'Números, vendas e cadastros', keywords: ['casas decimais', 'registros', 'estoque', 'pagamento', 'cpf', 'cnpj', 'custo'] },
   { id: 'NUMERACOES', title: 'Numerações', subtitle: 'Próximo número de cada cadastro', keywords: ['número', 'sequência', 'clientes', 'orçamentos', 'vendas', 'contratos'] },
   { id: 'IMPRESSAO', title: 'Impressão', subtitle: 'Formato e o que sai no papel', keywords: ['a4', 'fonte', 'cupom', 'presente', 'documentos', 'pdf'] },
   { id: 'TEXTOS', title: 'Textos padrão', subtitle: 'Observações de cada documento', keywords: ['observações', 'introdução', 'garantia', 'texto'] },
-  { id: 'PDV', title: 'PDV', subtitle: 'Caixa e cupom das vendas de balcão', keywords: ['balcão', 'caixa', 'cupom'] },
   { id: 'COMPRAS', title: 'Compras', subtitle: 'Importação do XML da nota', keywords: ['xml', 'frete', 'desconto', 'impostos', 'nota'] },
   { id: 'FISCAL', title: 'Fiscal', subtitle: 'NF-e, NFC-e e NFS-e', keywords: ['nf-e', 'nfs-e', 'nfcom', 'série', 'certificado', 'sefaz', 'ambiente'] },
   { id: 'EMAILS', title: 'E-mails', subtitle: 'Por onde saem os e-mails', keywords: ['smtp', 'servidor', 'resend', 'remetente', 'envio'] },

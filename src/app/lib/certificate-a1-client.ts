@@ -10,7 +10,6 @@
 export const CERT_A1_ENDPOINT = '/api/erp/certificate';
 export const CERT_A1_MAX_BYTES = 64 * 1024;
 export const CERT_A1_ALLOWED_EXTENSIONS = ['.pfx', '.p12'] as const;
-export const SETA_TELECOM_CNPJ = '14.806.925/0001-32';
 
 export type CertificateA1Status = 'VALIDO' | 'VENCE_EM_30_DIAS' | 'VENCIDO';
 
@@ -56,7 +55,7 @@ export const CERT_A1_ERROR_MESSAGES: Record<string, string> = {
   CERT_EXPIRED: 'O certificado enviado está vencido. Envie um certificado A1 dentro da validade.',
   CERT_NOT_YET_VALID: 'O certificado enviado ainda não está vigente. Verifique a data de início da validade.',
   CERT_NOT_ECNPJ: 'O certificado enviado não é um e-CNPJ. Envie o certificado A1 de pessoa jurídica da Seta Telecom.',
-  CERT_CNPJ_MISMATCH: `O certificado não pertence à Seta Telecom (CNPJ ${SETA_TELECOM_CNPJ}).`,
+  CERT_CNPJ_MISMATCH: 'O CNPJ do certificado não corresponde ao CNPJ da empresa configurado no STI-hub.',
   CERT_RATE_LIMITED: 'Muitas tentativas com falha. Aguarde 15 minutos antes de tentar novamente.',
   CERT_FORBIDDEN: 'Sem permissão. Somente administradores com 2FA podem gerenciar o certificado digital.',
   MFA_AUTH_REQUIRED: 'Sua sessão expirou ou não tem 2FA confirmado. Entre novamente no STI-hub.',
@@ -75,6 +74,12 @@ export function formatCnpj(value?: string | null): string {
   const d = String(value || '').replace(/\D+/g, '');
   if (d.length !== 14) return d || '-';
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+function cnpjDigitsOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const d = value.replace(/\D+/g, '');
+  return d.length > 0 ? d : null;
 }
 
 const STATUS_CODES: Record<number, string[]> = {
@@ -97,8 +102,14 @@ export function certificateErrorMessage(status: number, code?: unknown, cnpjChec
   const c = typeof code === 'string' ? code : '';
   const allowed = STATUS_CODES[status] || [];
   if (c && allowed.includes(c)) {
-    if (c === 'CERT_CNPJ_MISMATCH' && cnpjCheck && (cnpjCheck.certificateCnpj || cnpjCheck.expectedCnpj)) {
-      return `O certificado não pertence à Seta Telecom. CNPJ do certificado: ${formatCnpj(cnpjCheck.certificateCnpj)}. CNPJ esperado: ${formatCnpj(cnpjCheck.expectedCnpj)}.`;
+    if (c === 'CERT_CNPJ_MISMATCH') {
+      // Números só do cnpjCheck do servidor; nenhum CNPJ fixo no cliente. Ausente => não exibe.
+      const parts = [CERT_A1_ERROR_MESSAGES.CERT_CNPJ_MISMATCH];
+      const certCnpj = cnpjDigitsOrNull(cnpjCheck?.certificateCnpj);
+      const expected = cnpjDigitsOrNull(cnpjCheck?.expectedCnpj);
+      if (certCnpj) parts.push(`CNPJ do certificado: ${formatCnpj(certCnpj)}.`);
+      if (expected) parts.push(`CNPJ esperado: ${formatCnpj(expected)}.`);
+      return parts.join(' ');
     }
     return CERT_A1_ERROR_MESSAGES[c];
   }

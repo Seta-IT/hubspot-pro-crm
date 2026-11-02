@@ -113,6 +113,15 @@ import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import { lastNumberFromCodes } from '../lib/erp-general-settings';
+import {
+  type ErpConfigAccess,
+  type ErpConfigSessionLike,
+  filterErpMenuTree,
+  firstVisibleErpConfigItem,
+  isErpConfigItemVisible,
+  NO_ERP_CONFIG_ACCESS,
+  resolveErpConfigAccess,
+} from '../lib/erp-config-access';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
@@ -340,6 +349,37 @@ export default function ErpGestaoClickTab({
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
   // Telas dedicadas de Configurações (padrão GestãoClick): sem o cabeçalho genérico, o banner e as abas da Central.
   const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS');
+  // B2: Configurações por permissão (sessão do servidor + matriz rbac.ts). null = carregando (fail closed).
+  const [erpConfigAccess, setErpConfigAccess] = useState<ErpConfigAccess | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (alive) setErpConfigAccess(resolveErpConfigAccess((j?.data ?? null) as ErpConfigSessionLike | null));
+      })
+      .catch(() => {
+        if (alive) setErpConfigAccess(NO_ERP_CONFIG_ACCESS);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeUser?.id]);
+  const visibleMenuTree = useMemo(() => filterErpMenuTree(GESTAO_CLICK_MENU_TREE, erpConfigAccess), [erpConfigAccess]);
+  const cfgScreenAllowed = activeSection !== 'CONFIGURACOES' || isErpConfigItemVisible(erpConfigAccess, activeSubId);
+  // Aberto pela URL/estado sem permissão: vai para o primeiro item permitido ou para o Início.
+  React.useEffect(() => {
+    if (!erpConfigAccess || activeSection !== 'CONFIGURACOES') return;
+    if (isErpConfigItemVisible(erpConfigAccess, activeSubId)) return;
+    const cfgGroup = GESTAO_CLICK_MENU_TREE.find((g) => g.id === 'CONFIGURACOES');
+    const fallback = firstVisibleErpConfigItem(erpConfigAccess, (cfgGroup?.subItems || []).map((x) => x.id));
+    if (fallback) {
+      setActiveSubId(fallback);
+    } else {
+      setActiveSection('INICIO');
+      setActiveSubId('INICIO');
+    }
+  }, [erpConfigAccess, activeSection, activeSubId]);
   // Numerações: último número real a partir dos registros carregados; sem base => vazio.
   const erpNumberingBase = useMemo<Record<string, number | null>>(
     () => ({
@@ -4803,7 +4843,7 @@ export default function ErpGestaoClickTab({
       {/* BARRA RÁPIDA MOBILE DO ERP (PERMITE ABRIR QUALQUER MÓDULO E SUBMÓDULO COM 1 TOQUE NO CELULAR) */}
       <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 space-y-1.5">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {GESTAO_CLICK_MENU_TREE.map((grp) => {
+          {visibleMenuTree.map((grp) => {
             const isAct = activeSection === grp.id;
             return (
               <button
@@ -4827,7 +4867,7 @@ export default function ErpGestaoClickTab({
           })}
         </div>
         {(() => {
-          const activeGrp = GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection);
+          const activeGrp = visibleMenuTree.find((g) => g.id === activeSection);
           if (!activeGrp?.subItems || activeGrp.subItems.length === 0) return null;
           return (
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-slate-100">
@@ -4876,6 +4916,7 @@ export default function ErpGestaoClickTab({
       <div className="flex flex-col md:flex-row min-h-[780px]">
         {!sidebarCollapsed && (
           <GestaoClickSidebar
+            menuTree={visibleMenuTree}
             activeSection={activeSection}
             activeSubId={activeSubId}
             onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
@@ -6572,7 +6613,7 @@ export default function ErpGestaoClickTab({
             />
           )}
 
-          {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (
+          {(activeSection === 'RELATORIOS' || (activeSection === 'CONFIGURACOES' && cfgScreenAllowed)) && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               {!isDedicatedCfgScreen && (<>
               <div className="flex flex-wrap items-center justify-between gap-3">
