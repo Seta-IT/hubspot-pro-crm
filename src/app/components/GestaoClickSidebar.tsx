@@ -20,7 +20,13 @@ import {
   ChevronRight,
   PanelLeftClose,
   X,
+  ShoppingCart,
+  Package,
+  DollarSign,
+  SlidersHorizontal,
+  ScrollText,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { GestaoClickMenuSection } from './ErpGestaoClickTab';
 
 export type GestaoClickCorporateCategory =
@@ -33,6 +39,8 @@ export interface GestaoClickSubItem {
   id: string;
   label: string;
   hasArrowRight?: boolean;
+  /** Ícone de linha opcional exibido antes do rótulo do submenu. */
+  icon?: LucideIcon;
 }
 
 export interface GestaoClickNavGroup {
@@ -49,6 +57,23 @@ export const GESTAO_CLICK_CORPORATE_BLOCKS: GestaoClickCorporateCategory[] = [
   'OPERAÇÃO & TÉCNICO',
   'FINANCEIRO, FISCAL & GOVERNANÇA',
 ];
+
+/** Título de cada tela de Relatórios (só o título, sem relatórios inventados). */
+export const ERP_REPORT_TITLES: Record<string, string> = {
+  REL_CADASTROS: 'Relatórios de Cadastros',
+  REL_VENDAS: 'Relatórios de Vendas',
+  REL_OS: 'Relatórios de Ordens de serviços',
+  REL_ESTOQUE: 'Relatórios de Estoque',
+  REL_FINANCEIRO: 'Relatórios Financeiros',
+  REL_CONTRATOS: 'Relatórios de Contratos',
+  REL_FISCAL: 'Relatórios Fiscais',
+  REL_PERSONALIZADOS: 'Relatórios Personalizados',
+  REL_LOGS: 'Logs do sistema',
+};
+
+export function erpReportTitle(subId: string | null | undefined): string {
+  return (subId && ERP_REPORT_TITLES[subId]) || 'Relatórios';
+}
 
 export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
   {
@@ -189,15 +214,15 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     category: 'FINANCEIRO, FISCAL & GOVERNANÇA',
     icon: LineChart,
     subItems: [
-      { id: 'REL_CADASTROS', label: 'Cadastros' },
-      { id: 'REL_VENDAS', label: 'Vendas' },
-      { id: 'REL_OS', label: 'Ordens de serviços' },
-      { id: 'REL_ESTOQUE', label: 'Estoque' },
-      { id: 'REL_FINANCEIRO', label: 'Financeiro' },
-      { id: 'REL_CONTRATOS', label: 'Contratos' },
-      { id: 'REL_FISCAL', label: 'Fiscal' },
-      { id: 'REL_PERSONALIZADOS', label: 'Personalizados' },
-      { id: 'REL_LOGS', label: 'Logs do sistema' },
+      { id: 'REL_CADASTROS', label: 'Cadastros', icon: Users },
+      { id: 'REL_VENDAS', label: 'Vendas', icon: ShoppingCart },
+      { id: 'REL_OS', label: 'Ordens de serviços', icon: Wrench },
+      { id: 'REL_ESTOQUE', label: 'Estoque', icon: Package },
+      { id: 'REL_FINANCEIRO', label: 'Financeiro', icon: DollarSign },
+      { id: 'REL_CONTRATOS', label: 'Contratos', icon: FileText },
+      { id: 'REL_FISCAL', label: 'Fiscal', icon: Receipt },
+      { id: 'REL_PERSONALIZADOS', label: 'Personalizados', icon: SlidersHorizontal },
+      { id: 'REL_LOGS', label: 'Logs do sistema', icon: ScrollText },
     ],
   },
   {
@@ -396,7 +421,10 @@ export default function GestaoClickSidebar({
                                     : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
                                 }`}
                               >
-                                <span className="truncate">{sub.label}</span>
+                                <span className="flex items-center gap-2 min-w-0">
+                                  {sub.icon && <sub.icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" strokeWidth={1.75} />}
+                                  <span className="truncate">{sub.label}</span>
+                                </span>
                                 {sub.hasArrowRight && (
                                   <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
                                 )}

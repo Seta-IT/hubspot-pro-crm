@@ -109,7 +109,7 @@ import {
   ContractVersionHistoryPanel,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
-import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
+import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE, erpReportTitle } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import ImportFilePicker from './ImportFilePicker';
 import FiscalSettingsPanel from './FiscalSettingsPanel';
@@ -6348,7 +6348,7 @@ export default function ErpGestaoClickTab({
           {activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess && (
             <div data-testid="relatorios-somente-titulo" className="bg-white rounded-md border border-slate-200 p-5">
               <h2 className="text-base font-semibold text-slate-900">
-                {GESTAO_CLICK_MENU_TREE.find((g) => g.id === 'RELATORIOS')?.subItems?.find((x) => x.id === activeSubId)?.label || 'Relatórios'}
+                {erpReportTitle(activeSubId)}
               </h2>
             </div>
           )}
