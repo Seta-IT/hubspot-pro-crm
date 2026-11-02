@@ -271,8 +271,10 @@ describe('Configurações Fiscais — validação zod e campos protegidos', () =
     const tab = fs.readFileSync(path.join(ROOT, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
     assert.match(tab, /activeSubId === "FIS_CONFIGURACOES"/);
     const panel = fs.readFileSync(path.join(ROOT, 'src/app/components/FiscalSettingsPanel.tsx'), 'utf8');
-    assert.match(panel, /Em breve/);
-    assert.match(panel, /disabled aria-disabled/);
+    // certificado: status lido da tela própria (GET /api/erp/certificate) + atalho para ela; sem upload aqui
+    assert.match(panel, /CERT_A1_ENDPOINT/);
+    assert.match(panel, /Abrir Certificado digital/);
+    assert.equal(/pfxBase64/.test(panel), false);
     const router = fs.readFileSync(path.join(ROOT, 'src/api/router.ts'), 'utf8');
     assert.equal(/typeof body\._sessionToken/.test(router), false);
   });

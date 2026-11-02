@@ -154,6 +154,7 @@ import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import ImportFilePicker from './ImportFilePicker';
 import FiscalSettingsPanel from './FiscalSettingsPanel';
 import ProposalNoteDefaultsPage from './ProposalNoteDefaultsPage';
+import ProductNfeWorkspace from './ProductNfeWorkspace';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
@@ -4688,10 +4689,31 @@ export default function ErpGestaoClickTab({
     }
   };
 
+  /** Configurações > Certificado digital (tela própria do certificado A1). */
+  const openErpCertificateScreen = () => {
+    setActiveSection('CONFIGURACOES');
+    setActiveSubId('CFG_CERTIFICADO');
+  };
+
   const renderInvoicesList = () => {
     // Fiscal > Configurações fiscais (NF-e / NFC-e / NFS-e / autXML / certificado)
     if (activeSubId === "FIS_CONFIGURACOES") {
-      return <FiscalSettingsPanel onShowToast={onShowToast} />;
+      return <FiscalSettingsPanel onShowToast={onShowToast} onOpenCertificate={openErpCertificateScreen} />;
+    }
+    // Fiscal > Notas de produtos: lista "NF-e" + "Adicionar NF-e" no padrão do emissor GestaoClick
+    if (activeSubId === "FIS_PRODUTOS") {
+      return (
+        <ProductNfeWorkspace
+          invoices={invoices}
+          companies={companies}
+          suppliers={suppliers}
+          catalog={catalog}
+          onRefresh={onRefresh}
+          onShowToast={onShowToast}
+          onOpenCertificate={openErpCertificateScreen}
+          onPrintInvoice={(inv) => setSelectedInvoiceForPrint(inv)}
+        />
+      );
     }
     const effectiveFiscalTab =
       activeSubId === "FIS_PRODUTOS" ||

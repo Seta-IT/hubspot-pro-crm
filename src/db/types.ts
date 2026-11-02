@@ -1466,6 +1466,41 @@ export interface ErpTaxBreakdown {
   legalExemptionNotice: string;
 }
 
+/** Metadados da NF-e de produtos (modelo 55) cadastrada no ERP — padrão do emissor GestaoClick. */
+export interface ErpProductNfeMetadata {
+  environment: FiscalEnvironment;
+  modelo: '55';
+  serie: string;
+  nNF: number;
+  accessKey: string;
+  cNF: string;
+  cDV: string;
+  dhEmi: string;
+  /** CRT derivado do regime CONFIGURADO no momento do cadastro (1 = Simples Nacional, 3 = normal). */
+  crt: '1' | '3';
+  taxRegime: ErpTaxRegime;
+  /** Formulário validado (dados gerais, destinatário, produtos, transporte, totais, informações adicionais). */
+  form: Record<string, unknown>;
+  totals: {
+    vProd: number;
+    vDesc: number;
+    vFrete: number;
+    vSeg: number;
+    vOutro: number;
+    vBC: number;
+    vICMS: number;
+    vIPI: number;
+    vPIS: number;
+    vCOFINS: number;
+    vNF: number;
+    vTotTrib: number;
+  };
+  warnings: string[];
+  /** XML NF-e 4.00 de rascunho (sem assinatura, sem protocolo). */
+  xmlContent: string;
+  createdBy: string;
+}
+
 export interface ErpFiscalInvoice {
   id: string;
   documentNumber: string;
@@ -1481,8 +1516,11 @@ export interface ErpFiscalInvoice {
   grossAmount: number;
   discountAmount: number;
   netAmount: number;
-  /** ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria */
-  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA';
+  /**
+   * ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria.
+   * RASCUNHO: NF-e de produtos cadastrada no ERP e ainda não transmitida à SEFAZ (sem financeiro, sem validade fiscal).
+   */
+  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA' | 'RASCUNHO';
   issueDate: string;
   dueDate: string;
   paidAt: string | null;
@@ -1505,6 +1543,8 @@ export interface ErpFiscalInvoice {
   }>;
   taxBreakdown: ErpTaxBreakdown;
   importMetadata?: ErpImportNfeMetadata;
+  /** NF-e de produtos (Fiscal > Notas de produtos): formulário, numeração por ambiente e XML de rascunho. */
+  productNfe?: ErpProductNfeMetadata;
   // Campos propagados do Contrato GestaoClick, Pedido do Cliente (PO) e Medicao (BM)
   contractNumber?: string | null;
   externalContractNumber?: string | null;

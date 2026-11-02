@@ -18,16 +18,16 @@ function round10(val: number): number {
   return Number((Number(val || 0)).toFixed(10));
 }
 
-function fmt2(val: number): string {
+export function fmt2(val: number): string {
   return round2(Number(val || 0)).toFixed(2);
 }
 
-function fmt4(val: number): string {
+export function fmt4(val: number): string {
   return (Math.round((Number(val || 0) + Number.EPSILON) * 10000) / 10000).toFixed(4);
 }
 
 /** vUnCom / vUnTrib: layout 4.00 aceita até 10 casas decimais (13v0-10). */
-function fmt10(val: number): string {
+export function fmt10(val: number): string {
   return round10(val).toFixed(10);
 }
 
@@ -92,7 +92,7 @@ function formatCnpjDigits(d: string): string {
 }
 
 /** Tamanhos máximos de campo (MOC 7.0 / NT layout 4.00). */
-const MOC = {
+export const MOC = {
   natOp: 60,
   xNome: 60,
   xFant: 60,
@@ -138,7 +138,7 @@ export function escapeXml(value: unknown): string {
     .replace(/'/g, '&apos;');
 }
 
-function xmlField(value: unknown, maxLen = 500): string {
+export function xmlField(value: unknown, maxLen = 500): string {
   return escapeXml(
     String(value ?? '')
       // eslint-disable-next-line no-control-regex
@@ -643,7 +643,7 @@ function resolveKeyFields(
 // Gerador de TXT Padrão Emissor NF-e Sebrae 4.01 (Compatível com app-nfe-importacao)
 // ============================================================================
 /** tpAmb da NF-e: 1 = Produção, 2 = Homologação (padrão do ERP). */
-function tpAmbOf(meta: { environment?: 'HOMOLOGACAO' | 'PRODUCAO' }): '1' | '2' {
+export function tpAmbOf(meta: { environment?: 'HOMOLOGACAO' | 'PRODUCAO' }): '1' | '2' {
   return meta.environment === 'PRODUCAO' ? '1' : '2';
 }
 
@@ -753,6 +753,37 @@ export const SEFAZ_XML_DRAFT_NOTICE =
 // ============================================================================
 // Gerador de XML SEFAZ 4.00 — RASCUNHO NÃO AUTORIZADO (<NFe> sem assinatura e sem protNFe)
 // ============================================================================
+/**
+ * Bloco <emit> do XML 4.00 (compartilhado pela NF-e de importação e pela NF-e de produtos).
+ * CNPJ, IE, UF e município vêm da configuração do emitente — nunca do formulário da nota.
+ */
+export function renderEmitterXml(
+  emitter: { emitterName: string; emitterCnpj: string; emitterIe: string; emitterUf: string },
+  crt: string
+): string {
+  const x = xmlField;
+  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
+  const ieDigits = emitter.emitterIe.replace(/\D/g, '') || '149882410114';
+  return `      <emit>
+        <CNPJ>${cnpjDigits}</CNPJ>
+        <xNome>${x(emitter.emitterName, MOC.xNome)}</xNome>
+        <xFant>SETA IT TELECOM</xFant>
+        <enderEmit>
+          <xLgr>AV PAULISTA</xLgr>
+          <nro>1000</nro>
+          <xBairro>BELA VISTA</xBairro>
+          <cMun>3550308</cMun>
+          <xMun>SAO PAULO</xMun>
+          <UF>${x(emitter.emitterUf, 2)}</UF>
+          <CEP>01310100</CEP>
+          <cPais>1058</cPais>
+          <xPais>BRASIL</xPais>
+        </enderEmit>
+        <IE>${ieDigits}</IE>
+        <CRT>${x(crt, 1)}</CRT>
+      </emit>`;
+}
+
 export function generateSefaz400Xml(
   meta: ErpImportNfeMetadata,
   emitter: {
@@ -764,7 +795,6 @@ export function generateSefaz400Xml(
 ): string {
   const x = xmlField;
   const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
-  const ieDigits = emitter.emitterIe.replace(/\D/g, '') || '149882410114';
   const { accessKey, cNF, cDV, dhEmi } = resolveKeyFields(meta, cnpjDigits);
   const serie = String(meta.serie).replace(/\D/g, '') || '1';
   const nNF = String(meta.nNF).replace(/\D/g, '');
@@ -885,24 +915,7 @@ export function generateSefaz400Xml(
         <procEmi>3</procEmi>
         <verProc>4.01_SEBRAE</verProc>
       </ide>
-      <emit>
-        <CNPJ>${cnpjDigits}</CNPJ>
-        <xNome>${x(emitter.emitterName, MOC.xNome)}</xNome>
-        <xFant>SETA IT TELECOM</xFant>
-        <enderEmit>
-          <xLgr>AV PAULISTA</xLgr>
-          <nro>1000</nro>
-          <xBairro>BELA VISTA</xBairro>
-          <cMun>3550308</cMun>
-          <xMun>SAO PAULO</xMun>
-          <UF>${x(emitter.emitterUf, 2)}</UF>
-          <CEP>01310100</CEP>
-          <cPais>1058</cPais>
-          <xPais>BRASIL</xPais>
-        </enderEmit>
-        <IE>${ieDigits}</IE>
-        <CRT>${meta.crt}</CRT>
-      </emit>
+${renderEmitterXml(emitter, meta.crt)}
       <dest>
         <idEstrangeiro>${x(meta.di.exporterIdEstrangeiro, MOC.idEstrangeiro)}</idEstrangeiro>
         <xNome>${x(meta.di.exporterName, MOC.xNome)}</xNome>

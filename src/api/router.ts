@@ -371,6 +371,7 @@ import {
   parseFiscalSettingsUpdate,
   toFiscalSettingsView,
 } from '../modules/erp/fiscal-settings';
+import { crtFromRegime, validateProductNfeDraft } from '../modules/erp/product-nfe-engine';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal, ErpServiceOrder } from '../db/types';
 import {
@@ -3169,6 +3170,7 @@ export class CrmApiRouter {
       ) reason = 'emissao direta';
       else if (cleanPath === '/api/erp/rental-contracts/batch-billing') reason = 'faturamento em lote';
       else if (cleanPath === '/api/erp/nfe-importacao/emit') reason = 'NF-e de importacao';
+      else if (cleanPath === '/api/erp/nfe-produtos') reason = 'NF-e de produtos (rascunho)';
       else if (
         /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+\/partial-return$/.test(cleanPath) &&
         (b.emitReturnNfe !== false || b.emitProRataInvoice !== false)
@@ -9485,6 +9487,109 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: ctrId } };
         }
+      }
+
+      // ======================================================================
+      // NF-e DE PRODUTOS (Fiscal > Notas de produtos) — padrão do emissor GestaoClick
+      //  - GET  /api/erp/nfe-produtos/context: ambiente, série/próximo número, regime CONFIGURADO
+      //  - POST /api/erp/nfe-produtos: zod .strict(); alçada fiscal (canIssueFiscalDocuments + 2FA);
+      //         grava RASCUNHO no ambiente das Configurações Fiscais (padrão HOMOLOGAÇÃO)
+      //  - DELETE /api/erp/nfe-produtos/:id: só rascunho
+      //  Sessão só por query (_sessionToken). Nenhuma chamada à SEFAZ.
+      // ======================================================================
+      if (cleanPath === '/api/erp/nfe-produtos/context' && method === 'GET') {
+        const npSess = ctx.trustedInternal || !query._sessionToken ? null : this.repo.resolveSessionFromToken(query._sessionToken);
+        if (!ctx.trustedInternal && !(npSess && npSess.authenticated)) {
+          return { status: 401, body: { error: 'Sessão obrigatória para a NF-e de produtos.', code: 'PRODUCT_NFE_AUTH_REQUIRED' } };
+        }
+        const fsSettings = this.repo.getFiscalDocumentSettings();
+        const env = fsSettings.nfe.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+        const serie = fsSettings.nfe.serie || '1';
+        const gc = this.repo.getErpOverview().gestaoClickConfig;
+        const priv = this.fiscalIssuancePrivilege(query, ctx);
+        return {
+          status: 200,
+          body: {
+            data: {
+              environment: env,
+              serie,
+              nextNumber: this.repo.peekNextFiscalNumber('55', serie, env),
+              taxRegime: gc.taxRegime,
+              crt: crtFromRegime(gc.taxRegime),
+              emitterUf: 'SP',
+              additionalInfo: fsSettings.nfe.additionalInfo || '',
+              canIssue: priv.allowed,
+              sefazIntegration: false,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/erp/nfe-produtos' && method === 'POST') {
+        const npPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!npPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, npPriv, 'NF-e de produtos (rascunho)');
+        const validated = validateProductNfeDraft(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'PRODUCT_NFE_INVALID_INPUT', issues: validated.issues } };
+        }
+        const actor = npPriv.email || this.sessionActorName(query) || 'sistema';
+        const created = this.repo.createProductNfeDraft(validated.data, actor);
+        if (!created.ok) {
+          return {
+            status: 409,
+            body: {
+              error: `O número ${validated.data.general.number} da série ${created.serie} já foi usado em ${created.environment === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}. Próximo disponível: ${created.nextAvailable}.`,
+              code: 'PRODUCT_NFE_NUMBER_IN_USE',
+              nextAvailable: created.nextAvailable,
+            },
+          };
+        }
+        const pn = created.invoice.productNfe!;
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: npPriv.email || 'sistema',
+            actorName: npPriv.name || 'Sistema STI-hub',
+            actorRole: npPriv.roleId || 'SISTEMA',
+            action: 'ERP_PRODUCT_NFE_DRAFT_CREATED',
+            module: 'ERP',
+            resource: `POST ${cleanPath}`,
+            status: 'SUCCESS',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `NF-e ${pn.nNF} série ${pn.serie} gravada como RASCUNHO em ${pn.environment} (CRT ${pn.crt}, vNF ${pn.totals.vNF.toFixed(2)}). Sem transmissão à SEFAZ.`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return { status: 201, body: { data: created.invoice, warnings: pn.warnings } };
+      }
+
+      const npIdMatch = cleanPath.match(/^\/api\/erp\/nfe-produtos\/([^/]+)$/);
+      if (npIdMatch && npIdMatch[1] !== 'context' && method === 'DELETE') {
+        const npPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!npPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, npPriv, 'exclusao de NF-e de produtos');
+        const npId = decodeURIComponent(npIdMatch[1]);
+        const del = this.repo.deleteProductNfeDraft(npId);
+        if (!del.ok) {
+          return del.code === 'NOT_FOUND'
+            ? { status: 404, body: { error: 'NF-e de produtos não encontrada.', code: 'PRODUCT_NFE_NOT_FOUND' } }
+            : { status: 409, body: { error: 'Só é possível excluir NF-e em rascunho.', code: 'PRODUCT_NFE_NOT_DRAFT' } };
+        }
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: npPriv.email || 'sistema',
+            actorName: npPriv.name || 'Sistema STI-hub',
+            actorRole: npPriv.roleId || 'SISTEMA',
+            action: 'ERP_PRODUCT_NFE_DRAFT_DELETED',
+            module: 'ERP',
+            resource: `DELETE ${cleanPath}`.slice(0, 200),
+            status: 'SUCCESS',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `Rascunho de NF-e ${npId} excluído (o número reservado não é reaproveitado).`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return { status: 200, body: { success: true, deletedId: npId } };
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/calculate' && method === 'POST') {
