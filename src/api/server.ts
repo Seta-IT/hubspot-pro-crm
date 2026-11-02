@@ -76,9 +76,14 @@ export function createCrmHttpServer(router = new CrmApiRouter()) {
 
     const query: Record<string, string | undefined> = {};
     reqUrl.searchParams.forEach((v, k) => {
-      if (!k.startsWith('_')) query[k] = v;
+      // Pacote N (R4): chaves reservadas (inclusive proposalLinkToken) nunca vem da URL.
+      if (!k.startsWith('_') && !(BRIDGE_RESERVED_KEYS as readonly string[]).includes(k)) query[k] = v;
     });
     if (sessionToken) query._sessionToken = sessionToken;
+    // Token do link de proposta: so pelo header X-Proposal-Token (como as rotas Next do link).
+    const linkHdr = req.headers['x-proposal-token'];
+    const linkToken = String((Array.isArray(linkHdr) ? linkHdr[0] : linkHdr) || '').trim();
+    if (linkToken && linkToken.length <= 1024) query.proposalLinkToken = linkToken;
     query._fromHttpBridge = '1';
     const cleanBody =
       parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)

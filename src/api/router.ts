@@ -416,6 +416,9 @@ export const BRIDGE_RESERVED_KEYS = [
   '_origin',
   '_enrolledUsers',
   '_trustedInternal',
+  // Pacote N (R4): o token do link de proposta so entra pelo header X-Proposal-Token (rotas Next
+  // /api/erp/proposals/[id]/* e server.ts). Nunca pelo corpo nem pela URL do cliente.
+  'proposalLinkToken',
 ] as const;
 
 export interface ApiRequest {
