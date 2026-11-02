@@ -405,7 +405,7 @@ export function buildStandaloneInvoiceHtml(
       (it) => `
       <tr>
         <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:10px;">${it.description}</td>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:9.5px;">${it.serialNumber || '—'}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:9.5px;color:#334155;">${it.serialNumber || '—'}</td>
         <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-size:10px;">${Number(it.quantity).toFixed(2).replace('.', ',')}</td>
         <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-size:10px;">${formatMoneyBr(it.unitValue)}</td>
         <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;font-size:10px;">${formatMoneyBr(it.totalValue)}</td>
@@ -413,6 +413,8 @@ export function buildStandaloneInvoiceHtml(
     )
     .join('');
 
+  // Visual "Clean Corporate Light" (mesmo padrão da folha da proposta): fundo branco,
+  // linhas finas, faixa superior #1e3a6e e cabeçalho de tabela em ardósia suave.
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -423,15 +425,20 @@ export function buildStandaloneInvoiceHtml(
     * { box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; padding: 8px; font-size: 10.5px; line-height: 1.28; background: #fff; }
     .page { width: 196mm; max-height: 282mm; margin: 0 auto; overflow: hidden; page-break-after: avoid; page-break-inside: avoid; break-inside: avoid; box-sizing: border-box; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0d2b4e; padding-bottom: 6px; margin-bottom: 7px; }
-    .box { border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: #f8fafc; page-break-inside: avoid; }
+    .header { display: flex; justify-content: space-between; align-items: center; background: #fff; border-top: 4px solid #1e3a6e; border-bottom: 1px solid #e2e8f0; padding: 7px 2px 6px; margin-bottom: 7px; }
+    .box { border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: #fff; page-break-inside: avoid; }
+    .box-title { font-weight: 700; color: #1e3a6e; margin-bottom: 4px; text-transform: uppercase; font-size: 9px; letter-spacing: .3px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
     .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .label { font-size: 8.5px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block; }
+    .label { font-size: 8.5px; text-transform: uppercase; color: #64748b; font-weight: 600; display: block; }
     .val { font-size: 10.5px; font-weight: 700; color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 6px; page-break-inside: avoid; }
-    th { background: #0d2b4e; color: #fff; text-transform: uppercase; font-size: 9px; padding: 5px 6px; text-align: left; }
+    .table-wrap { border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; margin-bottom: 6px; page-break-inside: avoid; }
+    table { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
+    th { background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; font-size: 8.5px; font-weight: 800; padding: 5px 6px; text-align: left; }
+    tbody tr:last-child td { border-bottom: none !important; }
+    .pay-line { font-family: monospace; font-size: 9px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 3px; padding: 3px 5px; margin-bottom: 3px; word-break: break-all; }
+    .pay-line strong { font-family: Arial, Helvetica, sans-serif; color: #475569; font-size: 8.5px; text-transform: uppercase; }
     @media print {
       .no-print { display: none !important; }
       body { padding: 0; margin: 0; }
@@ -444,9 +451,9 @@ export function buildStandaloneInvoiceHtml(
   </style>
 </head>
 <body>
-  ${isDraft ? '' : `<div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:7px 12px;border-radius:5px;">
-    <span><strong>Recibo / Fatura de Locação ${invoice.documentNumber}</strong> </span>
-    <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-weight:600;cursor:pointer;">Imprimir em 1 Página A4 / Salvar PDF</button>
+  ${isDraft ? '' : `<div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#fff;color:#334155;border:1px solid #e2e8f0;padding:6px 10px;border-radius:6px;">
+    <span style="font-size:11px;"><strong style="color:#0f172a;">Fatura de Locação</strong> · ${invoice.documentNumber}</span>
+    <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:5px 14px;border-radius:5px;font-weight:600;font-size:11px;cursor:pointer;">Imprimir</button>
   </div>`}
   <div class="page">
     ${isDraft ? `<div class="draft-watermark" aria-hidden="true">RASCUNHO<small>NÃO É DOCUMENTO FISCAL</small></div>
@@ -454,18 +461,18 @@ export function buildStandaloneInvoiceHtml(
     <div class="header">
       <div>
         <div style="font-size:14px;font-weight:900;color:#0d2b4e;">SETA TELECOM LTDA</div>
-        <div style="font-size:9.5px;">CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}</div>
+        <div style="font-size:9.5px;color:#475569;">CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}</div>
       </div>
-      <div style="text-align:right;background:#f1f5f9;padding:5px 9px;border-radius:4px;border:1px solid #cbd5e1;">
-        <div style="font-size:8.5px;font-weight:800;color:#1e3a6e;">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF) • 1 PÁGINA A4 ÚNICA</div>
-        <div style="font-size:15px;font-weight:900;color:#0d2b4e;">Nº ${invoice.documentNumber}</div>
-        <div style="font-size:9.5px;">Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong> • Vencimento: <strong>${invoice.dueDate}</strong></div>
-        <div style="font-size:8.5px;color:#047857;font-weight:700;">Regra de Vencimento: ${dueRule}</div>
+      <div style="text-align:right;">
+        <div style="display:inline-block;font-size:8.5px;font-weight:700;color:#1e3a6e;background:#eff6ff;border:1px solid #bfdbfe;border-radius:3px;padding:1px 6px;">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)</div>
+        <div style="font-size:15px;font-weight:900;color:#0d2b4e;margin-top:2px;">Nº ${invoice.documentNumber}</div>
+        <div style="font-size:9.5px;color:#334155;">Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong> • Vencimento: <strong>${invoice.dueDate}</strong></div>
+        <div style="font-size:8.5px;color:#64748b;">Regra de vencimento: ${dueRule}</div>
       </div>
     </div>
 
     <div class="box">
-      <div style="font-weight:800;color:#0d2b4e;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">1. Locatário, Pedido do Cliente (PO) &amp; Boletim de Medição (BM)</div>
+      <div class="box-title">Locatário</div>
       <div class="grid-4">
         <div><span class="label">Locatário / Cliente</span><span class="val">${invoice.companyName}</span></div>
         <div><span class="label">CNPJ</span><span class="val">${invoice.companyCnpj}</span></div>
@@ -473,11 +480,11 @@ export function buildStandaloneInvoiceHtml(
         <div><span class="label">Boletim de Medição (BM)</span><span class="val">${bmNum} (${bmPeriod})</span></div>
       </div>
       ${bmNotes ? `<div style="margin-top:3px;font-size:9.5px;color:#334155;"><strong>Obs. Medição:</strong> ${bmNotes}</div>` : ''}
-      ${emails.length > 0 ? `<div style="margin-top:2px;font-size:9.5px;color:#1e3a6e;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</div>` : ''}
+      ${emails.length > 0 ? `<div style="margin-top:2px;font-size:9.5px;color:#475569;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</div>` : ''}
     </div>
 
     <div class="box">
-      <div style="font-weight:800;color:#0d2b4e;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">2. Dados do Contrato, Logística &amp; Classificação GestãoClick</div>
+      <div class="box-title">Contrato e logística</div>
       <div class="grid-4">
         <div><span class="label">Contrato n.</span><span class="val">${ctrNum} (${contract?.versionLabel || 'v1.0'})</span></div>
         <div><span class="label">Proposta</span><span class="val">${propNum}</span></div>
@@ -494,13 +501,14 @@ export function buildStandaloneInvoiceHtml(
       </div>
     </div>
 
+    <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>Produto / Equipamento Locado</th>
-          <th>Nº de Série (S/N)</th>
-          <th style="text-align:right;">Quantidade</th>
-          <th style="text-align:right;">Vr. Unitário</th>
+          <th>Equipamento</th>
+          <th>Nº de Série</th>
+          <th style="text-align:right;">Qtd.</th>
+          <th style="text-align:right;">Vlr. Unitário</th>
           <th style="text-align:right;">Subtotal</th>
         </tr>
       </thead>
@@ -508,35 +516,36 @@ export function buildStandaloneInvoiceHtml(
         ${rowsHtml}
       </tbody>
     </table>
+    </div>
 
-    <div class="box" style="background:#f0fdf4;border-color:#86efac;">
-      <div style="font-weight:800;color:#065f46;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">3. Confira o Total da Locação (Produtos, Acréscimo, Desconto e Frete)</div>
+    <div class="box">
+      <div class="box-title">Totais</div>
       <div class="grid-5">
         <div><span class="label">Produtos (Soma)</span><span class="val">${formatMoneyBr(prodSubtotal)}</span></div>
         <div><span class="label">Acréscimo (R$)</span><span class="val">${formatMoneyBr(additionBrl)}</span></div>
         <div><span class="label">Desconto (R$ / %)</span><span class="val">${formatMoneyBr(discountBrl)} (${Number(discountPct).toFixed(2)}%)</span></div>
         <div><span class="label">Frete (${invoice.freightModality || contract?.freightModality || 'CIF'})</span><span class="val">${formatMoneyBr(freightBrl)}</span></div>
-        <div><span class="label">Valor Total da Fatura</span><span class="val" style="font-size:12.5px;color:#065f46;">${formatMoneyBr(invoice.netAmount)}</span></div>
+        <div style="text-align:right;border-left:1px solid #e2e8f0;padding-left:6px;"><span class="label">Valor Total da Fatura</span><span class="val" style="font-size:13px;color:#0d2b4e;">${formatMoneyBr(invoice.netAmount)}</span></div>
       </div>
     </div>
 
     <div class="grid-2">
       <div class="box" style="margin-bottom:0;">
-        <div style="font-weight:800;color:#065f46;margin-bottom:3px;text-transform:uppercase;font-size:9.5px;">4. Enquadramento Fiscal (0% ISS — SV 31 STF)</div>
-        <div style="font-size:9.5px;color:#065f46;">
+        <div class="box-title">Enquadramento tributário — 0% ISS (SV 31 STF)</div>
+        <div style="font-size:8.5px;color:#475569;line-height:1.25;">
           ${invoice.taxBreakdown?.legalExemptionNotice || 'Locação pura de bens móveis sem incidência de ISSQN conforme Súmula Vinculante 31 do STF e Veto ao Item 3.01 da LC 116/2003.'}
         </div>
-        <div style="margin-top:3px;font-size:9px;font-family:monospace;color:#334155;">
+        <div style="margin-top:3px;padding-top:3px;border-top:1px solid #e2e8f0;font-size:8.5px;font-family:monospace;color:#334155;">
           ISS: R$ 0,00 (0%) • CFOP: ${invoice.cfop || 'N/A'} • CST ICMS: ${invoice.cstIcms || '41'}
         </div>
         ${notes ? `<div style="margin-top:3px;font-size:9px;color:#334155;"><strong>Obs.:</strong> ${notes}</div>` : ''}
       </div>
-      <div class="box" style="background:#f1f5f9;margin-bottom:0;">
-        <div style="font-weight:800;color:#0f172a;margin-bottom:3px;text-transform:uppercase;font-size:9.5px;">5. Liquidação Financeira (${paymentMethod})</div>
+      <div class="box" style="margin-bottom:0;">
+        <div class="box-title">Pagamento — ${paymentMethod}</div>
         ${isDraft
           ? `<div style="font-size:9.5px;color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</div>`
-          : `<div style="font-family:monospace;font-size:9.5px;margin-bottom:3px;"><strong>Linha Digitável:</strong> ${invoice.boletoDigitableLine}</div>
-        <div style="font-family:monospace;font-size:9px;word-break:break-all;"><strong>PIX Copia e Cola:</strong> ${invoice.pixCopyPaste}</div>`}
+          : `<div class="pay-line"><strong>Linha Digitável:</strong> ${invoice.boletoDigitableLine}</div>
+        <div class="pay-line" style="margin-bottom:0;"><strong>PIX Copia e Cola:</strong> ${invoice.pixCopyPaste}</div>`}
       </div>
     </div>
   </div>

@@ -6753,14 +6753,11 @@ export default function ErpGestaoClickTab({
       {selectedInvoiceForPrint && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-3xl w-full overflow-hidden my-8">
-            <div className="px-6 py-4 bg-[#0f172a] text-white flex items-center justify-between">
+            <div className="px-5 py-3 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-slate-600" />
-                <span className="font-semibold text-sm">
-                  Espelho Oficial do Documento Fiscal — {selectedInvoiceForPrint.documentNumber}
-                </span>
-                <span className="px-2 py-0.5 rounded bg-white/10 border border-slate-200 text-slate-200 text-[10px] font-semibold">
-                  Formato Compacto: 1 Página A4 Única
+                <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
+                <span className="font-semibold text-sm text-slate-900">
+                  Espelho · {selectedInvoiceForPrint.documentNumber}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -6774,10 +6771,10 @@ export default function ErpGestaoClickTab({
                     );
                     downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT');
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-bold cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  Imprimir 1 Página A4 / Salvar PDF
+                  Imprimir
                 </button>
                 <button
                   type="button"
@@ -6789,9 +6786,9 @@ export default function ErpGestaoClickTab({
                     );
                     downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD');
                   }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
-                  Baixar PDF / A4
+                  Baixar PDF
                 </button>
                 <button
                   type="button"
@@ -6800,14 +6797,14 @@ export default function ErpGestaoClickTab({
                     setSelectedInvoiceForPrint(null);
                     setEditingInvoice(inv);
                   }}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
-                  Editar Fatura
+                  Editar
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedInvoiceForPrint(null)}
-                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -6815,9 +6812,9 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="p-6 space-y-5 text-xs text-slate-800">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-900">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 pb-4 border-t-4 border-t-[#1e3a6e] border-b border-slate-200">
                 <div>
-                  <div className="text-base font-semibold text-[#33475b]">
+                  <div className="text-base font-black text-[#0d2b4e]">
                     {gestaoClickConfig.companyLegalName}
                   </div>
                   <div>CNPJ: {gestaoClickConfig.companyCnpj}</div>
@@ -6825,12 +6822,12 @@ export default function ErpGestaoClickTab({
                     Inscrição Municipal: {gestaoClickConfig.municipalRegistration} • IE:{' '}
                     {gestaoClickConfig.stateRegistration}
                   </div>
-                  <div className="text-[#516f90]">
+                  <div className="text-slate-500">
                     Regime Tributário: {selectedInvoiceForPrint.taxBreakdown.taxRegime}
                   </div>
                 </div>
-                <div className="text-right bg-slate-100 p-3 rounded-[4px] border border-[#cbd6e2]">
-                  <div className="text-[10px] font-bold uppercase text-[#516f90]">
+                <div className="text-right">
+                  <div className="inline-block px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-bold uppercase text-[#1e3a6e]">
                     {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO'
                       ? 'FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)'
                       : selectedInvoiceForPrint.documentType === 'NFSE_SERVICO'
@@ -6845,7 +6842,7 @@ export default function ErpGestaoClickTab({
                                 ? 'DANFE — NF-e DE ENTRADA DE IMPORTAÇÃO (SEBRAE 4.01 • SIMPLES NACIONAL CSOSN 900)'
                                 : 'DANFE — NF-e DE REMESSA EM LOCAÇÃO (MOD. 55 • CFOP 5.908)'}
                   </div>
-                  <div className="text-lg font-semibold text-[#33475b]">
+                  <div className="text-lg font-black text-[#0d2b4e]">
                     Nº {selectedInvoiceForPrint.documentNumber}
                   </div>
                   <div>
@@ -6855,12 +6852,12 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-[4px] bg-[#f5f8fa] border border-[#cbd6e2] grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-3.5 rounded-[4px] bg-white border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     Locatário / Tomador
                   </span>
-                  <strong className="text-sm text-[#33475b]">
+                  <strong className="text-sm text-slate-900">
                     {selectedInvoiceForPrint.companyName}
                   </strong>
                   <div>CNPJ: {selectedInvoiceForPrint.companyCnpj}</div>
@@ -6874,14 +6871,14 @@ export default function ErpGestaoClickTab({
                     Competência: <strong>{selectedInvoiceForPrint.competenceMonth}</strong>
                   </div>
                   {selectedInvoiceForPrint.customDueRuleLabel && (
-                    <div className="text-[11px] font-bold text-slate-800">
+                    <div className="text-[11px] text-slate-500">
                       Regra de Vencimento: {selectedInvoiceForPrint.customDueRuleLabel}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="p-3 rounded-[4px] bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Contrato / Proposta</span><strong>{selectedInvoiceForPrint.contractNumber || '—'}</strong> • Prop: <strong>{selectedInvoiceForPrint.proposalNumber || '—'}</strong></div>
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">NF Remessa / Prazo</span><strong>{selectedInvoiceForPrint.remessaNfeNumber || '—'}</strong> • {selectedInvoiceForPrint.contractTermLabel || '24 meses'}</div>
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Pedido do Cliente (PO)</span><strong>{selectedInvoiceForPrint.customerPurchaseOrderNumber || '—'}</strong></div>
@@ -6892,15 +6889,15 @@ export default function ErpGestaoClickTab({
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Frete / Cidade Entrega</span><strong>{formatBRL(selectedInvoiceForPrint.freightValueBrl || 0)}</strong> ({selectedInvoiceForPrint.deliveryCity || 'São Paulo'})</div>
               </div>
 
-              <div className="border border-[#cbd6e2] rounded-[4px] overflow-hidden">
+              <div className="border border-slate-300 rounded-[4px] overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900 text-white text-[10px] uppercase">
+                  <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[10px] uppercase">
                     <tr>
-                      <th className="py-2 px-3">Descrição do Item / Equipamento Locado</th>
-                      <th className="py-2 px-3">Nº Série (S/N)</th>
-                      <th className="py-2 px-3 text-right">Qtd</th>
-                      <th className="py-2 px-3 text-right">Vlr. Unitário</th>
-                      <th className="py-2 px-3 text-right">Subtotal</th>
+                      <th className="py-2 px-3 font-extrabold">Equipamento</th>
+                      <th className="py-2 px-3 font-extrabold">Nº de Série</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Qtd.</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Vlr. Unitário</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -6919,14 +6916,14 @@ export default function ErpGestaoClickTab({
                 </table>
               </div>
 
-              <div className="p-4 rounded-[4px] bg-slate-50 border border-slate-200 space-y-2">
-                <div className="font-semibold text-slate-800 uppercase text-[11px]">
-                  Enquadramento Tributário &amp; Fundamentação Legal (Legislação Brasileira)
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 space-y-1.5">
+                <div className="font-bold text-[#1e3a6e] uppercase text-[10px] tracking-wide">
+                  Enquadramento tributário
                 </div>
-                <p className="text-slate-800 leading-relaxed">
+                <p className="text-slate-600 text-[11px] leading-snug">
                   {selectedInvoiceForPrint.taxBreakdown.legalExemptionNotice}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-200 text-[11px]">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1.5 border-t border-slate-200 text-[11px]">
                   <div>
                     ISSQN:{' '}
                     <strong>{formatBRL(selectedInvoiceForPrint.taxBreakdown.issAmount)}</strong> (
@@ -6954,22 +6951,22 @@ export default function ErpGestaoClickTab({
                   </div>
                   <div>
                     Valor Líquido:{' '}
-                    <strong className="text-sm text-slate-800">
+                    <strong className="text-sm text-[#0d2b4e]">
                       {formatBRL(selectedInvoiceForPrint.netAmount)}
                     </strong>
                   </div>
                 </div>
-                <div className="pt-1 text-[10px] text-slate-800 font-mono flex flex-wrap gap-3">
+                <div className="text-[10px] text-slate-600 font-mono flex flex-wrap gap-3">
                   <span>CFOP: <strong>{selectedInvoiceForPrint.cfop || "N/A"}</strong></span>
                   <span>CST ICMS: <strong>{selectedInvoiceForPrint.cstIcms || "N/A"}</strong></span>
                   <span>CST PIS/COFINS: <strong>{selectedInvoiceForPrint.cstPisCofins || "01"}</strong></span>
                 </div>
               </div>
 
-              <div className="p-4 rounded-[4px] bg-slate-100 border border-[#cbd6e2] space-y-2">
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-[#33475b] uppercase text-[11px]">
-                    Dados para Liquidação Financeira (Boleto Registrado &amp; PIX Copia-e-Cola)
+                  <span className="font-bold text-[#1e3a6e] uppercase text-[10px] tracking-wide">
+                    Pagamento — Boleto e Pix
                   </span>
                   <button
                     type="button"
@@ -6977,16 +6974,16 @@ export default function ErpGestaoClickTab({
                       navigator.clipboard?.writeText(selectedInvoiceForPrint.pixCopyPaste);
                       onShowToast('Código PIX Copia-e-Cola copiado!');
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-bold cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                   >
                     <Copy className="w-3 h-3" /> Copiar PIX
                   </button>
                 </div>
-                <div className="font-mono text-xs bg-white p-2.5 rounded border border-[#cbd6e2]">
+                <div className="font-mono text-xs bg-slate-50 p-2 rounded border border-slate-200">
                   <strong>Linha Digitável Boleto:</strong>{' '}
                   {selectedInvoiceForPrint.boletoDigitableLine}
                 </div>
-                <div className="font-mono text-[11px] bg-white p-2.5 rounded border border-[#cbd6e2] break-all">
+                <div className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 break-all">
                   <strong>PIX Copia e Cola:</strong> {selectedInvoiceForPrint.pixCopyPaste}
                 </div>
               </div>
