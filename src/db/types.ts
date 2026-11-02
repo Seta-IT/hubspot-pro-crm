@@ -1306,6 +1306,8 @@ export interface ErpImportNfeMetadata {
   dhEmi?: string;
   /** O XML gerado é um rascunho: sem assinatura digital e sem protNFe da SEFAZ */
   documentStatus?: 'RASCUNHO_NAO_AUTORIZADO';
+  /** Ambiente da numeração/tpAmb (ausente = HOMOLOGACAO, notas anteriores às Configurações Fiscais) */
+  environment?: FiscalEnvironment;
   sebraeTxtContent?: string;
   sefazXmlContent?: string;
 }
@@ -1757,8 +1759,88 @@ export interface ErpDatabaseState {
   suppliers?: ErpSupplierRecord[];
   employees?: ErpEmployeeRecord[];
   purchaseOrders?: ErpPurchaseOrder[];
-  /** Numerador fiscal por modelo/série (chave "55-1" = modelo 55, série 1) => último nNF reservado */
+  /**
+   * Numerador fiscal por ambiente/modelo/série => último número reservado.
+   * Homologação: chave "55-1" (modelo 55, série 1 — formato original do #11).
+   * Produção: chave "PROD:55-1". Modelos: 55 (NF-e), 65 (NFC-e), RPS (NFS-e).
+   */
   fiscalNumberSequences?: Record<string, number>;
+  /** Configurações Fiscais (NF-e / NFC-e / NFS-e / autXML / certificado). O CSC nunca sai em claro. */
+  fiscalDocumentSettings?: FiscalDocumentSettings;
+}
+
+// ============================================================================
+// Configurações Fiscais (espelho da tela Fiscal do GestaoClick)
+// ============================================================================
+
+export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
+
+export type NfseStandard = 'INTEGRADORA' | 'NACIONAL';
+
+export type NfseOperationNature =
+  | 'TRIBUTAVEL_NAO_RETER_PIS_COFINS'
+  | 'TRIBUTAVEL_RETER_PIS_COFINS'
+  | 'TRIBUTACAO_FORA_MUNICIPIO'
+  | 'ISENCAO'
+  | 'IMUNE'
+  | 'EXIGIBILIDADE_SUSPENSA_JUDICIAL'
+  | 'EXIGIBILIDADE_SUSPENSA_ADMINISTRATIVA';
+
+export type NfseSpecialRegime =
+  | 'NENHUM'
+  | 'MICROEMPRESA_MUNICIPAL'
+  | 'ESTIMATIVA'
+  | 'SOCIEDADE_PROFISSIONAIS'
+  | 'COOPERATIVA'
+  | 'MEI'
+  | 'MEEPP';
+
+/** Apuração dos tributos (regApTribSN da NFS-e Nacional); '' = "Selecione". */
+export type NfseTaxApportionment = '' | 'SN_FEDERAIS_E_MUNICIPAL' | 'SN_FEDERAIS_ISSQN_FORA' | 'FORA_DO_SN';
+
+export interface FiscalDigitalCertificateInfo {
+  /** Upload ainda não disponível: nenhum .pfx nem senha é armazenado. */
+  status: 'NAO_CONFIGURADO' | 'VALIDO' | 'VENCIDO';
+  validUntil: string | null;
+  certificateCnpj: string | null;
+  uploadEnabled: false;
+}
+
+export interface FiscalDocumentSettings {
+  nfe: {
+    environment: FiscalEnvironment;
+    serie: string;
+    removeIcmsFromPisCofinsBase: boolean;
+    simplifiedDanfe: boolean;
+    additionalInfo: string;
+  };
+  nfce: {
+    environment: FiscalEnvironment;
+    serie: string;
+    /** ID do token do CSC (6 dígitos, gerado na SEFAZ) */
+    tokenId: string;
+    /** Código de Segurança do Contribuinte — SEGREDO: nunca devolvido em claro nem registrado em log */
+    csc: string;
+    additionalInfo: string;
+  };
+  nfse: {
+    standard: NfseStandard;
+    environment: FiscalEnvironment;
+    rpsSerie: string;
+    operationNature: NfseOperationNature;
+    specialRegime: NfseSpecialRegime;
+    taxApportionment: NfseTaxApportionment;
+    cityClassification: string;
+    cityOperationIndicator: string;
+    additionalInfo: string;
+  };
+  /** CPF/CNPJ autorizados a baixar o XML (autXML), só dígitos, DV validado */
+  xmlDownloadAuthorizations: string[];
+  certificate: FiscalDigitalCertificateInfo;
+  /** Seed dos números de produção (NF-e 2176/1, NFC-e 0/2, RPS 735/10001) já aplicado ao numerador */
+  productionSeedApplied: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
 }
 
 // ============================================================================

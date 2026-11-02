@@ -111,6 +111,7 @@ import {
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import ImportFilePicker from './ImportFilePicker';
+import FiscalSettingsPanel from './FiscalSettingsPanel';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import { lastNumberFromCodes } from '../lib/erp-general-settings';
@@ -4105,6 +4106,10 @@ export default function ErpGestaoClickTab({
   };
 
   const renderInvoicesList = () => {
+    // Fiscal > Configurações fiscais (NF-e / NFC-e / NFS-e / autXML / certificado)
+    if (activeSubId === "FIS_CONFIGURACOES") {
+      return <FiscalSettingsPanel onShowToast={onShowToast} />;
+    }
     const effectiveFiscalTab =
       activeSubId === "FIS_PRODUTOS" ||
       activeSubId === "FIS_SERVICOS" ||

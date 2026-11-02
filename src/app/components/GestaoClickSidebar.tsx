@@ -179,6 +179,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'FIS_CONSUMIDOR', label: 'Notas do consumidor' },
       { id: 'FIS_IMPORTACAO', label: 'NF-e Importação (Sebrae 4.0)' },
       { id: 'FIS_COMPRAS', label: 'Notas de compras' },
+      { id: 'FIS_CONFIGURACOES', label: 'Configurações fiscais' },
       { id: 'FIS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },

@@ -384,6 +384,8 @@ export function calculateSebraeImportNfe(params: {
   issuedAt?: Date | string;
   /** Código numérico da chave (default: aleatório de 8 dígitos). */
   cNF?: string;
+  /** Ambiente da numeração e do tpAmb (Configurações Fiscais). Default: HOMOLOGACAO (tpAmb=2). */
+  environment?: 'HOMOLOGACAO' | 'PRODUCAO';
 }): ErpImportNfeMetadata {
   // #10: sem PTAX padrão — a taxa de câmbio deve vir da DI/DUIMP
   const ptax = Number(params.di?.exchangeRatePtax);
@@ -607,6 +609,7 @@ export function calculateSebraeImportNfe(params: {
   meta.cDV = dv;
   meta.dhEmi = dhEmi;
   meta.documentStatus = 'RASCUNHO_NAO_AUTORIZADO';
+  meta.environment = params.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
 
   meta.sebraeTxtContent = generateSebrae401Txt(meta, emitter);
   meta.sefazXmlContent = generateSefaz400Xml(meta, emitter);
@@ -639,6 +642,11 @@ function resolveKeyFields(
 // ============================================================================
 // Gerador de TXT Padrão Emissor NF-e Sebrae 4.01 (Compatível com app-nfe-importacao)
 // ============================================================================
+/** tpAmb da NF-e: 1 = Produção, 2 = Homologação (padrão do ERP). */
+function tpAmbOf(meta: { environment?: 'HOMOLOGACAO' | 'PRODUCAO' }): '1' | '2' {
+  return meta.environment === 'PRODUCAO' ? '1' : '2';
+}
+
 export function generateSebrae401Txt(
   meta: ErpImportNfeMetadata,
   emitter: {
@@ -659,7 +667,7 @@ export function generateSebrae401Txt(
     'NOTA FISCAL|1|',
     `A|4.00|NFe${accessKey}|`,
     // Registro B com >= 21 campos alinhados conforme validador SetaIT/app-nfe-importacao
-    `B|35|${cNF}|${t(meta.natOp, MOC.natOp)}|55|${serie}|${nNF}|${dhEmi}|${dhEmi}|0|3|3550308|1|1|${cDV}|2|${meta.finNFe}|${meta.indFinal}|${meta.indPres}|${meta.indIntermed}|3|4.01_SEBRAE|||`,
+    `B|35|${cNF}|${t(meta.natOp, MOC.natOp)}|55|${serie}|${nNF}|${dhEmi}|${dhEmi}|0|3|3550308|1|1|${cDV}|${tpAmbOf(meta)}|${meta.finNFe}|${meta.indFinal}|${meta.indPres}|${meta.indIntermed}|3|4.01_SEBRAE|||`,
     // Registro C com CRT no último campo (ex: CRT=1 Simples Nacional)
     `C|${t(emitter.emitterName, MOC.xNome)}|SETA IT TELECOM|${ieDigits}||||${meta.crt}`,
     `C02|${cnpjDigits}|`,
@@ -869,7 +877,7 @@ export function generateSefaz400Xml(
         <tpImp>1</tpImp>
         <tpEmis>1</tpEmis>
         <cDV>${cDV}</cDV>
-        <tpAmb>2</tpAmb>
+        <tpAmb>${tpAmbOf(meta)}</tpAmb>
         <finNFe>${meta.finNFe}</finNFe>
         <indFinal>${meta.indFinal}</indFinal>
         <indPres>${meta.indPres}</indPres>

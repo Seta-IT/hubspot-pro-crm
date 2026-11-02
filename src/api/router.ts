@@ -125,6 +125,13 @@ import {
   utf8ByteLength,
 } from '../modules/erp/sebrae-nfe-import-engine';
 import { validateImportNfeRequest } from '../modules/erp/nfe-import-validation';
+import {
+  FISCAL_PRODUCTION_CONFIRMATION,
+  FISCAL_PRODUCTION_GESTAOCLICK_WARNING,
+  applyFiscalSettingsUpdate,
+  parseFiscalSettingsUpdate,
+  toFiscalSettingsView,
+} from '../modules/erp/fiscal-settings';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal } from '../db/types';
 import {
@@ -1222,6 +1229,22 @@ export class CrmApiRouter {
         (sess.erpPermissions?.canIssueFiscalDocuments || sess.effectiveActionGuards?.canIssueFiscalDocuments)
     );
     return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /**
+   * Configurações Fiscais: alterar (e sobretudo levar um documento para PRODUÇÃO) exige a alçada
+   * fiscal canIssueFiscalDocuments ou administrador (canManageUsersRbac), sempre com 2FA.
+   * Conta de serviço nunca altera. Contexto interno confiável passa.
+   */
+  private fiscalSettingsPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    const fiscal = this.fiscalIssuancePrivilege(query, ctx);
+    if (fiscal.allowed || !fiscal.authenticated || ctx.serviceAccount) return fiscal;
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const admin = Boolean(sess && sess.authenticated && sess.mfaVerified && sess.effectiveActionGuards?.canManageUsersRbac);
+    return { ...fiscal, allowed: admin };
   }
 
   /** Pacote K (D-I2): negativa de emissao fiscal (403/401) sempre auditada como ERP_FISCAL_ISSUANCE_DENIED. */
@@ -6297,10 +6320,13 @@ export class CrmApiRouter {
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
         const serie = input.serie || '1';
+        // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
+        const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
         try {
           const meta = calculateSebraeImportNfe({
             serie,
-            nNF: input.nNF || String(this.repo.peekNextFiscalNumber('55', serie)),
+            nNF: input.nNF || String(this.repo.peekNextFiscalNumber('55', serie, nfeEnvironment)),
+            environment: nfeEnvironment,
             natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
             crt: input.crt || '1',
             finNFe: input.finNFe || '1',
@@ -6404,8 +6430,10 @@ export class CrmApiRouter {
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
         const serie = input.serie || '1';
+        // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
+        const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
         // #11: numerador atômico por modelo/série (nunca reaproveita número já usado)
-        const reservation = this.repo.reserveFiscalNumber('55', serie, input.nNF ? Number(input.nNF) : null);
+        const reservation = this.repo.reserveFiscalNumber('55', serie, input.nNF ? Number(input.nNF) : null, nfeEnvironment);
         if (!reservation.ok) {
           return {
             status: 409,
@@ -6421,6 +6449,7 @@ export class CrmApiRouter {
           meta = calculateSebraeImportNfe({
             serie,
             nNF: String(reservation.nNF),
+            environment: nfeEnvironment,
             natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
             crt: input.crt || '1',
             finNFe: input.finNFe || '1',
@@ -6969,6 +6998,125 @@ export class CrmApiRouter {
           }
         }
         return { status: 200, body: { data: toGestaoClickConfigView(cfg, true) } };
+      }
+
+      // ======================================================================
+      // CONFIGURAÇÕES FISCAIS (/api/erp/fiscal-settings) — NF-e, NFC-e, NFS-e, autXML, certificado
+      //  - GET: sessão autenticada; CSC sempre mascarado.
+      //  - PUT: zod .strict(); alçada fiscal ou admin (2FA); HOMOLOGAÇÃO -> PRODUÇÃO exige
+      //    confirmProductionSwitch = "CONFIRMO_PRODUCAO"; toda mudança/negativa vai para a auditoria
+      //    (sem o CSC). Sessão só por query (_sessionToken do bridge), nunca pelo corpo.
+      // ======================================================================
+      if (cleanPath === '/api/erp/fiscal-settings' && (method === 'GET' || method === 'PUT')) {
+        const fsIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        const fsSess = ctx.trustedInternal || !query._sessionToken ? null : this.repo.resolveSessionFromToken(query._sessionToken);
+        if (!ctx.trustedInternal && !ctx.serviceAccount && !(fsSess && fsSess.authenticated)) {
+          return { status: 401, body: { error: 'Sessão obrigatória para as Configurações Fiscais.', code: 'FISCAL_SETTINGS_AUTH_REQUIRED' } };
+        }
+        if (ctx.serviceAccount) {
+          return { status: 403, body: { error: 'Conta de serviço não acessa as Configurações Fiscais.', code: 'FISCAL_SETTINGS_FORBIDDEN' } };
+        }
+        const peek = (modelo: string, serie: string, env: 'HOMOLOGACAO' | 'PRODUCAO') => this.repo.peekNextFiscalNumber(modelo, serie, env);
+        const gcCfg = this.repo.getErpOverview().gestaoClickConfig;
+        if (method === 'GET') {
+          return { status: 200, body: { data: toFiscalSettingsView(this.repo.getFiscalDocumentSettings(), gcCfg, peek) } };
+        }
+
+        const fsPriv = this.fiscalSettingsPrivilege(query, ctx);
+        const rawBody = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        const wantsProduction = ['nfe', 'nfce', 'nfse'].some((d) => {
+          const v = rawBody[d];
+          return Boolean(v && typeof v === 'object' && (v as Record<string, unknown>).environment === 'PRODUCAO');
+        });
+        if (!fsPriv.allowed) {
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: fsPriv.email || 'desconhecido',
+              actorName: fsPriv.name || 'desconhecido',
+              actorRole: fsPriv.roleId || 'desconhecido',
+              action: wantsProduction ? 'FISCAL_ENVIRONMENT_PRODUCTION_DENIED' : 'FISCAL_SETTINGS_UPDATE_DENIED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'BLOCKED',
+              ipAddress: fsIp,
+              // Só os nomes dos blocos enviados — nunca valores (o CSC jamais entra em log).
+              details: `Alteracao das Configuracoes Fiscais negada (403): exige canIssueFiscalDocuments ou administrador com 2FA. Blocos enviados: ${Object.keys(rawBody).slice(0, 10).join(', ').slice(0, 200)}.`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+          return {
+            status: 403,
+            body: {
+              error: wantsProduction
+                ? 'Permissão negada: trocar o ambiente fiscal para PRODUÇÃO exige a alçada fiscal (canIssueFiscalDocuments) ou perfil administrador, com 2FA.'
+                : 'Permissão negada: alterar as Configurações Fiscais exige a alçada fiscal (canIssueFiscalDocuments) ou perfil administrador, com 2FA.',
+              code: wantsProduction ? 'FISCAL_PRODUCTION_SWITCH_FORBIDDEN' : 'FISCAL_SETTINGS_FORBIDDEN',
+            },
+          };
+        }
+        const parsedFs = parseFiscalSettingsUpdate(rawBody);
+        if (!parsedFs.ok) {
+          return {
+            status: 400,
+            body: { error: 'Configurações Fiscais inválidas.', code: 'FISCAL_SETTINGS_INVALID', issues: parsedFs.issues },
+          };
+        }
+        const currentFs = this.repo.getFiscalDocumentSettings();
+        const applied = applyFiscalSettingsUpdate(currentFs, parsedFs.data);
+        if (applied.productionSwitches.length > 0 && parsedFs.data.confirmProductionSwitch !== FISCAL_PRODUCTION_CONFIRMATION) {
+          return {
+            status: 409,
+            body: {
+              error: `Confirmação explícita obrigatória para emitir em PRODUÇÃO (${applied.productionSwitches.join(', ').toUpperCase()}). ${FISCAL_PRODUCTION_GESTAOCLICK_WARNING}`,
+              code: 'FISCAL_PRODUCTION_CONFIRMATION_REQUIRED',
+              documents: applied.productionSwitches,
+              requiredConfirmation: FISCAL_PRODUCTION_CONFIRMATION,
+              warning: FISCAL_PRODUCTION_GESTAOCLICK_WARNING,
+            },
+          };
+        }
+        const actorLabel = fsPriv.email || 'sistema@sti-hub';
+        const savedFs = applied.changes.length > 0 ? this.repo.saveFiscalDocumentSettings(applied.next, actorLabel) : currentFs;
+        try {
+          for (const c of applied.changes.filter((ch) => ch.field.endsWith('.environment'))) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: actorLabel,
+              actorName: fsPriv.name || 'Sistema STI-hub',
+              actorRole: fsPriv.roleId || 'SYSTEM',
+              action: 'FISCAL_ENVIRONMENT_CHANGED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'SUCCESS',
+              ipAddress: fsIp,
+              details: `Ambiente fiscal ${c.field.split('.')[0].toUpperCase()}: ${String(c.before)} -> ${String(c.after)}${c.after === 'PRODUCAO' ? ` (confirmado: ${FISCAL_PRODUCTION_CONFIRMATION}; o GestaoClick deve parar de emitir na mesma serie)` : ''}.`,
+            });
+          }
+          const others = applied.changes.filter((ch) => !ch.field.endsWith('.environment'));
+          if (others.length > 0) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: actorLabel,
+              actorName: fsPriv.name || 'Sistema STI-hub',
+              actorRole: fsPriv.roleId || 'SYSTEM',
+              action: 'FISCAL_SETTINGS_UPDATED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'SUCCESS',
+              ipAddress: fsIp,
+              // applyFiscalSettingsUpdate já redige o CSC ("[CSC REDIGIDO]").
+              details: `Configuracoes Fiscais alteradas: ${JSON.stringify(others).slice(0, 1500)}`,
+            });
+          }
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return {
+          status: 200,
+          body: {
+            data: toFiscalSettingsView(savedFs, gcCfg, peek),
+            changedFields: applied.changes.map((c) => c.field),
+          },
+        };
       }
 
       // ======================================================================

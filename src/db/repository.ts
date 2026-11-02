@@ -129,6 +129,8 @@ import { createInitialSeedState } from './seed';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
+import type { FiscalDocumentSettings, FiscalEnvironment } from './types';
+import { FISCAL_PRODUCTION_SEED, normalizeFiscalDocumentSettings } from '../modules/erp/fiscal-settings';
 
 /** Identidade reservada a contas de servico (id svc-* ou e-mail @servico.sti-hub). */
 export function isServiceAccountIdentity(id: unknown, email?: unknown): boolean {
@@ -6018,55 +6020,108 @@ export class CrmRepository {
     return [...this.ensureErp().invoices];
   }
 
-  private fiscalSequenceKey(modelo: string, serie: string): string {
-    return `${modelo}-${Number(String(serie).replace(/\D/g, '') || '1')}`;
+  /**
+   * Chave do numerador. Homologação mantém o formato original do #11 ("55-1"); produção usa
+   * "PROD:55-1". Assim a numeração de homologação e a de produção nunca se misturam.
+   */
+  private fiscalSequenceKey(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): string {
+    const base = `${modelo}-${Number(String(serie).replace(/\D/g, '') || '1')}`;
+    return environment === 'PRODUCAO' ? `PROD:${base}` : base;
   }
 
-  /** Maior nNF já usado por NF-e modelo 55 da série (a partir dos metadados de importação gravados). */
-  private maxUsedFiscalNumber(modelo: string, serie: string): number {
+  /** Ambiente de uma NF-e de importação gravada (notas anteriores às Configurações Fiscais = homologação). */
+  private importInvoiceEnvironment(inv: ErpFiscalInvoice): FiscalEnvironment {
+    return inv.importMetadata?.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+  }
+
+  /** Maior nNF já usado por NF-e modelo 55 da série no ambiente (a partir dos metadados de importação gravados). */
+  private maxUsedFiscalNumber(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): number {
     if (modelo !== '55') return 0;
     const erp = this.ensureErp();
-    const key = this.fiscalSequenceKey(modelo, serie);
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
     let max = 0;
     for (const inv of erp.invoices) {
       const meta = inv.importMetadata;
-      if (!meta || this.fiscalSequenceKey('55', meta.serie) !== key) continue;
+      if (!meta || this.fiscalSequenceKey('55', meta.serie, this.importInvoiceEnvironment(inv)) !== key) continue;
       const n = Number(String(meta.nNF).replace(/\D/g, ''));
       if (Number.isFinite(n) && n > max) max = n;
     }
     return max;
   }
 
-  /** Próximo nNF disponível para modelo/série, sem reservar (pré-visualização). */
-  peekNextFiscalNumber(modelo: string, serie: string): number {
+  /**
+   * Configurações Fiscais: cria o padrão (tudo em HOMOLOGAÇÃO) e aplica uma única vez o seed dos
+   * números de produção do GestaoClick ao numerador (NF-e 2176/1, NFC-e 0/2, RPS 735/10001).
+   */
+  private ensureFiscalDocumentSettings(): FiscalDocumentSettings {
     const erp = this.ensureErp();
-    const key = this.fiscalSequenceKey(modelo, serie);
-    const last = Math.max(erp.fiscalNumberSequences?.[key] || 0, this.maxUsedFiscalNumber(modelo, serie));
+    const settings = normalizeFiscalDocumentSettings(erp.fiscalDocumentSettings);
+    if (!settings.productionSeedApplied) {
+      if (!erp.fiscalNumberSequences) erp.fiscalNumberSequences = {};
+      for (const seed of FISCAL_PRODUCTION_SEED) {
+        const key = this.fiscalSequenceKey(seed.modelo, seed.serie, 'PRODUCAO');
+        erp.fiscalNumberSequences[key] = Math.max(erp.fiscalNumberSequences[key] || 0, seed.lastIssued);
+      }
+      settings.productionSeedApplied = true;
+      erp.fiscalDocumentSettings = settings;
+      this.save();
+    } else {
+      erp.fiscalDocumentSettings = settings;
+    }
+    return settings;
+  }
+
+  /** Cópia das Configurações Fiscais (inclui o CSC: uso interno; a rota devolve só a visão mascarada). */
+  getFiscalDocumentSettings(): FiscalDocumentSettings {
+    return JSON.parse(JSON.stringify(this.ensureFiscalDocumentSettings()));
+  }
+
+  saveFiscalDocumentSettings(next: FiscalDocumentSettings, updatedBy: string): FiscalDocumentSettings {
+    const erp = this.ensureErp();
+    const normalized = normalizeFiscalDocumentSettings({
+      ...next,
+      productionSeedApplied: true,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String(updatedBy || 'sistema').slice(0, 200),
+    });
+    erp.fiscalDocumentSettings = normalized;
+    this.save();
+    return JSON.parse(JSON.stringify(normalized));
+  }
+
+  /** Próximo número disponível para modelo/série/ambiente, sem reservar (pré-visualização). */
+  peekNextFiscalNumber(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): number {
+    this.ensureFiscalDocumentSettings();
+    const erp = this.ensureErp();
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
+    const last = Math.max(erp.fiscalNumberSequences?.[key] || 0, this.maxUsedFiscalNumber(modelo, serie, environment));
     return last + 1;
   }
 
   /**
-   * #11: numerador atômico por modelo/série. A reserva é síncrona (sem await entre leitura e gravação),
-   * portanto duas emissões no mesmo processo nunca recebem o mesmo número. Quando o número é informado,
-   * ele só é aceito se ainda não tiver sido usado nem reservado.
+   * #11: numerador atômico por ambiente/modelo/série. A reserva é síncrona (sem await entre leitura e
+   * gravação), portanto duas emissões no mesmo processo nunca recebem o mesmo número. Quando o número
+   * é informado, ele só é aceito se ainda não tiver sido usado nem reservado no mesmo ambiente.
    */
   reserveFiscalNumber(
     modelo: string,
     serie: string,
-    requested?: number | null
+    requested?: number | null,
+    environment: FiscalEnvironment = 'HOMOLOGACAO'
   ): { ok: true; nNF: number } | { ok: false; nextAvailable: number } {
+    this.ensureFiscalDocumentSettings();
     const erp = this.ensureErp();
     if (!erp.fiscalNumberSequences) erp.fiscalNumberSequences = {};
-    const key = this.fiscalSequenceKey(modelo, serie);
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
     const reserved = erp.fiscalNumberSequences[key] || 0;
-    const last = Math.max(reserved, this.maxUsedFiscalNumber(modelo, serie));
+    const last = Math.max(reserved, this.maxUsedFiscalNumber(modelo, serie, environment));
     let nNF: number;
     if (requested !== undefined && requested !== null && Number.isFinite(requested) && requested > 0) {
       const req = Math.floor(requested);
       const used = erp.invoices.some(
         (inv) =>
           inv.importMetadata &&
-          this.fiscalSequenceKey('55', inv.importMetadata.serie) === key &&
+          this.fiscalSequenceKey('55', inv.importMetadata.serie, this.importInvoiceEnvironment(inv)) === key &&
           Number(String(inv.importMetadata.nNF).replace(/\D/g, '')) === req
       );
       if (used || req <= reserved) return { ok: false, nextAvailable: last + 1 };
