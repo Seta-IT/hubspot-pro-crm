@@ -87,12 +87,13 @@ describe('PDV oculto só na interface', () => {
 });
 
 describe('B1: Ambiente de emissão só grava com canManage do servidor', () => {
-  it('Salvar e Séries fiscais só com canManage; select desabilitado sem ele', () => {
+  it('Salvar e Séries fiscais só com canManage; sem ele, nada de select nem valor padrão', () => {
     const tsx = src('src/app/components/CertificateA1UploadCard.tsx');
     const sec = tsx.slice(tsx.indexOf('Seção 3: ambiente de emissão'));
     assert.match(sec, /footer=\{\s*canManage \?/);
-    assert.match(sec, /disabled=\{!canManage\}/);
-    assert.match(sec, /if \(canManage\) environment\.onChange/);
+    // Sem canManage o valor real não é lido: não renderiza o select (que mostraria o padrão 'Produção').
+    assert.match(sec, /\{canManage \? \(\s*<select/);
+    assert.match(sec, /Não disponível para o seu perfil/);
     assert.match(sec, /Somente administradores com 2FA podem alterar o ambiente de emissão/);
     assert.match(tsx, /const canManage = cert\?\.canManage === true;/);
   });

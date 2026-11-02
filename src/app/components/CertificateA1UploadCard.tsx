@@ -493,7 +493,7 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
 
       {/* Seção 3: ambiente de emissão (configuração já existente).
           Gravar (PUT /api/admin/settings) exige admin com 2FA: o mesmo sinal do servidor
-          (data.canManage do GET /api/erp/certificate). Sem ele, select só leitura e sem Salvar. */}
+          (data.canManage do GET /api/erp/certificate). Sem ele, sem Salvar e sem valor (não é lido). */}
       {environment && loadState === 'ready' && (
         <SectionCard
           icon={Server}
@@ -532,18 +532,22 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
           }
         >
           <SettingRow icon={Server} title="Ambiente SEFAZ / Prefeitura" description="Produção para emissões reais; Homologação para testes.">
-            <select
-              value={environment.value}
-              onChange={(e) => {
-                if (canManage) environment.onChange(e.target.value as SefazEnvironment);
-              }}
-              disabled={!canManage}
-              aria-readonly={!canManage}
-              className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white font-semibold disabled:bg-slate-50 disabled:text-slate-600 disabled:cursor-not-allowed"
-            >
-              <option value="PRODUCAO">Produção (validade jurídica)</option>
-              <option value="HOMOLOGACAO">Homologação (testes)</option>
-            </select>
+            {canManage ? (
+              <select
+                value={environment.value}
+                onChange={(e) => environment.onChange(e.target.value as SefazEnvironment)}
+                className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+              >
+                <option value="PRODUCAO">Produção (validade jurídica)</option>
+                <option value="HOMOLOGACAO">Homologação (testes)</option>
+              </select>
+            ) : (
+              // Sem canManage o valor real não é lido (/api/admin/settings exige admin com 2FA):
+              // nunca mostrar o padrão local como se fosse o valor configurado.
+              <span data-testid="sefaz-env-unavailable" className="text-slate-500 font-semibold">
+                Não disponível para o seu perfil
+              </span>
+            )}
           </SettingRow>
         </SectionCard>
       )}
