@@ -12,6 +12,7 @@ function sanitizeIamUserPatch(patch: Record<string, unknown>): Record<string, un
   return out;
 }
 import React, { useState, useEffect } from 'react';
+import CertificateA1UploadCard from './CertificateA1UploadCard';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -99,6 +100,7 @@ import {
 export type AdminSubView =
   | 'USERS_RBAC'
   | 'COMPANY_EMITTER'
+  | 'CERTIFICATE_A1'
   | 'CERTIFICATE_SERIES'
   | 'EMAIL_TEMPLATES'
   | 'CUSTOM_PROPERTIES'
@@ -114,6 +116,8 @@ interface StiHubAdminRbacPanelProps {
   onSelectActiveUser?: (user: StiHubUserRecord) => void;
   onRefresh: () => Promise<void>;
   onShowToast: (msg: string) => void;
+  /** Tela dedicada: oculta o banner e as abas da Central (ex.: ERP > Configurações > Certificado digital). */
+  singleView?: boolean;
 }
 
 const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string; desc: string }> = [
@@ -162,6 +166,7 @@ export default function StiHubAdminRbacPanel({
   onSelectActiveUser,
   onRefresh,
   onShowToast,
+  singleView = false,
 }: StiHubAdminRbacPanelProps) {
   const [subView, setSubView] = useState<AdminSubView>(initialSubView);
   const [selectedRoleId, setSelectedRoleId] = useState<StiHubRoleId>('SUPER_ADMIN');
@@ -898,6 +903,7 @@ export default function StiHubAdminRbacPanel({
   return (
     <div className="space-y-5">
       {/* Top Banner */}
+      {!singleView && (<>
       <div className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -947,9 +953,14 @@ export default function StiHubAdminRbacPanel({
             icon: ShieldCheck,
           },
           {
-            id: 'CERTIFICATE_SERIES' as const,
-            label: 'Certificado A1, Séries NF & Parâmetros',
+            id: 'CERTIFICATE_A1' as const,
+            label: 'Certificado Digital A1',
             icon: KeyRound,
+          },
+          {
+            id: 'CERTIFICATE_SERIES' as const,
+            label: 'Séries NF & Parâmetros',
+            icon: Database,
           },
           {
             id: 'EMAIL_TEMPLATES' as const,
@@ -996,6 +1007,7 @@ export default function StiHubAdminRbacPanel({
           );
         })}
       </div>
+      </>)}
 
       {/* ====================================================================
           SUB-VIEW 1: CONFIGURAÇÕES > USUÁRIOS (TELA INICIAL LIMPA DE LISTAGEM)
@@ -1782,7 +1794,27 @@ export default function StiHubAdminRbacPanel({
       )}
 
       {/* ====================================================================
-          SUB-VIEW: CERTIFICADO DIGITAL A1, SÉRIES NF & PARÂMETROS GERAIS
+          SUB-VIEW: CERTIFICADO DIGITAL A1 (tela dedicada, contrato /api/erp/certificate)
+      ==================================================================== */}
+      {subView === 'CERTIFICATE_A1' && (
+        <CertificateA1UploadCard
+          onShowToast={onShowToast}
+          environment={{
+            value: certificateSettings.sefazEnvironment,
+            onChange: (value) => setCertificateSettings({ ...certificateSettings, sefazEnvironment: value }),
+            onSave: () =>
+              handleSaveAdminSettings(
+                { certificateSettings, generalParameters },
+                'Ambiente de emissão salvo.'
+              ),
+            saving: savingSettings,
+          }}
+          onOpenFiscalSeries={singleView ? undefined : () => setSubView('CERTIFICATE_SERIES')}
+        />
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: SÉRIES NF & PARÂMETROS GERAIS
       ==================================================================== */}
       {subView === 'CERTIFICATE_SERIES' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
@@ -1790,10 +1822,10 @@ export default function StiHubAdminRbacPanel({
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                  CONFIGURAÇÕES &gt; CERTIFICADO DIGITAL A1 &amp; NUMERAÇÃO FISCAL (CFG_CERTIFICADO)
+                  CONFIGURAÇÕES &gt; NUMERAÇÃO FISCAL &amp; AMBIENTE (CFG_GERAIS)
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Certificado ICP-Brasil (.pfx) e Séries NF-e / NFS-e / NFCom / Locação SV 31
+                  Séries NF-e / NFS-e / NFCom / Locação SV 31
                 </h3>
               </div>
               <button
@@ -1802,7 +1834,7 @@ export default function StiHubAdminRbacPanel({
                 onClick={() =>
                   handleSaveAdminSettings(
                     { certificateSettings, generalParameters },
-                    'Certificado Digital A1, séries fiscais e parâmetros gerais salvos!'
+                    'Séries fiscais e parâmetros gerais salvos.'
                   )
                 }
                 className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
@@ -1813,18 +1845,14 @@ export default function StiHubAdminRbacPanel({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Arquivo Certificado A1 (.pfx)</label>
-                <input
-                  type="text"
-                  value={certificateSettings.certificateFileName}
-                  onChange={(e) =>
-                    setCertificateSettings({
-                      ...certificateSettings,
-                      certificateFileName: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
-                />
+                <label className="block font-semibold text-slate-700 mb-1">Certificado Digital A1 (.pfx / .p12)</label>
+                <button
+                  type="button"
+                  onClick={() => setSubView('CERTIFICATE_A1')}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 font-semibold cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" /> Gerenciar certificado digital
+                </button>
               </div>
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Ambiente SEFAZ / Prefeitura</label>

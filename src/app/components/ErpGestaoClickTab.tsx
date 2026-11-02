@@ -6560,6 +6560,7 @@ export default function ErpGestaoClickTab({
 
           {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+              {!(activeSection === 'CONFIGURACOES' && activeSubId === 'CFG_CERTIFICADO') && (<>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
@@ -6630,16 +6631,19 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
                 <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
               </div>
+              </>)}
 
               {rbacState && (
-                <div className="pt-3 border-t border-slate-200">
+                <div className={activeSection === 'CONFIGURACOES' && activeSubId === 'CFG_CERTIFICADO' ? '' : 'pt-3 border-t border-slate-200'}>
                   <StiHubAdminRbacPanel
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={
                       activeSubId === 'CFG_EMPRESA' || activeSubId === 'CFG_LOJAS' || activeSubId === 'CFG_MARCA'
                         ? 'COMPANY_EMITTER'
-                        : activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_PLANO'
+                        : activeSubId === 'CFG_CERTIFICADO'
+                          ? 'CERTIFICATE_A1'
+                        : activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_PLANO'
                           ? 'CERTIFICATE_SERIES'
                           : activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
                             ? 'EMAIL_TEMPLATES'
@@ -6653,6 +6657,7 @@ export default function ErpGestaoClickTab({
                     onSelectActiveUser={onSelectActiveUser}
                     onRefresh={onRefresh}
                     onShowToast={onShowToast}
+                    singleView={activeSubId === 'CFG_CERTIFICADO'}
                   />
                 </div>
               )}

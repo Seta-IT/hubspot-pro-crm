@@ -142,7 +142,7 @@ export default function HubSpotProCrmApp() {
   const [serviceDeskNavTrigger, setServiceDeskNavTrigger] = useState<number>(0);
   const [openNewTicketTrigger, setOpenNewTicketTrigger] = useState<number>(0);
   const [openNewDealTrigger, setOpenNewDealTrigger] = useState<number>(0);
-  const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
+  const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_A1' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
