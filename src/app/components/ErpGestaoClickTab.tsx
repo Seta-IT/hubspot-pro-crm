@@ -128,14 +128,12 @@ const FISCAL_SUBSCREEN_TITLES: Record<string, string> = {
   FIS_AUXILIARES: 'Opções auxiliares',
 };
 import {
-  type ErpConfigAccess,
-  type ErpConfigSessionLike,
   filterErpMenuTree,
   firstVisibleErpConfigItem,
+  gestaoClickDeniedMessage,
   isErpConfigItemVisible,
-  NO_ERP_CONFIG_ACCESS,
-  resolveErpConfigAccess,
 } from '../lib/erp-config-access';
+import { useErpConfigAccess } from './useErpConfigAccess';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
@@ -256,9 +254,8 @@ export function inferContractModality(ctr: ErpRentalContract): ErpContractModali
 /** Pacote I: mensagem de erro do PATCH /api/erp/gestaoclick/config (403 sem permissao, 400 campo invalido). */
 async function gcConfigErrorMessage(res: Response): Promise<string> {
   const j = (await res.json().catch(() => null)) as { error?: string } | null;
-  if (res.status === 403 || res.status === 401) {
-    return 'Sem permissão: alterar a configuração fiscal exige 2FA e perfil administrador ou controle total do ERP.';
-  }
+  const denied = gestaoClickDeniedMessage(res.status, 'config');
+  if (denied) return denied;
   return j?.error || 'Não foi possível salvar a configuração fiscal.';
 }
 
@@ -364,21 +361,9 @@ export default function ErpGestaoClickTab({
   // Telas dedicadas de Configurações (padrão GestãoClick): sem o cabeçalho genérico, o banner e as abas da Central.
   const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS');
   // B2: Configurações por permissão (sessão do servidor + matriz rbac.ts). null = carregando (fail closed).
-  const [erpConfigAccess, setErpConfigAccess] = useState<ErpConfigAccess | null>(null);
-  React.useEffect(() => {
-    let alive = true;
-    fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (alive) setErpConfigAccess(resolveErpConfigAccess((j?.data ?? null) as ErpConfigSessionLike | null));
-      })
-      .catch(() => {
-        if (alive) setErpConfigAccess(NO_ERP_CONFIG_ACCESS);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [activeUser?.id]);
+  const erpConfigAccess = useErpConfigAccess(activeUser?.id ?? null);
+  // Sync GestãoClick e regime/parâmetros fiscais: mesma regra do gestaoClickPrivilege do servidor (2FA + admin ou ERP FULL).
+  const canSyncGestaoClick = erpConfigAccess?.canSyncGestaoClick === true;
   const visibleMenuTree = useMemo(() => filterErpMenuTree(GESTAO_CLICK_MENU_TREE, erpConfigAccess), [erpConfigAccess]);
   const cfgScreenAllowed = activeSection !== 'CONFIGURACOES' || isErpConfigItemVisible(erpConfigAccess, activeSubId);
   // Relatórios: indicadores para quem tem 'erp.relatorios_logs' na matriz; administração (empresa, regime,
@@ -751,7 +736,11 @@ export default function ErpGestaoClickTab({
       if (res.ok) {
         onShowToast('Sincronização bidirecional GestãoClick + Seta Telecom concluída!');
         await onRefresh();
+      } else {
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o GestãoClick agora.');
       }
+    } catch {
+      onShowToast('Não foi possível sincronizar o GestãoClick agora.');
     } finally {
       setSyncingGc(false);
     }
@@ -4290,6 +4279,7 @@ export default function ErpGestaoClickTab({
                   CNPJ: {gestaoClickConfig.companyCnpj} • IM: {gestaoClickConfig.municipalRegistration} • IE: {gestaoClickConfig.stateRegistration}
                 </p>
               </div>
+              {canSyncGestaoClick ? (
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={gestaoClickConfig.taxRegime}
@@ -4340,6 +4330,11 @@ export default function ErpGestaoClickTab({
                   Editar Parâmetros Fiscais
                 </button>
               </div>
+              ) : (
+                <span data-testid="regime-somente-leitura" className="px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                  Regime: {gestaoClickConfig.taxRegime}
+                </span>
+              )}
             </div>
 
             {/* Base legal e tabela CFOP: só aqui em Opções auxiliares, recolhidas */}
@@ -4905,7 +4900,7 @@ export default function ErpGestaoClickTab({
                 setActiveSection('ORCAMENTOS');
                 openFullNewProposalModal('LOCACAO');
               }}
-              onSync={handleSyncGestaoClick}
+              onSync={canSyncGestaoClick ? handleSyncGestaoClick : undefined}
               syncing={syncingGc}
               config={gestaoClickConfig}
               serviceOrdersUpcoming={serviceOrders}

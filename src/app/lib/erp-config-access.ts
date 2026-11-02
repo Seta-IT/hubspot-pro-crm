@@ -9,19 +9,30 @@
 //  - Certificado digital: mesma leitura de src/api/certificate-routes.ts
 //    (admin com 2FA, ou 2FA + 'erp.fiscal_notas'/'erp.configuracoes_empresa' view,
 //    ou fiscalIssuanceAccess VIEW/EDIT/FULL).
+//  - Sincronização GestãoClick e regime/parâmetros fiscais (POST /api/erp/gestaoclick/sync,
+//    PATCH /api/erp/gestaoclick/config, /api/erp/daily-sync): mesma regra do
+//    gestaoClickPrivilege do router.ts = 2FA + (admin IAM ou controle TOTAL do ERP,
+//    isModuleFullControl de rbac-seed.ts).
 // É só interface: o servidor continua revalidando cada chamada.
 // ============================================================================
 import { buildDefaultErpItemPermissions, ERP_ROLES_CATALOG, type ErpAccountRole } from './rbac';
+import { isModuleFullControl } from '../../modules/erp/rbac-seed';
 
 type ItemPerms = Record<string, { view?: boolean } | undefined>;
 
 export interface ErpConfigSessionLike {
   authenticated?: boolean;
   mfaVerified?: boolean;
-  user?: { erpRole?: string; erpItemPermissions?: ItemPerms } | null;
+  user?: {
+    erpRole?: string;
+    erpItemPermissions?: ItemPerms;
+    enabledModules?: string[];
+    erpPermissions?: Record<string, unknown> | null;
+  } | null;
   role?: { erpRole?: string; erpItemPermissions?: ItemPerms } | null;
   effectiveActionGuards?: { canManageUsersRbac?: boolean } | null;
-  erpPermissions?: { erpRole?: string; fiscalIssuanceAccess?: string } | null;
+  enabledModules?: string[];
+  erpPermissions?: ({ erpRole?: string; fiscalIssuanceAccess?: string } & Record<string, unknown>) | null;
 }
 
 export interface ErpConfigAccess {
@@ -31,9 +42,25 @@ export interface ErpConfigAccess {
   canViewReports: boolean;
   canViewAdminConfig: boolean;
   canReadCertificate: boolean;
+  /** Sincronizar GestãoClick e alterar regime/parâmetros fiscais: 2FA + (admin ou controle TOTAL do ERP). */
+  canSyncGestaoClick: boolean;
 }
 
-export const NO_ERP_CONFIG_ACCESS: ErpConfigAccess = { isAdmin: false, canViewReports: false, canViewAdminConfig: false, canReadCertificate: false };
+export const NO_ERP_CONFIG_ACCESS: ErpConfigAccess = {
+  isAdmin: false,
+  canViewReports: false,
+  canViewAdminConfig: false,
+  canReadCertificate: false,
+  canSyncGestaoClick: false,
+};
+
+/** Mensagem neutra para 401/403 das rotas GestãoClick (sync, config, daily-sync). null para outros status. */
+export function gestaoClickDeniedMessage(status: number, action: 'sync' | 'config'): string | null {
+  if (status !== 401 && status !== 403) return null;
+  return action === 'sync'
+    ? 'Sem permissão para sincronizar o GestãoClick. Esta ação exige 2FA e perfil administrador ou controle total do ERP.'
+    : 'Sem permissão para alterar a configuração fiscal. Esta ação exige 2FA e perfil administrador ou controle total do ERP.';
+}
 
 /** Item 'Balcão (PDV)' oculto do menu por decisão do Marcéllo (02/11/2026). Rotas, lógica e dados do PDV seguem intactos. */
 export const ERP_HIDDEN_MENU_SUB_ITEMS = ['VENDAS_BALCAO'] as const;
@@ -52,11 +79,16 @@ export function resolveErpConfigAccess(session: ErpConfigSessionLike | null | un
   const configView = items['erp.configuracoes_empresa']?.view === true;
   const fiscalView = items['erp.fiscal_notas']?.view === true;
   const fiscalLevel = String(session.erpPermissions?.fiscalIssuanceAccess || 'NONE');
+  const actor = {
+    enabledModules: session.user?.enabledModules ?? session.enabledModules ?? [],
+    erpPermissions: session.user?.erpPermissions ?? session.erpPermissions ?? undefined,
+  } as unknown as Parameters<typeof isModuleFullControl>[0];
   return {
     isAdmin,
     canViewReports: mfa && (isAdmin || items['erp.relatorios_logs']?.view === true),
     canViewAdminConfig: isAdmin && configView,
     canReadCertificate: mfa && (isAdmin || configView || fiscalView || ['VIEW', 'EDIT', 'FULL'].includes(fiscalLevel)),
+    canSyncGestaoClick: mfa && (isAdmin || isModuleFullControl(actor, 'ERP')),
   };
 }
 

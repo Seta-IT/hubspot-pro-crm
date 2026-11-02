@@ -222,7 +222,8 @@ interface Props {
   onToggleHide: () => void;
   onOpenSection: (section: string, subId?: string) => void;
   onNewProposal: () => void;
-  onSync: () => void;
+  /** Ausente = sem permissão (2FA + admin ou ERP FULL): o botão de sincronizar não aparece. */
+  onSync?: () => void;
   syncing: boolean;
   config: GestaoClickConfig;
   serviceOrdersUpcoming: Array<{ code: string; companyName: string; entryDate: string; status: string }>;
@@ -268,6 +269,7 @@ export default function GestaoClickDashboard({
           >
             <Plus className="w-4 h-4" /> Nova Proposta / Orçamento
           </button>
+          {onSync && (
           <button
             type="button"
             onClick={onSync}
@@ -277,6 +279,7 @@ export default function GestaoClickDashboard({
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar GestãoClick'}
           </button>
+          )}
           <span className="text-xs text-slate-500">Início</span>
         </div>
       </div>

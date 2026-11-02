@@ -15,7 +15,7 @@ import React, { useState, useEffect } from 'react';
 import CertificateA1UploadCard from './CertificateA1UploadCard';
 import ErpGeneralSettingsPage from './ErpGeneralSettingsPage';
 import { useErpConfigAccess } from './useErpConfigAccess';
-import { canOpenAdminCentral, type ErpConfigAccess } from '../lib/erp-config-access';
+import { canOpenAdminCentral, gestaoClickDeniedMessage, type ErpConfigAccess } from '../lib/erp-config-access';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -365,6 +365,8 @@ export default function StiHubAdminRbacPanel({
           `Sincronização diária incremental executada (${json?.data?.latestRun?.runId || 'OK'})!`
         );
         await onRefresh();
+      } else {
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível executar a sincronização diária agora.');
       }
     } finally {
       setRunningSyncNow(false);
