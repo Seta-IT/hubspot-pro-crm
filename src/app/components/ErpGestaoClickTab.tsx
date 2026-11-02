@@ -367,6 +367,15 @@ export default function ErpGestaoClickTab({
   }, [activeUser?.id]);
   const visibleMenuTree = useMemo(() => filterErpMenuTree(GESTAO_CLICK_MENU_TREE, erpConfigAccess), [erpConfigAccess]);
   const cfgScreenAllowed = activeSection !== 'CONFIGURACOES' || isErpConfigItemVisible(erpConfigAccess, activeSubId);
+  // Relatórios: indicadores para quem tem 'erp.relatorios_logs' na matriz; administração (empresa, regime,
+  // sincronização e a Central) só para admin com 2FA.
+  const reportsScreenAllowed = activeSection !== 'RELATORIOS' || erpConfigAccess?.canViewReports === true;
+  const canAdminErpConfig = erpConfigAccess?.canViewAdminConfig === true;
+  React.useEffect(() => {
+    if (!erpConfigAccess || activeSection !== 'RELATORIOS' || erpConfigAccess.canViewReports) return;
+    setActiveSection('INICIO');
+    setActiveSubId('INICIO');
+  }, [erpConfigAccess, activeSection]);
   // Aberto pela URL/estado sem permissão: vai para o primeiro item permitido ou para o Início.
   React.useEffect(() => {
     if (!erpConfigAccess || activeSection !== 'CONFIGURACOES') return;
@@ -6613,7 +6622,7 @@ export default function ErpGestaoClickTab({
             />
           )}
 
-          {(activeSection === 'RELATORIOS' || (activeSection === 'CONFIGURACOES' && cfgScreenAllowed)) && (
+          {((activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess) || (activeSection === 'CONFIGURACOES' && cfgScreenAllowed)) && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               {!isDedicatedCfgScreen && (<>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -6622,10 +6631,11 @@ export default function ErpGestaoClickTab({
                     {activeSection} &gt; {activeSubId}
                   </span>
                   <h2 className="text-base font-extrabold text-slate-900">
-                    Configurações &amp; Relatórios GestãoClick ({gestaoClickConfig.credentialName || 'ERP-GROK'})
+                    {canAdminErpConfig ? 'Configurações & Relatórios GestãoClick' : 'Relatórios GestãoClick'} ({gestaoClickConfig.credentialName || 'ERP-GROK'})
                   </h2>
                   <p className="text-xs text-slate-500">Loja {gestaoClickConfig.storeName} #{gestaoClickConfig.storeId} • CNPJ {gestaoClickConfig.companyCnpj}</p>
                 </div>
+                {canAdminErpConfig && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -6679,6 +6689,7 @@ export default function ErpGestaoClickTab({
                     {syncingGc ? 'Sincronizando...' : 'Sincronizar Agora'}
                   </button>
                 </div>
+                )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong> →</button>
@@ -6688,9 +6699,10 @@ export default function ErpGestaoClickTab({
               </div>
               </>)}
 
-              {rbacState && (
+              {rbacState && (activeSection === 'CONFIGURACOES' || canAdminErpConfig) && (
                 <div className={isDedicatedCfgScreen ? '' : 'pt-3 border-t border-slate-200'}>
                   <StiHubAdminRbacPanel
+                    access={erpConfigAccess}
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={

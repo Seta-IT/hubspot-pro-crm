@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
   Sliders,
@@ -78,6 +79,8 @@ export default function AdminSettingsCenterTab({
   onOpenEmailComposer,
   onShowToast,
 }: AdminSettingsCenterTabProps) {
+  // Central legada (sem importadores hoje): mesmo gate da StiHubAdminRbacPanel, admin com 2FA.
+  const centralAccess = useErpConfigAccess(null);
   const [subTab, setSubTab] = useState<AdminSubTab>('EMAIL_CONFIG');
 
   // 1. Email Config & Validation State
@@ -450,6 +453,16 @@ export default function AdminSettingsCenterTab({
     objectFilter === 'ALL'
       ? customFields
       : customFields.filter((f) => f.objectType === objectFilter);
+
+  if (centralAccess?.isAdmin !== true) {
+    if (!centralAccess) return null;
+    return (
+      <div data-testid="admin-central-restrita" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Lock className="w-4 h-4 shrink-0" />
+        <span className="font-semibold">Área restrita a administradores com 2FA.</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

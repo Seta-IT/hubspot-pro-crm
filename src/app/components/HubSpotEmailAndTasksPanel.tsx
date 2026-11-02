@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
   Send,
@@ -119,6 +120,9 @@ export function HubSpotCardEmailComposer({
   const [followUpPriority, setFollowUpPriority] = useState<CrmTaskPriority>('HIGH');
 
   // New Template / New Snippet inline creator
+  // Criar modelo (POST /api/email-templates) só para admin com 2FA; o backend fecha a rota no pacote O.
+  const templateAdminAccess = useErpConfigAccess(null);
+  const canManageEmailTemplates = templateAdminAccess?.isAdmin === true;
   const [showNewTemplateForm, setShowNewTemplateForm] = useState(false);
   const [newTplName, setNewTplName] = useState('');
   const [newTplCategory, setNewTplCategory] = useState<CrmEmailTemplateCategory>('FOLLOW_UP');
@@ -225,6 +229,7 @@ export function HubSpotCardEmailComposer({
   };
 
   const handleSaveCurrentAsTemplate = async () => {
+    if (!canManageEmailTemplates) return;
     if (!newTplName.trim() || !subject.trim() || !body.trim()) return;
     setSavingTpl(true);
     try {
@@ -454,6 +459,7 @@ export function HubSpotCardEmailComposer({
               <FileText className="w-3 h-3 text-[#ff7a59]" />
               Templates de E-mail HubSpot ({templates.length})
             </label>
+            {canManageEmailTemplates && (
             <button
               type="button"
               onClick={() => setShowNewTemplateForm((v) => !v)}
@@ -461,6 +467,7 @@ export function HubSpotCardEmailComposer({
             >
               {showNewTemplateForm ? 'Cancelar' : '+ Salvar atual como Template'}
             </button>
+            )}
           </div>
           <select
             value={selectedTemplateId}
@@ -507,7 +514,7 @@ export function HubSpotCardEmailComposer({
       </div>
 
       {/* Inline Save as Template Form */}
-      {showNewTemplateForm && (
+      {canManageEmailTemplates && showNewTemplateForm && (
         <div className="p-3 rounded-xl bg-orange-50/70 border border-orange-200 space-y-2 text-xs">
           <div className="font-semibold text-slate-800">
             Salvar Assunto e Corpo atuais como Novo Template HubSpot

@@ -32,6 +32,7 @@ import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './compon
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
+import { useErpConfigAccess } from './components/useErpConfigAccess';
 import UserAccountModal from './components/UserAccountModal';
 import HomeScreenPreferenceModal from './components/HomeScreenPreferenceModal';
 import {
@@ -147,6 +148,9 @@ export default function HubSpotProCrmApp() {
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
   const [activeRbacUser, setActiveRbacUser] = useState<StiHubUserRecord | null>(null);
+  // Central de Administração: só admin com 2FA (sessão do servidor + matriz rbac.ts). null = carregando => oculto.
+  const adminCentralAccess = useErpConfigAccess(activeRbacUser?.id ?? null);
+  const canOpenAdminCentralUi = adminCentralAccess?.isAdmin === true;
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showUserAccountModal, setShowUserAccountModal] = useState(false);
   const [showHomeScreenModal, setShowHomeScreenModal] = useState(false);
@@ -1706,6 +1710,7 @@ export default function HubSpotProCrmApp() {
                       </span>
                       <Home className="w-3.5 h-3.5 text-slate-500" />
                     </button>
+                    {canOpenAdminCentralUi && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1717,6 +1722,7 @@ export default function HubSpotProCrmApp() {
                       <span>Políticas IAM (Painel CRM &amp; Painel ERP)</span>
                       <Settings className="w-3.5 h-3.5 text-slate-500" />
                     </button>
+                    )}
                     <a
                       href="/login"
                       onClick={() => setUserMenuOpen(false)}
@@ -2217,7 +2223,7 @@ export default function HubSpotProCrmApp() {
                         setActiveModule('ADMIN_RBAC');
                       },
                     },
-                  ].map((pill) => (
+                  ].filter((pill) => pill.id !== 'ADMIN_RBAC' || canOpenAdminCentralUi).map((pill) => (
                     <button
                       key={pill.id}
                       type="button"
@@ -2285,12 +2291,12 @@ export default function HubSpotProCrmApp() {
                   setActiveModule('DATA_HEALTH');
                 }}
                 activeAdminSubView={adminInitialSubView}
-                onSelectAdminRbac={(sub) => {
+                onSelectAdminRbac={canOpenAdminCentralUi ? (sub) => {
                   if (sub) setAdminInitialSubView(sub as typeof adminInitialSubView);
                   else setAdminInitialSubView('USERS_RBAC');
                   setLastCrmSubModule('ADMIN_RBAC');
                   setActiveModule('ADMIN_RBAC');
-                }}
+                } : undefined}
                 />
               )}
 
@@ -2354,6 +2360,7 @@ export default function HubSpotProCrmApp() {
 
                 {activeModule === 'ADMIN_RBAC' && (
                   <StiHubAdminRbacPanel
+                    access={adminCentralAccess}
                     rbacState={rbacState}
                     emailTemplates={emailTemplatesState}
                     initialSubView={adminInitialSubView}
@@ -2513,7 +2520,7 @@ export default function HubSpotProCrmApp() {
             setActiveRbacUser(updated);
             await fetchAllCrmData();
           }}
-          onOpenAdminIam={() => setActiveModule("ADMIN_RBAC")}
+          onOpenAdminIam={canOpenAdminCentralUi ? () => setActiveModule("ADMIN_RBAC") : undefined}
           onLogout={async () => {
             document.cookie = "stihub_session=; path=/; max-age=0; SameSite=Lax";
             document.cookie = "stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax";

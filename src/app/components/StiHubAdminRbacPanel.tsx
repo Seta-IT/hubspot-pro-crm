@@ -14,6 +14,8 @@ function sanitizeIamUserPatch(patch: Record<string, unknown>): Record<string, un
 import React, { useState, useEffect } from 'react';
 import CertificateA1UploadCard from './CertificateA1UploadCard';
 import ErpGeneralSettingsPage from './ErpGeneralSettingsPage';
+import { useErpConfigAccess } from './useErpConfigAccess';
+import { canOpenAdminCentral, type ErpConfigAccess } from '../lib/erp-config-access';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -124,6 +126,11 @@ interface StiHubAdminRbacPanelProps {
   numberingBase?: Record<string, number | null>;
   /** Navega para ERP > Configurações > Certificado digital (quando embutido no ERP). */
   onOpenErpCertificate?: () => void;
+  /**
+   * Acesso calculado no servidor (resolveErpConfigAccess). Ausente => o painel busca
+   * /api/auth/session sozinho. A Central só aparece para admin com 2FA.
+   */
+  access?: ErpConfigAccess | null;
 }
 
 const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string; desc: string }> = [
@@ -175,7 +182,10 @@ export default function StiHubAdminRbacPanel({
   singleView = false,
   numberingBase,
   onOpenErpCertificate,
+  access,
 }: StiHubAdminRbacPanelProps) {
+  const fetchedAccess = useErpConfigAccess(activeUser?.id ?? null, access === undefined);
+  const effectiveAccess = access === undefined ? fetchedAccess : access;
   const [subView, setSubView] = useState<AdminSubView>(initialSubView);
   const [selectedRoleId, setSelectedRoleId] = useState<StiHubRoleId>('SUPER_ADMIN');
   const [userFilter, setUserFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
@@ -907,6 +917,17 @@ export default function StiHubAdminRbacPanel({
       setSavingTpl(false);
     }
   };
+
+  // Gate da Central (revisão CISO pós-B2): sem admin com 2FA, nenhuma aba, botão ou formulário.
+  if (!canOpenAdminCentral(effectiveAccess, { singleView, subView })) {
+    if (!effectiveAccess) return null;
+    return (
+      <div data-testid="admin-central-restrita" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Lock className="w-4 h-4 shrink-0" />
+        <span className="font-semibold">Área restrita a administradores com 2FA.</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

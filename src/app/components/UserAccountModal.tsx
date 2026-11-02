@@ -23,7 +23,8 @@ interface UserAccountModalProps {
   user: StiHubUserRecord;
   onClose: () => void;
   onUserUpdated: (updated: StiHubUserRecord) => void;
-  onOpenAdminIam: () => void;
+  /** Ausente => botão do Painel IAM oculto (só admin com 2FA abre a Central). */
+  onOpenAdminIam?: () => void;
   onLogout: () => void;
   onShowToast: (msg: string) => void;
 }
@@ -337,6 +338,7 @@ export default function UserAccountModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenAdminIam && (
             <button
               type="button"
               onClick={() => {
@@ -347,6 +349,7 @@ export default function UserAccountModal({
             >
               <Settings className="w-3.5 h-3.5 text-[#ff7a59]" /> Painel IAM Completo
             </button>
+            )}
             <button
               type="button"
               onClick={onClose}

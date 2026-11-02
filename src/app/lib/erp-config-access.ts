@@ -25,12 +25,15 @@ export interface ErpConfigSessionLike {
 }
 
 export interface ErpConfigAccess {
+  /** Admin IAM com 2FA (canManageUsersRbac + mfaVerified): única chave da Central de Administração. */
   isAdmin: boolean;
+  /** Relatórios do ERP: 2FA + 'erp.relatorios_logs'.view na matriz (ou admin). Só os indicadores, sem administração. */
+  canViewReports: boolean;
   canViewAdminConfig: boolean;
   canReadCertificate: boolean;
 }
 
-export const NO_ERP_CONFIG_ACCESS: ErpConfigAccess = { isAdmin: false, canViewAdminConfig: false, canReadCertificate: false };
+export const NO_ERP_CONFIG_ACCESS: ErpConfigAccess = { isAdmin: false, canViewReports: false, canViewAdminConfig: false, canReadCertificate: false };
 
 /** Item 'Balcão (PDV)' oculto do menu por decisão do Marcéllo (02/11/2026). Rotas, lógica e dados do PDV seguem intactos. */
 export const ERP_HIDDEN_MENU_SUB_ITEMS = ['VENDAS_BALCAO'] as const;
@@ -51,6 +54,7 @@ export function resolveErpConfigAccess(session: ErpConfigSessionLike | null | un
   const fiscalLevel = String(session.erpPermissions?.fiscalIssuanceAccess || 'NONE');
   return {
     isAdmin,
+    canViewReports: mfa && (isAdmin || items['erp.relatorios_logs']?.view === true),
     canViewAdminConfig: isAdmin && configView,
     canReadCertificate: mfa && (isAdmin || configView || fiscalView || ['VIEW', 'EDIT', 'FULL'].includes(fiscalLevel)),
   };
@@ -80,6 +84,7 @@ export function filterErpMenuTree<TSub extends { id: string }, TGroup extends Me
   const out: TGroup[] = [];
   for (const g of tree) {
     let subs = g.subItems?.filter((s) => !(ERP_HIDDEN_MENU_SUB_ITEMS as readonly string[]).includes(s.id));
+    if (g.id === 'RELATORIOS' && !access?.canViewReports) continue;
     if (g.id === 'CONFIGURACOES') {
       subs = (subs || []).filter((s) => isErpConfigItemVisible(access, s.id));
       if (subs.length === 0) continue;
@@ -87,6 +92,16 @@ export function filterErpMenuTree<TSub extends { id: string }, TGroup extends Me
     out.push(g.subItems ? { ...g, subItems: subs } : g);
   }
   return out;
+}
+
+/** Central de Administração (StiHubAdminRbacPanel): admin com 2FA; perfil com leitura do certificado só na tela dedicada dele. */
+export function canOpenAdminCentral(
+  access: ErpConfigAccess | null | undefined,
+  opts: { singleView?: boolean; subView?: string } = {}
+): boolean {
+  if (!access) return false;
+  if (access.isAdmin) return true;
+  return opts.singleView === true && opts.subView === 'CERTIFICATE_A1' && access.canReadCertificate;
 }
 
 /** Primeiro item de Configurações que a pessoa pode abrir, ou null. */
