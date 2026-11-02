@@ -100,6 +100,8 @@ export interface StiHubGeneralSystemParameters {
   enforceStrictCnpjMergeLock: boolean;
   enforceMfaOnAllRoutes: boolean;
   dailyIncrementalSyncCron: string;
+  /** Configurações gerais do ERP (tela Configurações > Gerais). Sem segredos: senha SMTP nunca entra aqui. */
+  erpConfigGerais?: Record<string, unknown>;
 }
 
 export const INITIAL_SYNC_LOGS: ErpSyncRunLog[] = [

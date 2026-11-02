@@ -13,6 +13,7 @@ function sanitizeIamUserPatch(patch: Record<string, unknown>): Record<string, un
 }
 import React, { useState, useEffect } from 'react';
 import CertificateA1UploadCard from './CertificateA1UploadCard';
+import ErpGeneralSettingsPage from './ErpGeneralSettingsPage';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -101,6 +102,7 @@ export type AdminSubView =
   | 'USERS_RBAC'
   | 'COMPANY_EMITTER'
   | 'CERTIFICATE_A1'
+  | 'ERP_GENERAL_SETTINGS'
   | 'CERTIFICATE_SERIES'
   | 'EMAIL_TEMPLATES'
   | 'CUSTOM_PROPERTIES'
@@ -118,6 +120,10 @@ interface StiHubAdminRbacPanelProps {
   onShowToast: (msg: string) => void;
   /** Tela dedicada: oculta o banner e as abas da Central (ex.: ERP > Configurações > Certificado digital). */
   singleView?: boolean;
+  /** Último número real de cada cadastro, para a seção Numerações das Configurações gerais. */
+  numberingBase?: Record<string, number | null>;
+  /** Navega para ERP > Configurações > Certificado digital (quando embutido no ERP). */
+  onOpenErpCertificate?: () => void;
 }
 
 const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string; desc: string }> = [
@@ -167,6 +173,8 @@ export default function StiHubAdminRbacPanel({
   onRefresh,
   onShowToast,
   singleView = false,
+  numberingBase,
+  onOpenErpCertificate,
 }: StiHubAdminRbacPanelProps) {
   const [subView, setSubView] = useState<AdminSubView>(initialSubView);
   const [selectedRoleId, setSelectedRoleId] = useState<StiHubRoleId>('SUPER_ADMIN');
@@ -951,6 +959,11 @@ export default function StiHubAdminRbacPanel({
             id: 'COMPANY_EMITTER' as const,
             label: 'Dados da Empresa & Fiscal',
             icon: ShieldCheck,
+          },
+          {
+            id: 'ERP_GENERAL_SETTINGS' as const,
+            label: 'Configurações Gerais ERP',
+            icon: Globe,
           },
           {
             id: 'CERTIFICATE_A1' as const,
@@ -1791,6 +1804,32 @@ export default function StiHubAdminRbacPanel({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: CONFIGURAÇÕES GERAIS DO ERP (padrão GestãoClick)
+      ==================================================================== */}
+      {subView === 'ERP_GENERAL_SETTINGS' && (
+        <ErpGeneralSettingsPage
+          savedSettings={generalParameters.erpConfigGerais}
+          certificateSettings={certificateSettings}
+          onCertificateSettingsChange={setCertificateSettings}
+          saving={savingSettings}
+          numberingBase={numberingBase}
+          onOpenCertificate={onOpenErpCertificate || (() => setSubView('CERTIFICATE_A1'))}
+          onSave={(erpConfigGerais) =>
+            handleSaveAdminSettings(
+              {
+                certificateSettings,
+                generalParameters: {
+                  ...generalParameters,
+                  erpConfigGerais: erpConfigGerais as unknown as Record<string, unknown>,
+                },
+              },
+              'Configurações gerais salvas.'
+            )
+          }
+        />
       )}
 
       {/* ====================================================================

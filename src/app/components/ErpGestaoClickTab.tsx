@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FileText,
   FileCheck2,
@@ -112,6 +112,7 @@ import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
+import { lastNumberFromCodes } from '../lib/erp-general-settings';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
@@ -337,6 +338,19 @@ export default function ErpGestaoClickTab({
     initialSection || "INICIO"
   );
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
+  // Telas dedicadas de Configurações (padrão GestãoClick): sem o cabeçalho genérico, o banner e as abas da Central.
+  const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS');
+  // Numerações: último número real a partir dos registros carregados; sem base => vazio.
+  const erpNumberingBase = useMemo<Record<string, number | null>>(
+    () => ({
+      orcamentos: lastNumberFromCodes((erpData?.proposals || []).map((p) => p.code)),
+      vendas: lastNumberFromCodes((erpData?.salesOrders || []).map((o) => o.code)),
+      ordensServico: lastNumberFromCodes((erpData?.serviceOrders || []).map((o) => o.code)),
+      locacoes: lastNumberFromCodes((erpData?.rentalContracts || []).map((c) => c.contractNumber)),
+      compras: lastNumberFromCodes((erpData?.purchaseOrders || []).map((o) => o.code)),
+    }),
+    [erpData]
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [erpMobileDrawerOpen, setErpMobileDrawerOpen] = useState(false);
   const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
@@ -6560,7 +6574,7 @@ export default function ErpGestaoClickTab({
 
           {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              {!(activeSection === 'CONFIGURACOES' && activeSubId === 'CFG_CERTIFICADO') && (<>
+              {!isDedicatedCfgScreen && (<>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
@@ -6634,7 +6648,7 @@ export default function ErpGestaoClickTab({
               </>)}
 
               {rbacState && (
-                <div className={activeSection === 'CONFIGURACOES' && activeSubId === 'CFG_CERTIFICADO' ? '' : 'pt-3 border-t border-slate-200'}>
+                <div className={isDedicatedCfgScreen ? '' : 'pt-3 border-t border-slate-200'}>
                   <StiHubAdminRbacPanel
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
@@ -6643,7 +6657,9 @@ export default function ErpGestaoClickTab({
                         ? 'COMPANY_EMITTER'
                         : activeSubId === 'CFG_CERTIFICADO'
                           ? 'CERTIFICATE_A1'
-                        : activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_PLANO'
+                        : activeSubId === 'CFG_GERAIS'
+                          ? 'ERP_GENERAL_SETTINGS'
+                        : activeSubId === 'CFG_PLANO'
                           ? 'CERTIFICATE_SERIES'
                           : activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
                             ? 'EMAIL_TEMPLATES'
@@ -6657,7 +6673,9 @@ export default function ErpGestaoClickTab({
                     onSelectActiveUser={onSelectActiveUser}
                     onRefresh={onRefresh}
                     onShowToast={onShowToast}
-                    singleView={activeSubId === 'CFG_CERTIFICADO'}
+                    singleView={isDedicatedCfgScreen}
+                    numberingBase={erpNumberingBase}
+                    onOpenErpCertificate={() => setActiveSubId('CFG_CERTIFICADO')}
                   />
                 </div>
               )}
