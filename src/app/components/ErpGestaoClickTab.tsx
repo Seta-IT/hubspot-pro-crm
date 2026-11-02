@@ -110,6 +110,7 @@ import {
 } from './ContractBillingPanels';
 import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
+import ImportFilePicker from './ImportFilePicker';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import { lastNumberFromCodes } from '../lib/erp-general-settings';
@@ -3851,15 +3852,13 @@ export default function ErpGestaoClickTab({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs">
+            <ImportFilePicker
+              testId="upload-nfe-importacao-compras"
+              onFileSelected={handleGlobalImportFileUpload}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs"
+            >
               Enviar Arquivo .TXT / .XML (NF-e Importação)
-              <input
-                type="file"
-                accept=".txt,.xml,text/plain,text/xml,application/xml"
-                hidden
-                onChange={handleGlobalImportFileUpload}
-              />
-            </label>
+            </ImportFilePicker>
             <button
               type="button"
               onClick={() =>
@@ -4202,15 +4201,13 @@ export default function ErpGestaoClickTab({
               >
                 + Emitir NFS-e Serviço
               </button>
-              <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer">
+              <ImportFilePicker
+                testId="upload-nfe-importacao-fiscal"
+                onFileSelected={handleGlobalImportFileUpload}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer"
+              >
                 Enviar Arquivo .TXT / .XML (NF-e Importação)
-                <input
-                  type="file"
-                  accept=".txt,.xml,text/plain,text/xml,application/xml"
-                  hidden
-                  onChange={handleGlobalImportFileUpload}
-                />
-              </label>
+              </ImportFilePicker>
               <button
                 type="button"
                 onClick={() => setActiveSubId("FIS_IMPORTACAO")}

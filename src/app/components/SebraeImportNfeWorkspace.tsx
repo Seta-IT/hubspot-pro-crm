@@ -14,6 +14,7 @@ import {
   Upload,
   Sparkles,
 } from 'lucide-react';
+import ImportFilePicker from './ImportFilePicker';
 import {
   ErpFiscalInvoice,
   ErpImportDeclarationInfo,
@@ -507,15 +508,13 @@ export default function SebraeImportNfeWorkspace({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <label className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md cursor-pointer transition">
+            <ImportFilePicker
+              testId="upload-nfe-importacao-passo1"
+              onFileSelected={handleUploadTxtFile}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md cursor-pointer transition"
+            >
               <Upload className="w-5 h-5" /> Selecionar Arquivo .TXT ou .XML do Computador
-              <input
-                type="file"
-                accept=".txt,.xml,text/plain,text/xml,application/xml"
-                hidden
-                onChange={handleUploadTxtFile}
-              />
-            </label>
+            </ImportFilePicker>
             <button
               type="button"
               onClick={() => setShowPasteBox((v) => !v)}
@@ -1531,10 +1530,14 @@ export default function SebraeImportNfeWorkspace({
                 >
                   Validar TXT da NF-e Atual (#{nNF})
                 </button>
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer">
+                <ImportFilePicker
+                  testId="upload-nfe-importacao-analisador"
+                  accept=".txt,text/plain"
+                  onFileSelected={handleUploadTxtFile}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer"
+                >
                   <Upload className="w-3.5 h-3.5" /> Upload .TXT
-                  <input type="file" accept=".txt,text/plain" hidden onChange={handleUploadTxtFile} />
-                </label>
+                </ImportFilePicker>
               </div>
             </div>
 
