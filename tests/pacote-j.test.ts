@@ -63,20 +63,20 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
   it('variacao de caixa do id e id = codigo de outra tambem nao criam sombra (POST de sessao)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const id of ['PROP-SETA-002', 'PROP-2026-002', ' prop-seta-002 ']) {
+    for (const id of ['PROP-SETA-002', '4700', ' prop-seta-002 ']) {
       const c = await router.dispatch({ method: 'POST', path: '/api/erp/proposals', query: S(), body: { id, title: 'X', companyName: 'C' } });
       assert.equal(c.status, 201);
-      assert.ok(!['prop-seta-002', 'prop-2026-002'].includes(String(((c.body as Body).data as Record<string, unknown>).id).trim().toLowerCase()));
+      assert.ok(!['prop-seta-002', '4700'].includes(String(((c.body as Body).data as Record<string, unknown>).id).trim().toLowerCase()));
     }
     const keys = repo.listProposals().flatMap((p) => [p.id.toLowerCase(), String(p.code).toLowerCase()]);
     assert.equal(keys.filter((k) => k === 'prop-seta-002').length, 1);
-    assert.equal(keys.filter((k) => k === 'prop-2026-002').length, 1);
+    assert.equal(keys.filter((k) => k === '4700').length, 1);
   });
 
   it('contexto interno: id/codigo ja existente => 409 (repositorio lanca RecordIdConflictError)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const body of [{ id: 'prop-seta-002' }, { id: 'Prop-Seta-002' }, { id: 'PROP-2026-001' }, { code: 'prop-2026-003' }, { code: 'prop-seta-004' }]) {
+    for (const body of [{ id: 'prop-seta-002' }, { id: 'Prop-Seta-002' }, { id: '4699' }, { code: '4701' }, { code: 'prop-seta-004' }]) {
       const r = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/erp/proposals', body: { ...body, title: 'T', companyName: 'C' } });
       assert.equal(r.status, 409, JSON.stringify(body));
       assert.match(String((r.body as Body).code), /^PROPOSAL_(ID|CODE)_CONFLICT$/);
@@ -90,10 +90,10 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
   it('upsert (PATCH de id inexistente): nao duplica codigo e id com caixa trocada => 409', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    const r = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-nova-upsert', query: A(), body: { title: 'Upsert', code: 'PROP-2026-002' } });
+    const r = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-nova-upsert', query: A(), body: { title: 'Upsert', code: '4700' } });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const up = props(repo, 'prop-nova-upsert')[0];
-    assert.ok(up && up.code.toLowerCase() !== 'prop-2026-002', 'codigo ocupado => servidor gera outro');
+    assert.ok(up && up.code.toLowerCase() !== '4700', 'codigo ocupado => servidor gera outro');
     const r2 = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/PROP-SETA-002', query: A(), body: { title: 'Sombra por caixa' } });
     assert.equal(r2.status, 409);
     assert.equal(props(repo, 'prop-seta-002')[0].title !== 'Sombra por caixa', true);
@@ -108,24 +108,27 @@ describe('Pacote J (A1): proposta nunca e sobreposta/duplicada pelo id ou codigo
       method: 'POST', path: '/api/state/reconcile', query: S(),
       body: { journal: { upsertedProposals: [
         { id: 'PROP-SETA-002', title: 'Sombra caixa', updatedAt: fut },
-        { id: 'PROP-2026-002', title: 'Sombra codigo', updatedAt: fut },
-        { id: 'jn-dup-code', code: 'PROP-2026-002', title: 'Codigo da vitima', updatedAt: fut },
+        { id: '4700', title: 'Sombra codigo', updatedAt: fut },
+        { id: 'jn-dup-code', code: '4700', title: 'Codigo da vitima', updatedAt: fut },
         { id: 'jn-ok', code: 'PROP-JN-1', title: 'Nova legitima', updatedAt: fut },
       ] } },
     });
     assert.equal(r.status, 200);
     const all = repo.listProposals();
-    assert.ok(!all.some((p) => p.id === 'PROP-SETA-002' || p.id === 'PROP-2026-002'), 'sombras descartadas');
-    assert.equal(all.filter((p) => String(p.code).toLowerCase() === 'prop-2026-002').length, 1, 'codigo da vitima nao duplica');
-    assert.ok(props(repo, 'jn-dup-code')[0].code && props(repo, 'jn-dup-code')[0].code !== 'PROP-2026-002');
+    assert.ok(!all.some((p) => p.id === 'PROP-SETA-002' || p.id === '4700'), 'sombras descartadas');
+    assert.equal(all.filter((p) => String(p.code).toLowerCase() === '4700').length, 1, 'codigo da vitima nao duplica');
+    assert.ok(props(repo, 'jn-dup-code')[0].code && props(repo, 'jn-dup-code')[0].code !== '4700');
     assert.equal(props(repo, 'jn-ok')[0].code, 'PROP-JN-1');
     assert.equal(JSON.stringify(props(repo, 'prop-seta-002')[0]), victimBefore);
     // Existente: o journal nao troca o codigo para o de outra nem o apaga.
     const cur = props(repo, 'prop-seta-004')[0];
-    await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: 'PROP-2026-002', updatedAt: new Date(Date.now() + 120_000).toISOString() }] } } });
+    await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: '4700', updatedAt: new Date(Date.now() + 120_000).toISOString() }] } } });
     assert.equal(props(repo, 'prop-seta-004')[0].code, cur.code);
     await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: null, updatedAt: new Date(Date.now() + 180_000).toISOString() }] } } });
     assert.equal(props(repo, 'prop-seta-004')[0].code, cur.code);
+    // Numeracao GestaoClick: codigo legado PROP-AAAA-NNN do navegador nao troca o numero do servidor.
+    await router.dispatch({ method: 'POST', path: '/api/state/reconcile', query: A(), body: { journal: { upsertedProposals: [{ ...cur, code: 'PROP-2026-004', updatedAt: new Date(Date.now() + 240_000).toISOString() }] } } });
+    assert.equal(props(repo, 'prop-seta-004')[0].code, '4702');
   });
 
   it('contatos, empresas, negocios e contratos: POST com id existente => 409 e nada muda; numero de contrato nao duplica', async () => {

@@ -53,6 +53,7 @@ import {
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
+import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 
 /**
  * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
@@ -345,6 +346,31 @@ function PublicProposalPrintContent() {
     }
     return false;
   };
+
+  // Numeracao GestaoClick: titulo/nome do PDF = "Orcamento <numero>"; codigo legado do navegador
+  // (PROP-AAAA-NNN) e trocado pelo numero que o servidor atribuiu.
+  const proposalCodeForTitle = proposal ? formatProposalDisplayCode(proposal.code) : '';
+  useEffect(() => {
+    if (!proposalCodeForTitle || typeof document === 'undefined') return;
+    document.title = `Orçamento ${proposalCodeForTitle} - Seta Telecom`;
+  }, [proposalCodeForTitle]);
+  const legacyCodeProposalId = proposal && isLegacyProposalCode(proposalCodeForTitle) ? proposal.id : null;
+  useEffect(() => {
+    if (!legacyCodeProposalId) return;
+    let active = true;
+    fetch(`/api/erp/proposals/${encodeURIComponent(legacyCodeProposalId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const apiCode = json?.data && !Array.isArray(json.data) ? String(json.data.code || '') : '';
+        if (active && apiCode && !isLegacyProposalCode(apiCode)) {
+          setProposal((prev) => (prev ? { ...prev, code: apiCode } : prev));
+        }
+      })
+      .catch(() => null);
+    return () => {
+      active = false;
+    };
+  }, [legacyCodeProposalId]);
 
   useEffect(() => {
     if (proposal && autoPrint && !isEditing) {
@@ -798,6 +824,7 @@ function PublicProposalPrintContent() {
   const deliveryLeadTime = resolveProposalDeliveryLeadTime(proposal);
   const activeLayoutSpec = PROPOSAL_TEMPLATE_STYLE_OPTIONS.find((o) => o.id === activeLayout);
   const docHeadings = resolveProposalDocumentHeadings(proposal);
+  const displayCode = formatProposalDisplayCode(proposal.code);
   // Versao exibida no topo (tela e PDF): a versao aberta pelo short link ou a atual.
   const displayedVersionNum = Math.max(
     1,
@@ -959,7 +986,7 @@ function PublicProposalPrintContent() {
                 Portal do Cliente • Documento Oficial A4
               </span>
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
-                {proposal.code}
+                {displayCode}
               </span>
               <span data-testid="proposal-version-topbar" className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/90 text-slate-950 whitespace-nowrap">
                 Versão {displayedVersionNum}
@@ -1219,7 +1246,7 @@ function PublicProposalPrintContent() {
                 <History className="w-5 h-5 text-emerald-300" />
                 <div>
                   <h3 className="text-base font-extrabold">
-                    Versões da Proposta ({proposal.code})
+                    Versões da Proposta ({displayCode})
                   </h3>
                   <p className="text-[11px] text-slate-200">
                     Escolha qualquer versão abaixo para abrir na tela, baixar o PDF A4 ou restaurar em 1 clique.
@@ -1409,7 +1436,7 @@ function PublicProposalPrintContent() {
                     Validade Jurídica MP 2.200-2/2001 &amp; Lei 14.063/2020
                   </span>
                   <h3 className="text-sm font-extrabold">
-                    Assinatura Eletrônica ICP-Brasil / Gov.br ({proposal.code})
+                    Assinatura Eletrônica ICP-Brasil / Gov.br ({displayCode})
                   </h3>
                 </div>
               </div>
@@ -1503,7 +1530,7 @@ function PublicProposalPrintContent() {
                   className="mt-0.5"
                 />
                 <span className="font-semibold text-slate-700">
-                  Declaro que li e aceito integralmente os termos, valores e condições desta proposta comercial ({proposal.code}).
+                  Declaro que li e aceito integralmente os termos, valores e condições desta proposta comercial ({displayCode}).
                 </span>
               </label>
 
@@ -1573,7 +1600,7 @@ function PublicProposalPrintContent() {
               </div>
               <div className="flex items-baseline gap-2 sm:justify-end print:justify-end mt-0.5">
                 <span className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight">
-                  {proposal.code}
+                  {displayCode}
                 </span>
                 <span
                   data-testid="proposal-version-header"
@@ -1638,8 +1665,8 @@ function PublicProposalPrintContent() {
         {/* DOCUMENT BODY */}
         <div className="p-7 print:px-3.5 print:py-2 space-y-4 print:space-y-2 text-slate-800 print:block">
           {/* BLOCO 2: APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
-          <div className={`print-avoid-break rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
-            <div>
+          <div className={`rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
+            <div className="print-keep-with-next">
               <div className={`text-[10px] font-extrabold uppercase tracking-wider ${instEyebrowColorClass}`}>
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.eyebrow}
               </div>
@@ -1648,7 +1675,7 @@ function PublicProposalPrintContent() {
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
+            <div className="print-avoid-break grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
                 <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTimeLabel}
@@ -1669,7 +1696,7 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className="bg-white rounded-md border border-slate-200 p-3 print:p-2">
+            <div className="print-avoid-break bg-white rounded-md border border-slate-200 p-3 print:p-2">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 mb-2 print:mb-1.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle}
               </div>
@@ -1683,13 +1710,14 @@ function PublicProposalPrintContent() {
               </ul>
             </div>
 
-            <details className="group text-[11px] text-slate-600 print:hidden">
-              <summary className="cursor-pointer font-bold text-[#1e3a6e] select-none">
-                Ver Pilares de Soluções &amp; Arquitetura Seta Telecom ({SETA_TELECOM_PORTFOLIO_PILLARS.length} áreas)
-              </summary>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2">
+            {/* Pilares sempre visiveis (tela e PDF), sem toggle */}
+            <section data-testid="proposal-pillars" className="text-[11px] text-slate-600">
+              <div className="print-keep-with-next text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
+                Pilares de Soluções &amp; Arquitetura Seta Telecom
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2.5 print:gap-1.5 mt-2 print:mt-1">
                 {SETA_TELECOM_PORTFOLIO_PILLARS.map((pillar) => (
-                  <div key={pillar.code} className="rounded-md border border-slate-200 p-2.5 bg-white">
+                  <div key={pillar.code} className="print-avoid-break rounded-md border border-slate-200 p-2.5 print:p-1.5 bg-white">
                     <div className="text-[11px] font-extrabold text-slate-900">{pillar.title}</div>
                     <div className="text-[10px] font-semibold text-[#1e3a6e] mb-1">{pillar.subtitle}</div>
                     <ul className="list-disc pl-4 text-[10px] text-slate-600 space-y-0.5">
@@ -1700,7 +1728,7 @@ function PublicProposalPrintContent() {
                   </div>
                 ))}
               </div>
-            </details>
+            </section>
           </div>
 
           <div className="print-avoid-break print-keep-with-next flex items-center gap-3 py-0.5">
@@ -2160,7 +2188,7 @@ function PublicProposalPrintContent() {
               {/* TERMO DE ACEITE E ASSINATURAS */}
               <div className="p-4 print:p-3.5 rounded-lg bg-white border border-slate-200">
                 <div className="text-xs font-semibold uppercase text-slate-800 mb-2 print:mb-1.5">
-                  Termo de Aceite e Aprovação — {headerDocLabel} ({proposal.code})
+                  Termo de Aceite e Aprovação — {headerDocLabel} ({displayCode})
                 </div>
                 <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
                   {isProductsOnly

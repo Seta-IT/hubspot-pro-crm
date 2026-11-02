@@ -681,7 +681,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     const dataStr = String(o.data || '2026-10-20');
     mappedProposals.push({
       id: `prop-gc-${gcId}`,
-      code: `GC-ORC-${codigo}`,
+      code: String(codigo), // numeracao GestaoClick pura (ex.: 4696)
       title: `Orçamento #${codigo} — ${companyName}`,
       companyId: o.cliente_id ? `comp-gc-${String(o.cliente_id)}` : null,
       companyName,

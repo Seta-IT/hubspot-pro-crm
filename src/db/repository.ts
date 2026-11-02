@@ -11,6 +11,7 @@ import {
 // ============================================================================
 
 import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
+import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
@@ -1157,7 +1158,9 @@ export class CrmRepository {
       const incCode = typeof inc.code === 'string' ? inc.code.trim() : '';
       if (cur) {
         const curCode = String(cur.code || '');
-        const codeOk = incCode && (refKey(incCode) === refKey(curCode) || !occupied.has(refKey(incCode)));
+        // Numeracao GestaoClick: codigo legado (PROP-AAAA-NNN) do navegador nao substitui o numero GC do servidor.
+        const legacyOverGc = isLegacyProposalCode(incCode) && !isLegacyProposalCode(curCode);
+        const codeOk = incCode && !legacyOverGc && (refKey(incCode) === refKey(curCode) || !occupied.has(refKey(incCode)));
         const next = { ...inc } as ErpCommercialProposal;
         if ('code' in inc || !curCode) next.code = codeOk ? incCode : curCode;
         if (codeOk && refKey(incCode) !== refKey(curCode)) occupied.add(refKey(incCode));
@@ -1172,7 +1175,7 @@ export class CrmRepository {
       if (occupied.has(refKey(inc.id))) continue; // sombra por caixa ou pelo codigo de outra
       const code = incCode && !occupied.has(refKey(incCode))
         ? incCode
-        : nextFreeCode(occupied, current.length + out.length + 1, formatProposalCode);
+        : nextFreeCode(occupied, nextGcProposalNumber([...current, ...out].map((p) => p && p.code)), formatProposalCode);
       occupied.add(refKey(inc.id));
       occupied.add(refKey(code));
       batchNewCodes.set(inc.id, code);
@@ -3954,11 +3957,13 @@ export class CrmRepository {
 
   /** Pacote J (A2): preenche `code` ausente/vazio com o proximo codigo livre (nao altera os demais). */
   private backfillMissingProposalCodes(proposals: ErpCommercialProposal[]): void {
+    // Numeracao GestaoClick: PROP-AAAA-NNN / GC-ORC-N => numero sequencial GC (id de rota nao muda).
+    migrateLegacyProposalCodes(proposals);
     if (!proposals.some((p) => p && !String(p.code || '').trim())) return;
     const occupied = occupiedRefs(proposals, (p) => [p && p.id, p && p.code]);
     for (const p of proposals) {
       if (p && !String(p.code || '').trim()) {
-        p.code = nextFreeCode(occupied, proposals.length + 1, formatProposalCode);
+        p.code = nextFreeCode(occupied, nextGcProposalNumber(proposals.map((x) => x && x.code)), formatProposalCode);
         occupied.add(refKey(p.code));
       }
     }
@@ -3973,7 +3978,7 @@ export class CrmRepository {
     void _clientSellerUserId;
     const erp = this.ensureErp();
     const now = new Date().toISOString();
-    const nextNum = erp.proposals.length + 1;
+    const nextNum = nextGcProposalNumber(erp.proposals.map((p) => p.code));
     // Pacote J (A1): criacao nunca sobrepoe nem duplica. id/codigo informado que ja exista (como
     // id OU codigo de outra proposta, sem caixa) => 409; sem codigo => proximo codigo livre.
     const occupied = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);

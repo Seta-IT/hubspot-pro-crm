@@ -61,7 +61,7 @@ export function assertNewRecordId<T extends { id?: unknown }>(
 
 /**
  * Proximo codigo sequencial livre no formato PREFIXO-<n> (preserva o formato historico
- * PROP-2026-00<n>): parte de `start` e avanca ate nao colidir com nenhum id/codigo ocupado.
+ * numero GestaoClick <n>): parte de `start` e avanca ate nao colidir com nenhum id/codigo ocupado.
  */
 export function nextFreeCode(occupied: Set<string>, start: number, format: (n: number) => string): string {
   let n = Math.max(1, Math.floor(start));
@@ -72,4 +72,5 @@ export function nextFreeCode(occupied: Set<string>, start: number, format: (n: n
   return format(Date.now());
 }
 
-export const formatProposalCode = (n: number): string => `PROP-2026-00${n}`;
+/** Numeracao GestaoClick: numero sequencial puro (ex.: "4704"), sem prefixo PROP-AAAA-. */
+export const formatProposalCode = (n: number): string => String(Math.floor(n));

@@ -1313,12 +1313,12 @@ export function createInitialSeedState(): CrmDatabaseState {
       lostReason: null,
       nextBestAction: {
         actionType: 'PROPOSAL',
-        title: 'Aprovar Proposta PROP-2026-002 no ERP e emitir NF-e Remessa 5.908',
+        title: 'Aprovar Orçamento #4700 no ERP e emitir NF-e Remessa 5.908',
         reason: 'Minuta de locação validada pelo CTO Ricardo Almeida.',
         priority: 'HIGH',
         suggestedDueInDays: 2,
       },
-      customProperties: { proposalCode: 'PROP-2026-002' },
+      customProperties: { proposalCode: '4700' },
       createdAt: daysAgoIso(12),
       updatedAt: daysAgoIso(1),
     },
@@ -2748,7 +2748,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
     {
       id: "task-seed-3",
-      title: "Enviar proposta formal PROP-2026-002 e agendar call com CTO Ricardo Almeida (TOTVS)",
+      title: "Enviar proposta formal #4700 e agendar call com CTO Ricardo Almeida (TOTVS)",
       notes:
         "POC validada tecnicamente. Enviar link PDF A4 da proposta de locação de 40 terminais IP (36 meses).",
       type: "EMAIL",

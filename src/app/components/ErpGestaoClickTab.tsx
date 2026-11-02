@@ -93,6 +93,7 @@ import {
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
 } from '../lib/durable-storage';
+import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import {
@@ -1290,8 +1291,8 @@ export default function ErpGestaoClickTab({
       recordUpsertedProposal(saved);
       onShowToast(
         manualApproval
-          ? `Orçamento ${prop.code} aprovado manualmente (sem gerar contrato/fatura).`
-          : `Situação do orçamento ${prop.code} alterada para ${getGestaoClickSituationSpec(target).label}!`
+          ? `Orçamento ${showCode(prop)} aprovado manualmente (sem gerar contrato/fatura).`
+          : `Situação do orçamento ${showCode(prop)} alterada para ${getGestaoClickSituationSpec(target).label}!`
       );
       setStatusModalProposal(saved);
       setStatusModalObservation("");
@@ -1302,14 +1303,19 @@ export default function ErpGestaoClickTab({
     }
   };
 
+  // Numeracao GestaoClick exibida (PROP-AAAA-NNN / GC-ORC-N legados => numero sequencial GC).
+  // Sem hook: este trecho fica depois do retorno antecipado (!erpData) do componente.
+  const proposalDisplayCodes = buildProposalDisplayCodeMap(proposals);
+  const showCode = (p: Pick<ErpCommercialProposal, 'id' | 'code'>): string =>
+    proposalDisplayCodes.get(p.id) || formatProposalDisplayCode(p.code);
+
   const handleDuplicateProposal = async (prop: ErpCommercialProposal) => {
     setOpenProposalMenuId(null);
     setExpandedProposalSubmenu(null);
-    const nextNum = proposals.length + 1;
     const copyPayload: Partial<ErpCommercialProposal> = {
       ...prop,
       id: `prop-copy-${Date.now()}`,
-      code: `${prop.code}-COPIA-${nextNum}`,
+      code: String(nextGcProposalNumber(proposals.map((p) => showCode(p)))),
       title: `${prop.title} (Cópia)`,
       status: "RASCUNHO",
       convertedContractId: null,
@@ -1326,7 +1332,7 @@ export default function ErpGestaoClickTab({
     if (res.ok) {
       const j = await res.json();
       if (j.data) recordUpsertedProposal(j.data);
-      onShowToast(`Cópia do orçamento ${prop.code} gerada com sucesso!`);
+      onShowToast(`Cópia do orçamento ${showCode(prop)} gerada com sucesso!`);
       await onRefresh();
     }
   };
@@ -1344,7 +1350,7 @@ export default function ErpGestaoClickTab({
       const r = await openWithSignedProposalLink(prop.id, (signedUrl) => signedUrl);
       onShowToast(
         r.ok
-          ? `Link assinado da proposta ${prop.code} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil / Gov.br).`
+          ? `Link assinado da proposta ${showCode(prop)} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil / Gov.br).`
           : `Não foi possível gerar o link assinado: ${r.error}`
       );
       return;
@@ -1360,7 +1366,7 @@ export default function ErpGestaoClickTab({
     if (target === "VENDA") {
       const salePayload = {
         id: `so-from-${prop.id}-${Date.now()}`,
-        code: `PV-${prop.code}`,
+        code: `PV-${showCode(prop)}`,
         customerName: prop.companyName,
         customerCnpj: prop.companyCnpj,
         sellerName: prop.sellerName || activeUser?.name || "",
@@ -1376,19 +1382,19 @@ export default function ErpGestaoClickTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(salePayload),
       }).catch(() => null);
-      onShowToast(`Pedido de Venda PV-${prop.code} gerado a partir do orçamento!`);
+      onShowToast(`Pedido de Venda PV-${showCode(prop)} gerado a partir do orçamento!`);
       await onRefresh();
       return;
     }
     if (target === "OS") {
       const osPayload = {
         id: `os-from-${prop.id}-${Date.now()}`,
-        code: `OS-${prop.code}`,
+        code: `OS-${showCode(prop)}`,
         customerName: prop.companyName,
         customerCnpj: prop.companyCnpj,
         technicianName: "Equipe Engenharia & NOC Seta Telecom",
         equipmentSummary: prop.items.map((i) => `${i.quantity}x ${i.description}`).join(" • "),
-        serviceDescription: `Implantação e ativação referente ao Orçamento ${prop.code} (${prop.title})`,
+        serviceDescription: `Implantação e ativação referente ao Orçamento ${showCode(prop)} (${prop.title})`,
         status: "ABERTA",
         priority: "ALTA",
         slaTargetHours: 4,
@@ -1400,7 +1406,7 @@ export default function ErpGestaoClickTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(osPayload),
       }).catch(() => null);
-      onShowToast(`Ordem de Serviço OS-${prop.code} gerada a partir do orçamento!`);
+      onShowToast(`Ordem de Serviço OS-${showCode(prop)} gerada a partir do orçamento!`);
       await onRefresh();
       return;
     }
@@ -1413,7 +1419,7 @@ export default function ErpGestaoClickTab({
           statusObservation: "Enviado para Produção / Separação Técnica de Hardware e Bancada",
         }),
       }).catch(() => null);
-      onShowToast(`Orçamento ${prop.code} encaminhado para Produção / Bancada Técnica!`);
+      onShowToast(`Orçamento ${showCode(prop)} encaminhado para Produção / Bancada Técnica!`);
       await onRefresh();
     }
   };
@@ -1583,9 +1589,9 @@ export default function ErpGestaoClickTab({
                         amountBrl: prop.monthlyRecurringTotal,
                         publicPdfUrl: signed.url,
                         proposalId: prop.id,
-                        customSubject: `Proposta Comercial ${prop.code} — Seta Telecom (${prop.companyName})`,
+                        customSubject: `Proposta Comercial ${showCode(prop)} — Seta Telecom (${prop.companyName})`,
                       });
-                      onShowToast(`Link assinado de ${prop.code} copiado para envio por e-mail!`);
+                      onShowToast(`Link assinado de ${showCode(prop)} copiado para envio por e-mail!`);
                     }}
                     className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
@@ -1597,7 +1603,7 @@ export default function ErpGestaoClickTab({
                       setOpenProposalMenuId(null);
                       const r = await openWithSignedProposalLink(prop.id, (url) =>
                         `https://wa.me/?text=${encodeURIComponent(
-                          `Olá! Segue o link da Proposta Comercial ${prop.code} da Seta Telecom (${prop.companyName}): ${url}`
+                          `Olá! Segue o link da Proposta Comercial ${showCode(prop)} da Seta Telecom (${prop.companyName}): ${url}`
                         )}`
                       );
                       if (!r.ok) onShowToast(r.error);
@@ -1612,7 +1618,7 @@ export default function ErpGestaoClickTab({
                       setOpenProposalMenuId(null);
                       const r = await openWithSignedProposalLink(
                         prop.id,
-                        (url) => `sms:?&body=${encodeURIComponent(`Seta Telecom - Proposta Comercial ${prop.code}: ${url}`)}`,
+                        (url) => `sms:?&body=${encodeURIComponent(`Seta Telecom - Proposta Comercial ${showCode(prop)}: ${url}`)}`,
                         true
                       );
                       onShowToast(r.ok ? `Link assinado copiado para envio por SMS!` : r.error);
@@ -1753,7 +1759,7 @@ export default function ErpGestaoClickTab({
 
       recordUpsertedProposal(restoredProposal);
       setStatusModalProposal(restoredProposal);
-      onShowToast(`Versão ${entry.version} restaurada com sucesso no orçamento ${prop.code}!`);
+      onShowToast(`Versão ${entry.version} restaurada com sucesso no orçamento ${showCode(prop)}!`);
       await onRefresh();
     } finally {
       setSavingProposalStatus(false);
@@ -1763,7 +1769,7 @@ export default function ErpGestaoClickTab({
   const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
     await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
     recordDeletedProposal(prop.id);
-    onShowToast(`Proposta ${prop.code} excluída.`);
+    onShowToast(`Proposta ${showCode(prop)} excluída.`);
     await onRefresh();
   };
 
@@ -1980,11 +1986,9 @@ export default function ErpGestaoClickTab({
     templateOverrides?: Partial<ErpCommercialProposal>
   ) => {
     const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : 'LOCACAO');
-    const nextNum = proposals.length + 1;
-
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
-      code: `PROP-2026-00${nextNum}`,
+      code: String(nextGcProposalNumber(proposals.map((p) => showCode(p)))),
       title: '',
       budgetType: inferredType,
       storeName: gestaoClickConfig.storeName || 'Matriz',
@@ -2153,9 +2157,9 @@ export default function ErpGestaoClickTab({
       const q = normErp(proposalsSearch);
       const qDigits = proposalsSearch.replace(/\D+/g, '');
       const hay = normErp(
-        `${p.code} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
+        `${p.code} ${showCode(p)} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
       );
-      const digitsHay = `${p.code} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
+      const digitsHay = `${showCode(p)} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
       return hay.includes(q) || (qDigits.length >= 2 && digitsHay.includes(qDigits));
     });
 
@@ -2625,7 +2629,7 @@ export default function ErpGestaoClickTab({
                           className="py-2.5 px-3 whitespace-nowrap"
                         >
                           <div className="font-mono font-semibold text-[#1e3a6e] underline">
-                            {prop.code}
+                            {showCode(prop)}
                           </div>
                         </td>
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
@@ -2746,7 +2750,7 @@ export default function ErpGestaoClickTab({
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2.5 py-0.5 rounded text-xs font-black bg-[#1e3a6e] text-white">
-                        {prop.code}
+                        {showCode(prop)}
                       </span>
                       <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${stBadge.cls}`}>
                         {stBadge.label}
@@ -7442,7 +7446,7 @@ export default function ErpGestaoClickTab({
               <div className="flex items-center gap-2.5">
                 <h3 className="text-base font-bold text-slate-900">Alterar situação</h3>
                 <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs font-bold">
-                  Orçamento #{statusModalProposal.code}
+                  Orçamento #{showCode(statusModalProposal)}
                 </span>
               </div>
               <button

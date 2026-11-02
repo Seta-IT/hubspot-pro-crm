@@ -41,6 +41,7 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import { applyBudgetTypeToItems, ProposalItemsGrid } from './ProposalItemsGrid';
+import { formatProposalDisplayCode } from '../lib/proposal-number';
 import {
   ContractBillingHistoryPanel,
   ContractGestaoClickDataPanel,
@@ -574,7 +575,7 @@ export function ProposalEditModal({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-extrabold">Seta Telecom • GestãoClick ERP</span>
                 <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
-                  {isNew ? 'Novo Orçamento' : `Editar Orçamento ${draft.code}`}
+                  {isNew ? 'Novo Orçamento' : `Editar Orçamento ${formatProposalDisplayCode(draft.code)}`}
                 </span>
               </div>
               <span className="text-[11px] text-slate-200 block">
@@ -595,7 +596,7 @@ export function ProposalEditModal({
         <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-extrabold text-slate-800">
-              {isNew ? 'Novo orçamento / proposta comercial' : `Editar orçamento #${draft.code}`}
+              {isNew ? 'Novo orçamento / proposta comercial' : `Editar orçamento #${formatProposalDisplayCode(draft.code)}`}
             </h2>
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-[#1e3a6e] border border-blue-200">
               {draft.budgetType === 'SERVICOS'
