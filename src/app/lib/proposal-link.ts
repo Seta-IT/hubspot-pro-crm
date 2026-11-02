@@ -241,6 +241,45 @@ export function resolveProposalLinkOrigin(requestOrigin?: string | null): string
   return pick(process.env.STI_HUB_PUBLIC_ORIGIN) || pick(requestOrigin) || 'https://sti-hub.vercel.app';
 }
 
+/**
+ * t33u: assina EXATAMENTE as claims dadas (mesmo pid/ver/iat/exp/jti). O HMAC e deterministico,
+ * entao as claims guardadas de um short link reproduzem o token original, sem guardar o token.
+ */
+export function signProposalLinkClaims(claims: ProposalLinkClaims): string {
+  const secret = resolveProposalLinkSecret();
+  if (!secret) throw new ProposalLinkSecretMissingError();
+  const c: ProposalLinkClaims = { v: 1, pid: String(claims.pid), ver: Number(claims.ver), iat: Number(claims.iat), exp: Number(claims.exp), jti: String(claims.jti) };
+  const payload = b64url(JSON.stringify(c));
+  const sig = b64url(createHmac('sha256', signingKey(secret)).update(payload, 'utf8').digest());
+  return `${payload}.${sig}`;
+}
+
+/** t33u: HMAC do codigo curto (o codigo em claro nunca e gravado). Sem segredo => null. */
+export function hashProposalShortCode(code: string): string | null {
+  const secret = resolveProposalLinkSecret();
+  if (!secret) return null;
+  return createHmac('sha256', signingKey(secret)).update(`short:${String(code)}`, 'utf8').digest('hex');
+}
+
+export const PROPOSAL_SHORT_CODE_LENGTH = 10;
+export const PROPOSAL_SHORT_CODE_PATTERN = /^[A-Za-z0-9]{10}$/;
+const SHORT_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/** t33u: codigo opaco de 10 caracteres base62 (~59 bits), sorteio sem vies (rejeicao). */
+export function generateProposalShortCode(): string {
+  let out = '';
+  while (out.length < PROPOSAL_SHORT_CODE_LENGTH) {
+    for (const b of randomBytes(16)) {
+      if (b < 248 && out.length < PROPOSAL_SHORT_CODE_LENGTH) out += SHORT_ALPHABET[b % 62];
+    }
+  }
+  return out;
+}
+
+export function buildShortProposalUrl(origin: string, code: string): string {
+  return `${String(origin || '').replace(/\/+$/, '')}/p/${code}`;
+}
+
 export function buildSignedProposalUrl(origin: string, proposalId: string, token: string): string {
   const base = String(origin || '').replace(/\/+$/, '');
   return `${base}/proposta/${encodeURIComponent(proposalId)}#t=${token}`;

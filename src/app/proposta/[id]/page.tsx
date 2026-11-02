@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useContext, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Printer,
@@ -54,6 +54,7 @@ import {
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
+import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 
 /**
@@ -76,7 +77,9 @@ function readProposalLinkTokenFromLocation(): string | null {
 function PublicProposalPrintContent() {
   const params = useParams<{ id: string; n?: string }>();
   const searchParams = useSearchParams();
-  const rawId = decodeURIComponent(String(params?.id || ''));
+  // t33u: short link /p/<codigo> injeta o id e o token resolvidos no servidor.
+  const linkOverride = useContext(ProposalLinkOverrideContext);
+  const rawId = linkOverride?.proposalId || decodeURIComponent(String(params?.id || ''));
   const encodedData = searchParams?.get("d");
   // Short link /proposta/<id>/v/<n> usa o segmento [n]; o formato antigo usa ?v=<n>.
   const versionParam = searchParams?.get("v") || (params?.n ? String(params.n) : null);
@@ -124,7 +127,7 @@ function PublicProposalPrintContent() {
   >("ICP_BRASIL_A1");
 
   useEffect(() => {
-    setLinkToken(readProposalLinkTokenFromLocation());
+    setLinkToken(linkOverride?.token || readProposalLinkTokenFromLocation());
     setLinkChecked(true);
   }, []);
 
@@ -714,7 +717,13 @@ function PublicProposalPrintContent() {
         res = await issue();
       }
       const json = res ? await res.json().catch(() => null) : null;
-      const url = res && res.ok && typeof json?.data?.url === "string" ? (json.data.url as string) : null;
+      // t33u: o cliente recebe o short link opaco /p/<codigo> (o #t= longo fica de reserva).
+      const url =
+        res && res.ok && typeof json?.data?.shortUrl === "string" && json.data.shortUrl
+          ? (json.data.shortUrl as string)
+          : res && res.ok && typeof json?.data?.url === "string"
+            ? (json.data.url as string)
+            : null;
       if (!url) {
         if (!reportProtectedFailure(res)) {
           setAuthNotice(
@@ -759,6 +768,11 @@ function PublicProposalPrintContent() {
               ? "Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
+          {!linkToken && !isInternalUser && (
+            <p data-testid="login-to-generate-link" className="text-xs text-[#1e3a6e] bg-[#eef2fa] border border-[#c7d2e8] rounded-md px-3 py-2">
+              Entre no STI-hub para gerar o link do cliente. Depois, use o botão “Copiar link do cliente” na barra da proposta.
+            </p>
+          )}
           <a
             href="/"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-[#1e3a6e] text-white text-xs font-bold hover:bg-[#162b54] transition"
@@ -1019,7 +1033,9 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={handleCopyPublicLink}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
+            data-testid="copy-client-link"
+            title="Gera o link curto assinado da versão atual e copia para enviar ao cliente"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-[#eef2fa] hover:bg-[#e0e7f5] text-[#1e3a6e] text-xs font-semibold transition cursor-pointer"
           >
             {copied ? (
               <>
@@ -1029,7 +1045,7 @@ function PublicProposalPrintContent() {
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                {copyLinkBusy ? "Gerando link..." : "Copiar link"}
+                {copyLinkBusy ? "Gerando link..." : "Copiar link do cliente"}
               </>
             )}
           </button>

@@ -106,6 +106,11 @@ import {
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
   resolveProposalLinkOrigin,
+  signProposalLinkClaims,
+  hashProposalShortCode,
+  generateProposalShortCode,
+  buildShortProposalUrl,
+  PROPOSAL_SHORT_CODE_PATTERN,
 } from '../app/lib/proposal-link';
 import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { requestBodyCapFor } from '../app/lib/request-body-cap';
@@ -2673,6 +2678,37 @@ export class CrmApiRouter {
     return j;
   }
 
+  /**
+   * t33u: GET /api/p/:code (publico). Mesmo rate limit por IP da visualizacao publica; codigo fora
+   * do formato, inexistente, revogado, vencido, de versao antiga ou cujo token reassinado nao
+   * passa no verifyProposalLinkToken => o mesmo 404 generico (anti-enumeracao).
+   */
+  private resolveProposalShortLink(code: string, query: Record<string, string | undefined>): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    if (!PROPOSAL_SHORT_CODE_PATTERN.test(code)) return proposalNotFoundResponse();
+    const codeHash = hashProposalShortCode(code);
+    const rec = codeHash ? this.repo.findProposalShortLink(codeHash) : undefined;
+    if (!rec || rec.revokedAt) return proposalNotFoundResponse();
+    let token: string;
+    try {
+      token = signProposalLinkClaims({ v: 1, pid: rec.proposalId, ver: rec.version, iat: rec.iat, exp: rec.exp, jti: rec.jti });
+    } catch {
+      return proposalNotFoundResponse();
+    }
+    const v = verifyProposalLinkToken(token, { proposalId: rec.proposalId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.findProposalExact(rec.proposalId);
+    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
+    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    return {
+      status: 200,
+      body: { data: toPublicProposalDto(found), proposalId: found.id, token },
+    };
+  }
+
   /** GET publico: so com token valido para ESTE id e a versao ATUAL. Qualquer falha => 404 generico. */
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
@@ -3048,11 +3084,34 @@ export class CrmApiRouter {
       actor,
       signed.claims.jti
     );
+    // t33u: short link opaco /p/<codigo>. Grava so o HMAC do codigo e as claims do token (o
+    // token e reassinado igual na abertura); persiste no mesmo estado duravel da proposta.
+    let shortUrl: string | null = null;
+    try {
+      const code = generateProposalShortCode();
+      const codeHash = hashProposalShortCode(code);
+      if (codeHash) {
+        this.repo.addProposalShortLink({
+          codeHash,
+          proposalId: signed.claims.pid,
+          version: signed.claims.ver,
+          iat: signed.claims.iat,
+          exp: signed.claims.exp,
+          jti: signed.claims.jti,
+          createdBy: String(sess.user.email || sess.user.id || ''),
+          revokedAt: null,
+        });
+        shortUrl = buildShortProposalUrl(origin, code);
+      }
+    } catch {
+      shortUrl = null;
+    }
     return {
       status: 200,
       body: {
         data: {
           url: buildSignedProposalUrl(origin, found.id, signed.token),
+          shortUrl,
           version,
           expiresAt: new Date(signed.claims.exp).toISOString(),
           publicApproveEnabled: isProposalPublicApproveEnabled(),
@@ -5828,6 +5887,10 @@ export class CrmApiRouter {
       // header via src/app/api/erp/proposals/[id]/* em query.proposalLinkToken (nunca na URL
       // do cliente: a rota descarta o parametro vindo da URL) e nunca e logado.
       // ======================================================================
+      const proposalShortMatch = cleanPath.match(/^\/api\/p\/([^/]+)$/);
+      if (proposalShortMatch && method === 'GET') {
+        return this.resolveProposalShortLink(decodeURIComponent(proposalShortMatch[1]).trim(), query);
+      }
       const proposalLinkIssueMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/public-link$/);
       if (proposalLinkIssueMatch && method === 'POST') {
         return this.issueProposalPublicLink(decodeURIComponent(proposalLinkIssueMatch[1]).trim(), query, ctx);

@@ -16,6 +16,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/redefinir-senha',
   '/api/auth',
   '/proposta',
+  '/p',
   '/portal',
   '/api/portal',
   '/api/health',
@@ -38,6 +39,11 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   // Restricts public access exclusively to individual proposal routes with a specific :id
   // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).
   // Root listing (GET /api/erp/proposals) is NEVER public.
+  // t33u: resolucao do short link /p/<codigo> (GET /api/p/<codigo>, um unico segmento).
+  if (clean.startsWith('/api/p/') && String(method || 'GET').toUpperCase() === 'GET') {
+    const segs = clean.slice('/api/p/'.length).split('/').filter(Boolean);
+    if (segs.length === 1) return true;
+  }
   if (clean.startsWith('/api/erp/proposals/')) {
     const rest = clean.slice('/api/erp/proposals/'.length).trim();
     if (!rest) return false;

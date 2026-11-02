@@ -52,6 +52,7 @@ import {
   ErpFinancialEntry,
   ErpPurchaseOrder,
   ErpDatabaseState,
+  ErpProposalShortLink,
   GestaoClickConfig,
   ErpServiceOrder,
   ErpSaleOrder,
@@ -3925,6 +3926,21 @@ export class CrmRepository {
       removeFictitiousProposals(this.state.erp);
     }
     return this.state.erp;
+  }
+
+  /** t33u: grava um short link (descarta os vencidos; teto de 5000 registros). */
+  addProposalShortLink(rec: ErpProposalShortLink): void {
+    const erp = this.ensureErp();
+    const now = Date.now();
+    const list = (Array.isArray(erp.proposalShortLinks) ? erp.proposalShortLinks : []).filter((r) => r && Number(r.exp) > now);
+    list.push(rec);
+    erp.proposalShortLinks = list.slice(-5000);
+    this.save();
+  }
+
+  findProposalShortLink(codeHash: string): ErpProposalShortLink | undefined {
+    const erp = this.ensureErp();
+    return (erp.proposalShortLinks || []).find((r) => r && r.codeHash === codeHash);
   }
 
   getErpState(): ErpDatabaseState {

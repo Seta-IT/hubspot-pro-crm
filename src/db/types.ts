@@ -1767,6 +1767,19 @@ export interface ErpDatabaseState {
   fiscalNumberSequences?: Record<string, number>;
   /** Configurações Fiscais (NF-e / NFC-e / NFS-e / autXML / certificado). O CSC nunca sai em claro. */
   fiscalDocumentSettings?: FiscalDocumentSettings;
+  /** t33u: short links /p/<code> do link assinado (so o HMAC do codigo + as claims do token). */
+  proposalShortLinks?: ErpProposalShortLink[];
+}
+
+export interface ErpProposalShortLink {
+  codeHash: string;
+  proposalId: string;
+  version: number;
+  iat: number;
+  exp: number;
+  jti: string;
+  createdBy?: string;
+  revokedAt?: string | null;
 }
 
 // ============================================================================

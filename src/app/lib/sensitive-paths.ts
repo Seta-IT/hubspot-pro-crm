@@ -14,6 +14,8 @@ export function isSensitiveProposalPath(pathname: string): boolean {
   return (
     p === '/proposta' ||
     p.startsWith('/proposta/') ||
+    p.startsWith('/p/') ||
+    p.startsWith('/api/p/') ||
     p === '/api/erp/proposals' ||
     p.startsWith('/api/erp/proposals/')
   );

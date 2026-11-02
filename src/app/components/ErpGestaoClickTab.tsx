@@ -1574,6 +1574,19 @@ export default function ErpGestaoClickTab({
                 <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
                   <button
                     type="button"
+                    data-testid="menu-copy-client-link"
+                    onClick={async () => {
+                      // t33u: link curto assinado (/p/<codigo>) da versao atual.
+                      setOpenProposalMenuId(null);
+                      const r = await copySignedProposalLink(prop.id);
+                      onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+                    }}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
+                  >
+                    Copiar link do cliente
+                  </button>
+                  <button
+                    type="button"
                     onClick={async () => {
                       // Link assinado (29/10): o cliente so abre a proposta com o link gerado no servidor.
                       setOpenProposalMenuId(null);
@@ -7114,6 +7127,21 @@ export default function ErpGestaoClickTab({
 
             {/* Body */}
             <div className="p-6 space-y-5 text-xs text-slate-700 max-h-[78vh] overflow-y-auto">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#c7d2e8] bg-[#eef2fa] px-3 py-2">
+                <span className="text-[#1e3a6e]">Link curto assinado da versão atual, para enviar ao cliente.</span>
+                <button
+                  type="button"
+                  data-testid="status-modal-copy-client-link"
+                  onClick={async () => {
+                    const r = await copySignedProposalLink(statusModalProposal.id);
+                    onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copiar link do cliente
+                </button>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-800 mb-1.5">

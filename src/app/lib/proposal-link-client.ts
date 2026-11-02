@@ -22,11 +22,13 @@ export async function requestSignedProposalLink(proposalId: string): Promise<Sig
     });
     const json = await res.json().catch(() => null);
     if (res.ok && typeof json?.data?.url === 'string') {
-      return { ok: true, url: json.data.url, expiresAt: String(json.data.expiresAt || ''), version: Number(json.data.version || 1) };
+      // t33u: o link enviado ao cliente e o short link opaco /p/<codigo> (o #t= longo fica de reserva).
+      const shortUrl = typeof json.data.shortUrl === 'string' && json.data.shortUrl ? json.data.shortUrl : null;
+      return { ok: true, url: shortUrl || json.data.url, expiresAt: String(json.data.expiresAt || ''), version: Number(json.data.version || 1) };
     }
     const fallback =
       res.status === 401
-        ? 'Sua sessão expirou. Entre novamente no STI-hub para gerar o link.'
+        ? 'Entre no STI-hub para gerar o link do cliente.'
         : res.status === 403
           ? 'Seu perfil não tem permissão para gerar o link desta proposta.'
           : res.status === 404

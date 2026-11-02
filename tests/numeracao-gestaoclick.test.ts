@@ -81,6 +81,72 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     assert.notEqual(stale.status, 200);
   });
 
+  it('t33u: short link opaco /p/<codigo> abre sem login, sobrevive a outra instancia e respeita versao/expiracao/revogacao', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const HTTP = { _fromHttpBridge: '1' };
+    const rec = repo.findRbacUserRecord('usr-seta-01', '')!;
+    const session = signStiHubSessionToken({
+      uid: rec.id, email: rec.email, name: rec.name, roleId: rec.roleId, scope: rec.scope,
+      enabledModules: ['CRM', 'ERP', 'CHAMADOS'], moduleAccess: { crm: true, erp: true, chamados: true },
+      mfaVerified: true, mfaMethod: 'TOTP_AUTHENTICATOR', iat: Date.now() - 1000, exp: Date.now() + 3_600_000,
+    } as Parameters<typeof signStiHubSessionToken>[0]);
+    repo.updateProposal('prop-gc-4695', { validUntil: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10) } as never);
+    const issued = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-gc-4695/public-link', query: { ...HTTP, _origin: 'https://sti-hub.vercel.app', _sessionToken: session }, body: {} });
+    assert.equal(issued.status, 200, JSON.stringify(issued.body));
+    const data = (issued.body as { data: { url: string; shortUrl: string; version: number } }).data;
+    assert.match(data.shortUrl, /^https:\/\/sti-hub\.vercel\.app\/p\/[A-Za-z0-9]{10}$/);
+    assert.ok(data.url.includes('#t='), 'formato #t= antigo continua emitido');
+    const code = data.shortUrl.split('/p/')[1];
+    // o codigo em claro nao e gravado (so o HMAC)
+    assert.equal(JSON.stringify(repo.getState()).includes(code), false);
+    // outra instancia com o mesmo estado persistido (Vercel) resolve o codigo
+    const router2 = new CrmApiRouter(createInMemoryRepository(structuredClone(repo.getState())));
+    const anon = await router2.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.90' } });
+    assert.equal(anon.status, 200, JSON.stringify(anon.body));
+    const body = anon.body as { data: { code: string }; proposalId: string; token: string };
+    assert.equal(body.proposalId, 'prop-gc-4695');
+    assert.equal(body.token, data.url.split('#t=')[1], 'token reassinado = token original');
+    const viaToken = await router2.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-gc-4695', query: { ...HTTP, _clientIp: '198.51.100.91', proposalLinkToken: body.token } });
+    assert.equal(viaToken.status, 200);
+    // anti-enumeracao: codigo inexistente/malformado => 404 generico
+    for (const bad of ['AAAAAAAAAA', 'abc', `${code}x`, '../../x']) {
+      const r = await router2.dispatch({ method: 'GET', path: `/api/p/${encodeURIComponent(bad)}`, query: { ...HTTP, _clientIp: '198.51.100.92' } });
+      assert.equal(r.status, 404, bad);
+    }
+    // revogacao
+    const st = repo.getState().erp!.proposalShortLinks!;
+    st[st.length - 1].revokedAt = new Date().toISOString();
+    const revoked = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.93' } });
+    assert.equal(revoked.status, 404);
+    st[st.length - 1].revokedAt = null;
+    // nova versao => short link antigo deixa de abrir
+    repo.updateProposal('prop-gc-4695', { title: 'Revisao t33u' } as never);
+    const stale = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.94' } });
+    assert.equal(stale.status, 404);
+    // expiracao
+    const issued2 = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-gc-4695/public-link', query: { ...HTTP, _origin: 'https://sti-hub.vercel.app', _sessionToken: session }, body: {} });
+    const code2 = (issued2.body as { data: { shortUrl: string } }).data.shortUrl.split('/p/')[1];
+    const st2 = repo.getState().erp!.proposalShortLinks!;
+    st2[st2.length - 1].exp = Date.now() - 1000;
+    const expired = await router.dispatch({ method: 'GET', path: `/api/p/${code2}`, query: { ...HTTP, _clientIp: '198.51.100.95' } });
+    assert.equal(expired.status, 404);
+  });
+
+  it('t33u: /p/<codigo> e GET /api/p/<codigo> sao publicos; botoes "Copiar link do cliente" visiveis', async () => {
+    const { isPublicStiHubPath } = await import('../src/middleware');
+    assert.equal(isPublicStiHubPath('/p/AbCdEf1234', 'GET'), true);
+    assert.equal(isPublicStiHubPath('/api/p/AbCdEf1234', 'GET'), true);
+    assert.equal(isPublicStiHubPath('/api/p/AbCdEf1234', 'POST'), false);
+    assert.equal(isPublicStiHubPath('/api/p/a/b', 'GET'), false);
+    const tab = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    assert.ok(tab.includes('data-testid="menu-copy-client-link"'));
+    assert.ok(tab.includes('data-testid="status-modal-copy-client-link"'));
+    const pageSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
+    assert.ok(pageSrc.includes('data-testid="copy-client-link"'));
+    assert.ok(pageSrc.includes('Entre no STI-hub para gerar o link do cliente'));
+  });
+
   it('proposta publica: Pilares sempre abertos (sem <details>) e codigo exibido no padrao GC', () => {
     const pageSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
     assert.equal(pageSrc.includes('<details'), false);
