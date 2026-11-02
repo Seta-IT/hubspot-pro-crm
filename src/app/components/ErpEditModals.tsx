@@ -2429,23 +2429,21 @@ export function ContractEditModal({
     { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
     { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
     { id: 'REAJUSTE_ADITIVOS', label: '4. Reajuste & Aditivos' },
-    { id: 'EQUIPAMENTOS_PATRIMONIO', label: `5. Equipamentos & Patrimônio (${draft.equipments.length})` },
+    { id: 'EQUIPAMENTOS_PATRIMONIO', label: '5. Equipamentos & Patrimônio' },
     { id: 'DOCUMENTO_HISTORICO', label: '6. Documento PDF & Histórico' },
   ];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
-        <div className="px-5 py-3.5 bg-[#0d2b4e] text-white flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-white rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
+        <div className="px-5 py-3.5 bg-white border-b border-slate-200 text-slate-900 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <FileCheck2 className="w-5 h-5 text-emerald-300" />
+            <FileCheck2 className="w-5 h-5 text-[#1e3a6e]" />
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
-                Central do Contrato • Seta Telecom ERP (6 Abas de Gestão e Confirmação)
-              </span>
-              <h3 className="text-sm sm:text-base font-extrabold flex items-center gap-2">
-                <span>{draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}</span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[10px] font-black">
+              <h3 className="text-sm sm:text-base font-semibold flex flex-wrap items-baseline gap-2">
+                <span>{draft.contractNumber ? `Contrato nº ${draft.contractNumber}` : 'Novo contrato'}</span>
+                {draft.companyName && <span className="text-slate-500 font-normal">— {draft.companyName}</span>}
+                <span className="text-[11px] text-slate-400 font-normal">
                   {draft.versionLabel || `v${draft.version || 1}.0`}
                 </span>
               </h3>
@@ -2456,7 +2454,7 @@ export function ContractEditModal({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
               >
                 Habilitar Edição
               </button>
@@ -2464,7 +2462,7 @@ export function ContractEditModal({
             <button
               type="button"
               onClick={onClose}
-              className="text-slate-300 hover:text-white cursor-pointer"
+              className="text-slate-400 hover:text-slate-700 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2738,7 +2736,7 @@ export function ContractEditModal({
                         }}
                         className={`p-2.5 rounded-lg border text-xs font-extrabold transition cursor-pointer ${
                           isSel
-                            ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-sm'
+                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
                             : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -2965,7 +2963,7 @@ export function ContractEditModal({
                     type="button"
                     disabled={saving}
                     onClick={handleConfirmRenewalAndSave}
-                    className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-sm cursor-pointer"
+                    className="px-6 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                   >
                     {saving ? 'Confirmando Renovação...' : 'Confirmar Renovação de Vigência e Salvar Alterações'}
                   </button>
@@ -3141,7 +3139,7 @@ export function ContractEditModal({
                         <div className="text-[10px] font-black uppercase text-amber-800">Vencimento calculado</div>
                         <div className="font-extrabold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
                         <div className="text-[10px] text-slate-600">{dueRulePreview.ruleLabel}</div>
-                        <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-amber-600 text-white text-[10px] font-extrabold cursor-pointer">
+                        <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[10px] font-semibold cursor-pointer">
                           Aplicar no Próximo Vencimento
                         </button>
                       </div>
@@ -3231,7 +3229,7 @@ export function ContractEditModal({
                     type="button"
                     disabled={billingIssuing}
                     onClick={() => void finalizeContractBilling()}
-                    className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                    className="px-4 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                   >
                     Confirmar e Emitir Fatura / Recibo de Locação do Mês
                   </button>
@@ -3249,7 +3247,7 @@ export function ContractEditModal({
                         setBillingIssuing(false);
                       }
                     }}
-                    className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                    className="px-4 py-2.5 rounded-lg border border-[#1e3a6e] text-[#1e3a6e] bg-white hover:bg-slate-50 font-semibold cursor-pointer"
                   >
                     Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
                   </button>
@@ -3563,7 +3561,7 @@ export function ContractEditModal({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shadow-sm"
+                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                 >
                   {saving ? 'Salvando...' : 'Salvar Alterações do Contrato'}
                 </button>
