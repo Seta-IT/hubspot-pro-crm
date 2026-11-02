@@ -971,46 +971,36 @@ function PublicProposalPrintContent() {
   return (
     <div className={`min-h-screen ${pageOuterBgClass} py-6 px-3 sm:px-6 print:bg-white print:p-0`}>
       {/* TOP ACTION BAR (HIDDEN ON PRINT) */}
-      <div className="max-w-4xl mx-auto mb-5 bg-[#1e3a6e] text-white rounded-lg px-4 py-3.5 shadow-lg flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div className="flex items-center gap-3">
+      <div className="max-w-4xl mx-auto mb-5 bg-white text-slate-700 rounded-lg border border-slate-200 px-4 py-2.5 flex flex-col gap-2.5 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <a
             href="/"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-xs font-bold transition"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Painel Seta Telecom
+            Voltar
           </a>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
-                Portal do Cliente • Documento Oficial A4
-              </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
-                {displayCode}
-              </span>
-              <span data-testid="proposal-version-topbar" className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/90 text-slate-950 whitespace-nowrap">
-                Versão {displayedVersionNum}
-              </span>
-              {savedNotice && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
-                  Proposta Atualizada!
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-200">
-              {isInternalUser ? (
-                <>
-                  Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
-                  <strong>Imprimir / Salvar em PDF</strong>.
-                </>
-              ) : (
-                <>
-                  Revise a proposta, clique em <strong>Imprimir / Salvar em PDF</strong> ou{' '}
-                  <strong>assine e aprove</strong> eletronicamente.
-                </>
-              )}
-            </p>
-          </div>
+          <span className="h-4 w-px bg-slate-200" aria-hidden="true" />
+          <span className="text-xs font-semibold text-slate-900">{displayCode}</span>
+          <span data-testid="proposal-version-topbar" className="text-xs text-slate-500 whitespace-nowrap">
+            Versão {displayedVersionNum}
+          </span>
+          {savedNotice && (
+            <span className="text-[11px] text-emerald-700">
+              Proposta atualizada
+            </span>
+          )}
+        </div>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold transition cursor-pointer"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Imprimir / Salvar em PDF
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1019,26 +1009,26 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
           >
-            <Edit3 className="w-4 h-4" />
-            Editar Proposta antes de Imprimir
+            <Edit3 className="w-3.5 h-3.5" />
+            Editar
           </button>
 
           <button
             type="button"
             onClick={handleCopyPublicLink}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
           >
             {copied ? (
               <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                Link assinado copiado!
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Link copiado
               </>
             ) : (
               <>
-                <Copy className="w-4 h-4" />
-                {copyLinkBusy ? "Gerando link..." : "Copiar link para o cliente"}
+                <Copy className="w-3.5 h-3.5" />
+                {copyLinkBusy ? "Gerando link..." : "Copiar link"}
               </>
             )}
           </button>
@@ -1047,9 +1037,9 @@ function PublicProposalPrintContent() {
             type="button"
             onClick={() => setShowInternalVersionsModal(true)}
             title="Consultas Internas / Versões"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-extrabold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
           >
-            <History className="w-4 h-4 text-amber-300" />
+            <History className="w-3.5 h-3.5" />
             <span>
               Versões ({(proposal.versionHistory || []).length || 1})
             </span>
@@ -1063,12 +1053,13 @@ function PublicProposalPrintContent() {
                 e.target.value as NonNullable<ErpCommercialProposal["templateStyle"]>
               )
             }
-            className="px-2.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-extrabold border border-emerald-300 cursor-pointer"
+            className="px-2.5 py-1.5 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer"
             title="Escolher Template / Layout do Documento A4"
+            aria-label="Modelo do documento"
           >
             {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id} className="text-slate-900">
-                Template: {opt.shortLabel}
+                Modelo: {opt.shortLabel}
               </option>
             ))}
           </select>
@@ -1085,29 +1076,21 @@ function PublicProposalPrintContent() {
                 }
                 setShowIcpSignatureModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer disabled:opacity-50"
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-3.5 h-3.5" />
               {approvingContract ? "Assinando..." : "Assinar ICP-Brasil / Gov.br & Aprovar"}
             </button>
           ) : (
             <a
               href="/"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
               Contrato Gerado ({convertedContractInfo?.contractNumber || proposal.convertedContractId})
             </a>
           )}
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-md transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir / Salvar em PDF
-          </button>
         </div>
       </div>
 

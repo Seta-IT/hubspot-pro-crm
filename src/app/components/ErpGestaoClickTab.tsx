@@ -2197,52 +2197,49 @@ export default function ErpGestaoClickTab({
     return (
       <div className="space-y-4">
         {/* CABEÇALHO E NAVEGAÇÃO DE SUB-MENUS DE ORÇAMENTOS (GESTÃOCLICK) */}
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3.5">
+        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                Orçamentos &gt;{' '}
-                {effectiveOrcTab === 'ORC_PRODUTOS'
-                  ? 'Produtos e Equipamentos'
+            <h2 className="text-base font-semibold text-slate-900">
+              {effectiveOrcTab === 'ORC_PRODUTOS'
+                ? 'Orçamentos de produtos'
+                : effectiveOrcTab === 'ORC_LOCACAO'
+                  ? 'Orçamentos de locação'
                   : effectiveOrcTab === 'ORC_SERVICOS'
-                    ? 'Serviços Técnicos TI/Telecom'
+                    ? 'Orçamentos de serviços'
                     : effectiveOrcTab === 'ORC_AUXILIARES'
-                      ? 'Opções Auxiliares'
-                      : 'Todos os Orçamentos e Propostas'}
-              </span>
-              <h2 className="text-base font-extrabold text-slate-900">
-                Orçamentos &amp; Propostas Comerciais ({filteredProposals.length} de {proposals.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Gestão completa de orçamentos de Produtos (786 itens), Serviços (39 itens), frete, descontos, parcelas e link assinado do cliente (PDF A4).
-              </p>
-            </div>
+                      ? 'Opções auxiliares'
+                      : 'Orçamentos'}
+            </h2>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-md border border-slate-300 bg-slate-50 p-0.5 text-xs">
+              {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+              <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5 text-xs" role="group" aria-label="Modo de visualização">
                 <button
                   type="button"
                   onClick={() => setProposalsViewMode('CARDS')}
-                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                  aria-pressed={proposalsViewMode === 'CARDS'}
+                  className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
                     proposalsViewMode === 'CARDS'
-                      ? 'bg-[#1e3a6e] text-white'
+                      ? 'bg-slate-100 text-[#1e3a6e]'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Visão Cards Executivos
+                  Cards
                 </button>
                 <button
                   type="button"
                   onClick={() => setProposalsViewMode('TABLE')}
-                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                  aria-pressed={proposalsViewMode === 'TABLE'}
+                  className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
                     proposalsViewMode === 'TABLE'
-                      ? 'bg-[#1e3a6e] text-white'
+                      ? 'bg-slate-100 text-[#1e3a6e]'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Visão Tabela GestãoClick
+                  Tabela
                 </button>
               </div>
+              )}
 
               <button
                 type="button"
@@ -2255,20 +2252,16 @@ export default function ErpGestaoClickTab({
                         : 'LOCACAO'
                   )
                 }
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> Novo Orçamento
+                <Plus className="w-4 h-4" /> Novo orçamento
               </button>
             </div>
           </div>
 
-          {/* BARRA DE SELEÇÃO E EDIÇÃO RÁPIDA DE ORÇAMENTOS (SUB-ITENS NA VERTICAL ESQUERDA) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <div className="flex flex-wrap items-center gap-2">
-              
-            </div>
-
-            {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+          {/* FILTROS (submódulos ficam só na sidebar, sem barra de abas) */}
+          {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -2284,7 +2277,7 @@ export default function ErpGestaoClickTab({
                   aria-label="Filtrar Orçamentos por Situação"
                   value={proposalsStatusFilter}
                   onChange={(e) => setProposalsStatusFilter(e.target.value)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-medium text-slate-700"
                 >
                   <option value="TODOS">Situação: Todas ({tabFiltered.length})</option>
                   <option value="RASCUNHO">Em Aberto ({tabFiltered.filter((p) => p.status === 'RASCUNHO').length})</option>
@@ -2302,68 +2295,42 @@ export default function ErpGestaoClickTab({
                       setProposalsStatusFilter('TODOS');
                       setActiveSubId('ORC_TODOS');
                     }}
-                    className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                    className="px-1 py-1.5 text-xs text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
                   >
                     Limpar filtros
                   </button>
                 )}
               </div>
-            )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-            {[
-              { id: "ORC_TODOS", match: "TODOS", label: `Todos os Orçamentos (${proposals.length})` },
-              { id: "ORC_PRODUTOS", match: "ORC_PRODUTOS", label: `Propostas de Produtos (${proposals.filter(isProductsOnlyProp).length})` },
-              { id: "ORC_LOCACAO", match: "ORC_LOCACAO", label: `Propostas de Locação (${proposals.filter(isRentalProp).length})` },
-              { id: "ORC_SERVICOS", match: "ORC_SERVICOS", label: `Propostas de Serviços (${proposals.filter(hasServiceItem).length})` },
-              { id: "ORC_AUXILIARES", match: "ORC_AUXILIARES", label: "Opções Auxiliares & Templates" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveSubId(tab.id)}
-                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                  effectiveOrcTab === tab.match
-                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          )}
         </div>
 
         {/* PAINEL DE OPÇÕES AUXILIARES DE ORÇAMENTOS (ORC_AUXILIARES) */}
         {effectiveOrcTab === 'ORC_AUXILIARES' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <h3 className="text-sm font-extrabold text-slate-900">
-                Situações de Orçamento &amp; Canais de Venda (GestãoClick)
+              <h3 className="text-sm font-semibold text-slate-900">
+                Situações e canais de venda
               </h3>
-              <p className="text-xs text-slate-500">
-                Fluxo de aprovação comercial sincronizado com o Kanban de Negócios e Geração Automática de Contratos.
-              </p>
-              <div className="space-y-2 text-xs">
+              <div className="text-xs">
                 {[
                   { code: 'RASCUNHO', name: 'Em Aberto (Rascunho Comercial)', color: 'bg-slate-200 text-slate-800' },
                   { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Assinado)', color: 'bg-blue-100 text-blue-800' },
                   { code: 'EM_NEGOCIACAO', name: 'Em Negociação / Revisão de Escopo', color: 'bg-amber-100 text-amber-800' },
                   { code: 'APROVADA', name: 'Aprovado pelo Decisor', color: 'bg-emerald-100 text-emerald-800' },
-                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-600 text-white' },
+                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-100 text-emerald-900' },
                 ].map((st) => (
-                  <div key={st.code} className="flex items-center justify-between p-2 rounded border border-slate-200 bg-slate-50">
-                    <span className="font-semibold text-slate-800">{st.name}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${st.color}`}>
+                  <div key={st.code} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                    <span className="text-slate-800">{st.name}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.color}`}>
                       {proposals.filter((p) => p.status === st.code).length} orçamento(s)
                     </span>
                   </div>
                 ))}
               </div>
               <div className="pt-2 border-t border-slate-200">
-                <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
-                  Canais de Venda Habilitados na Loja Matriz #118887:
+                <span className="text-[11px] font-medium text-slate-700 block mb-1.5">
+                  Canais de venda habilitados
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
@@ -2374,7 +2341,7 @@ export default function ErpGestaoClickTab({
                     'Cliente Recorrente (Upsell)',
                     'E-commerce / Portal',
                   ].map((ch) => (
-                    <span key={ch} className="px-2.5 py-1 rounded-full bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[11px] font-bold">
+                    <span key={ch} className="px-2.5 py-1 rounded-full bg-white text-slate-700 border border-slate-200 text-[11px] font-medium">
                       {ch}
                     </span>
                   ))}
@@ -2383,174 +2350,120 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Seletor de Template Padrão A4 &amp; Modelos de Proposta
-                </h3>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">
-                  Padrão Ativo: {defaultProposalTemplateStyle}
-                </span>
-              </div>
-              <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <label className="block font-extrabold text-slate-800">
-                  Escolher Template Visual Padrão para Propostas (PDF A4):
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                      { id: "CLEAN_CORPORATE_LIGHT", label: "Opção 1 — Clean Corporate Light [Padrão]" },
-                      { id: "MINIMAL_SWISS_PAPER", label: "Opção 2 — Minimal Swiss Paper" },
-                      { id: "EXECUTIVE_SOFT_INDIGO", label: "Opção 3 — Executive Soft Indigo" },
-                    ].map((tpl) => {
-                      const isActive = defaultProposalTemplateStyle === tpl.id;
-                      return (
+              <h3 className="text-sm font-semibold text-slate-900">Modelos de proposta (PDF A4)</h3>
+              <div className="text-xs border border-slate-200 rounded-md divide-y divide-slate-100">
+                {([
+                  {
+                    id: "CLEAN_CORPORATE_LIGHT",
+                    label: "Clean Corporate Light",
+                    exampleHref: "/proposta/prop-seta-001",
+                    budgetType: "LOCACAO",
+                    preset: {
+                      title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
+                      templateStyle: "CLEAN_CORPORATE_LIGHT",
+                      slaTier: "CORPORATIVO_8X5_NBD",
+                      slaAvailabilityPercent: "99,50%",
+                      slaResponseHours: 4,
+                      deliveryLeadTime: "7 dias úteis após o aceite",
+                      deliveryForecast: "7 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Apresentamos nossa proposta comercial para fornecimento em regime de Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX) com cobertura de Spare Parts e suporte Seta Telecom.",
+                    },
+                  },
+                  {
+                    id: "MINIMAL_SWISS_PAPER",
+                    label: "Minimal Swiss Paper",
+                    exampleHref: "/proposta/prop-gc-4695",
+                    budgetType: "PRODUTOS",
+                    preset: {
+                      title: "Orçamento Comercial — Switching Corporativo, Firewalls NGFW & Wi-Fi 6",
+                      templateStyle: "MINIMAL_SWISS_PAPER",
+                      slaTier: "SEM_SLA_ESPECIFICO",
+                      deliveryLeadTime: "7 dias úteis após o aceite",
+                      deliveryForecast: "7 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Apresentamos a folha de orçamento comercial com especificações técnicas, valores mensais e condições de fornecimento Seta Telecom.",
+                    },
+                  },
+                  {
+                    id: "EXECUTIVE_SOFT_INDIGO",
+                    label: "Executive Soft Indigo",
+                    exampleHref: "/proposta/prop-seta-002",
+                    budgetType: "CONJUNTO",
+                    preset: {
+                      title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
+                      templateStyle: "EXECUTIVE_SOFT_INDIGO",
+                      slaTier: "PADRAO_COMERCIAL_8H",
+                      slaAvailabilityPercent: "99,00%",
+                      slaResponseHours: 8,
+                      deliveryLeadTime: "10 dias úteis após o aceite",
+                      deliveryForecast: "10 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Proposta técnico-consultiva contemplando infraestrutura de redes, segurança multi-vendor, suporte NOC 24/7 e locação HaaS.",
+                    },
+                  },
+                ] as const).map((tpl, idx) => {
+                  const isActive = defaultProposalTemplateStyle === tpl.id;
+                  const tplStyle = tpl.id as NonNullable<ErpCommercialProposal["templateStyle"]>;
+                  return (
+                    <div key={tpl.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900">
+                          {idx + 1}. {tpl.label}
+                        </span>
+                        {isActive && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-medium">
+                            Padrão
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {!isActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDefaultProposalTemplateStyle(tplStyle);
+                              if (typeof window !== "undefined") {
+                                try {
+                                  window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
+                                } catch {
+                                  // ignore
+                                }
+                              }
+                              onShowToast(`Modelo padrão alterado para: ${tpl.label}`);
+                            }}
+                            className="text-[#1e3a6e] hover:underline cursor-pointer"
+                          >
+                            Definir como padrão
+                          </button>
+                        )}
                         <button
-                          key={tpl.id}
                           type="button"
                           onClick={() => {
-                            setDefaultProposalTemplateStyle(
-                              tpl.id as NonNullable<ErpCommercialProposal["templateStyle"]>
-                            );
-                            if (typeof window !== "undefined") {
-                              try {
-                                window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
-                              } catch {
-                                // ignore
-                              }
-                            }
-                            onShowToast(`Layout padrão alterado para: ${tpl.label}`);
+                            setDefaultProposalTemplateStyle(tplStyle);
+                            openFullNewProposalModal(tpl.budgetType, { ...tpl.preset });
                           }}
-                          className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition text-left ${
-                            isActive
-                              ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
-                              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                          }`}
+                          className="text-[#1e3a6e] hover:underline cursor-pointer"
                         >
-                          {isActive ? `[Ativo] ${tpl.label}` : tpl.label}
+                          Novo com este modelo
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="space-y-2.5 text-xs">
-                  <div className="p-3 rounded border border-blue-200 bg-blue-50/40 space-y-1.5">
-                    <div className="font-extrabold text-[#0d2b4e]">
-                      Opção 1: Clean Corporate Light (Azul Suave &amp; Ardósia Clara) [Padrão]
+                        <a
+                          href={tpl.exampleHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        >
+                          Ver exemplo
+                        </a>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-700">
-                      Cabeçalho em azul-claro acetinado, tabelas leves em ardósia suave (#f8fafc), linhas finas de 1px, apresentação institucional da Seta Telecom no início e fluxo de contratação em 7 etapas no final.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("CLEAN_CORPORATE_LIGHT");
-                          openFullNewProposalModal("LOCACAO", {
-                            title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
-                            templateStyle: "CLEAN_CORPORATE_LIGHT",
-                            slaTier: "CORPORATIVO_8X5_NBD",
-                            slaAvailabilityPercent: "99,50%",
-                            slaResponseHours: 4,
-                            deliveryLeadTime: "7 dias úteis após o aceite",
-                            deliveryForecast: "7 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Apresentamos nossa proposta comercial para fornecimento em regime de Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX) com cobertura de Spare Parts e suporte Seta Telecom.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 1 (Clean Corporate Light)
-                      </button>
-                      <a
-                        href="/proposta/prop-seta-001"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-blue-300 bg-white text-[#1e3a6e] text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded border border-emerald-200 bg-emerald-50/40 space-y-1.5">
-                    <div className="font-extrabold text-emerald-950">
-                      Opção 2: Minimal Swiss Paper (Branco Puro &amp; Linhas Finas Cinza/Esmeralda)
-                    </div>
-                    <p className="text-[11px] text-emerald-900">
-                      Estética editorial 100% fundo branco, linhas horizontais ultra-finas (#e5e7eb), apresentação institucional Seta Telecom, fluxo em 7 etapas e máxima economia de impressão.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("MINIMAL_SWISS_PAPER");
-                          openFullNewProposalModal("PRODUTOS", {
-                            title: "Orçamento Comercial — Switching Corporativo, Firewalls NGFW & Wi-Fi 6",
-                            templateStyle: "MINIMAL_SWISS_PAPER",
-                            slaTier: "SEM_SLA_ESPECIFICO",
-                            deliveryLeadTime: "7 dias úteis após o aceite",
-                            deliveryForecast: "7 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Apresentamos a folha de orçamento comercial com especificações técnicas, valores mensais e condições de fornecimento Seta Telecom.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 2 (Minimal Swiss Paper)
-                      </button>
-                      <a
-                        href="/proposta/prop-gc-4695"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded border border-indigo-200 bg-indigo-50/40 space-y-1.5">
-                    <div className="font-extrabold text-indigo-950">
-                      Opção 3: Executive Soft Indigo (Tons Pastéis de Índigo &amp; Tabelas Arejadas)
-                    </div>
-                    <p className="text-[11px] text-indigo-900">
-                      Design consultivo B2B em tons pastéis de índigo (#eef2ff), bordas suaves (#e0e7ff), apresentação institucional Seta Telecom e fluxo de contratação em 7 etapas.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("EXECUTIVE_SOFT_INDIGO");
-                          openFullNewProposalModal("CONJUNTO", {
-                            title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
-                            templateStyle: "EXECUTIVE_SOFT_INDIGO",
-                            slaTier: "PADRAO_COMERCIAL_8H",
-                            slaAvailabilityPercent: "99,00%",
-                            slaResponseHours: 8,
-                            deliveryLeadTime: "10 dias úteis após o aceite",
-                            deliveryForecast: "10 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Proposta técnico-consultiva contemplando infraestrutura de redes, segurança multi-vendor, suporte NOC 24/7 e locação HaaS.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 3 (Executive Soft Indigo)
-                      </button>
-                      <a
-                        href="/proposta/prop-seta-002"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
+            </div>
             </div>
           )}
 
@@ -2742,7 +2655,7 @@ export default function ErpGestaoClickTab({
                 key={prop.id}
                 className={`bg-white rounded-md border p-5 shadow-xs space-y-4 transition ${
                   isHighlighted
-                    ? 'border-2 border-[#ff7a59] ring-2 ring-[#ff7a59]/20'
+                    ? 'border-2 border-[#1e3a6e] ring-2 ring-[#1e3a6e]/15'
                     : 'border-slate-200'
                 }`}
               >
@@ -4981,41 +4894,33 @@ export default function ErpGestaoClickTab({
 
           {/* BANNER DE PROPOSTA RECÉM-CRIADA (visualização interna + link assinado p/ o cliente) */}
           {createdProposalBanner && (
-            <div className="bg-emerald-950 text-white rounded-md p-4 border border-emerald-500 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black uppercase">
-                    LINK DO CLIENTE PRONTO
-                  </span>
-                  <span className="font-mono text-xs font-extrabold text-emerald-300">
-                    {createdProposalBanner.proposal.code} — {createdProposalBanner.proposal.companyName}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-200">
-                  Visualização interna (exige login no STI-hub):{' '}
-                  <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="underline font-mono text-emerald-300">
-                    {createdProposalBanner.publicUrl.slice(0, 95)}...
-                  </a>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div
+              role="status"
+              className="bg-white text-slate-700 rounded-md px-3 py-2 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs"
+            >
+              <span className="min-w-0 truncate">
+                Orçamento <strong className="font-semibold text-slate-900">{showCode(createdProposalBanner.proposal)}</strong> salvo
+                {' — '}
+                {createdProposalBanner.proposal.companyName}. O link para o cliente está pronto.
+              </span>
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <button
                   type="button"
                   onClick={async () => {
                     const r = await copySignedProposalLink(createdProposalBanner.proposal.id);
                     onShowToast(r.ok ? 'Link assinado para o cliente copiado para a área de transferência!' : r.error);
                   }}
-                  className="px-3 py-2 rounded bg-white text-slate-900 text-xs font-extrabold cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[#1e3a6e] font-medium hover:underline cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5 inline mr-1" /> Copiar link para o cliente
+                  <Copy className="w-3.5 h-3.5" /> Copiar link para o cliente
                 </button>
-                <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded bg-emerald-600 text-white text-xs font-extrabold">
-                  <ExternalLink className="w-3.5 h-3.5 inline mr-1" /> Abrir Proposta
+                <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
+                  <ExternalLink className="w-3.5 h-3.5" /> Abrir
                 </a>
-                <a href={createdProposalBanner.printUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold">
-                  <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir PDF
+                <a href={createdProposalBanner.printUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
+                  <Printer className="w-3.5 h-3.5" /> Imprimir
                 </a>
-                <button type="button" onClick={() => setCreatedProposalBanner(null)} className="text-slate-400 hover:text-white">
+                <button type="button" onClick={() => setCreatedProposalBanner(null)} aria-label="Fechar aviso" className="text-slate-400 hover:text-slate-700 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
