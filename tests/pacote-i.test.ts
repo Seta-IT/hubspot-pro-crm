@@ -125,7 +125,9 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
 
   it('allowlist = exatamente os campos que a tela de config envia', () => {
     const tab = src('src/app/components/ErpGestaoClickTab.tsx');
-    const sent = new Set<string>(['taxRegime', 'autoGenerateMonthlyRentalInvoices']); // handleChangeTaxRegime; Pacote J (D-I2): auto-NF so pela API privilegiada
+    // handleChangeTaxRegime; Pacote J (D-I2): auto-NF so pela API privilegiada.
+    // storeName: o modal "Editar Dados da Empresa" saiu na limpeza visual (02/11); segue aceito so pela API privilegiada.
+    const sent = new Set<string>(['taxRegime', 'autoGenerateMonthlyRentalInvoices', 'storeName']);
     for (const m of tab.matchAll(/\{ key: ["'](companyLegalName|companyCnpj|municipalRegistration|stateRegistration|defaultIssRatePercent|storeName)["']/g)) sent.add(m[1]);
     assert.deepEqual([...GESTAOCLICK_CONFIG_EDITABLE_KEYS].sort(), [...sent].sort());
     assert.equal(parseGestaoClickConfigPatch({ taxRegime: 'LUCRO_REAL' }).ok, true);

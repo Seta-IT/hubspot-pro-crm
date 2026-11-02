@@ -3,14 +3,18 @@
 @tailwind utilities;
 
 :root {
+  /* Cor de destaque única do sistema (decisão do Marcéllo 02/11/2026): azul-marinho. */
+  --sti-accent: #1e3a6e;
+  --sti-accent-hover: #162d57;
+  --sti-accent-soft: #eef2f8;
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
   --hs-battleship: #516f90;
   --hs-koala: #eaf0f6;
   --hs-gypsum: #f5f8fa;
   --hs-great-white: #cbd6e2;
-  --hs-lorax: #ff7a59;
-  --hs-lorax-hover: #ff8f73;
+  --hs-lorax: var(--sti-accent);
+  --hs-lorax-hover: var(--sti-accent-hover);
   --hs-calypso: #0091ae;
   --hs-oz: #00bda5;
   --hs-candy-apple: #f2545b;

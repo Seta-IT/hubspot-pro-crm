@@ -60,12 +60,14 @@ describe('Relatórios do ERP por perfil', () => {
     assert.equal(filterErpMenuTree(GESTAO_CLICK_MENU_TREE, vendedor).some((g) => g.id === 'RELATORIOS'), true);
     assert.equal(filterErpMenuTree(GESTAO_CLICK_MENU_TREE, null).some((g) => g.id === 'RELATORIOS'), false);
   });
-  it('tela de Relatórios: ações de administração e a Central só com canViewAdminConfig', () => {
+  it('tela de Relatórios: só o título, sem administração nem Central (limpeza visual 02/11)', () => {
     const erp = src('src/app/components/ErpGestaoClickTab.tsx');
-    const block = erp.slice(erp.indexOf("activeSection === 'RELATORIOS' && reportsScreenAllowed"));
-    assert.match(block, /\{canAdminErpConfig && !isCfgSection && \(\s*<div className="flex items-center gap-2">[\s\S]*Editar Dados da Empresa[\s\S]*Sincronizar Agora/);
-    assert.match(block, /rbacState && \(activeSection === 'CONFIGURACOES' \|\| canAdminErpConfig\)/);
-    assert.match(block, /access=\{erpConfigAccess\}/);
+    const start = erp.indexOf("activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess && (");
+    assert.ok(start > 0);
+    const block = erp.slice(start, erp.indexOf("activeSection === 'CONFIGURACOES' && cfgScreenAllowed && (", start));
+    assert.match(block, /data-testid="relatorios-somente-titulo"/);
+    assert.doesNotMatch(block, /StiHubAdminRbacPanel|Editar Dados da Empresa|Sincronizar Agora|MRR Locação/);
+    assert.match(erp, /access=\{erpConfigAccess\}/);
     assert.match(erp, /erpConfigAccess\.canViewReports\) return;\s*setActiveSection\('INICIO'\)/);
   });
 });

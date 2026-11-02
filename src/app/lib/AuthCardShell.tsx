@@ -23,4 +23,4 @@ export default function AuthCardShell(props: { title: string; subtitle: string; 
 export const AUTH_INPUT_CLASS =
   'w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0d2b4e]';
 export const AUTH_BUTTON_CLASS =
-  'w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50';
+  'w-full py-3 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50';

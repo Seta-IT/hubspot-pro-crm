@@ -369,10 +369,8 @@ export default function ErpGestaoClickTab({
   // Relatórios: indicadores para quem tem 'erp.relatorios_logs' na matriz; administração (empresa, regime,
   // sincronização e a Central) só para admin com 2FA.
   const reportsScreenAllowed = activeSection !== 'RELATORIOS' || erpConfigAccess?.canViewReports === true;
-  const canAdminErpConfig = erpConfigAccess?.canViewAdminConfig === true;
-  // Configurações (Usuários, Empresa, E-mails...): sem KPIs, sem banner da Central e sem ações de
-  // empresa/regime/sync no cabeçalho (pedido do Marcéllo 02/11). KPIs seguem no painel do ERP e em Relatórios.
-  const isCfgSection = activeSection === 'CONFIGURACOES';
+  // Limpeza visual 02/11 (Marcéllo): Configurações sem cabeçalho, KPIs, banner nem ações repetidas;
+  // Relatórios só com o título. A Central abre só em Configurações (admin com 2FA, regra B2).
   React.useEffect(() => {
     if (!erpConfigAccess || activeSection !== 'RELATORIOS' || erpConfigAccess.canViewReports) return;
     setActiveSection('INICIO');
@@ -4667,14 +4665,14 @@ export default function ErpGestaoClickTab({
   };
 
   return (
-    <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8]">
+    <div className="rounded-lg overflow-hidden border border-slate-200 bg-[#f3f5f8]">
       {/* BARRA DE CONTEXTO ULTRACOMPACTA E BREADCRUMB VIVO DO ERP (SEM DUPLICAÇÃO DE TOPO) */}
       <div className="bg-white border-b border-slate-200 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 select-none">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setErpMobileDrawerOpen(true)}
-            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
             title="Abrir Menu ERP Mobile"
           >
             <Menu className="w-4 h-4" />
@@ -4695,12 +4693,12 @@ export default function ErpGestaoClickTab({
                 setActiveSection('INICIO');
                 setActiveSubId('INICIO');
               }}
-              className="font-extrabold text-[#1e3a6e] hover:underline cursor-pointer"
+              className="font-semibold text-[#1e3a6e] hover:underline cursor-pointer"
             >
               ERP
             </button>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-            <span className="font-bold text-slate-800">
+            <span className="font-semibold text-slate-800">
               {GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection)?.label || activeSection}
             </span>
             {(() => {
@@ -4709,18 +4707,13 @@ export default function ErpGestaoClickTab({
               return subObj ? (
                 <>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-semibold text-[#ff7a59]">{subObj.label}</span>
+                  <span className="font-semibold text-[#1e3a6e]">{subObj.label}</span>
                 </>
               ) : null;
             })()}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
-          </span>
-        </div>
       </div>
 
       {/* BARRA RÁPIDA MOBILE DO ERP (PERMITE ABRIR QUALQUER MÓDULO E SUBMÓDULO COM 1 TOQUE NO CELULAR) */}
@@ -4738,9 +4731,9 @@ export default function ErpGestaoClickTab({
                   setActiveSubId(firstSub);
                   if (firstSub === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
                 }}
-                className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold transition cursor-pointer ${
+                className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-semibold transition cursor-pointer ${
                   isAct
-                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                    ? 'bg-[#1e3a6e] text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
@@ -4780,10 +4773,10 @@ export default function ErpGestaoClickTab({
                         setContractsSubFilter(sub.id);
                       }
                     }}
-                    className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                    className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-semibold transition cursor-pointer border ${
                       isSubAct
-                        ? 'bg-[#ff7a59] text-white'
-                        : 'bg-orange-50/70 text-[#0d2b4e] border border-orange-200/70'
+                        ? 'bg-white text-[#1e3a6e] border-[#1e3a6e]'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
                     {sub.label}
@@ -4803,18 +4796,6 @@ export default function ErpGestaoClickTab({
             activeSection={activeSection}
             activeSubId={activeSubId}
             onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-            moduleCounts={{
-              CADASTROS: companies.length + suppliers.length + employees.length,
-              ITENS: catalog.length,
-              ORCAMENTOS: proposals.length,
-              CONTRATOS: rentalContracts.length,
-              VENDAS: salesOrders.length,
-              ORDENS_SERVICOS: serviceOrders.length,
-              ESTOQUE: catalog.length + purchaseOrders.length,
-              FINANCEIRO: financialEntries.length,
-              FISCAL: invoices.length,
-              ATENDIMENTOS: serviceOrders.length,
-            }}
             mobileDrawerOpen={erpMobileDrawerOpen}
             onCloseMobileDrawer={() => setErpMobileDrawerOpen(false)}
             onSelect={(sec, subId) => {
@@ -6363,90 +6344,28 @@ export default function ErpGestaoClickTab({
             />
           )}
 
-          {((activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess) || (activeSection === 'CONFIGURACOES' && cfgScreenAllowed)) && (
-            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              {!isDedicatedCfgScreen && (<>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    {activeSection} &gt; {activeSubId}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    {canAdminErpConfig ? 'Configurações & Relatórios GestãoClick' : 'Relatórios GestãoClick'} ({gestaoClickConfig.credentialName || 'ERP-GROK'})
-                  </h2>
-                  <p className="text-xs text-slate-500">Loja {gestaoClickConfig.storeName} #{gestaoClickConfig.storeId} • CNPJ {gestaoClickConfig.companyCnpj}</p>
-                </div>
-                {canAdminErpConfig && !isCfgSection && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGenericModal({
-                        title: 'Editar Dados da Empresa Seta Telecom',
-                        initialValues: {
-                          companyLegalName: gestaoClickConfig.companyLegalName,
-                          companyCnpj: gestaoClickConfig.companyCnpj,
-                          municipalRegistration: gestaoClickConfig.municipalRegistration,
-                          stateRegistration: gestaoClickConfig.stateRegistration,
-                          storeName: gestaoClickConfig.storeName || 'Matriz',
-                        },
-                        fields: [
-                          { key: 'companyLegalName', label: 'Razão Social' },
-                          { key: 'companyCnpj', label: 'CNPJ' },
-                          { key: 'municipalRegistration', label: 'Inscrição Municipal' },
-                          { key: 'stateRegistration', label: 'Inscrição Estadual' },
-                          { key: 'storeName', label: 'Nome da Loja / Unidade' },
-                        ],
-                        onSave: async (vals) => {
-                          const res = await fetch('/api/erp/gestaoclick/config', {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(vals),
-                          });
-                          if (!res.ok) {
-                            onShowToast(await gcConfigErrorMessage(res)); // Pacote I
-                            return;
-                          }
-                          setGenericModal(null);
-                          onShowToast('Configurações da empresa salvas!');
-                          await onRefresh();
-                        },
-                      })
-                    }
-                    className="px-3.5 py-2 rounded bg-amber-500 text-white text-xs font-extrabold cursor-pointer"
-                  >
-                    Editar Dados da Empresa
-                  </button>
-                  <select
-                    value={gestaoClickConfig.taxRegime}
-                    onChange={(e) => handleChangeTaxRegime(e.target.value as ErpTaxRegime)}
-                    className="px-3 py-2 rounded border border-slate-300 text-xs font-bold bg-white"
-                  >
-                    <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
-                    <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
-                    <option value="SIMPLES_NACIONAL">Simples Nacional</option>
-                  </select>
-                  <button type="button" onClick={handleSyncGestaoClick} disabled={syncingGc} className="px-4 py-2 rounded bg-emerald-600 text-white text-xs font-extrabold cursor-pointer">
-                    {syncingGc ? 'Sincronizando...' : 'Sincronizar Agora'}
-                  </button>
-                </div>
-                )}
-              </div>
-              {!isCfgSection && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">TCV Carteira: <strong>{formatBRL(kpis.totalContractedTcv)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
-              </div>
-              )}
-              </>)}
+          {/* Relatórios: só o título até existirem relatórios (decisão do Marcéllo 02/11). Sem KPIs, sem administração. */}
+          {activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess && (
+            <div data-testid="relatorios-somente-titulo" className="bg-white rounded-md border border-slate-200 p-5">
+              <h2 className="text-base font-semibold text-slate-900">
+                {GESTAO_CLICK_MENU_TREE.find((g) => g.id === 'RELATORIOS')?.subItems?.find((x) => x.id === activeSubId)?.label || 'Relatórios'}
+              </h2>
+            </div>
+          )}
 
-              {rbacState && (activeSection === 'CONFIGURACOES' || canAdminErpConfig) && (
-                <div className={isDedicatedCfgScreen ? '' : 'pt-3 border-t border-slate-200'}>
+          {/* Configurações: cada aba mostra só o próprio conteúdo (sem cabeçalho, KPIs nem banner repetidos). */}
+          {activeSection === 'CONFIGURACOES' && cfgScreenAllowed && (
+            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+              {activeSubId === 'CFG_LOGS' && (
+                <p data-testid="status-integracao-gestaoclick" className="text-xs font-semibold text-slate-600">
+                  Integração GestãoClick: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
+                </p>
+              )}
+              {rbacState && (
+                <div>
                   <StiHubAdminRbacPanel
                     access={erpConfigAccess}
-                    hideTopBanner={isCfgSection}
+                    hideTopBanner
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={
@@ -6754,7 +6673,7 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setReadjustModal(null)} className="px-4 py-2 rounded border font-bold cursor-pointer">
                   Cancelar
                 </button>
-                <button type="submit" className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer">
+                <button type="submit" className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-extrabold cursor-pointer">
                   Confirmar &amp; Aplicar Reajuste
                 </button>
               </div>
@@ -6821,7 +6740,7 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setRmaModal(null)} className="px-4 py-2 rounded border font-bold cursor-pointer">
                   Cancelar
                 </button>
-                <button type="submit" className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer">
+                <button type="submit" className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-extrabold cursor-pointer">
                   Salvar Patrimônio / S/N
                 </button>
               </div>
@@ -6855,7 +6774,7 @@ export default function ErpGestaoClickTab({
                     );
                     downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT');
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-bold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   Imprimir 1 Página A4 / Salvar PDF
@@ -7091,7 +7010,7 @@ export default function ErpGestaoClickTab({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-bold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
                 </button>
@@ -7506,7 +7425,7 @@ export default function ErpGestaoClickTab({
                                         href={pdfUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-extrabold"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white text-[10px] font-extrabold"
                                       >
                                         <Printer className="w-3 h-3" />
                                         <span>PDF</span>
@@ -7610,7 +7529,7 @@ export default function ErpGestaoClickTab({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 rounded-lg bg-[#ff7a59] text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white text-xs font-bold cursor-pointer"
                 >
                   Imprimir PDF
                 </button>
@@ -7976,7 +7895,7 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white font-extrabold cursor-pointer"
                 >
                   Criar Proposta &amp; Gerar Link PDF p/ Cliente
                 </button>
@@ -8116,7 +8035,7 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[4px] bg-[#ff7a59] text-white font-extrabold"
+                  className="px-5 py-2 rounded-[4px] bg-[#1e3a6e] text-white font-extrabold"
                 >
                   Emitir Documento Fiscal
                 </button>

@@ -1395,7 +1395,7 @@ export default function HubSpotProCrmApp() {
                   <span className="font-semibold text-white text-sm tracking-tight">
                     STI-hub
                   </span>
-                  <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-semibold uppercase tracking-wider bg-[#ff7a59] text-white">
+                  <span className="px-1.5 py-0.5 rounded-[3px] text-[9px] font-semibold uppercase tracking-wider bg-[#1e3a6e] text-white">
                     CRM &amp; ERP
                   </span>
                 </div>
@@ -1550,7 +1550,7 @@ export default function HubSpotProCrmApp() {
                   }}
                   className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
-                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <Database className="w-3.5 h-3.5 text-[#1e3a6e]" />
                   <span>Saúde CRM:</span>
                   <strong>{healthSummary?.globalHealthScore ?? 0}%</strong>
                 </button>
@@ -1582,7 +1582,7 @@ export default function HubSpotProCrmApp() {
                   }}
                   className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
-                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <Database className="w-3.5 h-3.5 text-[#1e3a6e]" />
                   <span>Saúde ERP:</span>
                   <strong>{healthSummary?.globalHealthScore ?? 96}%</strong>
                 </button>
@@ -1614,7 +1614,7 @@ export default function HubSpotProCrmApp() {
                   }}
                   className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-[11px] font-semibold text-white border border-[#516f90]/60 transition cursor-pointer"
                 >
-                  <Database className="w-3.5 h-3.5 text-[#ff7a59]" />
+                  <Database className="w-3.5 h-3.5 text-[#1e3a6e]" />
                   <span>Saúde Chamados:</span>
                   <strong>{healthSummary?.globalHealthScore ?? 98}%</strong>
                 </button>
@@ -1627,7 +1627,7 @@ export default function HubSpotProCrmApp() {
               title="Sincronizar dados com o Servidor & GestãoClick"
               className="p-1.5 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] border border-[#516f90]/60 text-white transition cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#ff7a59]" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#1e3a6e]" : ""}`} />
             </button>
 
             <div className="relative">
@@ -1637,7 +1637,7 @@ export default function HubSpotProCrmApp() {
                 title="Abrir Menu da Conta, Configurar 2FA (Google Authenticator / E-mail OTP) e IAM"
                 className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] bg-[#33475b]/80 hover:bg-[#425b76] border border-[#516f90]/70 transition cursor-pointer"
               >
-                <div className="w-7 h-7 rounded-full bg-[#ff7a59] text-white font-semibold text-[11px] flex items-center justify-center">
+                <div className="w-7 h-7 rounded-full bg-[#1e3a6e] text-white font-semibold text-[11px] flex items-center justify-center">
                   {(activeRbacUser?.name || "Marcéllo Mira")
                     .split(" ")
                     .slice(0, 2)
@@ -1668,7 +1668,7 @@ export default function HubSpotProCrmApp() {
                       {userEnabledModules.map((m) => (
                         <span
                           key={m}
-                          className="px-1.5 py-0.5 rounded bg-[#ff7a59] text-white text-[9px] font-semibold"
+                          className="px-1.5 py-0.5 rounded bg-[#1e3a6e] text-white text-[9px] font-semibold"
                         >
                           {m}
                         </span>
@@ -1688,7 +1688,7 @@ export default function HubSpotProCrmApp() {
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-[#0d2b4e] flex items-center justify-between cursor-pointer"
                     >
                       <span>Minha Conta &amp; Parear 2FA (QR Code)</span>
-                      <Lock className="w-3.5 h-3.5 text-[#ff7a59]" />
+                      <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" />
                     </button>
                     <button
                       type="button"
@@ -1771,13 +1771,13 @@ export default function HubSpotProCrmApp() {
                       : "text-[#cbd6e2] hover:bg-[#33475b] hover:text-white"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? "text-[#ff7a59]" : "text-[#99acc2]"}`} />
+                  <Icon className={`w-4 h-4 ${isActive ? "text-[#1e3a6e]" : "text-[#99acc2]"}`} />
                   <span>{item.shortLabel}</span>
                   {item.badge !== undefined && (
                     <span
                       className={`px-1.5 py-0.2 rounded-[3px] text-[10px] font-semibold ${
                         isActive
-                          ? "bg-[#ff7a59] text-white"
+                          ? "bg-[#1e3a6e] text-white"
                           : "bg-[#33475b] text-[#cbd6e2]"
                       }`}
                     >
@@ -1785,7 +1785,7 @@ export default function HubSpotProCrmApp() {
                     </span>
                   )}
                   {isActive && (
-                    <span className="absolute bottom-0 left-2 right-2 h-[3px] bg-[#ff7a59] rounded-t" />
+                    <span className="absolute bottom-0 left-2 right-2 h-[3px] bg-[#1e3a6e] rounded-t" />
                   )}
                 </button>
               );
@@ -1828,7 +1828,7 @@ export default function HubSpotProCrmApp() {
                 {activeSectionLabel}
               </span>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
-              <span className="font-semibold text-[#ff7a59] text-xs">
+              <span className="font-semibold text-[#1e3a6e] text-xs">
                 {activeSubModuleBreadcrumbLabel}
               </span>
             </div>
@@ -2000,7 +2000,7 @@ export default function HubSpotProCrmApp() {
                       setActiveModule("DEALS_KANBAN");
                       setOpenNewDealTrigger((n) => n + 1);
                     }}
-                    className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                   >
                     + Novo Negócio (Deal)
                   </button>
@@ -2018,7 +2018,7 @@ export default function HubSpotProCrmApp() {
                     setAutoOpenNewProposalTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                 >
                   + Novo Orçamento / Proposta PDF
                 </button>
@@ -2033,7 +2033,7 @@ export default function HubSpotProCrmApp() {
                   setOpenNewTicketTrigger((n) => n + 1);
                   setActiveModule("SERVICE_DESK");
                 }}
-                className="px-3.5 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
               >
                 + Novo Chamado NOC
               </button>
@@ -2065,7 +2065,7 @@ export default function HubSpotProCrmApp() {
         <main className="flex-1 p-4 sm:p-6 max-w-[1680px] w-full mx-auto">
           {!homeScreenResolved && (
             <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin text-[#ff7a59]" />
+              <RefreshCw className="w-6 h-6 animate-spin text-[#1e3a6e]" />
               <span className="text-sm font-semibold text-[#33475b]">Carregando sua tela inicial...</span>
             </div>
           )}
@@ -2124,7 +2124,7 @@ export default function HubSpotProCrmApp() {
                   <button
                     type="button"
                     onClick={() => setCrmMobileDrawerOpen(true)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#ff7a59] text-white text-xs font-semibold shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1e3a6e] text-white text-xs font-semibold shadow-xs cursor-pointer"
                   >
                     <Menu className="w-4 h-4" />
                     <span>Menu CRM</span>
@@ -2309,7 +2309,7 @@ export default function HubSpotProCrmApp() {
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-[#0d2b4e] cursor-pointer shadow-2xs"
                       title="Expandir menu lateral do CRM"
                     >
-                      <Menu className="w-3.5 h-3.5 text-[#ff7a59]" />
+                      <Menu className="w-3.5 h-3.5 text-[#1e3a6e]" />
                       <span>Expandir Menu CRM</span>
                     </button>
                   </div>

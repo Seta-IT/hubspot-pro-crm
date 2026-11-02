@@ -560,7 +560,7 @@ export default function StiHubLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>
@@ -609,7 +609,7 @@ export default function StiHubLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-sm font-semibold shadow-md flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
               >
                 <Lock className="w-4 h-4" />
                 <span>{loading ? 'Entrando...' : 'Login'}</span>
@@ -643,7 +643,7 @@ export default function StiHubLoginPage() {
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <Smartphone className="w-4 h-4 shrink-0 text-[#ff7a59]" />
+                  <Smartphone className="w-4 h-4 shrink-0 text-[#1e3a6e]" />
                   <div>
                     <div className="text-xs font-semibold">Aplicativo Autenticador</div>
                     <div className="text-[10px] opacity-80">Google Authenticator</div>

@@ -942,7 +942,7 @@ export default function StiHubAdminRbacPanel({
       <div data-testid="admin-central-banner" className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-semibold uppercase tracking-wider">
+            <span className="px-2.5 py-0.5 rounded bg-[#1e3a6e] text-white text-[10px] font-semibold uppercase tracking-wider">
               GOVERNANÇA CORPORATIVA STI-HUB • SEÇÕES 4 &amp; 5 DO ROADMAP
             </span>
             <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-semibold">
@@ -962,12 +962,12 @@ export default function StiHubAdminRbacPanel({
             href="/login"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white text-[#0d2b4e] hover:bg-slate-100 text-xs font-semibold shadow-xs"
           >
-            <Lock className="w-3.5 h-3.5 text-[#ff7a59]" /> Abrir Tela de Login + MFA (/login)
+            <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" /> Abrir Tela de Login + MFA (/login)
           </a>
           <button
             type="button"
             onClick={() => setShowNewUserModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> + Novo Usuário Seta Telecom
           </button>
@@ -1059,15 +1059,9 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                CONFIGURAÇÕES &gt; USUÁRIOS • DIRETÓRIO DE CONTAS SETA TELECOM
-              </span>
               <h3 className="text-base font-semibold text-slate-900">
                 Usuários ({filteredUsers.length} de {users.length})
               </h3>
-              <p className="text-xs text-slate-500">
-                Clique em um usuário abaixo para abrir o cadastro completo, pareamento 2FA Google Authenticator, tipos de conta e permissões de todos os sistemas.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1099,7 +1093,7 @@ export default function StiHubAdminRbacPanel({
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> + Novo Usuário
               </button>
@@ -1318,15 +1312,14 @@ export default function StiHubAdminRbacPanel({
           {/* Left: Mailer Config & Validated Test Dispatch */}
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
-                STI-HUB MAILER • INFRAESTRUTURA DE ENVIO VALIDADO
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Configuração SMTP / Resend Relay &amp; Disparo de Teste
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Envio de e-mails</h3>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+            <details data-testid="smtp-detalhes" className="rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <summary className="px-3.5 py-2.5 font-semibold text-slate-700 cursor-pointer select-none">
+                Dados técnicos de envio (SMTP, remetente e DKIM)
+              </summary>
+            <div className="px-3.5 pb-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Provedor Ativo:</span>
                 <strong className="text-slate-900">
@@ -1353,14 +1346,12 @@ export default function StiHubAdminRbacPanel({
                 </span>
               </div>
             </div>
+            </details>
 
             <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3 text-xs">
               <div className="font-semibold text-[#0d2b4e]">
-                Testar Disparo de E-mail Transacional Agora
+                Enviar e-mail de teste
               </div>
-              <p className="text-[11px] text-slate-600">
-                Envia um e-mail de validação com o link público de Proposta PDF A4 (`https://sti-hub.vercel.app/proposta/prop-gc-4695`) e registra protocolo na Timeline.
-              </p>
               <div className="flex gap-2">
                 <input
                   type="email"
@@ -1372,7 +1363,7 @@ export default function StiHubAdminRbacPanel({
                   type="button"
                   onClick={handleSendTestEmail}
                   disabled={sendingTestEmail}
-                  className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer shrink-0"
                 >
                   {sendingTestEmail ? 'Enviando...' : 'Disparar Teste'}
                 </button>
@@ -1486,7 +1477,7 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                 SEÇÃO 3 DO ROADMAP • CUSTOM PROPERTIES HUBSPOT PORTAL #4369067
               </span>
               <h3 className="text-base font-semibold text-slate-900">
@@ -1631,7 +1622,7 @@ export default function StiHubAdminRbacPanel({
               href="/login"
               className="w-full py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-semibold flex items-center justify-center gap-2"
             >
-              <Lock className="w-4 h-4 text-[#ff7a59]" /> Testar Fluxo de Login + MFA 2FA Agora
+              <Lock className="w-4 h-4 text-[#1e3a6e]" /> Testar Fluxo de Login + MFA 2FA Agora
             </a>
           </div>
         </div>
@@ -1644,12 +1635,7 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                CONFIGURAÇÕES &gt; DADOS DA EMPRESA EMITENTE (CFG_EMPRESA / LOJA MATRIZ #118887)
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Ficha Fiscal e Bancária da Seta Telecom LTDA
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Dados da empresa</h3>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1669,7 +1655,7 @@ export default function StiHubAdminRbacPanel({
                     'Dados fiscais e bancários da Seta Telecom salvos com sucesso!'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Dados da Empresa'}
               </button>
@@ -1738,8 +1724,8 @@ export default function StiHubAdminRbacPanel({
                 }
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
               >
-                <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
-                <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
+                <option value="LUCRO_PRESUMIDO">Lucro Presumido</option>
+                <option value="LUCRO_REAL">Lucro Real</option>
                 <option value="SIMPLES_NACIONAL">Simples Nacional</option>
               </select>
             </div>
@@ -1904,7 +1890,7 @@ export default function StiHubAdminRbacPanel({
                     'Séries fiscais e parâmetros gerais salvos.'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Parâmetros Fiscais'}
               </button>
@@ -2145,12 +2131,7 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
-                HOMOLOGAÇÃO OFICIAL DA MIGRAÇÃO GESTÃOCLICK (#118887) &rarr; STI-HUB
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Checklist Verificável dos 11 Módulos Importados (6.414 Registros Reais)
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Homologação da migração</h3>
             </div>
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
@@ -2186,21 +2167,21 @@ export default function StiHubAdminRbacPanel({
                       const cls =
                         st === 'PASSOU'
                           ? active
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-white text-emerald-700 border border-emerald-300'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                            : 'bg-white text-slate-500 border border-slate-200'
                           : st === 'FALHOU'
                             ? active
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-white text-rose-700 border border-rose-300'
+                              ? 'bg-rose-50 text-rose-800 border border-rose-300'
+                              : 'bg-white text-slate-500 border border-slate-200'
                             : active
-                              ? 'bg-amber-500 text-white'
-                              : 'bg-white text-amber-800 border border-amber-300';
+                              ? 'bg-amber-50 text-amber-800 border border-amber-300'
+                              : 'bg-white text-slate-500 border border-slate-200';
                       return (
                         <button
                           key={st}
                           type="button"
                           onClick={() => handleUpdateChecklistItem(item.moduleNumber, st, item.auditorNotes)}
-                          className={`px-2.5 py-1 rounded font-semibold text-[11px] cursor-pointer transition ${cls}`}
+                          className={`px-2.5 py-1 rounded-full font-semibold text-[11px] cursor-pointer transition ${cls}`}
                         >
                           {st === 'PASSOU' ? '[x] PASSOU' : st === 'FALHOU' ? '[ ] FALHOU' : 'EM CONFERÊNCIA'}
                         </button>
@@ -2381,7 +2362,7 @@ export default function StiHubAdminRbacPanel({
                     ← Voltar para Lista de Usuários
                   </button>
                   <div>
-                    <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                    <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                       CONFIGURAÇÕES &gt; USUÁRIOS &gt; TELA DE CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES (TODOS OS SISTEMAS)
                     </span>
                     <h3 className="text-base font-semibold text-slate-900">
@@ -3132,7 +3113,7 @@ export default function StiHubAdminRbacPanel({
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-semibold cursor-pointer"
+                      className="px-5 py-2 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                     >
                       Salvar Políticas IAM do Usuário
                     </button>
@@ -3150,7 +3131,7 @@ export default function StiHubAdminRbacPanel({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                   IAM SETA TELECOM • NOVO COLABORADOR COM ESCOPO MODULAR &amp; 2FA
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
@@ -3569,7 +3550,7 @@ export default function StiHubAdminRbacPanel({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                 >
                   Salvar Usuário &amp; Gerar Convite
                 </button>
@@ -3640,7 +3621,7 @@ export default function StiHubAdminRbacPanel({
               </button>
               <a
                 href={inviteModalData.inviteUrl}
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold inline-flex items-center gap-1.5"
               >
                 <ExternalLink className="w-3.5 h-3.5" /> Abrir Tela do Convite Agora
               </a>

@@ -77,7 +77,7 @@ import {
   sanitizeErpGeneralSettingsForSave,
 } from '../lib/erp-general-settings';
 
-const NAVY = '#1F2B68';
+const NAVY = '#1e3a6e'; // cor de destaque única do sistema (decisão do Marcéllo 02/11)
 
 type IconType = React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 

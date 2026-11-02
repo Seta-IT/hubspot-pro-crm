@@ -177,7 +177,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'FIS_PRODUTOS', label: 'Notas de produtos' },
       { id: 'FIS_SERVICOS', label: 'Notas de serviços' },
       { id: 'FIS_CONSUMIDOR', label: 'Notas do consumidor' },
-      { id: 'FIS_IMPORTACAO', label: 'NF-e Importação (Sebrae 4.0)' },
+      { id: 'FIS_IMPORTACAO', label: 'NF-e de importação' },
       { id: 'FIS_COMPRAS', label: 'Notas de compras' },
       { id: 'FIS_CONFIGURACOES', label: 'Configurações fiscais' },
       { id: 'FIS_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
@@ -221,7 +221,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'CFG_CERTIFICADO', label: 'Certificado digital' },
       { id: 'CFG_EMAILS', label: 'Modelos de e-mails' },
       { id: 'CFG_AVISOS', label: 'Avisos por e-mail' },
-      { id: 'CFG_CHECKLIST', label: 'Homologação (11 Módulos)' },
+      { id: 'CFG_CHECKLIST', label: 'Homologação' },
       { id: 'CFG_LOGS', label: 'Sincronização & Logs' },
     ],
   },
@@ -232,9 +232,9 @@ interface GestaoClickSidebarProps {
   activeSubId: string;
   onSelect: (section: GestaoClickMenuSection, subId?: string) => void;
   onNewProposal: () => void;
-  companyCnpj: string;
-  taxRegime: string;
-  moduleCounts?: Partial<Record<GestaoClickMenuSection, number>>;
+  /** Mantidos por compatibilidade; o rodapé com CNPJ e regime saiu na limpeza visual (02/11). */
+  companyCnpj?: string;
+  taxRegime?: string;
   onToggleCollapse?: () => void;
   mobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
@@ -246,9 +246,6 @@ export default function GestaoClickSidebar({
   activeSection,
   activeSubId,
   onSelect,
-  companyCnpj,
-  taxRegime,
-  moduleCounts = {},
   onToggleCollapse,
   mobileDrawerOpen = false,
   onCloseMobileDrawer,
@@ -298,7 +295,7 @@ export default function GestaoClickSidebar({
             }}
             className="text-left min-w-0 cursor-pointer group"
           >
-            <span className="text-[10px] font-black uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#ff7a59] transition block truncate">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#162d57] transition block truncate">
               MÓDULO ERP • GESTÃOCLICK
             </span>
             <span className="text-[10px] text-slate-500 font-semibold block truncate">
@@ -336,7 +333,7 @@ export default function GestaoClickSidebar({
             const groups = menuTree.filter((g) => g.category === blockName);
             return (
               <div key={blockName} className="space-y-0.5">
-                <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
+                <div className="px-2.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-slate-400">
                   {blockName}
                 </div>
                 {groups.map((group) => {
@@ -344,7 +341,6 @@ export default function GestaoClickSidebar({
                   const hasSubs = Boolean(group.subItems && group.subItems.length > 0);
                   const isOpen = Boolean(expanded[group.id]);
                   const isGroupActive = activeSection === group.id;
-                  const countVal = moduleCounts[group.id];
 
                   return (
                     <div key={group.id} className="rounded-md">
@@ -353,33 +349,22 @@ export default function GestaoClickSidebar({
                         onClick={() => handleGroupClick(group)}
                         className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                           isGroupActive
-                            ? 'bg-[#1e3a6e] text-white font-extrabold shadow-xs'
-                            : 'text-[#1e3a6e] hover:bg-white font-bold'
+                            ? 'bg-white text-[#1e3a6e] font-semibold border border-slate-200'
+                            : 'text-slate-700 hover:bg-white font-semibold border border-transparent'
                         }`}
                       >
                         <span className="flex items-center gap-2 truncate">
                           <Icon
                             className={`w-4 h-4 shrink-0 ${
-                              isGroupActive ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                              isGroupActive ? 'text-[#1e3a6e]' : 'text-slate-500'
                             }`}
                           />
                           <span className="truncate">{group.label}</span>
                         </span>
 
                         <span className="flex items-center gap-1 shrink-0">
-                          {typeof countVal === 'number' && (
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                isGroupActive
-                                  ? 'bg-white/20 text-white'
-                                  : 'bg-slate-200/80 text-slate-600'
-                              }`}
-                            >
-                              {countVal}
-                            </span>
-                          )}
                           {hasSubs && (
-                            <span className={isGroupActive ? 'text-white' : 'text-slate-400'}>
+                            <span className={isGroupActive ? 'text-[#1e3a6e]' : 'text-slate-400'}>
                               {isOpen ? (
                                 <ChevronDown className="w-3.5 h-3.5" />
                               ) : (
@@ -407,7 +392,7 @@ export default function GestaoClickSidebar({
                                 }}
                                 className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                                   isSubActive
-                                    ? 'bg-blue-100 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
+                                    ? 'bg-slate-100 text-[#1e3a6e] font-semibold'
                                     : 'text-slate-600 hover:text-[#1e3a6e] hover:bg-white font-semibold'
                                 }`}
                               >
@@ -427,12 +412,6 @@ export default function GestaoClickSidebar({
             );
           })}
         </nav>
-      </div>
-
-      <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-        <div className="font-bold text-[#0d2b4e]">ERP • SETA TELECOM LTDA</div>
-        <div>CNPJ {companyCnpj}</div>
-        <div>Regime: {taxRegime}</div>
       </div>
     </>
   );
