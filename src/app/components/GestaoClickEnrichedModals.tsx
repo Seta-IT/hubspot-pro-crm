@@ -388,7 +388,7 @@ export function GestaoClickCustomerEditModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
+      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
         {/* HEADER GESTÃOCLICK */}
         <div className="bg-white px-6 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -445,14 +445,11 @@ export function GestaoClickCustomerEditModal({
 
             {/* SERASA EXPERIAN REPORT PANEL */}
             {showSerasaPanel && serasaReport && (
-              <div className="p-4 rounded-lg bg-gradient-to-r from-[#1e3a6e] to-indigo-950 text-white border border-indigo-400/40 shadow-md space-y-3">
+              <div className="p-4 rounded-md bg-white text-slate-900 border border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-emerald-300" />
+                    <ShieldCheck className="w-5 h-5 text-[#1e3a6e]" />
                     <div>
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300 block">
-                        Relatório Oficial Serasa Experian &amp; Receita Federal • Protocolo {serasaReport.protocolNumber}
-                      </span>
                       <h4 className="text-sm font-semibold">
                         {legalName} — CNPJ {cnpj}
                       </h4>
@@ -461,43 +458,43 @@ export function GestaoClickCustomerEditModal({
                   <button
                     type="button"
                     onClick={() => setShowSerasaPanel(false)}
-                    className="text-slate-300 hover:text-white text-xs font-semibold cursor-pointer"
+                    className="text-slate-500 hover:text-slate-800 text-xs font-semibold cursor-pointer"
                   >
                     Fechar [X]
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                  <div className="bg-white/10 p-2.5 rounded border border-white/15">
-                    <span className="text-[10px] text-slate-300 block">Serasa Score PJ</span>
-                    <strong className="text-lg font-semibold text-emerald-300">
+                  <div className="bg-slate-50 p-2.5 rounded border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block">Serasa Score PJ</span>
+                    <strong className="text-lg font-semibold text-emerald-700">
                       {serasaReport.score} / 1000
                     </strong>
-                    <span className="text-[10px] text-emerald-200 block">{serasaReport.riskLevel}</span>
+                    <span className="text-[10px] text-emerald-700 block">{serasaReport.riskLevel}</span>
                   </div>
-                  <div className="bg-white/10 p-2.5 rounded border border-white/15">
-                    <span className="text-[10px] text-slate-300 block">Protestos / PEFIN</span>
-                    <strong className="text-sm font-semibold text-white">
+                  <div className="bg-slate-50 p-2.5 rounded border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block">Protestos / PEFIN</span>
+                    <strong className="text-sm font-semibold text-slate-900">
                       {serasaReport.protestosCount} Protestos
                     </strong>
-                    <span className="text-[10px] text-emerald-300 block">{serasaReport.status}</span>
+                    <span className="text-[10px] text-emerald-700 block">{serasaReport.status}</span>
                   </div>
-                  <div className="bg-white/10 p-2.5 rounded border border-white/15">
-                    <span className="text-[10px] text-slate-300 block">Abertura / Capital RFB</span>
-                    <strong className="text-sm font-semibold text-white">
+                  <div className="bg-slate-50 p-2.5 rounded border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block">Abertura / Capital RFB</span>
+                    <strong className="text-sm font-semibold text-slate-900">
                       {serasaReport.openingDate || 'Ativa'}
                     </strong>
-                    <span className="text-[10px] text-slate-300 block">
+                    <span className="text-[10px] text-slate-500 block">
                       Capital: {formatBRL(serasaReport.capitalSocialBrl || 500000)}
                     </span>
                   </div>
-                  <div className="bg-white/10 p-2.5 rounded border border-white/15 sm:col-span-2 flex items-center justify-between gap-2">
+                  <div className="bg-slate-50 p-2.5 rounded border border-slate-200 sm:col-span-2 flex items-center justify-between gap-2">
                     <div>
-                      <span className="text-[10px] text-slate-300 block">Limite de Crédito Sugerido</span>
-                      <strong className="text-base font-semibold text-amber-300">
+                      <span className="text-[10px] text-slate-500 block">Limite de Crédito Sugerido</span>
+                      <strong className="text-base font-semibold text-slate-900">
                         {formatBRL(serasaReport.suggestedCreditLimitBrl)}
                       </strong>
-                      <span className="text-[10px] text-slate-200 block">
+                      <span className="text-[10px] text-slate-500 block">
                         CNAE: {serasaReport.cnaeMain || 'Tecnologia & Telecom'}
                       </span>
                     </div>
@@ -510,7 +507,7 @@ export function GestaoClickCustomerEditModal({
                           `Limite de crédito de ${formatBRL(serasaReport.suggestedCreditLimitBrl)} aplicado ao cadastro!`
                         );
                       }}
-                      className="px-3 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-semibold cursor-pointer shrink-0"
+                      className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-semibold cursor-pointer shrink-0"
                     >
                       Aplicar Limite
                     </button>

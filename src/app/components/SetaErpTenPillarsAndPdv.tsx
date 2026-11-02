@@ -834,9 +834,6 @@ const SAMPLE_SEFAZ_NFE_XML = `<?xml version="1.0" encoding="UTF-8"?>
 export function SetaErpStockAndPurchasesSubbar({
   activeSubId,
   onSelectSubId,
-  catalogCount,
-  purchasesCount,
-  suppliers,
   onCreatePurchaseOrder,
   onCreateStockTransfer,
   onRefresh,
@@ -869,13 +866,16 @@ export function SetaErpStockAndPurchasesSubbar({
     serialCount: number;
   } | null>(null);
 
-  const tabs = [
-    { id: 'EST_MOVIMENTACOES', label: `Movimentações & S/N (${catalogCount})` },
-    { id: 'EST_AJUSTES', label: 'Ajustes de Inventário' },
-    { id: 'EST_TRANSFERENCIAS', label: 'Transferências Matriz / Clientes' },
-    { id: 'EST_COTACOES', label: `Cotações (${suppliers.length} Fornecedores)` },
-    { id: 'EST_COMPRAS', label: `Ordens de Compra / NF-e Entrada (${purchasesCount})` },
-  ];
+  // Navegação entre as subtelas de Estoque só pela sidebar (sem barra de abas com contadores).
+  const subTitles: Record<string, string> = {
+    EST_MOVIMENTACOES: 'Movimentações',
+    EST_AJUSTES: 'Ajustes',
+    EST_TRANSFERENCIAS: 'Transferências',
+    EST_COTACOES: 'Cotações',
+    EST_COMPRAS: 'Compras',
+    EST_AUXILIARES: 'Opções auxiliares',
+  };
+  const subTitle = subTitles[activeSubId] || 'Estoque';
 
   const handleImportNfeXml = async () => {
     if (!xmlContent.trim()) return;
@@ -919,25 +919,7 @@ export function SetaErpStockAndPurchasesSubbar({
   return (
     <div className="bg-white rounded-md border border-slate-200 p-3.5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {tabs.map((t) => {
-            const on = activeSubId === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onSelectSubId(t.id)}
-                className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition ${
-                  on
-                    ? 'bg-[#1e3a6e] text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
+        <h2 className="text-base font-semibold text-slate-900">{subTitle}</h2>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -946,9 +928,9 @@ export function SetaErpStockAndPurchasesSubbar({
               setImportedResult(null);
               setShowXmlModal(true);
             }}
-            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer inline-flex items-center gap-1.5"
           >
-            <FileText className="w-3.5 h-3.5" /> Importar XML NF-e (SEFAZ)
+            <FileText className="w-3.5 h-3.5 text-[#1e3a6e]" /> Importar XML NF-e (SEFAZ)
           </button>
           <button
             type="button"
@@ -962,7 +944,7 @@ export function SetaErpStockAndPurchasesSubbar({
             onClick={onCreatePurchaseOrder}
             className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
           >
-            <Truck className="w-3.5 h-3.5 text-emerald-300" /> + Nova Cotação / Ordem de Compra
+            <Truck className="w-3.5 h-3.5" /> + Nova Cotação / Ordem de Compra
           </button>
         </div>
       </div>
@@ -972,9 +954,6 @@ export function SetaErpStockAndPurchasesSubbar({
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-semibold uppercase text-emerald-300 block">
-                  Pilar 4 • Escrituração Automática SEFAZ Modelo 55 (Seta Telecom #118887)
-                </span>
                 <h3 className="text-sm font-semibold">
                   Importador de Arquivo XML de NF-e de Fornecedor (Compras &amp; Estoque S/N)
                 </h3>
