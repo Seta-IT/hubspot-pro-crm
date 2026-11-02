@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
   Send,
@@ -120,9 +119,9 @@ export function HubSpotCardEmailComposer({
   const [followUpPriority, setFollowUpPriority] = useState<CrmTaskPriority>('HIGH');
 
   // New Template / New Snippet inline creator
-  // Criar modelo (POST /api/email-templates) só para admin com 2FA; o backend fecha a rota no pacote O.
-  const templateAdminAccess = useErpConfigAccess(null);
-  const canManageEmailTemplates = templateAdminAccess?.isAdmin === true;
+  // Criar modelo (POST /api/email-templates): mesma regra do servidor (pacote O: 2FA + Marketing
+  // EDIT/FULL ou admin), lida do canManage que o GET /api/email-templates devolve. false até carregar.
+  const [canManageEmailTemplates, setCanManageEmailTemplates] = useState(false);
   const [showNewTemplateForm, setShowNewTemplateForm] = useState(false);
   const [newTplName, setNewTplName] = useState('');
   const [newTplCategory, setNewTplCategory] = useState<CrmEmailTemplateCategory>('FOLLOW_UP');
@@ -146,6 +145,7 @@ export function HubSpotCardEmailComposer({
       if (tplRes.ok) {
         const j = await tplRes.json();
         setTemplates(j.data || []);
+        setCanManageEmailTemplates(j?.canManage === true);
       }
       if (snipRes.ok) {
         const j = await snipRes.json();

@@ -90,9 +90,10 @@ describe('Outros caminhos para a Central e modelos de e-mail', () => {
     assert.match(page, /onOpenAdminIam=\{canOpenAdminCentralUi \?/);
     assert.match(page, /access=\{adminCentralAccess\}/);
   });
-  it('compositor de e-mail: criar modelo (/api/email-templates POST) só para admin', () => {
+  it('compositor de e-mail: criar modelo segue o canManage do servidor (pacote O: Marketing EDIT/FULL ou admin)', () => {
     const tsx = src('src/app/components/HubSpotEmailAndTasksPanel.tsx');
-    assert.match(tsx, /const canManageEmailTemplates = templateAdminAccess\?\.isAdmin === true;/);
+    assert.match(tsx, /const \[canManageEmailTemplates, setCanManageEmailTemplates\] = useState\(false\);/);
+    assert.match(tsx, /setCanManageEmailTemplates\(j\?\.canManage === true\);/);
     assert.match(tsx, /\{canManageEmailTemplates && \(\s*<button[\s\S]*?Salvar atual como Template/);
     assert.match(tsx, /\{canManageEmailTemplates && showNewTemplateForm && \(/);
     assert.match(tsx, /if \(!canManageEmailTemplates\) return;/);
