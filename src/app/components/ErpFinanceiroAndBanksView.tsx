@@ -2,14 +2,11 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownCircle,
-  ArrowUpCircle,
-  BarChart3,
   Building2,
   Copy,
   FileSpreadsheet,
-  Landmark,
   Mail,
+  MoreVertical,
   Pencil,
   Plus,
   Printer,
@@ -18,8 +15,8 @@ import {
   Trash2,
   Upload,
   CheckCircle2,
-  Receipt,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type {
   ErpBankAccount,
   ErpDashboardSummary,
@@ -51,14 +48,8 @@ export interface ErpFinanceiroAndBanksViewProps {
   setShowNewInvoiceModal: (show: boolean) => void;
 }
 
-const SUB_TABS = [
-  { id: 'FIN_PAGAR', label: 'Contas a pagar', icon: ArrowUpCircle },
-  { id: 'FIN_RECEBER', label: 'Contas a receber', icon: ArrowDownCircle },
-  { id: 'FIN_FLUXO', label: 'Fluxo de caixa e Extrato', icon: BarChart3 },
-  { id: 'FIN_DRE', label: 'DRE gerencial', icon: FileSpreadsheet },
-  { id: 'FIN_BOLETOS', label: 'Boletos bancários e PIX', icon: Receipt },
-  { id: 'FIN_AUXILIARES', label: 'Contas bancárias e Conciliação OFX', icon: Landmark },
-] as const;
+// Navegação entre as subtelas fica só na sidebar (GestaoClickSidebar).
+const SUB_IDS = ['FIN_PAGAR', 'FIN_RECEBER', 'FIN_FLUXO', 'FIN_DRE', 'FIN_BOLETOS', 'FIN_AUXILIARES'];
 
 const BANK_FILTERS = ['TODAS', 'Banco Inter', 'Banco Itaú', 'Conta Integrada'];
 
@@ -104,7 +95,6 @@ function entryBank(e: ErpFinancialEntry): string {
 export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksViewProps) {
   const {
     activeSubId,
-    onSelectSubId,
     bankAccounts,
     financialEntries,
     invoices,
@@ -120,7 +110,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
     setShowNewInvoiceModal,
   } = props;
 
-  const sub = SUB_TABS.some((t) => t.id === activeSubId) ? activeSubId : 'FIN_FLUXO';
+  const sub = SUB_IDS.includes(activeSubId) ? activeSubId : 'FIN_FLUXO';
   const money = (v: number) => (hideBalances ? 'R$ •••••' : formatBRL(v));
 
   const [typeFilter, setTypeFilter] = useState<'AUTO' | 'TODOS'>('AUTO');
@@ -316,48 +306,67 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   };
   const companyCnpj = (name: string) => companies.find((c) => c.name === name)?.cnpj || '';
 
+
   // ---------- UI helpers ----------
-  const Btn = ({ onClick, className, icon: Icon, children }: any) => (
-    <button type="button" onClick={onClick} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold text-white cursor-pointer ${className}`}>
-      {Icon && <Icon size={12} />} {children}
+  const Btn = ({ onClick, variant = 'outline', icon: Icon, children }: any) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        variant === 'primary'
+          ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-[#1e3a6e] hover:bg-[#162d56] cursor-pointer'
+          : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 cursor-pointer'
+      }
+    >
+      {Icon && <Icon size={13} />} {children}
     </button>
   );
   const Kpi = ({ label, value, tone }: { label: string; value: string; tone: string }) => (
     <div className="bg-white rounded-md border border-slate-200 p-3">
-      <div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div>
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
       <div className={`text-base font-semibold ${tone}`}>{value}</div>
     </div>
   );
   const statusBadge = (s: string) =>
     s === 'PAGO' || s === 'PAGA'
-      ? 'bg-emerald-100 text-emerald-700'
+      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
       : s === 'ATRASADO' || s === 'VENCIDA'
-        ? 'bg-rose-100 text-rose-700'
-        : 'bg-amber-100 text-amber-700';
+        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+        : s === 'CANCELADA'
+          ? 'bg-slate-50 text-slate-600 border border-slate-200'
+          : 'bg-amber-50 text-amber-700 border border-amber-200';
+  const statusLabel = (s: string) =>
+    ({ PAGO: 'Pago', PAGA: 'Paga', ABERTO: 'Em aberto', ATRASADO: 'Atrasado', VENCIDA: 'Vencida', EMITIDA: 'Emitida', CANCELADA: 'Cancelada' } as Record<string, string>)[s] || s;
+  const Pill = ({ status }: { status: string }) => (
+    <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${statusBadge(status)}`}>{statusLabel(status)}</span>
+  );
+  const th = 'px-3 py-2 text-[11px] font-semibold text-slate-500';
+  const td = 'px-3 py-2';
 
   const renderEntryRow = (fin: ErpFinancialEntry) => (
-    <div key={fin.id} className="p-3 rounded border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs bg-white">
-      <div>
-        <div className="font-semibold text-slate-800">{fin.description}</div>
-        <div className="text-[11px] text-slate-500">
-          {fin.companyName} • {fin.costCenter} • {entryBank(fin)} • Venc: {fin.dueDate}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="text-right">
-          <div className={`font-semibold ${fin.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>
-            {fin.type === 'RECEBER' ? '+' : '-'}{money(fin.amount)}
-          </div>
-          <span className={`text-[10px] font-semibold px-1.5 rounded ${statusBadge(fin.status)}`}>{fin.status}</span>
-        </div>
-        {fin.status !== 'PAGO' && (
-          <Btn onClick={() => payEntry(fin)} className="bg-emerald-600" icon={CheckCircle2}>Liquidar / Dar Baixa</Btn>
-        )}
-        <Btn onClick={() => editEntry(fin)} className="bg-amber-500" icon={Pencil}>Editar</Btn>
-        <Btn onClick={() => emailEntry(fin)} className="bg-sky-600" icon={Mail}>Enviar Boleto / E-mail</Btn>
-        <Btn onClick={() => deleteEntry(fin)} className="bg-rose-600" icon={Trash2}>Excluir</Btn>
-      </div>
-    </div>
+    <tr key={fin.id} className="border-t border-slate-100 h-10 hover:bg-slate-50">
+      <td className={`${td} whitespace-nowrap text-slate-600`}>{fin.dueDate}</td>
+      <td className={td}>
+        <div className="text-slate-800">{fin.description}</div>
+        {fin.costCenter && <div className="text-[11px] text-slate-400">{fin.costCenter}</div>}
+      </td>
+      <td className={`${td} text-slate-700`}>{fin.companyName}</td>
+      <td className={`${td} whitespace-nowrap text-slate-600`}>{entryBank(fin)}</td>
+      <td className={`${td} text-right whitespace-nowrap font-semibold ${typeFilter === 'TODOS' ? (fin.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700') : 'text-slate-900'}`}>
+        {typeFilter === 'TODOS' ? (fin.type === 'RECEBER' ? '+' : '-') : ''}{money(fin.amount)}
+      </td>
+      <td className={td}><Pill status={fin.status} /></td>
+      <td className={`${td} text-right`}>
+        <RowMenu
+          items={[
+            ...(fin.status !== 'PAGO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
+            { label: 'Editar', icon: Pencil, onClick: () => editEntry(fin) },
+            { label: 'Enviar boleto por e-mail', icon: Mail, onClick: () => emailEntry(fin) },
+            { label: 'Excluir', icon: Trash2, onClick: () => deleteEntry(fin), danger: true },
+          ]}
+        />
+      </td>
+    </tr>
   );
 
   // ---------- sections ----------
@@ -366,32 +375,49 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-900">{isPagar ? 'Contas a Pagar' : 'Contas a Receber'}</h2>
-          <Btn onClick={() => newEntry(isPagar ? 'PAGAR' : 'RECEBER')} className="bg-[#ff7a59] py-1.5" icon={Plus}>Novo Lançamento</Btn>
+          <h2 className="text-lg font-semibold text-slate-900">{isPagar ? 'Contas a pagar' : 'Contas a receber'}</h2>
+          <Btn variant="primary" onClick={() => newEntry(isPagar ? 'PAGAR' : 'RECEBER')} icon={Plus}>Adicionar</Btn>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Kpi label="Total Previsto" value={money(kpis.total)} tone="text-slate-900" />
-          <Kpi label={isPagar ? 'Total Pago' : 'Total Liquidado'} value={money(kpis.pago)} tone="text-emerald-700" />
-          <Kpi label="Em Aberto" value={money(kpis.aberto)} tone="text-amber-600" />
-          <Kpi label="Em Atraso" value={money(kpis.atraso)} tone="text-rose-700" />
+          <Kpi label="Previsto" value={money(kpis.total)} tone="text-slate-900" />
+          <Kpi label={isPagar ? 'Pago' : 'Recebido'} value={money(kpis.pago)} tone="text-emerald-700" />
+          <Kpi label="Em aberto" value={money(kpis.aberto)} tone="text-amber-700" />
+          <Kpi label="Em atraso" value={money(kpis.atraso)} tone="text-rose-700" />
         </div>
-        <div className="flex flex-wrap gap-2 items-center bg-white p-3 rounded-md border border-slate-200 text-xs">
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)} className="border rounded px-2 py-1">
+        <div className="flex flex-wrap gap-2 items-center text-xs">
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar descrição, cliente/fornecedor ou centro de custo" className="border border-slate-300 rounded-md px-2.5 py-1.5 flex-1 min-w-[220px] bg-white" />
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)} className="border border-slate-300 rounded-md px-2 py-1.5 bg-white">
             <option value="AUTO">{isPagar ? 'Somente a pagar' : 'Somente a receber'}</option>
             <option value="TODOS">Todos os tipos</option>
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border rounded px-2 py-1">
-            {['TODOS', 'ABERTO', 'PAGO', 'ATRASADO'].map((s) => <option key={s}>{s}</option>)}
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+            {['TODOS', 'ABERTO', 'PAGO', 'ATRASADO'].map((s) => <option key={s} value={s}>{s === 'TODOS' ? 'Todas as situações' : statusLabel(s)}</option>)}
           </select>
-          <select value={bankFilter} onChange={(e) => setBankFilter(e.target.value)} className="border rounded px-2 py-1">
-            {BANK_FILTERS.map((b) => <option key={b}>{b}</option>)}
+          <select value={bankFilter} onChange={(e) => setBankFilter(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+            {BANK_FILTERS.map((b) => <option key={b} value={b}>{b === 'TODAS' ? 'Todas as contas' : b}</option>)}
           </select>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar descrição, cliente/fornecedor, centro de custo" className="border rounded px-2 py-1 flex-1 min-w-[220px]" />
-          <span className="text-slate-500">{listEntries.length} título(s)</span>
         </div>
-        <div className="space-y-2">
-          {listEntries.length === 0 && <div className="text-xs text-slate-500 p-3">Nenhum título encontrado com os filtros atuais.</div>}
-          {listEntries.map(renderEntryRow)}
+        <div className="bg-white rounded-md border border-slate-200 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50">
+              <tr className="text-left">
+                <th className={th}>Vencimento</th>
+                <th className={th}>Descrição</th>
+                <th className={th}>{isPagar ? 'Fornecedor' : 'Cliente'}</th>
+                <th className={th}>Conta</th>
+                <th className={`${th} text-right`}>Valor</th>
+                <th className={th}>Situação</th>
+                <th className={`${th} text-right w-10`} aria-label="Ações" />
+              </tr>
+            </thead>
+            <tbody>
+              {listEntries.length === 0 && (
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">Nenhum título encontrado com os filtros atuais.</td></tr>
+              )}
+              {listEntries.map(renderEntryRow)}
+            </tbody>
+          </table>
+          <div className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">{listEntries.length} registro(s)</div>
         </div>
       </div>
     );
@@ -403,24 +429,24 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
       .sort((a, b) => (b.paidAt || b.dueDate).localeCompare(a.paidAt || a.dueDate));
     return (
       <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-slate-900">Fluxo de caixa</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {bankAccounts.map((b) => (
             <button key={b.id} type="button" onClick={() => setFluxoBank(fluxoBank === b.name ? null : b.name)}
-              className={`text-left bg-white rounded-md border p-3 cursor-pointer ${fluxoBank === b.name ? 'border-[#1e3a6e] ring-2 ring-[#1e3a6e]/30' : 'border-slate-200'}`}>
-              <div className="flex items-center gap-1 text-[10px] font-semibold uppercase text-slate-500"><Building2 size={12} />{b.name}</div>
-              <div className="text-[10px] text-slate-400">{b.id}</div>
+              className={`text-left bg-white rounded-md border p-3 cursor-pointer ${fluxoBank === b.name ? 'border-[#1e3a6e] ring-1 ring-[#1e3a6e]' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center gap-1 text-[11px] font-medium text-slate-500"><Building2 size={12} />{b.name}</div>
               <div className={`text-base font-semibold ${b.balance < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{money(b.balance)}</div>
             </button>
           ))}
-          <div className="bg-[#1e3a6e] text-white rounded-md p-3">
-            <div className="text-[10px] font-semibold uppercase opacity-80">Saldo Consolidado</div>
-            <div className="text-base font-semibold">{money(consolidated)}</div>
+          <div className="bg-white rounded-md border border-slate-200 p-3">
+            <div className="text-[11px] font-medium text-slate-500">Saldo consolidado</div>
+            <div className={`text-base font-semibold ${consolidated < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{money(consolidated)}</div>
           </div>
         </div>
         <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-          <div className="flex flex-wrap justify-between gap-2 text-xs">
-            <span className="font-semibold text-slate-900">Evolução Semestral — Recebimentos x Pagamentos</span>
-            <span>Saldo do período: <b>{money(periodBalance)}</b></span>
+          <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-900">Recebimentos x pagamentos por mês</span>
+            <span>Saldo do período: <b className="text-slate-900">{money(periodBalance)}</b></span>
             <span>Melhor mês: <b className="text-emerald-700">{dashboardSummary?.cashFlowBestMonth || '-'}</b></span>
             <span>Pior mês: <b className="text-rose-700">{dashboardSummary?.cashFlowWorstMonth || '-'}</b></span>
           </div>
@@ -431,27 +457,28 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
                   <div className="w-3 bg-emerald-500 rounded-t" style={{ height: `${(m.recebimentos / maxBar) * 100}%` }} title={`Recebimentos ${formatBRL(m.recebimentos)}`} />
                   <div className="w-3 bg-rose-500 rounded-t" style={{ height: `${(m.pagamentos / maxBar) * 100}%` }} title={`Pagamentos ${formatBRL(m.pagamentos)}`} />
                 </div>
-                <div className="text-[10px] font-semibold text-slate-600">{m.month}</div>
-                <div className={`text-[10px] font-semibold ${m.saldo < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{money(m.saldo)}</div>
+                <div className="text-[11px] text-slate-600">{m.month}</div>
+                <div className={`text-[11px] font-semibold ${m.saldo < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{money(m.saldo)}</div>
               </div>
             ))}
           </div>
         </div>
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-2">
-          <div className="text-xs font-semibold text-slate-900">
-            Extrato de movimentações conciliadas {fluxoBank ? `— ${fluxoBank}` : '— todas as contas'} ({extrato.length})
+        <div className="bg-white rounded-md border border-slate-200 overflow-x-auto">
+          <div className="px-3 py-2 text-xs font-semibold text-slate-900">
+            Extrato {fluxoBank ? `— ${fluxoBank}` : '— todas as contas'}
           </div>
           <table className="w-full text-xs">
-            <thead><tr className="text-left text-slate-500"><th>Data</th><th>Descrição</th><th>Cliente / Fornecedor</th><th>Conta</th><th className="text-right">Valor</th></tr></thead>
+            <thead className="bg-slate-50"><tr className="text-left"><th className={th}>Data</th><th className={th}>Descrição</th><th className={th}>Cliente / Fornecedor</th><th className={th}>Conta</th><th className={`${th} text-right`}>Valor</th></tr></thead>
             <tbody>
               {extrato.map((e) => (
-                <tr key={e.id} className="border-t border-slate-100">
-                  <td>{(e.paidAt || e.dueDate).slice(0, 10)}</td><td>{e.description}</td><td>{e.companyName}</td><td>{entryBank(e)}</td>
-                  <td className={`text-right font-semibold ${e.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>{e.type === 'RECEBER' ? '+' : '-'}{money(e.amount)}</td>
+                <tr key={e.id} className="border-t border-slate-100 h-10">
+                  <td className={`${td} whitespace-nowrap text-slate-600`}>{(e.paidAt || e.dueDate).slice(0, 10)}</td><td className={td}>{e.description}</td><td className={td}>{e.companyName}</td><td className={td}>{entryBank(e)}</td>
+                  <td className={`${td} text-right whitespace-nowrap font-semibold ${e.type === 'RECEBER' ? 'text-emerald-700' : 'text-rose-700'}`}>{e.type === 'RECEBER' ? '+' : '-'}{money(e.amount)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <div className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">{extrato.length} registro(s)</div>
         </div>
       </div>
     );
@@ -460,57 +487,59 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const renderDre = () => {
     const d = dre;
     const rows: Array<[string, number, 'h' | 's' | 't']> = [
-      ['1. RECEITA OPERACIONAL BRUTA', d.bruta, 'h'],
-      ['(+) Receita de Locação de Bens Móveis (0% ISS — LC 116/03 & Súmula Vinculante 31 STF)', d.locacao, 's'],
-      ['(+) Receita de Serviços Técnicos TI / NOC & Assinaturas SCM (LC 116 Item 01.07 / NFCom Mod. 62)', d.servicos, 's'],
-      ['(+) Receita de Vendas de Equipamentos Telecom & PDV', d.vendas, 's'],
-      ['2. (-) DEDUÇÕES E IMPOSTOS SOBRE FATURAMENTO', -d.deducoes, 'h'],
-      ['(-) PIS Cumulativo (0,65%) e COFINS Cumulativo (3,00%)', -d.pisCofins, 's'],
-      [`(-) ISSQN sobre Serviços Técnicos (2,90%) — Isento 0% sobre Locação Pura (Economia Fiscal SV 31 STF: ${formatBRL(d.issEconomia)})`, -d.iss, 's'],
-      ['3. (=) RECEITA OPERACIONAL LÍQUIDA', d.liquida, 't'],
-      ['4. (-) CUSTOS OPERACIONAIS DIRETOS (CSP / CMV / Links & Manutenção de Parque)', -d.custos, 'h'],
-      [`5. (=) LUCRO BRUTO OPERACIONAL (Margem Bruta ${pct(d.lucroBruto, d.liquida)})`, d.lucroBruto, 't'],
-      ['6. (-) DESPESAS OPERACIONAIS POR CENTRO DE CUSTO', -d.despesas, 'h'],
-      ['(-) Despesas com Pessoal e Folha de Pagamento', -d.pessoal, 's'],
-      ['(-) Assistência Médica e Benefícios (Bradesco Saúde / Medseg)', -d.saude, 's'],
-      ['(-) Despesas Administrativas, Tributárias e Gerais', -d.adm, 's'],
-      [`7. (=) EBITDA / LAJIDA GERENCIAL (Margem EBITDA ${pct(d.ebitda, d.liquida)})`, d.ebitda, 't'],
-      ['8. (-) PROVISÃO IRPJ E CSLL (Lucro Presumido)', -d.irpjCsll, 'h'],
-      [`9. (=) RESULTADO LÍQUIDO DO EXERCÍCIO (Margem Líquida ${pct(d.liquido, d.liquida)})`, d.liquido, 't'],
+      ['1. Receita operacional bruta', d.bruta, 'h'],
+      ['(+) Receita de locação', d.locacao, 's'],
+      ['(+) Receita de serviços', d.servicos, 's'],
+      ['(+) Receita de vendas', d.vendas, 's'],
+      ['2. (-) Deduções sobre o faturamento', -d.deducoes, 'h'],
+      ['(-) PIS e COFINS', -d.pisCofins, 's'],
+      ['(-) ISS sobre serviços', -d.iss, 's'],
+      ['3. (=) Receita operacional líquida', d.liquida, 't'],
+      ['4. (-) Custos operacionais diretos', -d.custos, 'h'],
+      [`5. (=) Lucro bruto (margem ${pct(d.lucroBruto, d.liquida)})`, d.lucroBruto, 't'],
+      ['6. (-) Despesas operacionais', -d.despesas, 'h'],
+      ['(-) Pessoal e folha', -d.pessoal, 's'],
+      ['(-) Assistência médica e benefícios', -d.saude, 's'],
+      ['(-) Administrativas, tributárias e gerais', -d.adm, 's'],
+      [`7. (=) EBITDA (margem ${pct(d.ebitda, d.liquida)})`, d.ebitda, 't'],
+      ['8. (-) IRPJ e CSLL', -d.irpjCsll, 'h'],
+      [`9. (=) Resultado líquido (margem ${pct(d.liquido, d.liquida)})`, d.liquido, 't'],
     ];
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-md border border-slate-200 p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-slate-900">DRE Gerencial Seta Telecom</h2>
-            <select value={dreCompetence} onChange={(e) => setDreCompetence(e.target.value as any)} className="border rounded px-2 py-1 text-xs">
-              <option value="MENSAL">Outubro / 2026 (Mensal)</option>
-              <option value="SEMESTRAL">Maio a Outubro / 2026 (Semestral)</option>
-              <option value="BASE">Base Sincronizada (Tempo Real)</option>
-            </select>
-          </div>
-          <table className="w-full text-xs">
-            <thead><tr className="text-left text-slate-500"><th>Conta</th><th className="text-right">Valor (R$)</th><th className="text-right">AV % s/ Receita Bruta</th></tr></thead>
-            <tbody>
-              {rows.map(([label, v, kind]) => (
-                <tr key={label} className={`border-t border-slate-100 ${kind === 't' ? 'bg-slate-50 font-semibold' : kind === 'h' ? 'font-semibold' : 'text-slate-600'}`}>
-                  <td className={kind === 's' ? 'pl-4 py-1' : 'py-1'}>{label}</td>
-                  <td className={`text-right ${v < 0 ? 'text-rose-700' : ''}`}>{money(v)}</td>
-                  <td className="text-right">{pct(v, d.bruta)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="text-[10px] text-slate-400">Alíquotas gerenciais: PIS 0,65%, COFINS 3,00%, ISS 2,90% sobre serviços, IRPJ/CSLL por presunção (Lucro Presumido). Valores derivados dos lançamentos sincronizados.</p>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">DRE gerencial</h2>
+          <select value={dreCompetence} onChange={(e) => setDreCompetence(e.target.value as any)} className="border border-slate-300 rounded-md px-2 py-1.5 text-xs bg-white">
+            <option value="MENSAL">Outubro/2026</option>
+            <option value="SEMESTRAL">Maio a outubro/2026</option>
+            <option value="BASE">Todo o período</option>
+          </select>
         </div>
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-2">
-          <div className="text-xs font-semibold text-slate-900">Breakdown por Centro de Custo</div>
-          {Object.entries(d.cc).sort((a, b) => (b[1].rec + b[1].pag) - (a[1].rec + a[1].pag)).map(([k, v]) => (
-            <div key={k} className="border-t border-slate-100 pt-1 text-xs">
-              <div className="font-semibold text-slate-700">{k}</div>
-              <div className="flex justify-between"><span className="text-emerald-700">+{money(v.rec)}</span><span className="text-rose-700">-{money(v.pag)}</span><b>{money(v.rec - v.pag)}</b></div>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-white rounded-md border border-slate-200 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50"><tr className="text-left"><th className={th}>Conta</th><th className={`${th} text-right`}>Valor</th><th className={`${th} text-right`}>AV %</th></tr></thead>
+              <tbody>
+                {rows.map(([label, v, kind]) => (
+                  <tr key={label} className={`border-t border-slate-100 h-9 ${kind === 't' ? 'bg-slate-50 font-semibold text-slate-900' : kind === 'h' ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
+                    <td className={kind === 's' ? 'pl-7 pr-3 py-1.5' : 'px-3 py-1.5'}>{label}</td>
+                    <td className={`px-3 py-1.5 text-right whitespace-nowrap ${v < 0 ? 'text-rose-700' : ''}`}>{money(v)}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(v, d.bruta)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">Alíquotas gerenciais: PIS 0,65%, COFINS 3,00%, ISS 2,90% sobre serviços, IRPJ/CSLL pelo lucro presumido.</p>
+          </div>
+          <div className="bg-white rounded-md border border-slate-200 p-4 space-y-2">
+            <div className="text-xs font-semibold text-slate-900">Por centro de custo</div>
+            {Object.entries(d.cc).sort((a, b) => (b[1].rec + b[1].pag) - (a[1].rec + a[1].pag)).map(([k, v]) => (
+              <div key={k} className="border-t border-slate-100 pt-1 text-xs">
+                <div className="text-slate-700">{k}</div>
+                <div className="flex justify-between"><span className="text-emerald-700">+{money(v.rec)}</span><span className="text-rose-700">-{money(v.pag)}</span><b>{money(v.rec - v.pag)}</b></div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -519,110 +548,156 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const renderBoletos = () => (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-slate-900">Boletos Bancários e Cobrança PIX</h2>
-        <Btn onClick={() => setShowNewInvoiceModal(true)} className="bg-[#ff7a59] py-1.5" icon={Plus}>Emitir Novo Boleto / Fatura</Btn>
+        <h2 className="text-lg font-semibold text-slate-900">Boletos e PIX</h2>
+        <Btn variant="primary" onClick={() => setShowNewInvoiceModal(true)} icon={Plus}>Emitir boleto / fatura</Btn>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Boletos Emitidos" value={String(invKpis.emitidos)} tone="text-slate-900" />
+        <Kpi label="Emitidos" value={String(invKpis.emitidos)} tone="text-slate-900" />
         <Kpi label="Liquidados" value={String(invKpis.liquidados)} tone="text-emerald-700" />
-        <Kpi label="Em Aberto" value={String(invKpis.abertos)} tone="text-amber-600" />
-        <Kpi label="Conta Emissora" value="Itaú #142155 / Inter #237906" tone="text-[#1e3a6e] text-sm" />
+        <Kpi label="Em aberto" value={String(invKpis.abertos)} tone="text-amber-700" />
+        <Kpi label="Conta emissora" value="Itaú #142155 / Inter #237906" tone="text-slate-900 text-sm" />
       </div>
-      <div className="space-y-2">
-        {invoices.map((inv) => (
-          <div key={inv.id} className="p-3 rounded border border-slate-200 bg-white text-xs space-y-2">
-            <div className="flex flex-wrap justify-between gap-2">
-              <div>
-                <div className="font-semibold text-slate-800">Nº {inv.documentNumber} — {inv.companyName}</div>
-                <div className="text-[11px] text-slate-500">CNPJ {inv.companyCnpj} • Venc: {inv.dueDate}</div>
-              </div>
-              <div className="text-right">
-                <div className="font-semibold">{money(inv.netAmount)}</div>
-                <span className={`text-[10px] font-semibold px-1.5 rounded ${statusBadge(inv.status)}`}>{inv.status}</span>
-              </div>
-            </div>
-            {inv.boletoDigitableLine && <div className="font-mono text-[11px] text-slate-600 break-all">Linha digitável: {inv.boletoDigitableLine}</div>}
-            <div className="flex flex-wrap gap-2">
-              <Btn onClick={() => copy(inv.boletoDigitableLine || '', 'Linha digitável')} className="bg-slate-600" icon={Copy}>Copiar Linha Digitável</Btn>
-              <Btn onClick={() => copy(inv.pixCopyPaste || '', 'PIX Copia e Cola')} className="bg-teal-600" icon={QrCode}>Copiar PIX</Btn>
-              <Btn onClick={() => setSelectedInvoiceForPrint(inv)} className="bg-[#1e3a6e]" icon={Printer}>Imprimir Boleto / Fatura</Btn>
-              <Btn onClick={() => setEmailModalPayload({ docType: 'BOLETO', companyName: inv.companyName, companyCnpj: inv.companyCnpj, documentCode: inv.documentNumber, amountBrl: inv.netAmount, dueDate: inv.dueDate, boletoLine: inv.boletoDigitableLine })} className="bg-sky-600" icon={Mail}>Enviar por E-mail</Btn>
-              {inv.status !== 'PAGA' && inv.status !== 'CANCELADA' && (
-                <Btn onClick={() => payInvoice(inv)} className="bg-emerald-600" icon={CheckCircle2}>Dar Baixa</Btn>
-              )}
-            </div>
-          </div>
-        ))}
-        {boletoEntries.map((fin) => (
-          <div key={fin.id} className="p-3 rounded border border-dashed border-slate-300 bg-white text-xs flex flex-wrap justify-between gap-2">
-            <div>
-              <div className="font-semibold text-slate-800">Título {fin.id.toUpperCase()} — {fin.companyName}</div>
-              <div className="text-[11px] text-slate-500">{companyCnpj(fin.companyName) && `CNPJ ${companyCnpj(fin.companyName)} • `}{fin.paymentMethod} • Venc: {fin.dueDate}</div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <b>{money(fin.amount)}</b>
-              <span className={`text-[10px] font-semibold px-1.5 rounded ${statusBadge(fin.status)}`}>{fin.status}</span>
-              <Btn onClick={() => emailEntry(fin)} className="bg-sky-600" icon={Mail}>Enviar por E-mail</Btn>
-              {fin.status !== 'PAGO' && <Btn onClick={() => payEntry(fin)} className="bg-emerald-600" icon={CheckCircle2}>Dar Baixa</Btn>}
-            </div>
-          </div>
-        ))}
+      <div className="bg-white rounded-md border border-slate-200 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50">
+            <tr className="text-left">
+              <th className={th}>Vencimento</th>
+              <th className={th}>Documento</th>
+              <th className={th}>Cliente</th>
+              <th className={`${th} text-right`}>Valor</th>
+              <th className={th}>Situação</th>
+              <th className={`${th} text-right`}>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.length + boletoEntries.length === 0 && (
+              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">Nenhum boleto encontrado.</td></tr>
+            )}
+            {invoices.map((inv) => (
+              <tr key={inv.id} className="border-t border-slate-100 h-10 hover:bg-slate-50">
+                <td className={`${td} whitespace-nowrap text-slate-600`}>{inv.dueDate}</td>
+                <td className={td}>
+                  <div className="text-slate-800">Nº {inv.documentNumber}</div>
+                  {inv.boletoDigitableLine && <div className="font-mono text-[11px] text-slate-400 break-all">{inv.boletoDigitableLine}</div>}
+                </td>
+                <td className={td}>
+                  <div className="text-slate-700">{inv.companyName}</div>
+                  {inv.companyCnpj && <div className="text-[11px] text-slate-400">{inv.companyCnpj}</div>}
+                </td>
+                <td className={`${td} text-right whitespace-nowrap font-semibold text-slate-900`}>{money(inv.netAmount)}</td>
+                <td className={td}><Pill status={inv.status} /></td>
+                <td className={`${td} text-right whitespace-nowrap`}>
+                  <span className="inline-flex items-center gap-1">
+                    <IconBtn title="Copiar linha digitável" icon={Copy} onClick={() => copy(inv.boletoDigitableLine || '', 'Linha digitável')} />
+                    <IconBtn title="Copiar PIX copia e cola" icon={QrCode} onClick={() => copy(inv.pixCopyPaste || '', 'PIX Copia e Cola')} />
+                    <RowMenu
+                      items={[
+                        { label: 'Imprimir boleto / fatura', icon: Printer, onClick: () => setSelectedInvoiceForPrint(inv) },
+                        { label: 'Enviar por e-mail', icon: Mail, onClick: () => setEmailModalPayload({ docType: 'BOLETO', companyName: inv.companyName, companyCnpj: inv.companyCnpj, documentCode: inv.documentNumber, amountBrl: inv.netAmount, dueDate: inv.dueDate, boletoLine: inv.boletoDigitableLine }) },
+                        ...(inv.status !== 'PAGA' && inv.status !== 'CANCELADA' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payInvoice(inv) }] : []),
+                      ]}
+                    />
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {boletoEntries.map((fin) => (
+              <tr key={fin.id} className="border-t border-slate-100 h-10 hover:bg-slate-50">
+                <td className={`${td} whitespace-nowrap text-slate-600`}>{fin.dueDate}</td>
+                <td className={td}>
+                  <div className="text-slate-800">Título {fin.id.toUpperCase()}</div>
+                  <div className="text-[11px] text-slate-400">{fin.paymentMethod}</div>
+                </td>
+                <td className={td}>
+                  <div className="text-slate-700">{fin.companyName}</div>
+                  {companyCnpj(fin.companyName) && <div className="text-[11px] text-slate-400">{companyCnpj(fin.companyName)}</div>}
+                </td>
+                <td className={`${td} text-right whitespace-nowrap font-semibold text-slate-900`}>{money(fin.amount)}</td>
+                <td className={td}><Pill status={fin.status} /></td>
+                <td className={`${td} text-right`}>
+                  <RowMenu
+                    items={[
+                      { label: 'Enviar por e-mail', icon: Mail, onClick: () => emailEntry(fin) },
+                      ...(fin.status !== 'PAGO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
+                    ]}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">{invoices.length + boletoEntries.length} registro(s)</div>
       </div>
     </div>
   );
 
   const renderAuxiliares = () => {
     const synced = (name: string) => bankAccounts.find((b) => b.name === name);
+    const bankFields: Array<{ key: string; label: string; type?: 'text' | 'number' | 'select'; options?: string[] }> = [
+      { key: 'name', label: 'Nome da Conta' },
+      { key: 'balance', label: 'Saldo (R$)', type: 'number' },
+      { key: 'status', label: 'Status', type: 'select', options: ['POSITIVE', 'NEGATIVE', 'ZERO'] },
+    ];
     return (
       <div className="space-y-4">
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
+        <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-slate-900">Contas Bancárias Seta Telecom</h2>
-            <Btn onClick={() => openCollectionEditor('bankAccounts', 'Nova Conta Bancária', { name: '', balance: 0, status: 'ZERO', lastMovedAt: new Date().toISOString().slice(0, 10) }, [{ key: 'name', label: 'Nome da Conta' }, { key: 'balance', label: 'Saldo (R$)', type: 'number' }, { key: 'status', label: 'Status', type: 'select', options: ['POSITIVE', 'NEGATIVE', 'ZERO'] }])} className="bg-[#ff7a59] py-1.5" icon={Plus}>Nova Conta Bancária</Btn>
+            <h2 className="text-lg font-semibold text-slate-900">Contas bancárias</h2>
+            <Btn variant="primary" onClick={() => openCollectionEditor('bankAccounts', 'Nova Conta Bancária', { name: '', balance: 0, status: 'ZERO', lastMovedAt: new Date().toISOString().slice(0, 10) }, bankFields)} icon={Plus}>Adicionar</Btn>
           </div>
-          <table className="w-full text-xs">
-            <thead><tr className="text-left text-slate-500"><th>Conta</th><th>Código</th><th>Tipo</th><th className="text-right">Saldo</th><th /></tr></thead>
-            <tbody>
-              {CORPORATE_ACCOUNTS.map((c) => {
-                const acc = synced(c.name);
-                return (
-                  <tr key={c.name} className="border-t border-slate-100">
-                    <td className="font-semibold py-1">{c.name}</td><td>{acc?.id || c.code}</td><td>{c.kind}</td>
-                    <td className={`text-right font-semibold ${acc && acc.balance < 0 ? 'text-rose-700' : ''}`}>{acc ? money(acc.balance) : 'Não sincronizada'}</td>
-                    <td className="text-right">
-                      {acc && <Btn onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, [{ key: 'name', label: 'Nome da Conta' }, { key: 'balance', label: 'Saldo (R$)', type: 'number' }, { key: 'status', label: 'Status', type: 'select', options: ['POSITIVE', 'NEGATIVE', 'ZERO'] }])} className="bg-amber-500" icon={Pencil}>Editar Saldo</Btn>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="bg-white rounded-md border border-slate-200 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50"><tr className="text-left"><th className={th}>Conta</th><th className={th}>Código</th><th className={th}>Tipo</th><th className={`${th} text-right`}>Saldo</th><th className={`${th} text-right`}>Ações</th></tr></thead>
+              <tbody>
+                {CORPORATE_ACCOUNTS.map((c) => {
+                  const acc = synced(c.name);
+                  return (
+                    <tr key={c.name} className="border-t border-slate-100 h-10">
+                      <td className={`${td} text-slate-800`}>{c.name}</td><td className={`${td} text-slate-600`}>{acc?.id || c.code}</td><td className={`${td} text-slate-600`}>{c.kind}</td>
+                      <td className={`${td} text-right whitespace-nowrap font-semibold ${acc && acc.balance < 0 ? 'text-rose-700' : acc ? 'text-slate-900' : 'text-slate-400 font-normal'}`}>{acc ? money(acc.balance) : 'Não sincronizada'}</td>
+                      <td className={`${td} text-right`}>
+                        {acc && (
+                          <button type="button" onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, bankFields)} className="text-xs font-medium text-[#1e3a6e] hover:underline cursor-pointer">
+                            Editar saldo
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">{CORPORATE_ACCOUNTS.length} registro(s)</div>
+          </div>
         </div>
         <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3 text-xs">
-          <h2 className="text-base font-semibold text-slate-900">Importador e Conciliador de Extrato OFX</h2>
+          <h2 className="text-sm font-semibold text-slate-900">Conciliação OFX</h2>
           <div className="flex flex-wrap gap-2 items-center">
-            <select value={ofxBank} onChange={(e) => setOfxBank(e.target.value)} className="border rounded px-2 py-1">
+            <select value={ofxBank} onChange={(e) => setOfxBank(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 bg-white">
               <option>Banco Inter</option><option>Banco Itaú</option>
             </select>
             <input ref={fileRef} type="file" accept=".ofx,.OFX" className="hidden" onChange={async (e) => {
               const f = e.target.files?.[0];
               if (f) { setOfxContent(await f.text()); onShowToast(`Arquivo ${f.name} carregado.`); }
             }} />
-            <Btn onClick={() => fileRef.current?.click()} className="bg-slate-700" icon={Upload}>Upload .OFX</Btn>
-            <Btn onClick={() => { setOfxContent(SAMPLE_OFX); onShowToast('Extrato OFX padrão carregado.'); }} className="bg-slate-500" icon={FileSpreadsheet}>Carregar OFX padrão</Btn>
-            <Btn onClick={() => runOfx(false)} className="bg-[#1e3a6e]" icon={RefreshCw}>{ofxBusy ? 'Processando...' : 'Parear lançamentos'}</Btn>
-            <Btn onClick={() => runOfx(true)} className="bg-emerald-600" icon={CheckCircle2}>Conciliar e baixar pareados</Btn>
+            <Btn onClick={() => fileRef.current?.click()} icon={Upload}>Enviar .OFX</Btn>
+            <Btn onClick={() => { setOfxContent(SAMPLE_OFX); onShowToast('Extrato OFX padrão carregado.'); }} icon={FileSpreadsheet}>Carregar OFX padrão</Btn>
+            <Btn onClick={() => runOfx(false)} icon={RefreshCw}>{ofxBusy ? 'Processando...' : 'Parear lançamentos'}</Btn>
+            <Btn variant="primary" onClick={() => runOfx(true)} icon={CheckCircle2}>Conciliar e baixar pareados</Btn>
           </div>
-          <textarea value={ofxContent} onChange={(e) => setOfxContent(e.target.value)} rows={4} placeholder="Conteúdo do arquivo OFX" className="w-full border rounded p-2 font-mono text-[11px]" />
+          <textarea value={ofxContent} onChange={(e) => setOfxContent(e.target.value)} rows={4} placeholder="Conteúdo do arquivo OFX" className="w-full border border-slate-300 rounded-md p-2 font-mono text-[11px]" />
           {ofxResult && (
             <div className="space-y-1">
-              <div className="font-semibold">
+              <div className="font-semibold text-slate-800">
                 {ofxResult.matchedCount} pareado(s) de {ofxResult.summary?.transactionsParsed ?? 0} transação(ões) • Créditos {formatBRL(ofxResult.summary?.totalCredits || 0)} • Débitos {formatBRL(ofxResult.summary?.totalDebits || 0)}
               </div>
               {(ofxResult.reconciledEntries || []).map((r: any) => (
-                <div key={r.entryId} className="flex justify-between border-t border-slate-100 py-1">
-                  <span>{r.ofxDate} • {r.ofxMemo} → {r.description} ({r.companyName})</span>
-                  <b className={r.paid ? 'text-emerald-700' : 'text-amber-600'}>{formatBRL(r.amount)} {r.paid ? 'BAIXADO' : 'PAREADO'}</b>
+                <div key={r.entryId} className="flex justify-between gap-2 border-t border-slate-100 py-1.5">
+                  <span className="text-slate-700">{r.ofxDate} • {r.ofxMemo} → {r.description} ({r.companyName})</span>
+                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                    <b className="text-slate-900">{formatBRL(r.amount)}</b>
+                    <Pill status={r.paid ? 'PAGO' : 'ABERTO'} />
+                  </span>
                 </div>
               ))}
             </div>
@@ -634,23 +709,61 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-md border border-slate-200 p-2 flex flex-wrap gap-1">
-        {SUB_TABS.map((t) => {
-          const Icon = t.icon;
-          const active = sub === t.id;
-          return (
-            <button key={t.id} type="button" onClick={() => onSelectSubId(t.id)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold cursor-pointer ${active ? 'bg-[#1e3a6e] text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-              <Icon size={14} /> {t.label}
-            </button>
-          );
-        })}
-      </div>
       {(sub === 'FIN_PAGAR' || sub === 'FIN_RECEBER') && renderTitles()}
       {sub === 'FIN_FLUXO' && renderFluxo()}
       {sub === 'FIN_DRE' && renderDre()}
       {sub === 'FIN_BOLETOS' && renderBoletos()}
       {sub === 'FIN_AUXILIARES' && renderAuxiliares()}
     </div>
+  );
+}
+
+type RowMenuItem = { label: string; icon?: LucideIcon; onClick: () => void; danger?: boolean };
+
+function IconBtn({ title, icon: Icon, onClick }: { title: string; icon: LucideIcon; onClick: () => void }) {
+  return (
+    <button type="button" title={title} aria-label={title} onClick={onClick} className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#1e3a6e] cursor-pointer">
+      <Icon size={14} />
+    </button>
+  );
+}
+
+function RowMenu({ items }: { items: RowMenuItem[] }) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Ações"
+        title="Ações"
+        onClick={(e) => {
+          const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+          setPos(pos ? null : { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+        }}
+        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#1e3a6e] cursor-pointer"
+      >
+        <MoreVertical size={14} />
+      </button>
+      {pos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
+          <div className="fixed z-50 min-w-[190px] bg-white border border-slate-200 rounded-md shadow-sm py-1 text-left" style={{ top: pos.top, right: pos.right }}>
+            {items.map((it) => {
+              const Icon = it.icon;
+              return (
+                <button
+                  key={it.label}
+                  type="button"
+                  onClick={() => { setPos(null); it.onClick(); }}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-slate-50 ${it.danger ? 'text-rose-700' : 'text-slate-700'}`}
+                >
+                  {Icon && <Icon size={13} />} {it.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
   );
 }
