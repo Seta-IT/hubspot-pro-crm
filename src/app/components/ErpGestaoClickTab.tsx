@@ -370,6 +370,9 @@ export default function ErpGestaoClickTab({
   // sincronização e a Central) só para admin com 2FA.
   const reportsScreenAllowed = activeSection !== 'RELATORIOS' || erpConfigAccess?.canViewReports === true;
   const canAdminErpConfig = erpConfigAccess?.canViewAdminConfig === true;
+  // Configurações (Usuários, Empresa, E-mails...): sem KPIs, sem banner da Central e sem ações de
+  // empresa/regime/sync no cabeçalho (pedido do Marcéllo 02/11). KPIs seguem no painel do ERP e em Relatórios.
+  const isCfgSection = activeSection === 'CONFIGURACOES';
   React.useEffect(() => {
     if (!erpConfigAccess || activeSection !== 'RELATORIOS' || erpConfigAccess.canViewReports) return;
     setActiveSection('INICIO');
@@ -6373,7 +6376,7 @@ export default function ErpGestaoClickTab({
                   </h2>
                   <p className="text-xs text-slate-500">Loja {gestaoClickConfig.storeName} #{gestaoClickConfig.storeId} • CNPJ {gestaoClickConfig.companyCnpj}</p>
                 </div>
-                {canAdminErpConfig && (
+                {canAdminErpConfig && !isCfgSection && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -6429,18 +6432,21 @@ export default function ErpGestaoClickTab({
                 </div>
                 )}
               </div>
+              {!isCfgSection && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong> →</button>
                 <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">TCV Carteira: <strong>{formatBRL(kpis.totalContractedTcv)}</strong> →</button>
                 <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
                 <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
               </div>
+              )}
               </>)}
 
               {rbacState && (activeSection === 'CONFIGURACOES' || canAdminErpConfig) && (
                 <div className={isDedicatedCfgScreen ? '' : 'pt-3 border-t border-slate-200'}>
                   <StiHubAdminRbacPanel
                     access={erpConfigAccess}
+                    hideTopBanner={isCfgSection}
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={

@@ -13,6 +13,8 @@ import { isPublicStiHubPath, evaluateStiHubRouteProtection, classifyRouteRequire
 import { resolveStiHubSigningSecret, signMfaChallengeToken, signStiHubSessionToken, STIHUB_TOTP_ROTATION_EPOCH, verifyStiHubSessionToken } from '../src/app/lib/auth';
 import { filterGlobalSearchEntries, SEARCH_CATEGORY_PILLS, SearchCategoryKey, SearchResultEntry } from '../src/app/components/GlobalHeaderSearch';
 import fs from 'node:fs';
+import { ERP_HIDDEN_MENU_SUB_ITEMS, filterErpMenuTree } from '../src/app/lib/erp-config-access';
+import { GESTAO_CLICK_MENU_TREE } from '../src/app/components/GestaoClickSidebar';
 import path from 'node:path';
 // ============================================================================
 // HubSpot Pro CRM - Comprehensive Automated Test Suite (Node Test Runner)
@@ -2141,7 +2143,11 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(marceloSetup.totpSecretFormatted?.includes(" "), "Deve retornar segredo Base32 formatado em blocos de 4 caracteres");
 
     const sidebarSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/GestaoClickSidebar.tsx"), "utf8");
-    assert.ok(sidebarSrc.includes("{ id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' }"), "Item Balcão (PDV) (Pilar 9 oficial) deve estar na sidebar SETA | IT");
+    // PDV oculto só na interface (60c790e): o item segue definido na árvore, mas o menu visível não o mostra.
+    assert.ok(sidebarSrc.includes("{ id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' }"), "Item Balcão (PDV) segue definido na árvore (rotas e lógica intactas)");
+    assert.ok((ERP_HIDDEN_MENU_SUB_ITEMS as readonly string[]).includes('VENDAS_BALCAO'), "Balcão (PDV) deve estar na lista de itens ocultos do menu");
+    const visibleSubIds = filterErpMenuTree(GESTAO_CLICK_MENU_TREE, null).flatMap((g) => (g.subItems || []).map((x) => x.id));
+    assert.ok(!visibleSubIds.includes('VENDAS_BALCAO'), "Balcão (PDV) não deve aparecer no menu visível do ERP");
     const pillarsSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/SetaErpTenPillarsAndPdv.tsx"), "utf8");
     assert.ok(/num: 9,\s*title: 'PDV \(Frente de Caixa\)'[\s\S]*?subId: 'VENDAS_BALCAO'/.test(pillarsSrc), "Pilar 9 oficial deve ser o PDV Frente de Caixa");
     const erpTabSrc = fs.readFileSync(path.join(process.cwd(), "src/app/components/ErpGestaoClickTab.tsx"), "utf8");

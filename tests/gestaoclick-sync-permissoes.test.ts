@@ -94,3 +94,20 @@ describe('Telas: controles escondidos pela mesma regra', () => {
     assert.match(d, /gestaoClickDeniedMessage\(res\.status, 'sync'\)/);
   });
 });
+
+describe('Configurações > Usuários (e demais abas de Configurações): sem KPIs, banner e ações de cabeçalho', () => {
+  const tab = src('src/app/components/ErpGestaoClickTab.tsx');
+  const panel = src('src/app/components/StiHubAdminRbacPanel.tsx');
+  it('KPIs e ações (Editar Dados da Empresa, regime, Sincronizar Agora) ficam fora de Configurações', () => {
+    assert.match(tab, /const isCfgSection = activeSection === 'CONFIGURACOES'/);
+    assert.match(tab, /\{canAdminErpConfig && !isCfgSection && \(\s*<div className="flex items-center gap-2">\s*<button[\s\S]*?Editar Dados da Empresa[\s\S]*?Sincronizar Agora/);
+    assert.match(tab, /\{!isCfgSection && \(\s*<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">[\s\S]*?MRR Locação/);
+  });
+  it('banner da Central oculto em Configurações; barra de abas e lista com "+ Novo Usuário" mantidas', () => {
+    assert.match(tab, /hideTopBanner=\{isCfgSection\}/);
+    assert.match(panel, /\{!hideTopBanner && \(\s*<div data-testid="admin-central-banner"/);
+    const users = panel.slice(panel.indexOf("{subView === 'USERS_RBAC' && !editingUser && ("));
+    assert.match(users.slice(0, 6000), /\+ Novo Usuário\s*<\/button>/);
+    assert.ok(panel.indexOf('Sub-navigation Tabs') > panel.indexOf('{!hideTopBanner && ('));
+  });
+});

@@ -63,7 +63,7 @@ describe('Relatórios do ERP por perfil', () => {
   it('tela de Relatórios: ações de administração e a Central só com canViewAdminConfig', () => {
     const erp = src('src/app/components/ErpGestaoClickTab.tsx');
     const block = erp.slice(erp.indexOf("activeSection === 'RELATORIOS' && reportsScreenAllowed"));
-    assert.match(block, /\{canAdminErpConfig && \(\s*<div className="flex items-center gap-2">[\s\S]*Editar Dados da Empresa[\s\S]*Sincronizar Agora/);
+    assert.match(block, /\{canAdminErpConfig && !isCfgSection && \(\s*<div className="flex items-center gap-2">[\s\S]*Editar Dados da Empresa[\s\S]*Sincronizar Agora/);
     assert.match(block, /rbacState && \(activeSection === 'CONFIGURACOES' \|\| canAdminErpConfig\)/);
     assert.match(block, /access=\{erpConfigAccess\}/);
     assert.match(erp, /erpConfigAccess\.canViewReports\) return;\s*setActiveSection\('INICIO'\)/);

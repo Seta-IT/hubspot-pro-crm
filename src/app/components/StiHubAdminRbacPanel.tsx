@@ -131,6 +131,8 @@ interface StiHubAdminRbacPanelProps {
    * /api/auth/session sozinho. A Central só aparece para admin com 2FA.
    */
   access?: ErpConfigAccess | null;
+  /** ERP > Configurações: oculta só o banner "Governança Corporativa" (mantém a barra de abas). */
+  hideTopBanner?: boolean;
 }
 
 const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string; desc: string }> = [
@@ -180,6 +182,7 @@ export default function StiHubAdminRbacPanel({
   onRefresh,
   onShowToast,
   singleView = false,
+  hideTopBanner = false,
   numberingBase,
   onOpenErpCertificate,
   access,
@@ -935,7 +938,8 @@ export default function StiHubAdminRbacPanel({
     <div className="space-y-5">
       {/* Top Banner */}
       {!singleView && (<>
-      <div className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      {!hideTopBanner && (
+      <div data-testid="admin-central-banner" className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-2.5 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-semibold uppercase tracking-wider">
@@ -969,6 +973,7 @@ export default function StiHubAdminRbacPanel({
           </button>
         </div>
       </div>
+      )}
 
       {/* Sub-navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
