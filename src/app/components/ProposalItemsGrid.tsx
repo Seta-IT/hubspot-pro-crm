@@ -115,7 +115,7 @@ function DiscountInput({ item, onCommit }: { item: ErpProposalItem; onCommit: (p
   const shown = focused ? text : formatDiscount(item);
   return (
     <div className="flex items-stretch">
-      <span className="inline-flex items-center px-1.5 rounded-l-[3px] border border-r-0 border-[#ced4da] bg-[#dee2e6] text-[11px] text-slate-600">
+      <span className="inline-flex items-center px-1.5 rounded-l-[3px] border border-r-0 border-[#ced4da] bg-[#e9ecef] text-[12px] text-slate-800">
         R$
       </span>
       <input

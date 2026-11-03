@@ -1408,7 +1408,7 @@ export function ProposalEditModal({
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
                     Total Descontos
                   </span>
-                  <strong className="text-xs font-bold text-rose-600">
+                  <strong className="text-xs font-extrabold text-slate-900">
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
                   </strong>
                 </div>

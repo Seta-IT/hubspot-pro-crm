@@ -1875,7 +1875,7 @@ function PublicProposalPrintContent() {
                       <td className="py-2.5 print:py-1.5 px-2.5 text-right text-slate-700 whitespace-nowrap">
                         {formatBRL(item.unitPrice)}
                       </td>
-                      <td className="py-2.5 print:py-1.5 px-2 text-right text-rose-600 font-semibold whitespace-nowrap">
+                      <td className="py-2.5 print:py-1.5 px-2 text-right text-slate-700 whitespace-nowrap">
                         {hasDisc ? (
                           <>
                             {(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ""}
@@ -1919,7 +1919,7 @@ function PublicProposalPrintContent() {
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Descontos Aplicados
               </span>
-              <strong className="text-sm font-semibold text-rose-600">
+              <strong className="text-sm font-semibold text-slate-900">
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
               </strong>
             </div>
