@@ -86,6 +86,38 @@ interface MailboxActor {
   roleId: string;
   isAdmin: boolean;
   access: { contact: boolean; company: boolean; deal: boolean };
+  /** Id do usuario (dono dos registros) e escopo de dados do RBAC. */
+  id?: string;
+  scope?: string;
+}
+
+/**
+ * Parecer CISO 04/11 (item 1): escopo Proprios/Equipe na linha do tempo. Mesmo criterio das
+ * propostas (M2): EQUIPE = PROPRIOS, dono pelo ownerId (id ou e-mail do usuario), nunca pelo nome.
+ * Admin de usuarios ou escopo TODOS ve tudo.
+ */
+export function isMailboxScopeRestricted(actor: Pick<MailboxActor, 'isAdmin' | 'scope'>): boolean {
+  return !actor.isAdmin && String(actor.scope || 'PROPRIOS') !== 'TODOS';
+}
+
+function ownedBy(ownerId: unknown, actor: Pick<MailboxActor, 'id' | 'email'>): boolean {
+  const o = String(ownerId || '').trim().toLowerCase();
+  if (!o) return false;
+  return o === String(actor.id || '').trim().toLowerCase() || o === String(actor.email || '').trim().toLowerCase();
+}
+
+export function canSeeRecordInScope(repo: CrmRepository, actor: MailboxActor, ref: { contactId?: string | null; companyId?: string | null; dealId?: string | null }): boolean {
+  if (!isMailboxScopeRestricted(actor)) return true;
+  if (ref.contactId) return ownedBy(repo.getContactById(ref.contactId)?.ownerId, actor);
+  if (ref.dealId) return ownedBy(repo.getDealById(ref.dealId)?.ownerId, actor);
+  if (ref.companyId) {
+    const cid = ref.companyId;
+    const contacts = repo.listContacts() as Array<{ ownerId?: string | null; companyId?: string | null }>;
+    if (contacts.some((c) => c.companyId === cid && ownedBy(c.ownerId, actor))) return true;
+    const deals = (repo as unknown as { listDeals?: () => Array<{ ownerId?: string | null; companyId?: string | null }> }).listDeals?.() || [];
+    return deals.some((d) => d.companyId === cid && ownedBy(d.ownerId, actor));
+  }
+  return false;
 }
 
 function resolveActor(repo: CrmRepository, query: Query, ctx: Ctx): MailboxActor | ApiResponse {
@@ -108,6 +140,8 @@ function resolveActor(repo: CrmRepository, query: Query, ctx: Ctx): MailboxActor
     roleId: String(sess.user.roleId || ''),
     isAdmin: sess.effectiveActionGuards?.canManageUsersRbac === true,
     access: { contact: lvl('contactsAccess'), company: lvl('companiesAccess'), deal: lvl('dealsFunnelAccess') },
+    id: String(sess.user.id || ''),
+    scope: String((sess.user as { scope?: string }).scope || 'PROPRIOS'),
   };
 }
 
@@ -395,6 +429,7 @@ export async function handleMailboxRoute(
     if (set !== 1) return invalid(null, 'Informe uma ficha (contato, empresa ou negócio).');
     const denied = checkRecordAccess(deps.repo, actor, ref);
     if (denied) return { status: 404, body: { error: 'Ficha não encontrada.', code: 'MAILBOX_RECORD_NOT_FOUND' } };
+    if (!canSeeRecordInScope(deps.repo, actor, ref)) return { status: 404, body: { error: 'Ficha não encontrada.', code: 'MAILBOX_RECORD_NOT_FOUND' } };
     const list = await deps.store.listForRecord(ref, 100);
     return { status: 200, body: { data: list.map(toTimelineEmail), total: list.length } };
   }

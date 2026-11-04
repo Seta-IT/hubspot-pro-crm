@@ -587,7 +587,11 @@ export default function StiHubAdminRbacPanel({
     activeUser ? isModuleFullControl(activeUser, m) : false
   );
   const canAdminHomeScreen = actorIsSuperAdmin || actorFullControlModules.length > 0;
-  const canManageInvites = actorIsSuperAdmin || actorFullControlModules.length > 0;
+  // Parecer CISO 04/11 (item 4): alinhado ao servidor, que exige canManageUsersRbac.
+  const actorRole = activeUser ? roles.find((r) => r.id === activeUser.roleId) : undefined;
+  const actorCanManageUsersRbac =
+    (activeUser?.actionGuardsOverride?.canManageUsersRbac ?? actorRole?.actionGuards?.canManageUsersRbac) === true;
+  const canManageInvites = actorIsSuperAdmin || actorCanManageUsersRbac;
   const homeScreenOptionsFor = (user: StiHubUserRecord) => {
     const access = moduleAccessFromUser(user);
     return HOME_SCREENS.filter(
