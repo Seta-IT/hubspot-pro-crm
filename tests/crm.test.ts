@@ -3500,7 +3500,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.equal(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle, "Serviços e Soluções — Portfólio Seta Telecom");
     // Textos do modelo (04/11, pedido do Marcéllo): troca exata, sem mudar layout/calculos
     for (const novo of [
-      "Alphaville, Campinas/SP\n",
+      "{issuerAddress || \"Alphaville, Campinas/SP\"}",
       "PROPOSTA COMERCIAL\n",
       "Vendedor: <strong",
       '<span className="uppercase">Descrição</span>',

@@ -142,6 +142,7 @@ import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
 import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
+import { formatIssuerAddress } from '../app/lib/company-issuer-address';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
@@ -2965,7 +2966,7 @@ export class CrmApiRouter {
     this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
     return {
       status: 200,
-      body: { data: toPublicProposalDto(found), proposalId: found.id, token },
+      body: { data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
     };
   }
 
@@ -2982,7 +2983,7 @@ export class CrmApiRouter {
     this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo link (versao ${v.claims.ver})`, undefined, v.claims.jti);
     return {
       status: 200,
-      body: { data: toPublicProposalDto(found) },
+      body: { data: toPublicProposalDto(found), issuerAddress: formatIssuerAddress(this.companyEmitter) },
     };
   }
 
@@ -6300,7 +6301,7 @@ export class CrmApiRouter {
           if (!this.hasFullProposalAccess(query, ctx, found)) {
             return this.viewProposalViaLink(propId.trim(), query);
           }
-          return { status: 200, body: { data: found } };
+          return { status: 200, body: { data: found, issuerAddress: formatIssuerAddress(this.companyEmitter) } };
         }
         if (method === 'PATCH' || method === 'PUT') {
           // (a) Mesmo escopo do GET: PROPRIOS/EQUIPE so editam as proprias (403 nas outras).

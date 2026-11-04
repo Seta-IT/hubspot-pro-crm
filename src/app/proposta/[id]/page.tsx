@@ -120,6 +120,8 @@ function PublicProposalPrintContent() {
   const [signerName, setSignerName] = useState("");
   const [signerCpf, setSignerCpf] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  // t137u: endereco da emitente vindo do cadastro da empresa (GET da proposta devolve issuerAddress).
+  const [issuerAddress, setIssuerAddress] = useState("");
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   // Sessao interna STI-hub: somente usuarios logados (MFA) veem a barra de edicao,
@@ -153,6 +155,7 @@ function PublicProposalPrintContent() {
         .then(async (r) => ({ ok: r.ok, json: await r.json().catch(() => null) }))
         .then(({ ok, json }) => {
           if (!activePublic) return;
+          if (ok && typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
           const dto = ok && json?.data && !Array.isArray(json.data) ? (json.data as PublicProposalDto) : null;
           if (dto) {
             setProposal(publicDtoToRenderableProposal(dto, rawId));
@@ -221,6 +224,7 @@ function PublicProposalPrintContent() {
         fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
           .then((r) => r.json())
           .then((json) => {
+            if (typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
             const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
             if (apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.length > 0) {
               setProposal((prev) =>
@@ -265,6 +269,7 @@ function PublicProposalPrintContent() {
       .then((r) => r.json())
       .then((json) => {
         if (!active) return;
+        if (typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
         const apiData: ErpCommercialProposal | null =
           json?.data && !Array.isArray(json.data)
             ? (json.data as ErpCommercialProposal)
@@ -1557,8 +1562,8 @@ function PublicProposalPrintContent() {
                 <p className="text-[11px] font-semibold text-slate-600">
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  Alphaville, Campinas/SP
+                <p data-testid="proposal-issuer-address" className="text-[11px] text-slate-500">
+                  {issuerAddress || "Alphaville, Campinas/SP"}
                 </p>
               </div>
             </div>
