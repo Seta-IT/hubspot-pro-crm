@@ -696,7 +696,11 @@ export default function StiHubAdminRbacPanel({
           expiresAt: d.expiresAt || new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
           emailDelivered: Boolean(d.emailDelivered),
         });
-        onShowToast(`Link de convite gerado e copiado para ${user.email}!`);
+        onShowToast(
+          d.emailDelivered
+            ? `E-mail de convite enviado para ${user.email}.`
+            : `E-mail NÃO enviado para ${user.email}; link copiado para envio manual.`
+        );
       }
       await onRefresh();
     }
@@ -3582,13 +3586,23 @@ export default function StiHubAdminRbacPanel({
               </button>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
-              <div className="font-semibold text-emerald-950 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div
+              className={`p-3.5 rounded-xl border space-y-2 ${
+                inviteModalData.emailDelivered ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'
+              }`}
+            >
+              <div
+                className={`font-semibold flex items-center gap-1.5 ${
+                  inviteModalData.emailDelivered ? 'text-emerald-950' : 'text-amber-950'
+                }`}
+              >
+                <CheckCircle2
+                  className={`w-4 h-4 shrink-0 ${inviteModalData.emailDelivered ? 'text-emerald-600' : 'text-amber-600'}`}
+                />
                 <span>
                   {inviteModalData.emailDelivered
                     ? `E-mail de convite enviado para ${inviteModalData.email}!`
-                    : "Link de convite pronto e copiado para sua área de transferência!"}
+                    : `O e-mail NÃO foi enviado para ${inviteModalData.email} (serviço de e-mail indisponível). Envie o link abaixo por um canal seguro.`}
                 </span>
               </div>
               <p className="text-[11px] text-emerald-900 leading-relaxed">

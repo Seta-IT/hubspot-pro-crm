@@ -2109,6 +2109,10 @@ export class CrmApiRouter {
       }
     }
 
+    // Sem segredo no log: so o motivo (chave ausente/invalida, Resend recusou, SMTP incompleto).
+    console.warn(
+      `[STI-hub e-mail] Convite NAO entregue (${protocol}): resendKey=${resendKey ? "ok" : "ausente_ou_invalida"}, smtp=${smtpHost && smtpUser && smtpPass ? "falhou" : "nao_configurado"}.`
+    );
     return { delivered: false, deliveryMode: "INVITE_LINK_READY", protocol };
   }
 
@@ -8221,6 +8225,7 @@ export class CrmApiRouter {
               ...(delivery.delivered ? {} : { inviteToken: _invTok, inviteUrl: _invUrl, conviteUrl: _convUrl }),
               emailDelivered: delivery.delivered,
               deliveryMode: delivery.deliveryMode,
+              ...(delivery.delivered ? {} : { deliveryError: 'EMAIL_PROVIDER_NOT_CONFIGURED' }),
               protocol: delivery.protocol,
             },
           },
