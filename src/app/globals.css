@@ -7,6 +7,10 @@
   --sti-accent: #1e3a6e;
   --sti-accent-hover: #162d57;
   --sti-accent-soft: #eef2f8;
+  /* Cabecalho por sistema (pedido do Marcéllo 04/11). Texto branco com contraste AA (>= 4.5:1) em todas as paradas. */
+  --sti-header-erp: linear-gradient(90deg, #1e3a6e 0%, #2b4c86 55%, #3a5f9c 100%);
+  --sti-header-crm: linear-gradient(90deg, #9a3412 0%, #b4441a 55%, #c2410c 100%);
+  --sti-header-service: linear-gradient(90deg, #065f46 0%, #0b6e52 55%, #047857 100%);
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
   --hs-battleship: #516f90;

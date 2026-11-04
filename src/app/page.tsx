@@ -1078,6 +1078,10 @@ export default function HubSpotProCrmApp() {
     activeModule === 'DATA_HEALTH' ||
     activeModule === 'ADMIN_RBAC';
 
+  // Cabecalho por sistema: CRM laranja, Chamados verde, ERP azul-marinho (tokens em globals.css).
+  const headerSystem: 'crm' | 'erp' | 'service' =
+    activeModule === 'SERVICE_DESK' ? 'service' : isCrmActive ? 'crm' : 'erp';
+
   useEffect(() => {
     if (!activeRbacUser) return;
     if (activeModule === 'ADMIN_RBAC') return;
@@ -1375,7 +1379,7 @@ export default function HubSpotProCrmApp() {
       {/* ====================================================================
           OFFICIAL STI-HUB (SETA TELECOM CRM & ERP) TOP GLOBAL NAVIGATION BAR (#213343)
       ==================================================================== */}
-      <header className="sticky top-0 z-40 bg-[linear-gradient(90deg,#1e3a6e_0%,#2b4c86_55%,#3a5f9c_100%)] text-white border-b border-white/10 shadow-sm select-none">
+      <header data-testid="sti-header" data-system={headerSystem} style={{ backgroundImage: `var(--sti-header-${headerSystem})` }} className="sticky top-0 z-40 text-white border-b border-white/10 shadow-sm select-none">
         {/* Top Primary Bar */}
         <div className="max-w-[1680px] mx-auto px-3 sm:px-5 h-13 flex items-center justify-between gap-3 py-2">
           {/* Brand + Portal Switcher */}
