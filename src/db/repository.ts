@@ -825,6 +825,9 @@ export interface StiHubAuthenticatedSession {
   erpPermissions: StiHubErpPermissions;
 }
 
+const SUPERSEDED_INVITE_MESSAGE =
+  "Este link de convite foi substituído por um convite mais recente. Use o link do último e-mail recebido.";
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -8365,6 +8368,8 @@ export class CrmRepository {
     const expMs = nowMs + 72 * 3600 * 1000; // 72 hours
     found.inviteStatus = "PENDING_INVITE";
     found.invitedAt = new Date(nowMs).toISOString();
+    // CISO 04/11: reenvio invalida o link anterior (aceite confere que o token e o mais recente).
+    found.latestInviteIat = nowMs;
     this.save();
 
     const normMod = normalizeUserModuleAccess({
@@ -8419,6 +8424,14 @@ export class CrmRepository {
     };
   }
 
+  /** CISO 04/11: convite substituido por um reenvio mais novo (so quando a instancia conhece o mais novo). */
+  private isInviteSuperseded(c: { uid: string; email: string; iat: number }): boolean {
+    const rbac = this.ensureRbacState();
+    const u = rbac.users.find((x) => x.id === c.uid || x.email.toLowerCase() === String(c.email || "").toLowerCase());
+    const latest = Number(u?.latestInviteIat || 0);
+    return latest > 0 && Number(c.iat || 0) < latest;
+  }
+
   inspectUserInvite(token: string): {
     ok: boolean;
     error?: string;
@@ -8448,6 +8461,9 @@ export class CrmRepository {
         ok: false,
         error: "Este convite já foi utilizado para cadastrar a senha. Faça login normalmente.",
       };
+    }
+    if (this.isInviteSuperseded(c)) {
+      return { ok: false, error: SUPERSEDED_INVITE_MESSAGE };
     }
 
     // Ensure user exists in repository (serverless stateless hydration)
@@ -8546,6 +8562,9 @@ export class CrmRepository {
         ok: false,
         error: "Este convite já foi utilizado. Faça login com seu e-mail e senha.",
       };
+    }
+    if (this.isInviteSuperseded(c)) {
+      return { ok: false, error: SUPERSEDED_INVITE_MESSAGE };
     }
     const cleanPass = String(input.password || "").trim();
     // Pacote C: senha NOVA do convite segue a politica de 12 caracteres.

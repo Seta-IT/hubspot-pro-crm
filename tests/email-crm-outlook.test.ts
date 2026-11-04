@@ -14,11 +14,15 @@ import { CrmApiRouter } from '../src/api/router';
 import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { isNeverLogAddress, normalizeNeverLogPattern, shouldLogEmail, DEFAULT_NEVER_LOG_PATTERNS } from '../src/modules/email/never-log';
 import { openMailboxSecret, sealMailboxSecret } from '../src/modules/email/mailbox-crypto';
-import { buildTrackedEmailBody, isSafeRedirectTarget, newTrackingId, parseTrackingPath, OPEN_GRACE_MS } from '../src/modules/email/mail-tracking';
+import { buildTrackedEmailBody, isSafeRedirectTarget, newTrackingId, parseTrackingPath, OPEN_GRACE_MS, trackingSignature } from '../src/modules/email/mail-tracking';
+import { SlidingWindowRateLimiter } from '../src/api/password-reset';
+import { isPublicStiHubPath } from '../src/middleware';
 import { MemoryMailboxStore, type CrmEmailMessage } from '../src/modules/email/mailbox-store';
 import { importHubSpotEmailHistory, mapHubSpotEmail, type HubSpotEmailPage } from '../src/modules/email/hubspot-email-history';
 import { isMailboxFeatureEnabled } from '../src/modules/email/ms-graph';
 import { handleEmailTrackRequest } from '../src/app/lib/email-track-route';
+const oPath = (id: string) => `/api/email-track/o/${id}/${trackingSignature(id)}`;
+const cPath = (id: string, n: number) => `/api/email-track/c/${id}/${n}/${trackingSignature(id, n)}`;
 
 const HTTP = { _fromHttpBridge: '1' };
 const tok = (uid: string, email: string, roleId: string, extra: Record<string, unknown> = {}) =>
@@ -107,14 +111,15 @@ describe('Cifra dos tokens', () => {
 });
 
 describe('Rastreio de aberturas e cliques', () => {
+  beforeEach(() => enableEnv());
   it('corpo escapado, links pelo redirecionamento e pixel', () => {
     const id = newTrackingId();
     const b = buildTrackedEmailBody({ body: 'Olá <b>cliente</b>\nVeja https://setatelecom.com.br/proposta?id=1.', signature: 'Marcelo\nSeta', trackingId: id, origin: 'https://sti-hub.vercel.app' });
     assert.ok(b.html.includes('&lt;b&gt;cliente&lt;/b&gt;'));
     assert.ok(!b.html.includes('<b>cliente'));
     assert.deepEqual(b.links, ['https://setatelecom.com.br/proposta?id=1']);
-    assert.ok(b.html.includes(`https://sti-hub.vercel.app/api/email-track/c/${id}/0`));
-    assert.ok(b.html.includes(`https://sti-hub.vercel.app/api/email-track/o/${id}`));
+    assert.ok(b.html.includes(`https://sti-hub.vercel.app${cPath(id, 0)}`));
+    assert.ok(b.html.includes(`https://sti-hub.vercel.app${oPath(id)}`));
     assert.ok(b.text.endsWith('Marcelo\nSeta'));
     const plain = buildTrackedEmailBody({ body: 'Veja https://a.com/x', trackingId: null });
     assert.equal(plain.links.length, 0);
@@ -122,9 +127,20 @@ describe('Rastreio de aberturas e cliques', () => {
   });
   it('caminhos publicos e destino seguro', () => {
     const id = newTrackingId();
-    assert.deepEqual(parseTrackingPath(`/api/email-track/o/${id}`), { kind: 'OPEN', trackingId: id });
-    assert.deepEqual(parseTrackingPath(`/api/email-track/c/${id}/3`), { kind: 'CLICK', trackingId: id, linkIndex: 3 });
-    for (const bad of ['/api/email-track/o/abc', `/api/email-track/c/${id}/x`, `/api/email-track/c/${id}`, '/api/email-track/z/1']) assert.equal(parseTrackingPath(bad), null, bad);
+    assert.deepEqual(parseTrackingPath(oPath(id)), { kind: 'OPEN', trackingId: id });
+    assert.deepEqual(parseTrackingPath(cPath(id, 3)), { kind: 'CLICK', trackingId: id, linkIndex: 3 });
+    const forged = 'A'.repeat(22);
+    for (const bad of [
+      '/api/email-track/o/abc', `/api/email-track/o/${id}`, `/api/email-track/c/${id}/3`, `/api/email-track/c/${id}/x/${forged}`,
+      `/api/email-track/o/${id}/${forged}`, `/api/email-track/c/${id}/3/${forged}`,
+      `/api/email-track/c/${id}/4/${trackingSignature(id, 3)}`, `/api/email-track/o/${id}/${trackingSignature(id, 0)}`,
+      `/api/email-track/o/${newTrackingId()}/${trackingSignature(id)}`, '/api/email-track/z/1',
+    ]) assert.equal(parseTrackingPath(bad), null, bad);
+    // sem chave: nada e assinado nem aceito, e o corpo sai sem rastreio
+    disableEnv();
+    assert.equal(trackingSignature(id), null);
+    assert.equal(parseTrackingPath(`/api/email-track/o/${id}/${forged}`), null);
+    assert.ok(!buildTrackedEmailBody({ body: 'https://a.com/x', trackingId: id }).html.includes('/api/email-track/'));
     assert.ok(isSafeRedirectTarget('https://a.com'));
     assert.ok(!isSafeRedirectTarget('javascript:alert(1)'));
   });
@@ -138,25 +154,57 @@ describe('Rastreio de aberturas e cliques', () => {
       links: ['https://acme.com/doc'], openCount: 0, clickCount: 0, lastOpenedAt: null, lastClickedAt: null, createdAt: new Date().toISOString(),
     };
     await store.insertMessage(msg);
-    const o = await handleEmailTrackRequest(`/api/email-track/o/${trackingId}`, store);
+    const o = await handleEmailTrackRequest(oPath(trackingId), store);
     assert.equal(o.status, 200);
     assert.equal(o.headers.get('content-type'), 'image/gif');
     assert.match(String(o.headers.get('cache-control')), /no-store/);
     assert.equal(store.messages[0].openCount, 1);
-    const c = await handleEmailTrackRequest(`/api/email-track/c/${trackingId}/0`, store);
+    const c = await handleEmailTrackRequest(cPath(trackingId, 0), store);
     assert.equal(c.status, 302);
     assert.equal(c.headers.get('location'), 'https://acme.com/doc');
     assert.equal(store.messages[0].clickCount, 1);
-    const unknownOpen = await handleEmailTrackRequest(`/api/email-track/o/${newTrackingId()}`, store);
+    const unknownOpen = await handleEmailTrackRequest(oPath(newTrackingId()), store);
     assert.equal(unknownOpen.status, 200);
-    const unknownClick = await handleEmailTrackRequest(`/api/email-track/c/${trackingId}/7`, store);
+    const unknownClick = await handleEmailTrackRequest(cPath(trackingId, 7), store);
     assert.equal(unknownClick.status, 302);
     assert.equal(unknownClick.headers.get('location'), 'https://sti-hub.vercel.app');
     // abertura dentro da carencia (varredura do provedor) nao conta
     const fresh = { ...msg, id: 'eml-2', externalId: 'graph:2', trackingId: newTrackingId(), occurredAt: new Date().toISOString() };
     await store.insertMessage(fresh);
-    await handleEmailTrackRequest(`/api/email-track/o/${fresh.trackingId}`, store);
+    await handleEmailTrackRequest(oPath(fresh.trackingId!), store);
     assert.equal(store.messages[1].openCount, 0);
+  });
+  it('CISO 04/11: assinatura invalida nao grava nem redireciona para fora; limite por IP; middleware so libera o formato assinado', async () => {
+    const store = new MemoryMailboxStore();
+    const trackingId = newTrackingId();
+    await store.insertMessage({
+      id: 'eml-9', accountId: 'mbx', ownerEmail: 'a@setatelecom.com.br', externalId: 'graph:9', conversationId: 'c', internetMessageId: null,
+      direction: 'ENVIADO', source: 'STI_HUB', fromAddress: 'a@setatelecom.com.br', fromName: 'A', to: ['x@acme.com'], cc: [], subject: 'S', bodyPreview: '',
+      occurredAt: new Date(Date.now() - OPEN_GRACE_MS - 1000).toISOString(), contactId: 'c1', companyId: null, dealId: null, trackingId,
+      links: ['https://acme.com/doc'], openCount: 0, clickCount: 0, lastOpenedAt: null, lastClickedAt: null, createdAt: new Date().toISOString(),
+    });
+    const forged = 'A'.repeat(22);
+    const badO = await handleEmailTrackRequest(`/api/email-track/o/${trackingId}/${forged}`, store);
+    assert.equal(badO.status, 200);
+    assert.equal(badO.headers.get('content-type'), 'image/gif');
+    assert.equal(badO.headers.get('location'), null);
+    const badC = await handleEmailTrackRequest(`/api/email-track/c/${trackingId}/0/${forged}`, store);
+    assert.equal(badC.status, 200, 'clique com assinatura invalida nao redireciona');
+    assert.equal(badC.headers.get('location'), null);
+    assert.equal(store.messages[0].openCount, 0);
+    assert.equal(store.messages[0].clickCount, 0);
+    const lim = new SlidingWindowRateLimiter(1, 60_000);
+    await handleEmailTrackRequest(oPath(trackingId), store, '1.2.3.4', lim);
+    const over = await handleEmailTrackRequest(cPath(trackingId, 0), store, '1.2.3.4', lim);
+    assert.equal(over.status, 302);
+    assert.equal(over.headers.get('location'), 'https://sti-hub.vercel.app');
+    assert.equal(store.messages[0].clickCount, 0);
+    assert.equal(isPublicStiHubPath(oPath(trackingId), 'GET'), true);
+    assert.equal(isPublicStiHubPath(cPath(trackingId, 0), 'GET'), true);
+    for (const p of ['/api/email-track', '/api/email-track/o', `/api/email-track/o/${trackingId}`, `/api/email-track/c/${trackingId}/0`, `/api/email-track/x/${trackingId}/${forged}`, '/api/mailbox/status']) {
+      assert.equal(isPublicStiHubPath(p, 'GET'), false, p);
+    }
+    assert.equal(isPublicStiHubPath(oPath(trackingId), 'POST'), false);
   });
 });
 
@@ -272,6 +320,7 @@ describe('Rotas /api/mailbox', () => {
   });
 
   it('Nunca registrar: leitura para todos, alteracao so admin', async () => {
+    enableEnv(); // CISO 04/11: desligado => 503 sem tocar o banco
     const { router } = setup();
     const g = await router.dispatch({ method: 'GET', path: '/api/mailbox/never-log', query: SELLER() });
     assert.equal(g.status, 200);

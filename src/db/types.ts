@@ -2072,6 +2072,8 @@ export interface StiHubUserRecord {
   passwordHash?: string;
   inviteStatus?: "PENDING_INVITE" | "ACTIVE";
   invitedAt?: string | null;
+  /** iat (epoch ms) do convite mais recente: convites com iat menor sao recusados (CISO 04/11). */
+  latestInviteIat?: number | null;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   /** Tela inicial padrao (ID da allowlist em src/app/lib/home-screen.ts). */
   homeScreen?: string | null;

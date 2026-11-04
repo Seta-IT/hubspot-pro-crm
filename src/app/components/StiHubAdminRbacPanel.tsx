@@ -916,6 +916,13 @@ export default function StiHubAdminRbacPanel({
         setLastTestProtocol(proto);
         onShowToast(`E-mail de teste disparado para ${testRecipient} (Protocolo ${proto})!`);
         await onRefresh();
+      } else {
+        let msg = `Falha ao enviar o e-mail de teste para ${testRecipient}.`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = `Falha ao enviar o e-mail de teste: ${j.error}`;
+        } catch {}
+        onShowToast(msg);
       }
     } finally {
       setSendingTestEmail(false);

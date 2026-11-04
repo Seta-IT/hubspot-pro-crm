@@ -7490,10 +7490,21 @@ export class CrmApiRouter {
         const protocol = `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
         const nowIso = new Date().toISOString();
 
-        // Optional external Resend HTTP relay if RESEND_API_KEY is configured
+        // Parecer CISO 04/11: remetente = o mesmo dos convites (RESEND_FROM_EMAIL, dominio
+        // notificacoes.setatelecom.com.br com DKIM); envio que falha devolve erro (nada e gravado
+        // como enviado). Sem provedor => 503 fora do runtime de teste.
         let externalRelay = 'LOGGED_STI_HUB';
+        const mailSecCfg = this.repo.getRbacState().securityConfig;
         const resendKey = resolveResendApiKey();
+        if (!resendKey && !isTestRuntime()) {
+          console.warn('[STI-hub e-mail] send-email: provedor Resend nao configurado.');
+          return {
+            status: 503,
+            body: { error: 'O envio de e-mail não está configurado. Fale com o administrador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
+          };
+        }
         if (resendKey) {
+          let failure: string | null = null;
           try {
             const res = await fetch('https://api.resend.com/emails', {
               method: 'POST',
@@ -7502,7 +7513,7 @@ export class CrmApiRouter {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                from: process.env.STI_HUB_FROM_EMAIL || 'Seta Telecom <comercial@setatelecom.com.br>',
+                from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail),
                 to: to.split(',').map((x) => x.trim()).filter(Boolean),
                 cc: body.cc
                   ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
@@ -7512,8 +7523,17 @@ export class CrmApiRouter {
               }),
             });
             if (res.ok) externalRelay = 'SENT_VIA_RESEND';
+            else failure = `HTTP ${res.status}`;
           } catch {
-            // Keep internal log if external relay is unreachable
+            failure = 'falha de rede';
+          }
+          if (failure) {
+            // Log so com o status (nunca chave, corpo ou link do e-mail).
+            console.warn(`[STI-hub e-mail] send-email: Resend recusou o envio (${failure}).`);
+            return {
+              status: 502,
+              body: { error: 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.', code: 'EMAIL_SEND_FAILED' },
+            };
           }
         }
 

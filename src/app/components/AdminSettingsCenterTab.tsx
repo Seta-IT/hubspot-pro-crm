@@ -377,7 +377,17 @@ export default function AdminSettingsCenterTab({
           body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, Chamados NOC, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
         }),
       });
-      const json = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        let msg = `Falha ao enviar o e-mail de teste para ${testRecipient}.`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = `Falha ao enviar o e-mail de teste: ${j.error}`;
+        } catch {}
+        setValidationResult(null);
+        onShowToast(msg);
+        return;
+      }
+      const json = await res.json();
       const protocol = json?.data?.protocol || `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
       setValidationResult({
         protocol,
@@ -681,7 +691,7 @@ export default function AdminSettingsCenterTab({
                 </code>{' '}
                 e{' '}
                 <code className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-900 font-mono">
-                  STI_HUB_FROM_EMAIL
+                  RESEND_FROM_EMAIL
                 </code>{' '}
                 no projeto da Vercel.
               </p>

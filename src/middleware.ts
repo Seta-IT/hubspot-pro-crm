@@ -35,6 +35,16 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   ) {
     return true;
   }
+  // Parecer CISO 04/11: rastreio do e-mail do CRM. So GET e so o formato exato do caminho
+  // assinado (o HMAC e conferido na rota; sem chave a rota nao toca o banco). Nada mais sob
+  // /api/email-track e publico.
+  if (
+    String(method || 'GET').toUpperCase() === 'GET' &&
+    (/^\/api\/email-track\/o\/[A-Za-z0-9_-]{22,64}\/[A-Za-z0-9_-]{22}$/.test(clean) ||
+      /^\/api\/email-track\/c\/[A-Za-z0-9_-]{22,64}\/\d{1,2}\/[A-Za-z0-9_-]{22}$/.test(clean))
+  ) {
+    return true;
+  }
   // Public proposal view & external ICP-Brasil client approval link (/proposta/[id]).
   // Restricts public access exclusively to individual proposal routes with a specific :id
   // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).

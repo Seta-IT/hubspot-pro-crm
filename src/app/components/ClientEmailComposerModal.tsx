@@ -239,6 +239,7 @@ export default function ClientEmailComposerModal({
   );
   const [body, setBody] = useState<string>(() => buildDefaultBody(payload, payload.docType));
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [sentProtocol, setSentProtocol] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [signedProposalUrl, setSignedProposalUrl] = useState<string | null>(null);
@@ -319,7 +320,18 @@ export default function ClientEmailComposerModal({
           proposalId: payload.proposalId,
         }),
       });
-      const json = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        // CISO 04/11: falha real de envio nao vira "enviado" (nada e registrado).
+        let msg = 'Não foi possível enviar o e-mail. Tente novamente.';
+        try {
+          const j = await res.json();
+          if (j?.error) msg = String(j.error);
+        } catch {}
+        setSendError(msg);
+        return;
+      }
+      setSendError(null);
+      const json = await res.json();
       const protocol = json?.data?.protocol || `STI-MAIL-${Date.now().toString().slice(-6)}`;
       setSentProtocol(protocol);
 
@@ -569,6 +581,11 @@ export default function ClientEmailComposerModal({
               </div>
 
               <div className="flex items-center gap-2">
+                {sendError && (
+                  <span role="alert" data-testid="email-send-error" className="text-xs text-red-700">
+                    {sendError}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={onClose}

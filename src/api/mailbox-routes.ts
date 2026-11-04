@@ -324,6 +324,19 @@ export async function handleMailboxRoute(
   const enabled = isMailboxFeatureEnabled();
   const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
 
+  // Parecer CISO 04/11: recurso desligado (sem app da Microsoft ou sem STI_HUB_MAILBOX_ENC_KEY)
+  // nao toca o banco (nem cria as tabelas): status neutro, linha do tempo vazia, resto 503.
+  if (!enabled) {
+    if (sub === '/status' && m === 'GET') {
+      return {
+        status: 200,
+        body: { data: { enabled: false, message: MAILBOX_MESSAGES.disabled, accounts: [], signature: null, canManageNeverLog: actor.isAdmin } },
+      };
+    }
+    if (sub === '/timeline' && m === 'GET') return { status: 200, body: { data: [], total: 0 } };
+    return disabledResponse();
+  }
+
   // ---------------------------------------------------------------- status
   if (sub === '/status' && m === 'GET') {
     const accounts = enabled ? (await deps.store.listAccounts(actor.email)).map(toPublicAccount) : [];
