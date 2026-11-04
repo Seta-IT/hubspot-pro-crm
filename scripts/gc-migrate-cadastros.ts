@@ -4,7 +4,7 @@
  * só-no-STI-hub / candidatos à limpeza). Nunca atualiza nem apaga registros existentes.
  *
  * Uso:
- *   node scripts/gc-migrate-cadastros.ts --out <dir> [--gc-dir <dir>] [--state-file <arquivo>] [--apply]
+ *   node scripts/gc-migrate-cadastros.ts --out <dir> [--gc-dir <dir>] [--state-file <arquivo>] [--apply] [--update-divergentes]
  *
  * - Fonte GestãoClick: --gc-dir com gc-<endpoint>.json já exportados, ou API ao vivo
  *   (GESTAOCLICK_ACCESS_TOKEN / GESTAOCLICK_SECRET_ACCESS_TOKEN do ambiente ou .env.local).
@@ -487,6 +487,73 @@ function writeReports(plans: Plan[], tag: string): Rec {
 
 // ---------------------------------------------------------------- main
 const ENTITIES: Entity[] = ['clientes', 'fornecedores', 'transportadoras', 'produtos', 'servicos'];
+// Fase (b) aprovada pelo dono em 04/11: nos registros que existem nos dois e divergem, vale o
+// GestaoClick. Atualiza so os campos divergentes (ids internos e vinculos preservados) e grava o
+// id GC nos registros casados que ainda nao o tinham. Nunca apaga nada.
+const UPDATE = argv.includes('--update-divergentes');
+function fmtNcm(d: string): string {
+  return d.length === 8 ? `NCM ${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6)}` : `NCM ${d}`;
+}
+function applyUpdates(state: Rec, plans: Plan[], gcRows: Record<string, Rec[]>): Rec[] {
+  const log: Rec[] = [];
+  for (const p of plans) {
+    const list = stiList(state, p.entity);
+    const byId = new Map(list.map((r) => [String(r.id), r]));
+    const gcById = new Map(gcRows[p.entity].map((r) => [String(r.id), r]));
+    const isCad = !['produtos', 'servicos'].includes(p.entity);
+    for (const b of p.both) {
+      const sti = byId.get(String(b.stiId)), gc = gcById.get(String(b.gcId));
+      if (!sti || !gc) continue;
+      if (p.entity === 'clientes') {
+        sti.customProperties = sti.customProperties || {};
+        if (!sti.customProperties.gestaoClickClientId) {
+          sti.customProperties.gestaoClickClientId = String(gc.id);
+          log.push({ entidade: p.entity, stiId: sti.id, campo: 'customProperties.gestaoClickClientId', antes: '', depois: String(gc.id) });
+        }
+      } else if (!sti.gestaoClickId) {
+        sti.gestaoClickId = String(gc.id);
+        log.push({ entidade: p.entity, stiId: sti.id, campo: 'gestaoClickId', antes: '', depois: String(gc.id) });
+      }
+    }
+    for (const dv of p.divergent) {
+      const sti = byId.get(String(dv.stiId)), gc = gcById.get(String(dv.gcId));
+      if (!sti || !gc) continue;
+      // Duplicado interno do GC (mesmo documento/codigo de outro id GC ja vinculado): nao sobrescreve.
+      const stiGid = stiGcIdOf(p.entity, sti);
+      if (stiGid && stiGid !== String(gc.id)) continue;
+      const set = (key: string, val: unknown) => {
+        const antes = sti[key];
+        if (antes === val) return;
+        sti[key] = val;
+        log.push({ entidade: p.entity, stiId: sti.id, campo: key, antes: antes ?? '', depois: val ?? '' });
+      };
+      for (const d of dv.detalhes as Rec[]) {
+        if (d.campo === 'documento') continue; // Trava Fiscal: documento nunca e sobrescrito
+        if (!isCad) {
+          const m = p.entity === 'produtos' ? mapProduct(gc) : mapService(gc);
+          if (d.campo === 'nome') set('name', m.name);
+          else if (d.campo === 'codigo') set('gestaoClickCode', m.gestaoClickCode);
+          else if (d.campo === 'preco_venda') set('saleOrSetupPrice', m.saleOrSetupPrice);
+          else if (d.campo === 'ncm') set('ncmOrLc116', fmtNcm(digits(gc.fiscal?.ncm)));
+          else if (d.campo === 'ativo') set('isActive', m.isActive);
+        } else if (p.entity === 'clientes') {
+          const end = gcAddress(gc);
+          if (d.campo === 'nome') set('name', gcName(gc));
+          else if (d.campo === 'cidade') set('city', String(end.nome_cidade || '').trim() || null);
+          else if (d.campo === 'uf') set('state', String(end.estado || '').trim() || null);
+        } else {
+          const m = mapSupplier(gc, p.entity === 'transportadoras' ? 'TRANSPORTADORA' : 'FORNECEDOR');
+          if (d.campo === 'nome') { set('name', m.name); set('legalName', m.legalName); }
+          else if (d.campo === 'email') set('email', m.email);
+          else if (d.campo === 'telefone') set('phone', m.phone);
+        }
+      }
+      if (sti.updatedAt !== undefined) sti.updatedAt = new Date().toISOString();
+    }
+  }
+  return log;
+}
+
 async function main(): Promise<void> {
   const gc: Record<string, Rec[]> = {};
   for (const e of ENTITIES) gc[e] = await loadGc(e);
@@ -505,6 +572,11 @@ async function main(): Promise<void> {
     if (APPLY) {
       fs.copyFileSync(STATE_FILE, path.join(OUT, 'backup-state-file.json'));
       inserted = applyInserts(state, plans);
+      if (UPDATE) {
+        const upd = applyUpdates(state, plans, gc);
+        writeJsonCsv(path.join(OUT, 'atualizacoes-aplicadas'), upd);
+        inserted.atualizacoes = upd.length;
+      }
       fs.writeFileSync(STATE_FILE, JSON.stringify(state));
     }
     const second = plansFor(APPLY ? state : JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')));
