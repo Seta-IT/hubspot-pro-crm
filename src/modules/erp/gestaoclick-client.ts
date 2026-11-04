@@ -585,6 +585,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
     mappedCatalog.push({
       id: `cat-gc-prod-${gcId}`,
+      gestaoClickId: gcId,
       gestaoClickCode: sku,
       name,
       category: 'EQUIPAMENTO_LOCACAO',
@@ -607,6 +608,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
     mappedCatalog.push({
       id: `cat-gc-srv-${gcId}`,
+      gestaoClickId: gcId,
       gestaoClickCode: code,
       name,
       category: 'SERVICO_TECNICO_LC116',
@@ -1004,6 +1006,8 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   // 9. Map Fornecedores (/fornecedores)
   const mappedSuppliers: ErpSupplierRecord[] = fornecedoresRes.data.slice(0, 15).map((f) => ({
     id: String(f.id || ""),
+    gestaoClickId: String(f.id || ""),
+    supplierType: "FORNECEDOR" as const,
     name: String(f.nome || f.razao_social || "Fornecedor").trim(),
     legalName: String(f.razao_social || f.nome || "Fornecedor").trim(),
     cnpj: String(f.cnpj || f.cpf || "—").trim() || "—",

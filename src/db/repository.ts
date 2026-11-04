@@ -180,6 +180,7 @@ function generateTotpSecretBase32(seedIdentifier?: string): string {
   return deriveServerTotpSecret(String(seedIdentifier || ''));
 }
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
+import { mergeGcCatalog, mergeGcCompanies, mergeGcSuppliers } from '../modules/erp/gestaoclick-merge';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
 import {
   calculateLeadScore,
@@ -6528,49 +6529,41 @@ export class CrmRepository {
       return this.syncGestaoClick();
     }
 
-    // 1. Merge real GestãoClick Companies
-    const existingCompById = new Map(this.state.companies.map((c) => [c.id, c]));
+    // 1. Merge real GestãoClick Companies (upsert não destrutivo: id GC ->
+    //    CNPJ/CPF -> nome; Trava Fiscal: nunca mescla documentos diferentes)
+    const companyMerge = mergeGcCompanies(this.state.companies, snapshot.mappedCompanies, (gcComp) => {
+      const now = new Date().toISOString();
+      return {
+        id: gcComp.id || `comp-gc-${gcComp.gestaoClickClientId}`,
+        name: gcComp.name,
+        domain: gcComp.domain || null,
+        cnpj: gcComp.cnpj || null,
+        industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
+        size: gcComp.size || '51-200 funcionários',
+        annualRevenue: gcComp.annualRevenue || 15_000_000,
+        city: gcComp.city || 'São Paulo',
+        state: gcComp.state || 'SP',
+        country: 'Brasil',
+        completenessScore: 88,
+        enrichedAt: now,
+        lastActivityAt: now,
+        enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
+        ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
+        isTargetAccount: true,
+        icpTier: 'TIER_1',
+        customProperties: {
+          gestaoClickClientId: gcComp.gestaoClickClientId,
+          accountExecutive: gcComp.ownerName || 'Marcelo Lopes Mira',
+          tier: 'ENTERPRISE',
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    const compByGcId = companyMerge.byGcId;
     const existingCompByName = new Map(
       this.state.companies.map((c) => [normalizeSearchText(c.name), c])
     );
-
-    for (const gcComp of snapshot.mappedCompanies) {
-      const existing =
-        (gcComp.id && existingCompById.get(gcComp.id)) ||
-        existingCompByName.get(normalizeSearchText(gcComp.name));
-      if (!existing) {
-        const now = new Date().toISOString();
-        const created: Company = {
-          id: gcComp.id || `comp-gc-${gcComp.gestaoClickClientId}`,
-          name: gcComp.name,
-          domain: gcComp.domain || null,
-          cnpj: gcComp.cnpj || null,
-          industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
-          size: gcComp.size || '51-200 funcionários',
-          annualRevenue: gcComp.annualRevenue || 15_000_000,
-          city: gcComp.city || 'São Paulo',
-          state: gcComp.state || 'SP',
-          country: 'Brasil',
-          completenessScore: 88,
-          enrichedAt: now,
-          lastActivityAt: now,
-          enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
-          ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
-          isTargetAccount: true,
-          icpTier: 'TIER_1',
-          customProperties: {
-            gestaoClickClientId: gcComp.gestaoClickClientId,
-            accountExecutive: gcComp.ownerName || 'Marcelo Lopes Mira',
-            tier: 'ENTERPRISE',
-          },
-          createdAt: now,
-          updatedAt: now,
-        };
-        this.state.companies.push(created);
-        existingCompById.set(created.id, created);
-        existingCompByName.set(normalizeSearchText(created.name), created);
-      }
-    }
 
     // 2. Merge real GestãoClick Contacts (append after user-created contacts)
     const existingContactByEmail = new Set(
@@ -6578,7 +6571,9 @@ export class CrmRepository {
     );
     for (const gcCont of snapshot.mappedContacts) {
       if (!existingContactByEmail.has(gcCont.email.toLowerCase())) {
-        const comp = existingCompByName.get(normalizeSearchText(gcCont.companyName));
+        const comp =
+          compByGcId.get(String(gcCont.gestaoClickClientId || '')) ||
+          existingCompByName.get(normalizeSearchText(gcCont.companyName));
         const now = new Date().toISOString();
         const contact: Contact = {
           id: `cont-gc-${gcCont.gestaoClickClientId}`,
@@ -6618,14 +6613,9 @@ export class CrmRepository {
       }
     }
 
-    // 3. Merge Catalog
-    const existingCatIds = new Set(erp.catalog.map((c) => c.id));
-    for (const item of snapshot.mappedCatalog) {
-      if (!existingCatIds.has(item.id)) {
-        erp.catalog.push(item);
-        existingCatIds.add(item.id);
-      }
-    }
+    // 3. Merge Catalog (produtos e serviços): só insere o que falta, casando por
+    //    id, id GC ou código; nunca substitui nem apaga itens existentes.
+    mergeGcCatalog(erp.catalog, snapshot.mappedCatalog);
 
     // 4. Merge Proposals
     const existingPropIds = new Set(erp.proposals.map((p) => p.id));
@@ -6681,7 +6671,11 @@ export class CrmRepository {
       erp.serviceOrders = snapshot.mappedServiceOrders;
     }
     if (snapshot.mappedSuppliers && snapshot.mappedSuppliers.length > 0) {
-      erp.suppliers = snapshot.mappedSuppliers;
+      // Upsert por id do GestãoClick (fallback CNPJ/CPF, Trava Fiscal). NUNCA
+      // substitui a lista: fornecedores/transportadoras migrados ou criados no
+      // STI-hub continuam intactos.
+      if (!Array.isArray(erp.suppliers)) erp.suppliers = [];
+      mergeGcSuppliers(erp.suppliers, snapshot.mappedSuppliers);
     }
     if (snapshot.mappedEmployees && snapshot.mappedEmployees.length > 0) {
       erp.employees = snapshot.mappedEmployees;

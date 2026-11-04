@@ -2,6 +2,7 @@
 // HubSpot Pro CRM - PostgreSQL Persistence & Relational BI Sync Layer
 // ============================================================================
 
+import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState } from './types';
 import { createInitialSeedState } from './seed';
@@ -189,15 +190,219 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_priority ON crm_service_tickets(priority);
   `);
 
+  // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
+  await executor.query(
+    MIRROR_TABLES.map((t) => `ALTER TABLE ${t.table} ADD COLUMN IF NOT EXISTS row_hash TEXT;`).join('\n')
+  );
+
   schemaEnsured = true;
 }
 
-export async function syncStateToPostgres(state: CrmDatabaseState): Promise<void> {
-  const pool = getPostgresPool();
-  if (!pool) return;
+// ---------------------------------------------------------------------------
+// Espelho relacional (crm_companies, crm_contacts, ...): gravação incremental.
+//
+// Antes cada save fazia DELETE FROM <tabela> + 1 INSERT por linha (~1.200
+// inserts só em crm_companies). Agora, por tabela:
+//  1. lê do banco (id, row_hash) — 1 SELECT leve;
+//  2. calcula o hash (sha1 do JSON do registro) de cada linha do estado;
+//  3. faz upsert multi-linha (INSERT ... ON CONFLICT (id) DO UPDATE) só das
+//     linhas novas ou alteradas, em lotes;
+//  4. apaga só as linhas explicitamente removidas pelo app: ids que estavam no
+//     último snapshot conhecido deste processo (load/save anterior) e não
+//     estão mais no estado. Sem snapshot => não apaga nada. Lista atual vazia
+//     com snapshot grande => não apaga (proteção contra apagar em massa).
+// O snapshot completo continua em crm_kv_store (fonte da verdade).
+// ---------------------------------------------------------------------------
 
-  await ensurePostgresSchema(pool);
+export interface PgQueryable {
+  query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
+}
+export interface PgClientLike extends PgQueryable {
+  release: () => void;
+}
+export interface PgPoolLike extends PgQueryable {
+  connect: () => Promise<PgClientLike>;
+}
+
+type AnyRow = Record<string, any>;
+
+interface MirrorTableSpec {
+  table: string;
+  columns: string[]; // sem a coluna row_hash (acrescentada automaticamente)
+  casts: Record<string, string>;
+  rows: (state: CrmDatabaseState) => AnyRow[];
+  values: (r: AnyRow) => unknown[];
+}
+
+const nowIso = () => new Date().toISOString();
+
+export const MIRROR_TABLES: MirrorTableSpec[] = [
+  {
+    table: 'crm_companies',
+    columns: ['id', 'name', 'domain', 'cnpj', 'industry', 'completeness_score', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.companies || [],
+    values: (c) => [c.id, c.name, c.domain, c.cnpj, c.industry, c.completenessScore, JSON.stringify(c), c.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_contacts',
+    columns: ['id', 'email', 'first_name', 'last_name', 'company_id', 'lifecycle_stage', 'lead_score', 'completeness_score', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.contacts || [],
+    values: (c) => [c.id, c.email, c.firstName, c.lastName, c.companyId, c.lifecycleStage, c.leadScore, c.completenessScore, JSON.stringify(c), c.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_pipelines',
+    columns: ['id', 'name', 'is_default', 'currency', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.pipelines || [],
+    values: (p) => [p.id, p.name, p.isDefault, p.currency, JSON.stringify(p), p.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_deals',
+    columns: ['id', 'title', 'value', 'pipeline_id', 'stage_id', 'status', 'probability', 'contact_id', 'company_id', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.deals || [],
+    values: (d) => [d.id, d.title, d.value, d.pipelineId, d.stageId, d.status, d.probability, d.contactId, d.companyId, JSON.stringify(d), d.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_timeline_events',
+    columns: ['id', 'type', 'title', 'contact_id', 'company_id', 'deal_id', 'data', 'created_at'],
+    casts: { data: 'jsonb', created_at: 'timestamptz' },
+    rows: (s) => s.timelineEvents || [],
+    values: (e) => [e.id, e.type, e.title, e.contactId, e.companyId, e.dealId, JSON.stringify(e), e.createdAt || nowIso()],
+  },
+  {
+    table: 'crm_workflows',
+    columns: ['id', 'name', 'trigger_type', 'is_active', 'enrolled_count', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.workflows || [],
+    values: (w) => [w.id, w.name, w.triggerType, w.isActive, w.enrolledCount, JSON.stringify(w), w.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_sequences',
+    columns: ['id', 'name', 'category', 'is_active', 'enrolled_count', 'reply_rate', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.sequences || [],
+    values: (q) => [q.id, q.name, q.category, q.isActive, q.enrolledCount, q.replyRate, JSON.stringify(q), q.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_data_health_issues',
+    columns: ['id', 'issue_type', 'severity', 'entity_type', 'primary_entity_id', 'status', 'confidence_score', 'data', 'detected_at'],
+    casts: { data: 'jsonb', detected_at: 'timestamptz' },
+    rows: (s) => s.dataHealthIssues || [],
+    values: (i) => [i.id, i.issueType, i.severity, i.entityType, i.primaryEntityId, i.status, i.confidenceScore, JSON.stringify(i), i.detectedAt || nowIso()],
+  },
+  {
+    table: 'crm_web_forms',
+    columns: ['id', 'slug', 'name', 'target_type', 'submissions_count', 'conversion_rate', 'is_active', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.webForms || [],
+    values: (f) => [f.id, f.slug, f.name, f.targetType, f.submissionsCount, f.conversionRate, f.isActive, JSON.stringify(f), f.updatedAt || nowIso()],
+  },
+  {
+    table: 'crm_service_tickets',
+    columns: ['id', 'key', 'subject', 'category', 'priority', 'status', 'sla_status', 'contact_id', 'company_id', 'data', 'updated_at'],
+    casts: { data: 'jsonb', updated_at: 'timestamptz' },
+    rows: (s) => s.serviceTickets || [],
+    values: (t) => [t.id, t.key, t.subject, t.category, t.priority, t.status, t.slaStatus, t.contactId, t.companyId, JSON.stringify(t), t.updatedAt || nowIso()],
+  },
+];
+
+/** Tamanho do lote de upsert multi-linha (≤ 11 colunas => bem abaixo de 65535 params). */
+export const MIRROR_UPSERT_BATCH = 250;
+
+/** Snapshot (ids conhecidos) por tabela, do último load/save deste processo. */
+const mirrorSnapshots = new Map<string, Set<string>>();
+
+export function resetMirrorSnapshots(): void {
+  mirrorSnapshots.clear();
+}
+
+export function mirrorRowHash(row: AnyRow): string {
+  // Hash só do registro (não do updated_at de fallback, que muda a cada save).
+  return createHash('sha1').update(JSON.stringify(row)).digest('hex');
+}
+
+/** Guarda os ids do estado carregado como snapshot (base das deleções explícitas). */
+export function primeMirrorSnapshots(state: CrmDatabaseState): void {
+  for (const spec of MIRROR_TABLES) {
+    mirrorSnapshots.set(spec.table, new Set(spec.rows(state).map((r) => String(r.id))));
+  }
+}
+
+export interface MirrorSyncStats {
+  table: string;
+  upserted: number;
+  deleted: number;
+  unchanged: number;
+  skippedDeletes?: string;
+}
+
+async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state: CrmDatabaseState): Promise<MirrorSyncStats> {
+  const rows = spec.rows(state).filter((r) => r && r.id !== undefined && r.id !== null);
+  const current = new Map<string, { row: AnyRow; hash: string }>();
+  for (const r of rows) current.set(String(r.id), { row: r, hash: mirrorRowHash(r) });
+
+  const dbRes = await client.query(`SELECT id, row_hash FROM ${spec.table}`);
+  const dbHash = new Map<string, string | null>();
+  for (const r of dbRes.rows || []) dbHash.set(String(r.id), r.row_hash ?? null);
+
+  const changed: Array<{ row: AnyRow; hash: string }> = [];
+  for (const [id, entry] of current) {
+    if (dbHash.get(id) !== entry.hash) changed.push(entry);
+  }
+
+  const cols = [...spec.columns, 'row_hash'];
+  const updateSet = cols.filter((c) => c !== 'id').map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  for (let i = 0; i < changed.length; i += MIRROR_UPSERT_BATCH) {
+    const batch = changed.slice(i, i + MIRROR_UPSERT_BATCH);
+    const params: unknown[] = [];
+    const tuples = batch.map(({ row, hash }) => {
+      const vals = [...spec.values(row), hash];
+      const ph = vals.map((v, j) => {
+        params.push(v);
+        const cast = spec.casts[cols[j]];
+        return `$${params.length}${cast ? `::${cast}` : ''}`;
+      });
+      return `(${ph.join(', ')})`;
+    });
+    await client.query(
+      `INSERT INTO ${spec.table} (${cols.join(', ')}) VALUES ${tuples.join(', ')} ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
+      params
+    );
+  }
+
+  // Deleções: só o que o app removeu explicitamente (estava no snapshot, saiu do estado).
+  const prev = mirrorSnapshots.get(spec.table);
+  let deleted = 0;
+  let skippedDeletes: string | undefined;
+  if (!prev) {
+    skippedDeletes = 'sem snapshot carregado neste processo';
+  } else {
+    const removed = [...prev].filter((id) => !current.has(id) && dbHash.has(id));
+    if (removed.length > 0 && current.size === 0 && prev.size > 10) {
+      skippedDeletes = `lista atual vazia e snapshot com ${prev.size} linhas: deleção em massa bloqueada`;
+      console.warn(`[postgres] ${spec.table}: ${skippedDeletes}`);
+    } else if (removed.length > 0) {
+      await client.query(`DELETE FROM ${spec.table} WHERE id = ANY($1::text[])`, [removed]);
+      deleted = removed.length;
+    }
+  }
+
+  return { table: spec.table, upserted: changed.length, deleted, unchanged: current.size - changed.length, skippedDeletes };
+}
+
+export async function syncStateToPostgres(
+  state: CrmDatabaseState,
+  options?: { pool?: PgPoolLike }
+): Promise<MirrorSyncStats[]> {
+  const pool: PgPoolLike | null = options?.pool || (getPostgresPool() as unknown as PgPoolLike | null);
+  if (!pool) return [];
+
+  await ensurePostgresSchema(pool as unknown as Pool);
   const client = await pool.connect();
+  const stats: MirrorSyncStats[] = [];
 
   try {
     await client.query('BEGIN');
@@ -211,192 +416,9 @@ export async function syncStateToPostgres(state: CrmDatabaseState): Promise<void
       ['crm_state_v1', JSON.stringify(state)]
     );
 
-    // 2. Sync relational mirror tables for SQL & BI tools
-    await client.query('DELETE FROM crm_companies');
-    for (const comp of state.companies) {
-      await client.query(
-        `INSERT INTO crm_companies (id, name, domain, cnpj, industry, completeness_score, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)`,
-        [
-          comp.id,
-          comp.name,
-          comp.domain,
-          comp.cnpj,
-          comp.industry,
-          comp.completenessScore,
-          JSON.stringify(comp),
-          comp.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_contacts');
-    for (const c of state.contacts) {
-      await client.query(
-        `INSERT INTO crm_contacts (id, email, first_name, last_name, company_id, lifecycle_stage, lead_score, completeness_score, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::timestamptz)`,
-        [
-          c.id,
-          c.email,
-          c.firstName,
-          c.lastName,
-          c.companyId,
-          c.lifecycleStage,
-          c.leadScore,
-          c.completenessScore,
-          JSON.stringify(c),
-          c.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_pipelines');
-    for (const p of state.pipelines) {
-      await client.query(
-        `INSERT INTO crm_pipelines (id, name, is_default, currency, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)`,
-        [
-          p.id,
-          p.name,
-          p.isDefault,
-          p.currency,
-          JSON.stringify(p),
-          p.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_deals');
-    for (const d of state.deals) {
-      await client.query(
-        `INSERT INTO crm_deals (id, title, value, pipeline_id, stage_id, status, probability, contact_id, company_id, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz)`,
-        [
-          d.id,
-          d.title,
-          d.value,
-          d.pipelineId,
-          d.stageId,
-          d.status,
-          d.probability,
-          d.contactId,
-          d.companyId,
-          JSON.stringify(d),
-          d.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_timeline_events');
-    for (const evt of state.timelineEvents) {
-      await client.query(
-        `INSERT INTO crm_timeline_events (id, type, title, contact_id, company_id, deal_id, data, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)`,
-        [
-          evt.id,
-          evt.type,
-          evt.title,
-          evt.contactId,
-          evt.companyId,
-          evt.dealId,
-          JSON.stringify(evt),
-          evt.createdAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_workflows');
-    for (const wf of state.workflows) {
-      await client.query(
-        `INSERT INTO crm_workflows (id, name, trigger_type, is_active, enrolled_count, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)`,
-        [
-          wf.id,
-          wf.name,
-          wf.triggerType,
-          wf.isActive,
-          wf.enrolledCount,
-          JSON.stringify(wf),
-          wf.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_sequences');
-    for (const seq of state.sequences) {
-      await client.query(
-        `INSERT INTO crm_sequences (id, name, category, is_active, enrolled_count, reply_rate, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)`,
-        [
-          seq.id,
-          seq.name,
-          seq.category,
-          seq.isActive,
-          seq.enrolledCount,
-          seq.replyRate,
-          JSON.stringify(seq),
-          seq.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_data_health_issues');
-    for (const iss of state.dataHealthIssues) {
-      await client.query(
-        `INSERT INTO crm_data_health_issues (id, issue_type, severity, entity_type, primary_entity_id, status, confidence_score, data, detected_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz)`,
-        [
-          iss.id,
-          iss.issueType,
-          iss.severity,
-          iss.entityType,
-          iss.primaryEntityId,
-          iss.status,
-          iss.confidenceScore,
-          JSON.stringify(iss),
-          iss.detectedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_web_forms');
-    for (const f of state.webForms || []) {
-      await client.query(
-        `INSERT INTO crm_web_forms (id, slug, name, target_type, submissions_count, conversion_rate, is_active, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz)`,
-        [
-          f.id,
-          f.slug,
-          f.name,
-          f.targetType,
-          f.submissionsCount,
-          f.conversionRate,
-          f.isActive,
-          JSON.stringify(f),
-          f.updatedAt || new Date().toISOString(),
-        ]
-      );
-    }
-
-    await client.query('DELETE FROM crm_service_tickets');
-    for (const t of state.serviceTickets || []) {
-      await client.query(
-        `INSERT INTO crm_service_tickets (id, key, subject, category, priority, status, sla_status, contact_id, company_id, data, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::timestamptz)`,
-        [
-          t.id,
-          t.key,
-          t.subject,
-          t.category,
-          t.priority,
-          t.status,
-          t.slaStatus,
-          t.contactId,
-          t.companyId,
-          JSON.stringify(t),
-          t.updatedAt || new Date().toISOString(),
-        ]
-      );
+    // 2. Espelho relacional para SQL/BI: só linhas novas/alteradas/removidas
+    for (const spec of MIRROR_TABLES) {
+      stats.push(await syncMirrorTable(client, spec, state));
     }
 
     await client.query('COMMIT');
@@ -406,6 +428,10 @@ export async function syncStateToPostgres(state: CrmDatabaseState): Promise<void
   } finally {
     client.release();
   }
+
+  // Só depois do COMMIT o estado salvo vira o novo snapshot.
+  primeMirrorSnapshots(state);
+  return stats;
 }
 
 export async function loadStateFromPostgres(options?: {
@@ -422,6 +448,7 @@ export async function loadStateFromPostgres(options?: {
       ['crm_state_v1']
     );
     if (res.rows.length > 0 && res.rows[0].payload) {
+      primeMirrorSnapshots(res.rows[0].payload);
       return res.rows[0].payload;
     }
   }

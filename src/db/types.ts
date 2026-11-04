@@ -1415,6 +1415,8 @@ export interface ErpFiscalInvoice {
 
 export interface ErpCatalogItem {
   id: string;
+  /** id do registro no GestãoClick (chave do upsert do sync/migração). */
+  gestaoClickId?: string;
   gestaoClickCode: string;
   name: string;
   category: 'EQUIPAMENTO_LOCACAO' | 'SERVICO_TECNICO_LC116' | 'TELECOM_SCM_SVA' | 'VENDA_HARDWARE';
@@ -1583,6 +1585,8 @@ export interface ErpSupplierRecord {
   supplierType?: 'FORNECEDOR' | 'TRANSPORTADORA';
   cityState?: string;
   modalFrete?: string;
+  /** id do registro no GestãoClick (chave do upsert do sync/migração). */
+  gestaoClickId?: string;
 }
 
 export interface ErpEmployeeRecord {
