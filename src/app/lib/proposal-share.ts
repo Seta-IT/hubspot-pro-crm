@@ -132,6 +132,7 @@ export const SETA_TELECOM_INSTITUTIONAL_SUMMARY = {
     'Seta Telecom & Seta | IT — Infraestrutura de TI, Redes, Segurança & Locação Corporativa (HaaS)',
   marketTimeLabel: 'Tempo de mercado',
   marketTime: 'Mais de 18 anos de atuação no mercado corporativo brasileiro;',
+  locationLabel: 'Estoque próprio:',
   location:
     'Estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
   partnersLabel: 'Parceiros estratégicos (Multi-Vendor)',

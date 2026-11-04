@@ -3494,7 +3494,8 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     // 3. Bloco institucional resumido da Seta Telecom + 10 tópicos de serviços
     assert.ok(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime.includes("18 anos"));
     assert.equal(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.location, "Estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;");
-    assert.equal("locationLabel" in share.SETA_TELECOM_INSTITUTIONAL_SUMMARY, false);
+    assert.equal(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel, "Estoque próprio:");
+    assert.ok(pageSrc.includes("{SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel}"));
     assert.equal(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.eyebrow, "Apresentação Institucional");
     assert.equal(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle, "Serviços e Soluções — Portfólio Seta Telecom");
     // Textos do modelo (04/11, pedido do Marcéllo): troca exata, sem mudar layout/calculos
@@ -3520,7 +3521,6 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
       "Descontos Aplicados",
       "Valor Total da Proposta",
       "Arquitetura Seta Telecom",
-      "SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel",
     ]) assert.equal(pageSrc.includes(antigo), false, antigo);
     assert.ok(share.SETA_TELECOM_INSTITUTIONAL_SUMMARY.partners.includes("Cisco, Dell, HPE, Fortinet"));
     assert.equal(share.SETA_TELECOM_OFFICIAL_SERVICES_TOPICS.length, 10);

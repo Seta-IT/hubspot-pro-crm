@@ -1707,7 +1707,7 @@ describe('D3: status no aceite publico e na emissao do link', () => {
     assert.equal((await approve(router, p.id, linkFor(p.id, p.version || 1))).status, 200);
   });
 
-  it('emissao em cada status: RASCUNHO -> ENVIADA (auditado, versao nova); ENVIADA/EM_NEGOCIACAO ficam; demais => 409 sem emitir', async () => {
+  it('emissao em QUALQUER status: so RASCUNHO -> ENVIADA (auditado, versao nova); os demais ficam como estao e o link (assinado e /p/) abre', async () => {
     for (const st of ALL) {
       const { repo, router } = fresh();
       const admin = sessionFor(repo, 'usr-seta-01');
@@ -1735,14 +1735,20 @@ describe('D3: status no aceite publico e na emissao do link', () => {
         assert.equal(after.version || 1, v0, st);
         assert.equal((await getPublic(router, p.id, tokenOf(r))).status, 200, st);
       } else {
-        assert.equal(r.status, 409, st);
-        assert.equal((r.body as { code: string }).code, 'PROPOSAL_LINK_STATUS_INVALID', st);
-        assert.equal((r.body as { data?: unknown }).data, undefined, st);
-        assert.doesNotMatch(JSON.stringify(r.body), /#t=/);
+        // 04/11: APROVADA, CONVERTIDA_CONTRATO, RECUSADA, desconhecido... => 200, sem mudar status/versao.
+        assert.equal(r.status, 200, st);
+        assert.notEqual((r.body as { code?: string }).code, 'PROPOSAL_LINK_STATUS_INVALID', st);
         assert.equal(after.status, st, st);
         assert.equal(after.version || 1, v0, st);
-        const logs = repo.listSecurityAuditLogs(1000).logs.slice(0, repo.listSecurityAuditLogs(1000).logs.length - auditBefore) as unknown as Array<{ action: string; status: string }>;
-        assert.ok(!logs.some((l) => l.status === 'SUCCESS'), st);
+        const t = tokenOf(r);
+        assert.equal((await getPublic(router, p.id, t)).status, 200, st);
+        const shortUrl = (r.body as { data: { shortUrl: string | null } }).data.shortUrl;
+        assert.ok(shortUrl && /\/p\/[A-Za-z0-9]{10}$/.test(shortUrl), st);
+        const sh = await router.dispatch({ method: 'GET', path: `/api/p/${shortUrl!.split('/p/')[1]}`, query: { _fromHttpBridge: '1', _clientIp: '198.51.100.77' } });
+        assert.equal(sh.status, 200, st);
+        // O aceite publico continua so em ENVIADA/EM_NEGOCIACAO.
+        assert.notEqual((await approve(router, p.id, t)).status, 200, st);
+        assert.equal(cur(repo, p.id).status, st, st);
       }
     }
   });

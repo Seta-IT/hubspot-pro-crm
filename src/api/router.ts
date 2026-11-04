@@ -3284,22 +3284,13 @@ export class CrmApiRouter {
         },
       };
     }
-    // D3 (checagem final v4): so emite para RASCUNHO (passa a ENVIADA abaixo), ENVIADA ou
-    // EM_NEGOCIACAO. APROVADA, CONVERTIDA_CONTRATO, RECUSADA ou qualquer outro => 409, sem emitir.
+    // 04/11 (pedido do Marcéllo): o link do cliente sai em QUALQUER status (APROVADA,
+    // CONVERTIDA_CONTRATO, RECUSADA, EXPIRADA...). So RASCUNHO muda de status (passa a ENVIADA
+    // abaixo); os demais ficam como estao. MFA/sessao, alcada, dono e assinatura seguem iguais.
+    // O aceite publico continua so em ENVIADA/EM_NEGOCIACAO (isProposalLinkApprovableStatus).
     const statusNorm = CrmApiRouter.normalizeProposalStatus(found.status);
     const statusCanon = statusNorm.kind === 'ok' ? statusNorm.value : null;
     const isDraft = statusCanon === 'RASCUNHO';
-    if (!isDraft && !CrmApiRouter.isProposalLinkApprovableStatus(found.status)) {
-      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `status ${String(found.status || '').slice(0, 40)} nao admite link (409)`, actor);
-      return {
-        status: 409,
-        body: {
-          error:
-            'O link para o cliente só pode ser gerado para propostas em Rascunho, Enviada ou Em negociação. Esta proposta está em outra situação.',
-          code: 'PROPOSAL_LINK_STATUS_INVALID',
-        },
-      };
-    }
     // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link (e, se
     // for RASCUNHO, sem mudar o status: a assinatura e testada ANTES da transicao).
     let signed: ReturnType<typeof signProposalLinkToken>;

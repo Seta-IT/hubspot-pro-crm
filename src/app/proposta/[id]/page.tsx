@@ -1657,6 +1657,9 @@ function PublicProposalPrintContent() {
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
+                <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
+                  {SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel}
+                </strong>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.location}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
