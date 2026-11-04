@@ -864,7 +864,17 @@ function PublicProposalPrintContent() {
   // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
   // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
   // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
-  const hasSetupSelected = !isProductsOnly && isolatedSetupTotal > 0;
+  // SERVICOS com todos os itens de cobranca unica (isRecurring=false): sem "/mes", sem vigencia e sem
+  // Setup duplicado; exibe Valor Total = itens + setupFee explicito + frete (totalContractValue).
+  const isOneTimeServices =
+    isServices &&
+    !isRental &&
+    proposal.items.length > 0 &&
+    proposal.items.every((i) => i.isRecurring === false);
+  const oneTimeServicesSetupFee = Math.max(0, Number(proposal.setupFee || 0));
+  const hasSetupSelected = isOneTimeServices
+    ? oneTimeServicesSetupFee > 0
+    : !isProductsOnly && isolatedSetupTotal > 0;
   const formatBRL = (value: number | null | undefined): string =>
     isProductsOnly
       ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
@@ -880,7 +890,11 @@ function PublicProposalPrintContent() {
   const commercialTotalAmount = isProductsOnly
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
-    : proposal.monthlyRecurringTotal || proposal.totalContractValue;
+    : isOneTimeServices
+      ? Number(proposal.totalContractValue || 0)
+      : proposal.monthlyRecurringTotal || proposal.totalContractValue;
+  const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
+  const showTotalInsteadOfMonthly = isProductsOnly || isOneTimeServices;
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1068,8 +1082,14 @@ function PublicProposalPrintContent() {
                     : ""}
                 </div>
                 <div className="text-[11px] text-amber-800">
-                  Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
-                  <strong>{proposal.contractMonths} meses</strong> •{" "}
+                  {isOneTimeServices ? (
+                    <>Valor nesta versão: <strong>{formatBRL(commercialTotalAmount)}</strong> (pagamento único) •{" "}</>
+                  ) : (
+                    <>
+                      Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
+                      <strong>{proposal.contractMonths} meses</strong> •{" "}
+                    </>
+                  )}
                   <strong>{(proposal.items || []).length} item(ns)</strong>
                 </div>
               </div>
@@ -1392,9 +1412,19 @@ function PublicProposalPrintContent() {
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  {proposal.companyCnpj ? <>CNPJ: <strong>{proposal.companyCnpj}</strong> • </> : null}Valor Mensal:{" "}
-                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
-                  <strong>{proposal.contractMonths} meses</strong>
+                  {proposal.companyCnpj ? <>CNPJ: <strong>{proposal.companyCnpj}</strong> • </> : null}
+                  {isOneTimeServices ? (
+                    <>
+                      Valor Total (Pagamento Único):{" "}
+                      <strong className="text-emerald-700">{formatBRL(commercialTotalAmount)}</strong>
+                    </>
+                  ) : (
+                    <>
+                      Valor Mensal:{" "}
+                      <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
+                      <strong>{proposal.contractMonths} meses</strong>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1805,10 +1835,12 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  Valor Mensal
+                  {isOneTimeServices ? "Valor Total (Pagamento Único)" : "Valor Mensal"}
                 </span>
                 <span className="font-semibold text-emerald-700 text-sm">
-                  {formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês
+                  {isOneTimeServices
+                    ? formatBRL(commercialTotalAmount)
+                    : `${formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês`}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
@@ -1835,7 +1867,7 @@ function PublicProposalPrintContent() {
                     Setup / Ativação
                   </span>
                   <span className="font-semibold text-amber-900">
-                    {formatBRL(isolatedSetupTotal)}
+                    {formatBRL(displaySetupAmount)}
                   </span>
                 </div>
               )}
@@ -1948,7 +1980,7 @@ function PublicProposalPrintContent() {
                   Setup / Ativação
                 </span>
                 <strong className="text-sm font-semibold text-amber-900">
-                  {formatBRL(isolatedSetupTotal)}
+                  {formatBRL(displaySetupAmount)}
                 </strong>
                 <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
               </div>
@@ -1968,10 +2000,10 @@ function PublicProposalPrintContent() {
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                {isProductsOnly ? "Valor Total da Proposta" : "Valor Mensal"}
+                {showTotalInsteadOfMonthly ? "Valor Total da Proposta" : "Valor Mensal"}
               </span>
               <span className="text-sm font-semibold text-emerald-700">
-                {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
+                {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
               </span>
             </div>
           </div>
@@ -1996,11 +2028,11 @@ function PublicProposalPrintContent() {
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
-                    {isProductsOnly ? "Valor Total da Proposta Comercial" : "Valor Mensal"}
+                    {showTotalInsteadOfMonthly ? "Valor Total da Proposta Comercial" : "Valor Mensal"}
                   </span>
                   <div className="text-2xl print:text-xl font-semibold text-emerald-700 mt-0.5">
-                    {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
-                    {!isProductsOnly && (
+                    {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
+                    {!showTotalInsteadOfMonthly && (
                       <span className="text-xs font-semibold text-slate-500">/mês</span>
                     )}
                   </div>
@@ -2009,7 +2041,7 @@ function PublicProposalPrintContent() {
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
                       <span>Taxa de Setup (Isolada):</span>
-                      <strong className="text-slate-900">{formatBRL(isolatedSetupTotal)}</strong>
+                      <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
                   <div className="flex items-center justify-between">

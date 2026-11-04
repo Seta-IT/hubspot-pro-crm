@@ -32,7 +32,7 @@ describe('proposta: telefone e WhatsApp da Seta Telecom', () => {
 describe('proposta de PRODUTOS: sem Setup, total sem dobrar e com centavos', () => {
   const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
   it('setup so fora de PRODUTOS', () => {
-    assert.ok(src.includes('const hasSetupSelected = !isProductsOnly && isolatedSetupTotal > 0;'));
+    assert.ok(src.includes(': !isProductsOnly && isolatedSetupTotal > 0;'));
   });
   it('total de venda = itens - desconto global + frete (sem oneTimeSetupTotal)', () => {
     assert.ok(src.includes('Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100'));
@@ -42,5 +42,15 @@ describe('proposta de PRODUTOS: sem Setup, total sem dobrar e com centavos', () 
     const fmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     assert.equal(fmt.format(103454.75).replace(/\s/g, ' '), 'R$ 103.454,75');
     assert.ok(src.includes('minimumFractionDigits: 2, maximumFractionDigits: 2'));
+  });
+});
+
+describe('proposta de SERVICOS de cobranca unica (todos os itens isRecurring=false)', () => {
+  const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
+  it('detecta servico unico e mostra Valor Total sem /mes nem setup duplicado', () => {
+    assert.ok(src.includes('proposal.items.every((i) => i.isRecurring === false)'));
+    assert.ok(src.includes('const showTotalInsteadOfMonthly = isProductsOnly || isOneTimeServices;'));
+    assert.ok(src.includes('? oneTimeServicesSetupFee > 0'));
+    assert.ok(src.includes('Valor Total (Pagamento Único)'));
   });
 });
