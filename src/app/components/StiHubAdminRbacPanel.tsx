@@ -65,6 +65,8 @@ import {
   Trash2,
   UserCheck,
 } from 'lucide-react';
+import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
+import NeverLogPanel from './email/NeverLogPanel';
 import {
   CrmEmailTemplate,
   CrmEmailTemplateCategory,
@@ -107,6 +109,7 @@ export type AdminSubView =
   | 'ERP_GENERAL_SETTINGS'
   | 'CERTIFICATE_SERIES'
   | 'EMAIL_TEMPLATES'
+  | 'EMAIL_MAILBOXES'
   | 'CUSTOM_PROPERTIES'
   | 'DAILY_SYNC_LOGS'
   | 'MIGRATION_CHECKLIST'
@@ -1031,6 +1034,11 @@ export default function StiHubAdminRbacPanel({
             icon: Mail,
           },
           {
+            id: 'EMAIL_MAILBOXES' as const,
+            label: 'Caixas de e-mail',
+            icon: Mail,
+          },
+          {
             id: 'CUSTOM_PROPERTIES' as const,
             label: 'Campos Customizáveis',
             icon: Database,
@@ -1509,6 +1517,13 @@ export default function StiHubAdminRbacPanel({
       {/* ====================================================================
           SUB-VIEW 3: HUBSPOT PORTAL 4369067 CUSTOM PROPERTIES
       ==================================================================== */}
+      {subView === 'EMAIL_MAILBOXES' && (
+        <div className="space-y-4">
+          <MailboxConnectionsPanel />
+          <NeverLogPanel />
+        </div>
+      )}
+
       {subView === 'CUSTOM_PROPERTIES' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

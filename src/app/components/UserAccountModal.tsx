@@ -15,6 +15,7 @@ import {
   LogOut,
   Settings,
 } from 'lucide-react';
+import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH } from '../lib/password-policy';
@@ -663,6 +664,12 @@ export default function UserAccountModal({
                 </button>
               </div>
             )}
+          </div>
+
+          {/* Caixas Outlook 365 do proprio usuario e assinatura (e-mail individual do CRM) */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-slate-900">E-mail do CRM</h4>
+            <MailboxConnectionsPanel compact />
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">

@@ -38,6 +38,7 @@ import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 
@@ -2413,6 +2414,13 @@ export default function DealsKanbanTab({
                     </button>
                   </div>
                 </form>
+
+                {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTE NEGOCIO */}
+                <CrmRecordEmailSection
+                  record={{ dealId: selectedDeal.id }}
+                  defaultTo={selectedDeal.contact?.email || ''}
+                  recordLabel={selectedDeal.title}
+                />
 
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eaf0f6] pb-2">

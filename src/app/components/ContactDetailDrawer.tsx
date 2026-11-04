@@ -14,6 +14,7 @@ import {
 import { CompletenessResult } from '../../modules/data-health/completeness';
 import { CrmTask } from '../../db/types';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import {
   BUYING_ROLE_OPTIONS,
   SETA_OWNER_OPTIONS,
@@ -786,6 +787,18 @@ export default function ContactDetailDrawer({
                 onSent={() => {
                   onRefreshContact?.();
                 }}
+              />
+
+              {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO (ENVIO, RESPOSTAS, ABERTURAS E CLIQUES) */}
+              <CrmRecordEmailSection
+                record={{ contactId: contactDetail.id }}
+                defaultTo={contactDetail.email}
+                recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
+                suggestions={
+                  contactDetail.companyId
+                    ? allContacts.filter((c) => c.companyId === contactDetail.companyId).map((c) => c.email)
+                    : []
+                }
               />
 
               {/* HUBSPOT TASKS & FOLLOW-UP SECTION FOR THIS CONTACT */}

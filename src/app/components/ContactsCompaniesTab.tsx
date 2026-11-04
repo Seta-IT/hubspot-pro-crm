@@ -24,6 +24,7 @@ import { formatDocumentByPersonType, validateDocumentByPersonType } from '../../
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './GestaoClickCompanyModal';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
 import {
   BUYING_ROLE_OPTIONS,
@@ -1526,6 +1527,14 @@ export default function ContactsCompaniesTab({
                     onSent={() => {
                       if (selectedCompanyId) fetchCompanyDetail(selectedCompanyId);
                     }}
+                  />
+
+                  {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTA EMPRESA */}
+                  <CrmRecordEmailSection
+                    record={{ companyId: companyDetail.id }}
+                    defaultTo={companyDetail.contacts?.[0]?.email || ''}
+                    recordLabel={companyDetail.name}
+                    suggestions={(companyDetail.contacts || []).map((c) => c.email)}
                   />
 
                   {/* HUBSPOT TASKS & FOLLOW-UPS FOR THIS COMPANY */}

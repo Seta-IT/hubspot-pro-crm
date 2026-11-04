@@ -211,6 +211,9 @@ import {
   isEmailTemplateRoute,
   sanitizeEmailTemplateJournal,
 } from './email-template-routes';
+import { handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
+import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
+import type { FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -740,12 +743,22 @@ export class CrmApiRouter {
   private readonly certificateStore: CertificateStore;
   private readonly certUploadFailureLimiter = new SlidingWindowRateLimiter(CERT_UPLOAD_FAILURE_LIMIT.max, CERT_UPLOAD_FAILURE_LIMIT.windowMs);
 
-  constructor(repo?: CrmRepository, options?: { certificateStore?: CertificateStore }) {
+  /** E-mail individual do CRM (caixa Outlook do usuario): tabelas proprias, fora do crm_state_v1. */
+  private readonly mailboxStore: MailboxStore;
+  private readonly mailboxFetch: FetchLike;
+  private readonly mailboxSendLimiter = newMailboxSendLimiter();
+
+  constructor(
+    repo?: CrmRepository,
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike }
+  ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
     this.certificateStore =
       options?.certificateStore ||
       (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
+    this.mailboxStore = options?.mailboxStore || (!repo ? getDefaultMailboxStore() : new MemoryMailboxStore());
+    this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
   }
 
   getRepository(): CrmRepository {
@@ -7678,6 +7691,14 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Tarefa não encontrada.' } };
           return { status: 200, body: { success: true, deletedId: taskId } };
         }
+      }
+
+      // E-mail individual do CRM pela caixa Outlook do proprio usuario (sessao 2FA + modulo CRM).
+      if (isMailboxRoute(cleanPath)) {
+        return handleMailboxRoute(
+          { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter },
+          method, cleanPath, query, body, ctx
+        );
       }
 
       // Pacote O: modelos de e-mail (lista/leitura com sessao; escrita com 2FA + Marketing EDIT/FULL ou admin).
