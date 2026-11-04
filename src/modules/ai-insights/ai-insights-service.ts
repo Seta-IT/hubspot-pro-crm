@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { CrmRepository } from '../../db/repository';
-import { DataHealthService } from '../data-health/health-service';
+import { DataHealthService, DataHealthSummaryReport } from '../data-health/health-service';
 
 export interface FunnelBottleneckItem {
   stageId: string;
@@ -116,13 +116,18 @@ export interface AiInsightsReport {
 export class AiInsightsService {
   private healthService = new DataHealthService();
 
-  generateInsights(repo: CrmRepository, customQuestion?: string): AiInsightsReport {
+  generateInsights(
+    repo: CrmRepository,
+    customQuestion?: string,
+    precomputedHealth?: DataHealthSummaryReport
+  ): AiInsightsReport {
     const contacts = repo.listContacts();
     const companies = repo.listCompanies();
     const deals = repo.listDeals();
     const pipelines = repo.listPipelines();
     const enrollments = repo.listSequenceEnrollments();
-    const health = this.healthService.generateHealthSummary(repo);
+    // O bootstrap ja calcula o resumo de Data Health; reaproveita (evita deteccao de duplicados 2x).
+    const health = precomputedHealth || this.healthService.generateHealthSummary(repo);
     const erpOverview = repo.getErpOverview();
 
     const companyMap = new Map(companies.map((c) => [c.id, c]));

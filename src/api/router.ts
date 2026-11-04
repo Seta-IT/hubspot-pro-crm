@@ -1,5 +1,13 @@
 import { createHash } from 'crypto';
 import {
+  BOOTSTRAP_HEALTH_ISSUES_MAX,
+  BOOTSTRAP_HIDDEN_OPPORTUNITIES_MAX,
+  linkedCompanyIds,
+  paginate,
+  projectBootstrapCompanies,
+  topIssuesBySeverity,
+} from '../modules/bootstrap/lean-payload';
+import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
   ERP_MODULE_ITEMS_CATALOG,
@@ -774,14 +782,36 @@ export class CrmApiRouter {
       company: c.companyId ? companiesMap.get(c.companyId) || null : null,
     }));
 
-    const enrichedCompanies = rawCompanies.map((comp) => ({
-      ...comp,
-      contactsCount: rawContacts.filter((c) => c.companyId === comp.id).length,
-      dealsCount: rawDeals.filter((d) => d.companyId === comp.id).length,
-      totalDealValue: rawDeals
-        .filter((d) => d.companyId === comp.id)
-        .reduce((s, d) => s + d.value, 0),
-    }));
+    // Contagens por empresa em um passe (antes: filter por empresa, O(empresas x contatos)).
+    const contactsCountByCompany = new Map<string, number>();
+    for (const c of rawContacts) {
+      if (c.companyId) contactsCountByCompany.set(c.companyId, (contactsCountByCompany.get(c.companyId) || 0) + 1);
+    }
+    const dealsAggByCompany = new Map<string, { count: number; value: number }>();
+    for (const d of rawDeals) {
+      if (!d.companyId) continue;
+      const agg = dealsAggByCompany.get(d.companyId) || { count: 0, value: 0 };
+      agg.count += 1;
+      agg.value += d.value;
+      dealsAggByCompany.set(d.companyId, agg);
+    }
+    // Bootstrap enxuto: empresa sem vinculo de CRM vai na forma __lean (cadastro completo em
+    // GET /api/companies/:id). Empresas com contato/negocio/chamado/tarefa seguem completas.
+    const crmLinkedCompanyIds = linkedCompanyIds([
+      rawContacts,
+      rawDeals,
+      this.repo.listServiceTickets(),
+      this.repo.listTasks(),
+    ]);
+    const enrichedCompanies = projectBootstrapCompanies(
+      rawCompanies.map((comp) => ({
+        ...comp,
+        contactsCount: contactsCountByCompany.get(comp.id) || 0,
+        dealsCount: dealsAggByCompany.get(comp.id)?.count || 0,
+        totalDealValue: dealsAggByCompany.get(comp.id)?.value || 0,
+      })),
+      crmLinkedCompanyIds
+    );
 
     const stageMap = new Map<string, { name: string; dealRottingDays: number }>();
     for (const p of rawPipelines) {
@@ -894,19 +924,32 @@ export class CrmApiRouter {
     const emailTemplates = this.repo.listEmailTemplates();
     const snippets = this.repo.listSnippets();
 
-    const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion);
+    const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion, healthSummary);
     const erpRaw = this.repo.getErpOverview();
     // Pacote I: config GestaoClick sem campos tecnicos para quem nao e admin/ERP FULL.
     const erp = { ...erpRaw, gestaoClickConfig: toGestaoClickConfigView(erpRaw.gestaoClickConfig, gcPrivileged) };
 
+    // Listas derivadas limitadas (top N) com o total original; o detalhe completo fica nos
+    // endpoints proprios (/api/ai-insights, /api/data-health/*, /api/marketing/campaigns).
+    const aiReportLean = {
+      ...aiReport,
+      hiddenOpportunities: aiReport.hiddenOpportunities.slice(0, BOOTSTRAP_HIDDEN_OPPORTUNITIES_MAX),
+      hiddenOpportunitiesTotal: aiReport.hiddenOpportunities.length,
+    };
+    const healthSummaryLean = {
+      ...healthSummary,
+      issues: topIssuesBySeverity(healthSummary.issues || [], BOOTSTRAP_HEALTH_ISSUES_MAX),
+      issuesTotal: (healthSummary.issues || []).length,
+    };
+    const accountEngagementAll = this.repo.getAccountBasedEngagementSummary();
     return {
-      aiReport,
+      aiReport: aiReportLean,
       pipelines: enrichedPipelines,
       deals: enrichedDeals,
       dealsForecast,
       contacts: enrichedContacts,
       companies: enrichedCompanies,
-      healthSummary,
+      healthSummary: healthSummaryLean,
       duplicates,
       workflows,
       workflowExecutions,
@@ -925,7 +968,8 @@ export class CrmApiRouter {
       marketingSegments: this.repo.listMarketingSegments(),
       marketingLandingPages: this.repo.listMarketingLandingPages(),
       suppressionList: this.repo.listSuppressionEntries(),
-      accountEngagement: this.repo.getAccountBasedEngagementSummary(),
+      accountEngagement: accountEngagementAll.slice(0, 20),
+      accountEngagementTotal: accountEngagementAll.length,
       erp,
       rbac: this.buildRbacForViewer(rbacView),
       serverTimestamp: new Date().toISOString(),
@@ -3713,12 +3757,14 @@ export class CrmApiRouter {
       if (cleanPath === '/api/companies') {
         if (method === 'GET') {
           const companies = this.repo.listCompanies({
-            search: query.search,
+            search: query.search || query.q,
             industry: query.industry,
           });
+          // Paginacao opcional (?limit=&offset=; sem limit = lista inteira, compatibilidade).
+          const { page, total, limit, offset } = paginate(companies, query.limit, query.offset);
           const contacts = this.repo.listContacts();
           const deals = this.repo.listDeals();
-          const data = companies.map((comp) => ({
+          const data = page.map((comp) => ({
             ...comp,
             contactsCount: contacts.filter((c) => c.companyId === comp.id).length,
             dealsCount: deals.filter((d) => d.companyId === comp.id).length,
@@ -3726,7 +3772,7 @@ export class CrmApiRouter {
               .filter((d) => d.companyId === comp.id)
               .reduce((s, d) => s + d.value, 0),
           }));
-          return { status: 200, body: { data, total: data.length } };
+          return { status: 200, body: { data, total, limit, offset } };
         }
 
         if (method === 'POST') {

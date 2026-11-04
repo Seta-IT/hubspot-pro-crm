@@ -11,6 +11,7 @@ import {
 // ============================================================================
 
 import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
+import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -1404,7 +1405,22 @@ export class CrmRepository {
     };
 
     // Pacote K: contato/empresa/negocio com id em outra caixa = o mesmo registro (sem duplicar).
-    upsertCollection(this.state.companies, this.canonicalizeJournalIds(this.state.companies, journal.upsertedCompanies), deletedCompanies);
+    // Bootstrap enxuto: empresa vinda do cliente pode estar na forma __lean (customProperties
+    // minimas). customProperties fazem merge com as do servidor e o marcador e descartado.
+    const incomingCompanies = this.canonicalizeJournalIds(this.state.companies, journal.upsertedCompanies);
+    const companiesForUpsert = Array.isArray(incomingCompanies)
+      ? incomingCompanies.map((c) => {
+          if (!c || !c.id) return c;
+          const clean = stripLeanMarker(c);
+          const existing = this.state.companies.find((x) => x.id === clean.id);
+          if (!existing) return clean;
+          return {
+            ...clean,
+            customProperties: { ...(existing.customProperties || {}), ...(clean.customProperties || {}) },
+          };
+        })
+      : incomingCompanies;
+    upsertCollection(this.state.companies, companiesForUpsert, deletedCompanies);
     upsertCollection(this.state.contacts, this.canonicalizeJournalIds(this.state.contacts, journal.upsertedContacts), deletedContacts);
     upsertCollection(this.state.pipelines, journal.upsertedPipelines);
     upsertCollection(this.state.deals, this.canonicalizeJournalIds(this.state.deals, journal.upsertedDeals), deletedDeals);
@@ -1994,7 +2010,8 @@ export class CrmRepository {
   }
 
   updateCompany(id: string, patchInput: Partial<Company> | Record<string, unknown>): Company | null {
-    const patch = patchInput as Partial<Company> & Record<string, unknown>;
+    // Marcador do bootstrap enxuto nunca e gravado.
+    const patch = stripLeanMarker(patchInput) as Partial<Company> & Record<string, unknown>;
     const idx = this.state.companies.findIndex((c) => c.id === id);
     if (idx === -1) return null;
 

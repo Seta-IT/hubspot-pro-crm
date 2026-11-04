@@ -16,6 +16,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Company } from '../../db/types';
+import { isLeanCompany, stripLeanMarker } from '../../modules/bootstrap/lean-payload';
 import {
   formatBrPhoneMask,
   formatCepMask,
@@ -60,7 +61,7 @@ interface GestaoClickCompanyModalProps {
   onDelete?: (companyId: string) => Promise<void>;
 }
 
-export default function GestaoClickCompanyModal({
+function GestaoClickCompanyModalForm({
   company: companyProp,
   initialCompany,
   isNew: isNewProp,
@@ -1301,6 +1302,70 @@ export default function GestaoClickCompanyModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Bootstrap enxuto (04/11/2026): empresa sem vinculo de CRM chega na lista em forma resumida
+ * (__lean). Antes de abrir o formulario, busca o cadastro completo em GET /api/companies/:id para
+ * nao exibir nem regravar campos vazios. Se a busca falhar, abre somente leitura.
+ */
+export default function GestaoClickCompanyModal(props: GestaoClickCompanyModalProps) {
+  const source = props.company !== undefined ? props.company : (props.initialCompany ?? null);
+  const needsHydration = Boolean(source?.id && isLeanCompany(source));
+  const [full, setFull] = useState<Partial<Company> | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!needsHydration || !source?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/companies/${encodeURIComponent(String(source.id))}`, { cache: 'no-store' });
+        const json = res.ok ? await res.json() : null;
+        const data = json?.data as Record<string, unknown> | undefined;
+        if (!cancelled) {
+          if (data && data.id) {
+            const { contacts: _c, deals: _d, timeline: _t, tasks: _k, completenessDetail: _cd, ...company } = data;
+            setFull(stripLeanMarker(company) as Partial<Company>);
+          } else {
+            setFailed(true);
+          }
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needsHydration, source?.id]);
+
+  if (!needsHydration) return <GestaoClickCompanyModalForm {...props} />;
+  if (full) {
+    return props.company !== undefined ? (
+      <GestaoClickCompanyModalForm {...props} company={full} />
+    ) : (
+      <GestaoClickCompanyModalForm {...props} initialCompany={full} />
+    );
+  }
+  if (failed) {
+    // Sem o cadastro completo nao abre o formulario (evita gravar campos vazios por cima).
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+        <div className="rounded-md bg-white px-6 py-4 text-sm text-slate-700 shadow-xl">
+          <p>Nao foi possivel carregar o cadastro completo desta empresa. Tente novamente.</p>
+          <button type="button" onClick={props.onClose} className="mt-3 rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+      <div className="rounded-md bg-white px-6 py-4 text-sm text-slate-700 shadow-xl">Carregando cadastro completo...</div>
     </div>
   );
 }
