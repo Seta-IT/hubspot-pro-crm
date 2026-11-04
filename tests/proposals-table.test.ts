@@ -18,6 +18,8 @@ import {
   proposalRowValues,
   ProposalWriteConflictError,
   PROPOSALS_TABLE_DDL,
+  KV_PROPOSALS_GUARD_TRIGGER_DDL,
+  insertGcProposalsIfAbsent,
 } from '../src/db/proposal-store';
 import { KV_STATE_UPSERT_SQL, stateForKvTableMode, syncStateToPostgres } from '../src/db/postgres';
 import { createInMemoryRepository } from '../src/db/repository';
@@ -241,4 +243,38 @@ describe('repositorio no modo tabela', () => {
     assert.equal(created.code, '4709');
     assert.equal(repo.listProposals()[0].code === 'GC-ORC-4695' || repo.listProposals()[1].code === 'GC-ORC-4695', true);
   });
+});
+
+describe('incidente 04/11: guarda sempre que o marcador existir', () => {
+  it('upsert zera propostas se o salvo OU o que chega estiver em modo tabela', () => {
+    assert.match(KV_STATE_UPSERT_SQL, /crm_kv_store\.payload->'erp'->>'proposalsStorage' = 'table'\s+OR EXCLUDED\.payload->'erp'->>'proposalsStorage' = 'table'/);
+    assert.doesNotMatch(KV_STATE_UPSERT_SQL, /<> 'table'/);
+  });
+
+  it('trigger no banco e idempotente e cobre INSERT/UPDATE de qualquer escritor', () => {
+    assert.match(KV_PROPOSALS_GUARD_TRIGGER_DDL, /IF NOT EXISTS \(SELECT 1 FROM pg_proc WHERE proname = 'crm_kv_proposals_table_guard_v1'\)/);
+    assert.match(KV_PROPOSALS_GUARD_TRIGGER_DDL, /IF NOT EXISTS \(SELECT 1 FROM pg_trigger WHERE tgname = 'trg_crm_kv_proposals_table_guard'/);
+    assert.match(KV_PROPOSALS_GUARD_TRIGGER_DDL, /BEFORE INSERT OR UPDATE ON crm_kv_store/);
+    assert.match(KV_PROPOSALS_GUARD_TRIGGER_DDL, /OLD\.payload->'erp'->>'proposalsStorage' = 'table'/);
+    assert.doesNotMatch(KV_PROPOSALS_GUARD_TRIGGER_DDL, /DROP TRIGGER|CREATE OR REPLACE/);
+  });
+
+  it('sync do GC no modo tabela: so insere os novos (por id e por id GC), nunca sobrescreve', async () => {
+    const db = new FakeDb((t) => {
+      if (/^SELECT lower\(id\)/.test(t.trim())) return { rows: [{ id: 'prop-gc-408248511', gc_id: '408248511' }, { id: 'prop-outro', gc_id: '409999999' }] };
+      if (/^INSERT/.test(t.trim())) return { rows: [{ id: 'prop-gc-410000001' }] };
+      return { rows: [] };
+    });
+    const n = await insertGcProposalsIfAbsent(db, [
+      baseProp({ id: 'prop-gc-408248511', code: '4695' }),
+      baseProp({ id: 'prop-gc-409999999', code: '4699' }),
+      baseProp({ id: 'prop-gc-410000001', code: '4710' }),
+    ]);
+    assert.equal(n, 1);
+    const ins = db.calls.find((c) => /^INSERT/.test(c.text.trim()))!;
+    assert.match(ins.text, /ON CONFLICT DO NOTHING/);
+    assert.equal(ins.params?.[0], 'prop-gc-410000001');
+    assert.equal(db.calls.filter((c) => /^UPDATE/.test(c.text.trim())).length, 0);
+  });
+
 });

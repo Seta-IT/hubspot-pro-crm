@@ -4037,6 +4037,15 @@ export class CrmRepository {
   /** Modo tabela: dica de numeracao vinda do SQL (max(code) e refs ocupadas). null = desliga. */
   private proposalNumberingHint: { maxCodeNumber: number; occupiedRefs: string[] } | null = null;
 
+  /** Orcamentos do GC mapeados no sync (modo tabela), a inserir por linha na proxima gravacao. */
+  private pendingGcProposalInserts: ErpCommercialProposal[] = [];
+
+  takePendingGcProposalInserts(): ErpCommercialProposal[] {
+    const out = this.pendingGcProposalInserts;
+    this.pendingGcProposalInserts = [];
+    return out;
+  }
+
   setProposalNumberingHint(hint: { maxCodeNumber: number; occupiedRefs: string[] } | null): void {
     this.proposalNumberingHint = hint;
   }
@@ -6670,6 +6679,10 @@ export class CrmRepository {
     // 4. Merge Proposals (modo tabela erp_proposals: os orcamentos GC entram pelo script de
     // importacao/tabela, nunca por esta copia em memoria — evita inflar o bootstrap).
     const existingPropIds = new Set(erp.proposals.map((p) => p.id));
+    if (erp.proposalsStorage === 'table') {
+      // Modo tabela: nada no JSON; o router insere na tabela so os que ainda nao existem (id/id GC).
+      this.pendingGcProposalInserts = [...(snapshot.mappedProposals || [])];
+    }
     for (const prop of erp.proposalsStorage === 'table' ? [] : snapshot.mappedProposals) {
       if (!existingPropIds.has(prop.id)) {
         erp.proposals.push(prop);

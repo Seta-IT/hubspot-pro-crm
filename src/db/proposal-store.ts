@@ -69,6 +69,41 @@ export async function ensureProposalsTable(db: PgQ): Promise<void> {
   await db.query(PROPOSALS_TABLE_DDL);
 }
 
+/**
+ * Trava no BANCO (idempotente): se o crm_state_v1 salvo OU o que chega estiver em modo tabela,
+ * erp.proposals vira [] e o marcador e mantido. Assim ate um deploy antigo (sem suporte ao modo
+ * tabela, que grava o documento inteiro) fica inofensivo: nunca devolve propostas ao JSON nem
+ * remove o marcador. Incidente 04/11 16:12 NY: redeploy do 8c98385 remapeou propostas do GC no JSON.
+ */
+export const KV_PROPOSALS_GUARD_TRIGGER_DDL = `
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'crm_kv_proposals_table_guard_v1') THEN
+    CREATE FUNCTION crm_kv_proposals_table_guard_v1() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+      IF NEW.key = 'crm_state_v1' AND jsonb_typeof(NEW.payload->'erp') = 'object' AND (
+           (TG_OP = 'UPDATE' AND OLD.payload->'erp'->>'proposalsStorage' = 'table')
+           OR NEW.payload->'erp'->>'proposalsStorage' = 'table'
+         ) THEN
+        NEW.payload := jsonb_set(jsonb_set(NEW.payload, '{erp,proposals}', '[]'::jsonb), '{erp,proposalsStorage}', '"table"'::jsonb);
+      END IF;
+      RETURN NEW;
+    END
+    $fn$;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_crm_kv_proposals_table_guard' AND tgrelid = 'crm_kv_store'::regclass) THEN
+    CREATE TRIGGER trg_crm_kv_proposals_table_guard BEFORE INSERT OR UPDATE ON crm_kv_store
+      FOR EACH ROW EXECUTE FUNCTION crm_kv_proposals_table_guard_v1();
+  END IF;
+EXCEPTION WHEN duplicate_object OR duplicate_function OR unique_violation THEN NULL;
+END
+$do$;
+`;
+
+export async function ensureKvProposalsGuardTrigger(db: PgQ): Promise<void> {
+  await db.query(KV_PROPOSALS_GUARD_TRIGGER_DDL);
+}
+
 // ---------------------------------------------------------------------------
 // Classificacao (mesmas regras da lista em ErpGestaoClickTab: abas Produtos/Locacao/Servicos)
 // ---------------------------------------------------------------------------
@@ -368,6 +403,27 @@ export function diffHydratedProposals(hydrated: Map<string, HydratedSnapshot>, c
 
 export function isEmptyDiff(d: ProposalDiff): boolean {
   return !d.inserts.length && !d.updates.length && !d.deletes.length;
+}
+
+/**
+ * Sync do GC no modo tabela: so INSERE orcamentos GC que ainda nao existem (por id e por id GC);
+ * nunca sobrescreve. Retorna quantos entraram.
+ */
+export async function insertGcProposalsIfAbsent(db: PgQ, list: AnyP[]): Promise<number> {
+  const cand = (list || []).filter((p) => p && p.id);
+  if (!cand.length) return 0;
+  const gcIds = cand.map((p) => gcIdOf(p)).filter((x): x is string => Boolean(x));
+  const ids = cand.map((p) => String(p.id).toLowerCase());
+  const known = await db.query(
+    `SELECT lower(id) AS id, gc_id FROM erp_proposals WHERE lower(id) = ANY($1::text[]) OR gc_id = ANY($2::text[])`,
+    [ids, gcIds]
+  );
+  const knownIds = new Set((known.rows || []).map((r) => String(r.id)));
+  const knownGc = new Set((known.rows || []).map((r) => String(r.gc_id || '')).filter(Boolean));
+  const fresh = cand.filter((p) => !knownIds.has(String(p.id).toLowerCase()) && !(gcIdOf(p) && knownGc.has(String(gcIdOf(p)))));
+  if (!fresh.length) return 0;
+  const r = await applyProposalDiff(db, { inserts: fresh as ErpCommercialProposal[], updates: [], deletes: [] });
+  return r.inserted;
 }
 
 /**

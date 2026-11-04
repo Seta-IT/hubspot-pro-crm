@@ -1074,6 +1074,11 @@ export class CrmApiRouter {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
+          if (isProposalsTableState(pgState) && pgState.erp && Array.isArray(pgState.erp.proposals) && pgState.erp.proposals.length) {
+            // Modo tabela: propostas que um escritor antigo tenha deixado no JSON sao IGNORADAS (a
+            // fonte e erp_proposals); nunca entram na memoria nem no diff (incidente 04/11).
+            pgState.erp.proposals = [];
+          }
           this.repo.loadState(pgState);
           if (isProposalsTableState(pgState)) {
             this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
@@ -1236,8 +1241,9 @@ export class CrmApiRouter {
       return null;
     }
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
+    const gcInserts = this.repo.takePendingGcProposalInserts();
     try {
-      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts } });
+      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
       return null;
     } catch (err) {
       if (err instanceof ProposalWriteConflictError) {

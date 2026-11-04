@@ -4,9 +4,9 @@
 
 import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
-import { CrmDatabaseState } from './types';
+import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
-import { applyProposalDiff, ensureProposalsTable, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
+import { applyProposalDiff, ensureKvProposalsGuardTrigger, ensureProposalsTable, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 
 let pgPool: Pool | null = null;
 let schemaEnsured = false;
@@ -193,6 +193,8 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
 
   // Tabela propria de orcamentos (idempotente; vazia ate a importacao).
   await ensureProposalsTable(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
+  // Trava no banco: crm_state_v1 em modo tabela nunca recebe propostas (nem de deploy antigo).
+  await ensureKvProposalsGuardTrigger(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
 
   // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
   await executor.query(
@@ -398,16 +400,17 @@ async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state
 }
 
 /**
- * Gravacao do crm_kv_store: se o documento ja esta em modo tabela (erp.proposalsStorage='table')
- * e o estado que chega nao (processo com codigo/estado antigo), mantem o modo tabela e NUNCA
- * devolve propostas ao JSON (sem janela de regressao durante a migracao).
+ * Gravacao do crm_kv_store: se o documento salvo OU o que chega estiver em modo tabela
+ * (erp.proposalsStorage='table'), SEMPRE zera erp.proposals e mantem o marcador (sync, PUT,
+ * journal). Nunca devolve propostas ao JSON. O trigger trg_crm_kv_proposals_table_guard repete
+ * a regra no banco para qualquer escritor (inclusive deploys antigos).
  */
 export const KV_STATE_UPSERT_SQL = `INSERT INTO crm_kv_store (key, payload, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (key) DO UPDATE
        SET payload = CASE
              WHEN crm_kv_store.payload->'erp'->>'proposalsStorage' = '${PROPOSALS_STORAGE_MARKER}'
-              AND coalesce(EXCLUDED.payload->'erp'->>'proposalsStorage', '') <> '${PROPOSALS_STORAGE_MARKER}'
+               OR EXCLUDED.payload->'erp'->>'proposalsStorage' = '${PROPOSALS_STORAGE_MARKER}'
              THEN jsonb_set(jsonb_set(EXCLUDED.payload, '{erp,proposals}', '[]'::jsonb), '{erp,proposalsStorage}', '"${PROPOSALS_STORAGE_MARKER}"'::jsonb)
              ELSE EXCLUDED.payload
            END,
@@ -424,7 +427,7 @@ export async function syncStateToPostgres(
   options?: {
     pool?: PgPoolLike;
     /** Modo tabela: diff das propostas hidratadas, aplicado na MESMA transacao do JSON. */
-    proposals?: { diff: ProposalDiff; strictInserts?: boolean };
+    proposals?: { diff: ProposalDiff; strictInserts?: boolean; gcInserts?: ErpCommercialProposal[] };
   }
 ): Promise<MirrorSyncStats[]> {
   const pool: PgPoolLike | null = options?.pool || (getPostgresPool() as unknown as PgPoolLike | null);
@@ -441,6 +444,10 @@ export async function syncStateToPostgres(
     // 0. Modo tabela: propostas por linha (controle otimista); conflito => ROLLBACK de tudo.
     if (options?.proposals && !isEmptyDiff(options.proposals.diff)) {
       await applyProposalDiff(client, options.proposals.diff, { strictInserts: options.proposals.strictInserts });
+    }
+    // 0b. Sync do GC no modo tabela: orcamentos GC novos entram por linha (so insercao por id/id GC).
+    if (options?.proposals?.gcInserts?.length) {
+      await insertGcProposalsIfAbsent(client, options.proposals.gcInserts);
     }
 
     // 1. Atomic full state snapshot in crm_kv_store
