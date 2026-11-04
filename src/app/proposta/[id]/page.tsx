@@ -27,7 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
-import { formatBRL } from '../../components/ui-helpers';
+import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
 import {
   appendClientProposalVersion,
@@ -41,6 +41,8 @@ import {
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
+  proposalWhatsAppUrl,
+  proposalTelUrl,
   resolveProposalSlaOption,
   PROPOSAL_TEMPLATE_STYLE_OPTIONS,
   SETA_TELECOM_INSTITUTIONAL_SUMMARY,
@@ -834,7 +836,6 @@ function PublicProposalPrintContent() {
   const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
   const shippingCost = Number(proposal.shippingCost || 0);
   const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
-  const hasSetupSelected = isolatedSetupTotal > 0;
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeLayout = resolveProposalLayoutKind(proposal.templateStyle);
   const activeTemplate = activeLayout;
@@ -860,6 +861,14 @@ function PublicProposalPrintContent() {
     isRental,
     isServices,
   } = docHeadings;
+  // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
+  // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
+  // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
+  const hasSetupSelected = !isProductsOnly && isolatedSetupTotal > 0;
+  const formatBRL = (value: number | null | undefined): string =>
+    isProductsOnly
+      ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
+      : formatBRLWhole(value);
   const resolvedSla = resolveProposalSlaOption(proposal);
   const hasSelectedSla =
     !isProductsOnly && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
@@ -869,7 +878,8 @@ function PublicProposalPrintContent() {
   const displayPaymentCondition =
     cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
   const commercialTotalAmount = isProductsOnly
-    ? Math.round((productsSubtotal + servicesSubtotal - totalDiscounts + shippingCost + isolatedSetupTotal) * 100) / 100
+    ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
+      Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
     : proposal.monthlyRecurringTotal || proposal.totalContractValue;
 
 
@@ -1552,7 +1562,12 @@ function PublicProposalPrintContent() {
               {sellerContact.phone && (
                 <span className="inline-flex items-center gap-1">
                   <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span>WhatsApp: <strong className="text-slate-800">{sellerContact.phone}</strong></span>
+                  <span>
+                    WhatsApp:{" "}
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-bold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    {" "}• Tel:{" "}
+                    <a href={proposalTelUrl(sellerContact.phone)} className="font-bold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                  </span>
                 </span>
               )}
               {sellerContact.email && (
@@ -1712,7 +1727,11 @@ function PublicProposalPrintContent() {
                 {sellerContact.phone && (
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <strong className="text-slate-800">WhatsApp:</strong> {sellerContact.phone}
+                    <strong className="text-slate-800">WhatsApp:</strong>{" "}
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                    <span className="text-slate-400">•</span>
+                    <strong className="text-slate-800">Tel:</strong>{" "}
+                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{sellerContact.phone}</a>
                   </span>
                 )}
               </div>
@@ -1754,7 +1773,7 @@ function PublicProposalPrintContent() {
                   Valor Total dos Produtos
                 </span>
                 <span className="font-semibold text-emerald-700 text-sm">
-                  {formatBRL(productsSubtotal - totalDiscounts)}
+                  {formatBRL(Math.round((productsSubtotal - globalDiscountVal) * 100) / 100)}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
@@ -2132,7 +2151,12 @@ function PublicProposalPrintContent() {
                     <div className="text-xs font-semibold text-slate-900">SETA TELECOM LTDA</div>
                     <div className="text-[11px] text-slate-500">
                       {sellerContact.name} • {sellerContact.email}
-                      {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
+                      {sellerContact.phone ? (
+                        <>
+                          {" • WhatsApp: "}
+                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                        </>
+                      ) : null}
                     </div>
                   </div>
 

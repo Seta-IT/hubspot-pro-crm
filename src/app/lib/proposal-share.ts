@@ -420,16 +420,36 @@ export interface ProposalSellerContactInfo {
   phone: string;
 }
 
+/** Telefone e WhatsApp oficiais da Seta Telecom (folha da proposta / PDF). */
+export const SETA_TELECOM_PHONE = '(11) 3958-4929';
+/** Numeros ficticios antigos gravados como sellerPhone padrao: exibem o telefone oficial. */
+const PLACEHOLDER_SELLER_PHONES = new Set(['(11) 99999-4929']);
+
+/** "(11) 3958-4929" => "551139584929" (DDI 55 quando vier so DDD + numero). */
+export function proposalPhoneDigits(phone: string | undefined): string {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (!d) return '';
+  return d.length === 10 || d.length === 11 ? `55${d}` : d;
+}
+export function proposalWhatsAppUrl(phone: string | undefined): string {
+  const d = proposalPhoneDigits(phone);
+  return d ? `https://wa.me/${d}` : '';
+}
+export function proposalTelUrl(phone: string | undefined): string {
+  const d = proposalPhoneDigits(phone);
+  return d ? `tel:+${d}` : '';
+}
+
 export const PROPOSAL_SELLER_DIRECTORY: ProposalSellerContactInfo[] = [
   {
     name: 'Marcelo Lopes Mira',
     email: 'marcelo.mira@setatelecom.com.br',
-    phone: '(11) 99999-4929',
+    phone: SETA_TELECOM_PHONE,
   },
   {
     name: 'Marcelo Mira',
     email: 'marcelo.mira@setatelecom.com.br',
-    phone: '(11) 99999-4929',
+    phone: SETA_TELECOM_PHONE,
   },
   {
     name: 'Evelyn Olivia de Rosa Ternero',
@@ -489,7 +509,7 @@ export function resolveProposalSellerContact(
 
   const rawPhone = String(prop.sellerPhone || '').trim();
   const phone =
-    rawPhone && rawPhone !== '(11) 3958-4929'
+    rawPhone && rawPhone !== SETA_TELECOM_PHONE && !PLACEHOLDER_SELLER_PHONES.has(rawPhone)
       ? rawPhone
       : matched.phone;
 
