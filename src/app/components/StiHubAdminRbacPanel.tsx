@@ -220,6 +220,7 @@ export default function StiHubAdminRbacPanel({
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>([]);
   const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
+  const [resendingInviteUserId, setResendingInviteUserId] = useState<string | null>(null);
   const [inviteModalData, setInviteModalData] = useState<{
     userName: string;
     email: string;
@@ -583,6 +584,7 @@ export default function StiHubAdminRbacPanel({
     activeUser ? isModuleFullControl(activeUser, m) : false
   );
   const canAdminHomeScreen = actorIsSuperAdmin || actorFullControlModules.length > 0;
+  const canManageInvites = actorIsSuperAdmin || actorFullControlModules.length > 0;
   const homeScreenOptionsFor = (user: StiHubUserRecord) => {
     const access = moduleAccessFromUser(user);
     return HOME_SCREENS.filter(
@@ -674,9 +676,25 @@ export default function StiHubAdminRbacPanel({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ origin, resetTotp: true, iamUsersOverride: loadClientIamUsersOverride() }),
     });
-    if (res.ok) {
+    if (!res.ok) {
+      let msg = `Falha ao reenviar o convite para ${user.email}.`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg = `Falha ao reenviar o convite: ${j.error}`;
+      } catch {}
+      onShowToast(msg);
+      return;
+    }
+    {
       const json = await res.json();
       const d = json?.data;
+      if (d && !d.inviteUrl) {
+        onShowToast(
+          d.emailDelivered
+            ? `Convite reenviado para ${user.email}. O link anterior foi substituído.`
+            : `Falha ao enviar o convite para ${user.email}.`
+        );
+      }
       if (d?.user) {
         saveClientIamUserOverrideIfNewer({
           ...d.user,
@@ -698,8 +716,8 @@ export default function StiHubAdminRbacPanel({
         });
         onShowToast(
           d.emailDelivered
-            ? `E-mail de convite enviado para ${user.email}.`
-            : `E-mail NÃO enviado para ${user.email}; link copiado para envio manual.`
+            ? `Convite reenviado para ${user.email}.`
+            : `O e-mail NÃO foi enviado para ${user.email}; link copiado para envio manual.`
         );
       }
       await onRefresh();
@@ -947,17 +965,17 @@ export default function StiHubAdminRbacPanel({
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-2.5 py-0.5 rounded bg-[#1e3a6e] text-white text-[10px] font-semibold uppercase tracking-wider">
-              GOVERNANÇA CORPORATIVA STI-HUB • SEÇÕES 4 &amp; 5 DO ROADMAP
+              STI-hub
             </span>
-            <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-semibold">
-              9 Perfis RBAC • {users.length} Usuários ({users.filter((u) => u.active).length} Ativos) • MFA 2FA Ativo
+            <span className="px-2.5 py-0.5 rounded bg-white/10 text-slate-200 border border-white/20 text-[10px] font-semibold">
+              Administração
             </span>
           </div>
           <h2 className="text-base sm:text-lg font-semibold">
-            Central Unificada de Administração &amp; Configurações (CRM + SETA ERP)
+            Administração e Configurações
           </h2>
           <p className="text-xs text-slate-300">
-            Controle granular de acesso por perfil e colaborador (GestãoClick Loja #118887 + HubSpot Portal #4369067), escopo de visibilidade (Todos / Equipe / Próprios), disparo validado de e-mails e subdomínios oficiais.
+            Usuários, permissões, dados da empresa e configurações do sistema.
           </p>
         </div>
 
@@ -966,14 +984,14 @@ export default function StiHubAdminRbacPanel({
             href="/login"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white text-[#0d2b4e] hover:bg-slate-100 text-xs font-semibold shadow-xs"
           >
-            <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" /> Abrir Tela de Login + MFA (/login)
+            <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" /> Tela de login
           </a>
           <button
             type="button"
             onClick={() => setShowNewUserModal(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-xs cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" /> + Novo Usuário Seta Telecom
+            <Plus className="w-3.5 h-3.5" /> Novo usuário
           </button>
         </div>
       </div>
@@ -984,12 +1002,12 @@ export default function StiHubAdminRbacPanel({
         {[
           {
             id: 'USERS_RBAC' as const,
-            label: `Usuários (${users.length})`,
+            label: 'Usuários',
             icon: Users,
           },
           {
             id: 'COMPANY_EMITTER' as const,
-            label: 'Dados da Empresa & Fiscal',
+            label: 'Dados da Empresa e Fiscal',
             icon: ShieldCheck,
           },
           {
@@ -1004,32 +1022,32 @@ export default function StiHubAdminRbacPanel({
           },
           {
             id: 'CERTIFICATE_SERIES' as const,
-            label: 'Séries NF & Parâmetros',
+            label: 'Séries NF e Parâmetros',
             icon: Database,
           },
           {
             id: 'EMAIL_TEMPLATES' as const,
-            label: `E-mail Validado & Modelos (${emailTemplates.length})`,
+            label: 'E-mail e Modelos',
             icon: Mail,
           },
           {
             id: 'CUSTOM_PROPERTIES' as const,
-            label: 'Campos Customizáveis (#4369067)',
+            label: 'Campos Customizáveis',
             icon: Database,
           },
           {
             id: 'MIGRATION_CHECKLIST' as const,
-            label: 'Homologação da Migração (11 Módulos)',
+            label: 'Homologação da Migração',
             icon: CheckCircle2,
           },
           {
             id: 'DAILY_SYNC_LOGS' as const,
-            label: `Sincronização Diária ERP & Logs (${syncLogs.length})`,
+            label: 'Sincronização Diária',
             icon: RefreshCw,
           },
           {
             id: 'SUBDOMAIN_SECURITY' as const,
-            label: 'Segurança MFA 2FA, Rotas & Subdomínio',
+            label: 'Segurança',
             icon: Globe,
           },
         ].map((tab) => {
@@ -1064,7 +1082,7 @@ export default function StiHubAdminRbacPanel({
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
               <h3 className="text-base font-semibold text-slate-900">
-                Usuários ({filteredUsers.length} de {users.length})
+                Usuários
               </h3>
             </div>
 
@@ -1262,14 +1280,28 @@ export default function StiHubAdminRbacPanel({
                       </td>
                       <td className="py-3 px-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          {canManageInvites && (!u.lastLoginAt || u.inviteStatus === 'PENDING_INVITE') && (
                           <button
                             type="button"
-                            title="Enviar convite por e-mail com link para o usuário cadastrar a senha e o autenticador"
-                            onClick={() => handleGenerateUserInvite(u)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                            data-testid="reenviar-convite"
+                            title="Reenviar o convite por e-mail. Gera um novo link e substitui o anterior."
+                            disabled={resendingInviteUserId === u.id}
+                            onClick={async () => {
+                              setResendingInviteUserId(u.id);
+                              try {
+                                await handleGenerateUserInvite(u);
+                              } catch {
+                                onShowToast(`Falha ao reenviar o convite para ${u.email}.`);
+                              } finally {
+                                setResendingInviteUserId(null);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-[11px] font-semibold cursor-pointer disabled:opacity-60"
                           >
-                            <Mail className="w-3.5 h-3.5 text-emerald-600" /> Enviar Convite por E-mail
+                            <Mail className="w-3.5 h-3.5 text-slate-500" />{' '}
+                            {resendingInviteUserId === u.id ? 'Enviando...' : 'Reenviar convite'}
                           </button>
+                          )}
                           {confirmDeleteUserId === u.id ? (
                             <div className="inline-flex items-center gap-1">
                               <button
@@ -1482,7 +1514,7 @@ export default function StiHubAdminRbacPanel({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                SEÇÃO 3 DO ROADMAP • CUSTOM PROPERTIES HUBSPOT PORTAL #4369067
+                CAMPOS CUSTOMIZÁVEIS
               </span>
               <h3 className="text-base font-semibold text-slate-900">
                 Dicionário de Propriedades Customizadas Sincronizadas (Contatos, Empresas, Deals &amp; Tickets)
@@ -2138,9 +2170,9 @@ export default function StiHubAdminRbacPanel({
               <h3 className="text-base font-semibold text-slate-900">Homologação da migração</h3>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
+              <span data-testid="migracao-aprovados" className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
                 Aprovados: {migrationChecklist.filter((m) => m.validationStatus === 'PASSOU').length} /{' '}
-                {migrationChecklist.length} Módulos
+                {migrationChecklist.length}
               </span>
             </div>
           </div>
