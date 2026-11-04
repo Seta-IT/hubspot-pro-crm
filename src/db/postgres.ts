@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState } from './types';
 import { createInitialSeedState } from './seed';
+import { applyProposalDiff, ensureProposalsTable, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 
 let pgPool: Pool | null = null;
 let schemaEnsured = false;
@@ -189,6 +190,9 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_status ON crm_service_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_priority ON crm_service_tickets(priority);
   `);
+
+  // Tabela propria de orcamentos (idempotente; vazia ate a importacao).
+  await ensureProposalsTable(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
 
   // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
   await executor.query(
@@ -393,9 +397,35 @@ async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state
   return { table: spec.table, upserted: changed.length, deleted, unchanged: current.size - changed.length, skippedDeletes };
 }
 
+/**
+ * Gravacao do crm_kv_store: se o documento ja esta em modo tabela (erp.proposalsStorage='table')
+ * e o estado que chega nao (processo com codigo/estado antigo), mantem o modo tabela e NUNCA
+ * devolve propostas ao JSON (sem janela de regressao durante a migracao).
+ */
+export const KV_STATE_UPSERT_SQL = `INSERT INTO crm_kv_store (key, payload, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+       SET payload = CASE
+             WHEN crm_kv_store.payload->'erp'->>'proposalsStorage' = '${PROPOSALS_STORAGE_MARKER}'
+              AND coalesce(EXCLUDED.payload->'erp'->>'proposalsStorage', '') <> '${PROPOSALS_STORAGE_MARKER}'
+             THEN jsonb_set(jsonb_set(EXCLUDED.payload, '{erp,proposals}', '[]'::jsonb), '{erp,proposalsStorage}', '"${PROPOSALS_STORAGE_MARKER}"'::jsonb)
+             ELSE EXCLUDED.payload
+           END,
+           updated_at = NOW()`;
+
+/** Estado para o JSON em modo tabela: sem propostas (elas vivem em erp_proposals). */
+export function stateForKvTableMode(state: CrmDatabaseState): CrmDatabaseState {
+  if (!state || !state.erp) return state;
+  return { ...state, erp: { ...state.erp, proposals: [], proposalsStorage: PROPOSALS_STORAGE_MARKER } } as CrmDatabaseState;
+}
+
 export async function syncStateToPostgres(
   state: CrmDatabaseState,
-  options?: { pool?: PgPoolLike }
+  options?: {
+    pool?: PgPoolLike;
+    /** Modo tabela: diff das propostas hidratadas, aplicado na MESMA transacao do JSON. */
+    proposals?: { diff: ProposalDiff; strictInserts?: boolean };
+  }
 ): Promise<MirrorSyncStats[]> {
   const pool: PgPoolLike | null = options?.pool || (getPostgresPool() as unknown as PgPoolLike | null);
   if (!pool) return [];
@@ -403,18 +433,18 @@ export async function syncStateToPostgres(
   await ensurePostgresSchema(pool as unknown as Pool);
   const client = await pool.connect();
   const stats: MirrorSyncStats[] = [];
+  const tableMode = Boolean(options?.proposals);
 
   try {
     await client.query('BEGIN');
 
+    // 0. Modo tabela: propostas por linha (controle otimista); conflito => ROLLBACK de tudo.
+    if (options?.proposals && !isEmptyDiff(options.proposals.diff)) {
+      await applyProposalDiff(client, options.proposals.diff, { strictInserts: options.proposals.strictInserts });
+    }
+
     // 1. Atomic full state snapshot in crm_kv_store
-    await client.query(
-      `INSERT INTO crm_kv_store (key, payload, updated_at)
-       VALUES ($1, $2::jsonb, NOW())
-       ON CONFLICT (key) DO UPDATE
-       SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      ['crm_state_v1', JSON.stringify(state)]
-    );
+    await client.query(KV_STATE_UPSERT_SQL, ['crm_state_v1', JSON.stringify(tableMode ? stateForKvTableMode(state) : state)]);
 
     // 2. Espelho relacional para SQL/BI: só linhas novas/alteradas/removidas
     for (const spec of MIRROR_TABLES) {

@@ -176,6 +176,10 @@ export interface ErpOverviewPayload {
     totalPayables: number;
   };
   proposals: ErpCommercialProposal[];
+  /** 04/11/2026: 'table' => orcamentos na tabela erp_proposals (lista paginada pela API). */
+  proposalsStorage?: 'table';
+  proposalsTotal?: number;
+  proposalsNextNumber?: number;
   rentalContracts: ErpRentalContract[];
   invoices: ErpFiscalInvoice[];
   catalog: ErpCatalogItem[];
@@ -396,7 +400,12 @@ export default function ErpGestaoClickTab({
   // Numerações: último número real a partir dos registros carregados; sem base => vazio.
   const erpNumberingBase = useMemo<Record<string, number | null>>(
     () => ({
-      orcamentos: lastNumberFromCodes((erpData?.proposals || []).map((p) => p.code)),
+      orcamentos:
+        erpData?.proposalsStorage === 'table'
+          ? erpData.proposalsNextNumber
+            ? erpData.proposalsNextNumber - 1
+            : null
+          : lastNumberFromCodes((erpData?.proposals || []).map((p) => p.code)),
       vendas: lastNumberFromCodes((erpData?.salesOrders || []).map((o) => o.code)),
       ordensServico: lastNumberFromCodes((erpData?.serviceOrders || []).map((o) => o.code)),
       locacoes: lastNumberFromCodes((erpData?.rentalContracts || []).map((c) => c.contractNumber)),
@@ -406,11 +415,75 @@ export default function ErpGestaoClickTab({
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [erpMobileDrawerOpen, setErpMobileDrawerOpen] = useState(false);
-  const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
+  const [editingProposal, setEditingProposalRaw] = useState<ErpCommercialProposal | null>(null);
+  // Modo tabela (erp_proposals): a lista traz resumos (__summary, sem historico/textos longos);
+  // Editar sempre abre o registro completo vindo de GET /api/erp/proposals/:id.
+  const proposalsTableMode = erpData?.proposalsStorage === 'table';
+  const setEditingProposal = (p: ErpCommercialProposal | null) => {
+    if (!p || !(p as unknown as Record<string, unknown>).__summary) {
+      setEditingProposalRaw(p);
+      return;
+    }
+    fetch(`/api/erp/proposals/${encodeURIComponent(p.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const full = j && j.data && !Array.isArray(j.data) ? (j.data as ErpCommercialProposal) : null;
+        if (full) setEditingProposalRaw(full);
+        else onShowToast('Não foi possível abrir o orçamento completo. Tente de novo.');
+      })
+      .catch(() => onShowToast('Não foi possível abrir o orçamento completo. Tente de novo.'));
+  };
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
+  // Modo tabela: pagina corrente da lista (busca/situacao/tipo filtrados no servidor).
+  const PROPOSALS_PAGE_SIZE = 50;
+  const [proposalsOffset, setProposalsOffset] = useState<number>(0);
+  const [proposalsPage, setProposalsPage] = useState<{
+    data: ErpCommercialProposal[];
+    total: number;
+    counts: { TODOS: number; PRODUTOS: number; LOCACAO: number; SERVICOS: number };
+  } | null>(null);
+  const [proposalsPageLoading, setProposalsPageLoading] = useState<boolean>(false);
+  const proposalsTypeParam =
+    activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : 'TODOS';
+  React.useEffect(() => {
+    setProposalsOffset(0);
+  }, [proposalsSearch, proposalsStatusFilter, proposalsTypeParam]);
+  React.useEffect(() => {
+    if (!proposalsTableMode) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({
+        limit: String(PROPOSALS_PAGE_SIZE),
+        offset: String(proposalsOffset),
+        status: proposalsStatusFilter,
+        type: proposalsTypeParam,
+      });
+      if (proposalsSearch.trim()) qs.set('q', proposalsSearch.trim());
+      setProposalsPageLoading(true);
+      fetch(`/api/erp/proposals?${qs.toString()}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!alive || !j) return;
+          setProposalsPage({
+            data: Array.isArray(j.data) ? j.data : [],
+            total: Number(j.total) || 0,
+            counts: j.counts || { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 },
+          });
+        })
+        .catch(() => null)
+        .finally(() => {
+          if (alive) setProposalsPageLoading(false);
+        });
+    }, proposalsSearch.trim() ? 300 : 0);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // erpData muda a cada onRefresh() => recarrega a pagina depois de salvar/excluir.
+  }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsTypeParam, erpData]);
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
@@ -633,6 +706,9 @@ export default function ErpGestaoClickTab({
         setHighlightedProposalId(found.id);
         setIsCreatingProposalModal(false);
         setEditingProposal(found);
+      } else if (erpData.proposalsStorage === 'table' && id) {
+        setIsCreatingProposalModal(false);
+        setEditingProposal({ id, __summary: true } as unknown as ErpCommercialProposal);
       }
     } else if (type === 'CONTRACT') {
       setActiveSection('CONTRATOS');
@@ -721,7 +797,7 @@ export default function ErpGestaoClickTab({
 
   const {
     kpis,
-    proposals,
+    proposals: bootstrapProposals,
     rentalContracts,
     invoices,
     catalog,
@@ -735,6 +811,12 @@ export default function ErpGestaoClickTab({
     employees = [],
     purchaseOrders = [],
   } = erpData;
+  // Modo tabela: a lista e a pagina vinda do servidor; senao, as do bootstrap (como antes).
+  const proposals: ErpCommercialProposal[] = proposalsTableMode ? proposalsPage?.data || [] : bootstrapProposals;
+  const nextProposalCodeHint = (): string =>
+    proposalsTableMode
+      ? String(erpData.proposalsNextNumber || '')
+      : String(nextGcProposalNumber(proposals.map((p) => showCode(p))));
 
   const handleSyncGestaoClick = async () => {
     setSyncingGc(true);
@@ -1163,13 +1245,21 @@ export default function ErpGestaoClickTab({
   };
 
   const handleSaveEditedProposal = async (updated: ErpCommercialProposal) => {
-    const isNew = isCreatingProposalModal || !proposals.some((p) => p.id === updated.id);
+    // Modo tabela: a pagina nao tem todas as propostas; "novo" = so o fluxo de criacao.
+    const isNew = proposalsTableMode
+      ? isCreatingProposalModal
+      : isCreatingProposalModal || !proposals.some((p) => p.id === updated.id);
     const res = await fetch(
       isNew ? '/api/erp/proposals' : `/api/erp/proposals/${encodeURIComponent(updated.id)}`,
       {
         method: isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        // Controle otimista: o servidor recusa (409) se o orcamento mudou depois de aberto.
+        body: JSON.stringify(
+          !isNew && proposalsTableMode && editingProposal?.updatedAt
+            ? { ...updated, expectedUpdatedAt: editingProposal.updatedAt }
+            : updated
+        ),
       }
     ).catch(() => null);
     if (!res || !res.ok) {
@@ -1318,13 +1408,25 @@ export default function ErpGestaoClickTab({
   const showCode = (p: Pick<ErpCommercialProposal, 'id' | 'code'>): string =>
     proposalDisplayCodes.get(p.id) || formatProposalDisplayCode(p.code);
 
-  const handleDuplicateProposal = async (prop: ErpCommercialProposal) => {
+  const handleDuplicateProposal = async (propIn: ErpCommercialProposal) => {
     setOpenProposalMenuId(null);
     setExpandedProposalSubmenu(null);
+    // Modo tabela: a copia parte do registro completo (o resumo da lista nao tem os textos).
+    let prop = propIn;
+    if ((propIn as unknown as Record<string, unknown>).__summary) {
+      const full = await fetch(`/api/erp/proposals/${encodeURIComponent(propIn.id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (!full || !full.data || Array.isArray(full.data)) {
+        onShowToast('Não foi possível copiar o orçamento agora. Tente de novo.');
+        return;
+      }
+      prop = full.data as ErpCommercialProposal;
+    }
     const copyPayload: Partial<ErpCommercialProposal> = {
       ...prop,
       id: `prop-copy-${Date.now()}`,
-      code: String(nextGcProposalNumber(proposals.map((p) => showCode(p)))),
+      code: nextProposalCodeHint(),
       title: `${prop.title} (Cópia)`,
       status: "RASCUNHO",
       convertedContractId: null,
@@ -1904,7 +2006,7 @@ export default function ErpGestaoClickTab({
     { id: 'INICIO', label: 'Início', icon: Home },
     { id: 'CADASTROS', label: 'Cadastros', icon: Users, count: companies.length + suppliers.length + employees.length },
     { id: 'ITENS', label: 'Itens', icon: Package, count: catalog.length },
-    { id: 'ORCAMENTOS', label: 'Orçamentos / Propostas', icon: FileText, count: proposals.length, hot: true },
+    { id: 'ORCAMENTOS', label: 'Orçamentos / Propostas', icon: FileText, count: proposalsTableMode ? Number(erpData.proposalsTotal ?? proposalsPage?.counts.TODOS ?? 0) : proposals.length, hot: true },
     { id: 'VENDAS', label: 'Vendas', icon: ShoppingCart, count: salesOrders.length },
     { id: 'ORDENS_SERVICOS', label: 'Ordens de serviços', icon: Wrench, count: serviceOrders.length },
     { id: 'ESTOQUE', label: 'Estoque', icon: Boxes, count: catalog.length + purchaseOrders.length },
@@ -2010,7 +2112,7 @@ export default function ErpGestaoClickTab({
     const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : 'LOCACAO');
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
-      code: String(nextGcProposalNumber(proposals.map((p) => showCode(p)))),
+      code: nextProposalCodeHint(),
       title: '',
       budgetType: inferredType,
       storeName: gestaoClickConfig.storeName || 'Matriz',
@@ -2301,13 +2403,13 @@ export default function ErpGestaoClickTab({
                   onChange={(e) => setProposalsStatusFilter(e.target.value)}
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-medium text-slate-700"
                 >
-                  <option value="TODOS">Situação: Todas ({tabFiltered.length})</option>
-                  <option value="RASCUNHO">Em Aberto ({tabFiltered.filter((p) => p.status === 'RASCUNHO').length})</option>
-                  <option value="ENVIADA">Enviado ({tabFiltered.filter((p) => p.status === 'ENVIADA').length})</option>
-                  <option value="EM_NEGOCIACAO">Em Negociação ({tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})</option>
-                  <option value="APROVADA">Aprovado ({tabFiltered.filter((p) => p.status === 'APROVADA').length})</option>
-                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato ({tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})</option>
-                  <option value="RECUSADA">Cancelado / Recusado ({tabFiltered.filter((p) => p.status === 'RECUSADA').length})</option>
+                  <option value="TODOS">Situação: Todas{proposalsTableMode ? '' : ` (${tabFiltered.length})`}</option>
+                  <option value="RASCUNHO">Em Aberto{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RASCUNHO').length})`}</option>
+                  <option value="ENVIADA">Enviado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'ENVIADA').length})`}</option>
+                  <option value="EM_NEGOCIACAO">Em Negociação{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})`}</option>
+                  <option value="APROVADA">Aprovado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'APROVADA').length})`}</option>
+                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})`}</option>
+                  <option value="RECUSADA">Cancelado / Recusado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RECUSADA').length})`}</option>
                 </select>
                 {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || effectiveOrcTab !== 'TODOS') && (
                   <button
@@ -2321,6 +2423,33 @@ export default function ErpGestaoClickTab({
                   >
                     Limpar filtros
                   </button>
+                )}
+                {proposalsTableMode && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600" aria-live="polite">
+                    <span>
+                      {proposalsPageLoading
+                        ? 'Carregando…'
+                        : (proposalsPage?.total || 0) === 0
+                          ? 'Nenhum orçamento'
+                          : `${proposalsOffset + 1}–${Math.min(proposalsOffset + PROPOSALS_PAGE_SIZE, proposalsPage?.total || 0)} de ${proposalsPage?.total || 0}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={proposalsOffset === 0 || proposalsPageLoading}
+                      onClick={() => setProposalsOffset((o) => Math.max(0, o - PROPOSALS_PAGE_SIZE))}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={proposalsPageLoading || proposalsOffset + PROPOSALS_PAGE_SIZE >= (proposalsPage?.total || 0)}
+                      onClick={() => setProposalsOffset((o) => o + PROPOSALS_PAGE_SIZE)}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                    >
+                      Próxima
+                    </button>
+                  </div>
                 )}
               </div>
           </div>

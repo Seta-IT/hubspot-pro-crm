@@ -32,10 +32,27 @@ import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
 import { ClientDurableJournal, CrmRepository, getRepository } from '../db/repository';
 import {
   checkPostgresHealth,
+  getPostgresPool,
   isPostgresEnabled,
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
+import {
+  countProposals,
+  diffHydratedProposals,
+  getProposalsByDealOrCompany,
+  getProposalsByRefs,
+  hashProposal,
+  isEmptyDiff,
+  isProposalsTableState,
+  listProposalsPage,
+  maxProposalCodeNumber,
+  PROPOSAL_SUMMARY_MARKER,
+  ProposalWriteConflictError,
+  type HydratedSnapshot,
+  type PgQ,
+  type StoredProposal,
+} from '../db/proposal-store';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
@@ -700,6 +717,11 @@ export class CrmApiRouter {
   private repo: CrmRepository;
   private isSingletonRepo: boolean;
   private pgInitialized = false;
+  /**
+   * Modo tabela (erp_proposals) da requisicao corrente: propostas hidratadas (id -> hash/versao
+   * lidos) para o diff gravado por linha depois da rota. null = modo JSON (comportamento anterior).
+   */
+  private proposalTableCtx: { hydrated: Map<string, HydratedSnapshot>; strictInserts: boolean } | null = null;
   private gcInitialized = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
@@ -1046,15 +1068,29 @@ export class CrmApiRouter {
       this.repo.syncFromDisk();
     }
 
+    this.proposalTableCtx = null;
+    this.repo.setProposalNumberingHint(null);
     if (this.isSingletonRepo && isPostgresEnabled()) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
           this.repo.loadState(pgState);
+          if (isProposalsTableState(pgState)) {
+            this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
+          }
         }
         this.pgInitialized = true;
       } catch {
         // Fallback to local state if PostgreSQL is unreachable
+      }
+    }
+    if (this.proposalTableCtx) {
+      // Modo tabela: o estado nao traz propostas; carrega SO as que esta rota usa. Falha de leitura
+      // => 503 (nunca responder "nao encontrada" nem gravar com a lista vazia por engano).
+      try {
+        await this.hydrateProposalsForRoute(method, cleanPath, body);
+      } catch {
+        return { status: 503, body: { error: 'Orçamentos temporariamente indisponíveis. Tente de novo em instantes.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
       }
     }
 
@@ -1107,14 +1143,168 @@ export class CrmApiRouter {
         response.status < 400) ||
         journalReconciled)
     ) {
+      const failed = await this.persistStateToPostgres();
+      if (failed) return failed;
+    }
+
+    if (this.proposalTableCtx && response.status === 200) {
+      await this.decorateProposalsTableResponse(cleanPath, response.body);
+    }
+
+    return response;
+  }
+
+  // ==========================================================================
+  // TABELA PROPRIA DE ORCAMENTOS (erp_proposals) — src/db/proposal-store.ts
+  // ==========================================================================
+  private proposalsDb(): PgQ {
+    const pool = getPostgresPool();
+    if (!pool) throw new Error('Postgres indisponivel');
+    return pool as unknown as PgQ;
+  }
+
+  private rememberHydrated(rows: StoredProposal[]): void {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) return;
+    const merged = new Map<string, StoredProposal>();
+    for (const r of rows) if (r && r.proposal && r.proposal.id) merged.set(r.proposal.id, r);
+    const inMemory = this.repo.hydrateStoredProposals(Array.from(merged.values()).map((r) => r.proposal));
+    ctx.hydrated.clear();
+    for (const p of inMemory) {
+      ctx.hydrated.set(p.id, { hash: hashProposal(p), rowVersion: merged.get(p.id)?.rowVersion || 1 });
+    }
+  }
+
+  /** Carrega da tabela so as propostas que a rota usa (id/codigo, short link, negocio, numeracao). */
+  private async hydrateProposalsForRoute(method: string, cleanPath: string, body: Record<string, unknown>): Promise<void> {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) return;
+    const db = this.proposalsDb();
+    const refs: string[] = [];
+    let rows: StoredProposal[] = [];
+    const byRef = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
+    if (byRef) {
+      try {
+        refs.push(decodeURIComponent(byRef[1]).trim());
+      } catch {
+        refs.push(byRef[1]);
+      }
+    }
+    const shortM = cleanPath.match(/^\/api\/p\/([^/]+)$/);
+    if (shortM && method === 'GET') {
+      let code = '';
+      try {
+        code = decodeURIComponent(shortM[1]).trim();
+      } catch {
+        code = '';
+      }
+      const h = PROPOSAL_SHORT_CODE_PATTERN.test(code) ? hashProposalShortCode(code) : null;
+      const rec = h ? this.repo.findProposalShortLink(h) : undefined;
+      if (rec && rec.proposalId) refs.push(rec.proposalId);
+    }
+    if (refs.length) rows = rows.concat(await getProposalsByRefs(db, refs));
+    const dealM = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
+    if (dealM && method === 'GET') {
+      const deal = this.repo.getDealById(dealM[1]);
+      if (deal) rows = rows.concat(await getProposalsByDealOrCompany(db, deal.id, deal.companyId || null));
+    }
+    // Criacao (POST) e upsert (PUT/PATCH de id inexistente): numeracao pelo SQL + refs ocupadas.
+    const isProposalWrite =
+      (cleanPath === '/api/erp/proposals' && method === 'POST') ||
+      (Boolean(byRef) && ['PUT', 'PATCH', 'POST'].includes(method));
+    if (isProposalWrite) {
+      const cand = [body.id, body.code].filter((v) => typeof v === 'string' && String(v).trim()).map((v) => String(v).trim());
+      const clashes = cand.length ? await getProposalsByRefs(db, cand) : [];
+      this.repo.setProposalNumberingHint({
+        maxCodeNumber: await maxProposalCodeNumber(db),
+        occupiedRefs: clashes.flatMap((c) => [c.proposal.id, c.proposal.code]).filter(Boolean) as string[],
+      });
+      ctx.strictInserts = true;
+    }
+    this.rememberHydrated(rows);
+  }
+
+  /** Grava o estado (e, no modo tabela, o diff das propostas). Conflito => 409; falha => 503. */
+  private async persistStateToPostgres(): Promise<ApiResponse | null> {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) {
       try {
         await syncStateToPostgres(this.repo.getState());
       } catch {
         // Ignore background sync failure if PostgreSQL is temporarily unavailable
       }
+      return null;
     }
+    const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
+    try {
+      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts } });
+      return null;
+    } catch (err) {
+      if (err instanceof ProposalWriteConflictError) {
+        return {
+          status: 409,
+          body: {
+            error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+            code: 'PROPOSAL_VERSION_CONFLICT',
+            proposalId: err.proposalId,
+          },
+        };
+      }
+      if (!isEmptyDiff(diff)) {
+        return { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+      }
+      return null;
+    }
+  }
 
-    return response;
+  /** Bootstrap/overview/sync no modo tabela: sinaliza a lista paginada e corrige os contadores. */
+  private async decorateProposalsTableResponse(cleanPath: string, body: unknown): Promise<void> {
+    const paths = ['/api/bootstrap', '/api/state', '/api/state/reconcile', '/api/erp/overview', '/api/erp/gestaoclick/sync'];
+    if (!paths.includes(cleanPath) || !body || typeof body !== 'object') return;
+    const b = body as Record<string, any>;
+    const targets: Array<Record<string, any>> = [];
+    if (b.data && typeof b.data === 'object' && b.data.erp && typeof b.data.erp === 'object') targets.push(b.data.erp);
+    if (cleanPath === '/api/erp/overview' && b.data && typeof b.data === 'object') targets.push(b.data);
+    if (b.erp && typeof b.erp === 'object') targets.push(b.erp);
+    if (!targets.length) return;
+    let stats: { total: number; open: number } | null = null;
+    let nextNumber: number | null = null;
+    try {
+      stats = await countProposals(this.proposalsDb());
+      nextNumber = (await maxProposalCodeNumber(this.proposalsDb())) + 1;
+    } catch {
+      stats = null;
+    }
+    for (const erp of targets) {
+      erp.proposalsStorage = 'table';
+      erp.proposals = [];
+      if (stats) {
+        erp.proposalsTotal = stats.total;
+        if (nextNumber) erp.proposalsNextNumber = nextNumber;
+        if (erp.kpis && typeof erp.kpis === 'object') erp.kpis.openProposalsCount = stats.open;
+      }
+    }
+  }
+
+  /** GET /api/erp/proposals no modo tabela: pagina + filtros no SQL, no escopo da sessao. */
+  private async listProposalsFromTable(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Promise<ApiResponse> {
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'denied') return { status: 200, body: { data: [], total: 0, limit: 0, offset: 0, counts: { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 }, storage: 'table' } };
+    const owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    const page = await listProposalsPage(this.proposalsDb(), {
+      q: query.q ?? query.search,
+      status: query.status,
+      type: query.type,
+      companyId: query.companyId,
+      dealId: query.dealId,
+      owner,
+      limit: query.limit ? Number(query.limit) : 50,
+      offset: query.offset ? Number(query.offset) : 0,
+    });
+    return { status: 200, body: { ...page, storage: 'table' } };
   }
 
 
@@ -1229,11 +1419,8 @@ export class CrmApiRouter {
     );
 
     if (this.isSingletonRepo && isPostgresEnabled() && route.kind === 'CREATE' && raw.status >= 200 && raw.status < 400) {
-      try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // sincronizacao opcional
-      }
+      const failed = await this.persistStateToPostgres();
+      if (failed) return { status: failed.status, body: failed.body };
     }
     // Nunca devolve headers (em especial Set-Cookie) para a conta de servico.
     return { status: raw.status, body: projected };
@@ -1495,6 +1682,12 @@ export class CrmApiRouter {
     // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
     // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).
     const sanitizedJournal = this.sanitizeProposalJournal(deepRedactProposalLinkTokens(journal), query, ctx);
+    if (this.proposalTableCtx) {
+      // Modo tabela: propostas so gravam pela API por linha (controle otimista); o journal do
+      // navegador nunca reescreve/apaga orcamentos (copias antigas no localStorage).
+      sanitizedJournal.upsertedProposals = [];
+      sanitizedJournal.deletedProposalIds = [];
+    }
     // Pacote O: modelos de e-mail no journal so com a alcada do PUT; o journal nunca cria modelo.
     if (Array.isArray(sanitizedJournal.upsertedEmailTemplates) && sanitizedJournal.upsertedEmailTemplates.length > 0) {
       const tplPriv = emailTemplateWritePrivilege(this.repo, query, ctx);
@@ -2964,8 +3157,12 @@ export class CrmApiRouter {
     let reloadedConverted = alreadyConverted(this.findProposalExact(existing.id));
     if (!reloadedConverted && this.isSingletonRepo && isPostgresEnabled()) {
       try {
-        const fresh = await loadStateFromPostgres();
-        reloadedConverted = alreadyConverted(fresh?.erp?.proposals?.find((p) => p.id === existing.id));
+        if (this.proposalTableCtx) {
+          const freshRows = await getProposalsByRefs(this.proposalsDb(), [existing.id]);
+          reloadedConverted = alreadyConverted(freshRows.find((r) => r.proposal.id === existing.id)?.proposal);
+        }
+        const fresh = this.proposalTableCtx ? null : await loadStateFromPostgres();
+        if (fresh) reloadedConverted = alreadyConverted(fresh?.erp?.proposals?.find((p) => p.id === existing.id));
       } catch {
         // PostgreSQL indisponivel: segue com a checagem em memoria ja feita.
       }
@@ -5887,6 +6084,7 @@ export class CrmApiRouter {
 
       if (cleanPath === '/api/erp/proposals') {
         if (method === 'GET') {
+          if (this.proposalTableCtx) return await this.listProposalsFromTable(query, ctx);
           // (d) Lista filtrada no servidor pelo mesmo escopo do GET :id.
           const list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
           return { status: 200, body: { data: list, total: list.length } };
@@ -5899,6 +6097,9 @@ export class CrmApiRouter {
           if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           const { sellerUserId: _ignoredSellerUserId, ...createInput } = body as Record<string, unknown>;
           void _ignoredSellerUserId;
+          delete createInput[PROPOSAL_SUMMARY_MARKER];
+          delete createInput.versionCount;
+          delete createInput.expectedUpdatedAt;
           // Pacote J (A1): fora do contexto interno, id e code da proposta nova sao SEMPRE do
           // servidor (a tela usa o registro devolvido). Colisao no contexto interno => 409.
           if (!ctx.trustedInternal) {
@@ -6101,6 +6302,21 @@ export class CrmApiRouter {
           if (current && !CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           const { sellerUserId: _bodySellerUserId, ...patch } = body as Record<string, unknown>;
           void _bodySellerUserId;
+          // Controle otimista (tela Editar): expectedUpdatedAt = updatedAt do registro aberto.
+          const expectedUpdatedAt = typeof patch.expectedUpdatedAt === 'string' ? patch.expectedUpdatedAt : '';
+          delete patch.expectedUpdatedAt;
+          delete patch[PROPOSAL_SUMMARY_MARKER];
+          delete patch.versionCount;
+          if (current && expectedUpdatedAt && String(current.updatedAt || '') !== expectedUpdatedAt) {
+            return {
+              status: 409,
+              body: {
+                error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+                code: 'PROPOSAL_VERSION_CONFLICT',
+                currentUpdatedAt: current.updatedAt,
+              },
+            };
+          }
           if (scope.kind === 'session' && !scope.ownerAdmin) {
             const changed = CrmApiRouter.sellerFieldChanges(current, body, scope.access.user);
             if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);

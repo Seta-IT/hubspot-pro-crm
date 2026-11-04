@@ -1531,7 +1531,7 @@ export class CrmRepository {
       if (keep) p.sellerUserId = keep;
       else delete p.sellerUserId;
     }
-    this.backfillMissingProposalCodes(erp.proposals);
+    if (erp.proposalsStorage !== 'table') this.backfillMissingProposalCodes(erp.proposals);
     // Pacote K: contrato do journal com id em outra caixa = o mesmo; numero duplicado => proximo livre.
     upsertCollection(
       erp.rentalContracts,
@@ -3935,7 +3935,12 @@ export class CrmRepository {
         this.state.erp.rentalContracts = this.state.erp.rentalContracts.filter((c) => c && typeof c === 'object');
       }
     }
-    if (Array.isArray(this.state.erp.proposals)) {
+    if (Array.isArray(this.state.erp.proposals) && this.state.erp.proposalsStorage === 'table') {
+      // Modo tabela: so as hidratadas estao aqui (codigos ja canonicos e unicos na tabela). A
+      // migracao de codigos legados (GC-ORC-N => N) NAO roda sobre um subconjunto: sem ver as
+      // demais, renomearia a duplicata GC-ORC-4695 para 4695 (colisao).
+      this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
+    } else if (Array.isArray(this.state.erp.proposals)) {
       this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
       // Pacote J (A2): proposta sem code (journal antigo) recebe um codigo livre do servidor, para
       // que buscas por id/codigo nunca derrubem as edicoes de todas as propostas.
@@ -4009,6 +4014,7 @@ export class CrmRepository {
         totalPayables,
       },
       proposals: erp.proposals,
+      ...(erp.proposalsStorage ? { proposalsStorage: erp.proposalsStorage } : {}),
       rentalContracts: erp.rentalContracts,
       invoices: erp.invoices,
       catalog: erp.catalog,
@@ -4026,6 +4032,29 @@ export class CrmRepository {
 
   listProposals(): ErpCommercialProposal[] {
     return [...this.ensureErp().proposals];
+  }
+
+  /** Modo tabela: dica de numeracao vinda do SQL (max(code) e refs ocupadas). null = desliga. */
+  private proposalNumberingHint: { maxCodeNumber: number; occupiedRefs: string[] } | null = null;
+
+  setProposalNumberingHint(hint: { maxCodeNumber: number; occupiedRefs: string[] } | null): void {
+    this.proposalNumberingHint = hint;
+  }
+
+  /**
+   * Modo tabela: substitui erp.proposals pelas propostas carregadas da tabela para esta
+   * requisicao (normalizadas como no load). Nao grava em disco/Postgres. Devolve a lista em memoria.
+   */
+  hydrateStoredProposals(list: ErpCommercialProposal[]): ErpCommercialProposal[] {
+    const erp = this.ensureErp();
+    const seen = new Set<string>();
+    erp.proposals = [];
+    for (const p of list || []) {
+      if (!p || !p.id || seen.has(p.id)) continue;
+      seen.add(p.id);
+      erp.proposals.push(ensureProposalInitializedWithVersion(structuredClone(p)));
+    }
+    return erp.proposals;
   }
 
   /** Pacote J (A2): preenche `code` ausente/vazio com o proximo codigo livre (nao altera os demais). */
@@ -4051,10 +4080,14 @@ export class CrmRepository {
     void _clientSellerUserId;
     const erp = this.ensureErp();
     const now = new Date().toISOString();
-    const nextNum = nextGcProposalNumber(erp.proposals.map((p) => p.code));
+    // Modo tabela (erp_proposals): o roteador informa o maior numero ocupado na tabela e os
+    // ids/codigos que colidem com o pedido (as propostas nao estao todas em memoria).
+    const ext = this.proposalNumberingHint;
+    const nextNum = Math.max(nextGcProposalNumber(erp.proposals.map((p) => p.code)), ext ? ext.maxCodeNumber + 1 : 0);
     // Pacote J (A1): criacao nunca sobrepoe nem duplica. id/codigo informado que ja exista (como
     // id OU codigo de outra proposta, sem caixa) => 409; sem codigo => proximo codigo livre.
     const occupied = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);
+    if (ext) for (const r of ext.occupiedRefs) occupied.add(refKey(r));
     const inputId = input.id !== undefined && input.id !== null ? String(input.id).trim() : '';
     if (inputId && occupied.has(refKey(inputId))) {
       throw new RecordIdConflictError('PROPOSAL_ID_CONFLICT', 'Já existe uma proposta com este identificador. Crie sem informar "id" (o servidor gera um novo).');
@@ -6634,9 +6667,10 @@ export class CrmRepository {
     //    id, id GC ou código; nunca substitui nem apaga itens existentes.
     mergeGcCatalog(erp.catalog, snapshot.mappedCatalog);
 
-    // 4. Merge Proposals
+    // 4. Merge Proposals (modo tabela erp_proposals: os orcamentos GC entram pelo script de
+    // importacao/tabela, nunca por esta copia em memoria — evita inflar o bootstrap).
     const existingPropIds = new Set(erp.proposals.map((p) => p.id));
-    for (const prop of snapshot.mappedProposals) {
+    for (const prop of erp.proposalsStorage === 'table' ? [] : snapshot.mappedProposals) {
       if (!existingPropIds.has(prop.id)) {
         erp.proposals.push(prop);
         existingPropIds.add(prop.id);

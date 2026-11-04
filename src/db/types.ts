@@ -1773,6 +1773,11 @@ export interface ErpDatabaseState {
   fiscalDocumentSettings?: FiscalDocumentSettings;
   /** t33u: short links /p/<code> do link assinado (so o HMAC do codigo + as claims do token). */
   proposalShortLinks?: ErpProposalShortLink[];
+  /**
+   * 04/11/2026: 'table' => as propostas vivem na tabela erp_proposals (src/db/proposal-store.ts) e
+   * `proposals` aqui guarda so as hidratadas pela requisicao (no JSON persistido fica []).
+   */
+  proposalsStorage?: 'table';
 }
 
 export interface ErpProposalShortLink {
