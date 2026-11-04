@@ -151,7 +151,8 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     const pageSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
     assert.equal(pageSrc.includes('<details'), false);
     assert.equal(pageSrc.includes('Ver Pilares'), false);
-    assert.ok(pageSrc.includes('Pilares de Soluções &amp; Arquitetura Seta Telecom'));
+    assert.ok(pageSrc.includes('Pilares de Soluções &amp; Arquitetura'));
+    assert.equal(pageSrc.includes('Pilares de Soluções &amp; Arquitetura Seta Telecom'), false);
     assert.ok(pageSrc.includes('data-testid="proposal-pillars"'));
     assert.ok(pageSrc.includes('{displayCode}'));
     assert.equal(pageSrc.includes('{proposal.code}'), false);

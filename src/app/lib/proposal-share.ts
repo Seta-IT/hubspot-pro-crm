@@ -127,19 +127,18 @@ export const PROPOSAL_TEMPLATE_STYLE_OPTIONS: ProposalTemplateOptionSpec[] = [
 ];
 
 export const SETA_TELECOM_INSTITUTIONAL_SUMMARY = {
-  eyebrow: 'Apresentação Institucional — Seta Telecom (setatelecom.com.br)',
+  eyebrow: 'Apresentação Institucional',
   headline:
     'Seta Telecom & Seta | IT — Infraestrutura de TI, Redes, Segurança & Locação Corporativa (HaaS)',
   marketTimeLabel: 'Tempo de mercado',
   marketTime: 'Mais de 18 anos de atuação no mercado corporativo brasileiro;',
-  locationLabel: 'Localização',
   location:
-    'Sede em Alphaville, Campinas/SP (Rua Guapuruvu, 242 — 3º andar, CEP 13098-323), com estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
+    'Estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
   partnersLabel: 'Parceiros estratégicos (Multi-Vendor)',
   partners:
     'Cisco, Dell, HPE, Fortinet, Aruba, Palo Alto, SonicWall, Juniper, NetApp, Acronis, Lenovo e Meraki;',
   servicesTitle:
-    'Serviços e Soluções — Portfólio Oficial Seta Telecom (setatelecom.com.br)',
+    'Serviços e Soluções — Portfólio Seta Telecom',
 } as const;
 
 export const SETA_TELECOM_OFFICIAL_SERVICES_TOPICS: readonly string[] = [

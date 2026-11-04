@@ -1558,14 +1558,14 @@ function PublicProposalPrintContent() {
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  Alphaville, Campinas/SP • Estoque Próprio de Spare Parts (+500 SKUs) • Atendimento Brasil
+                  Alphaville, Campinas/SP
                 </p>
               </div>
             </div>
 
             <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 print:px-3.5 print:py-2 sm:text-right print:text-right shrink-0`}>
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
-                PROPOSTA COMERCIAL / ORÇAMENTO
+                PROPOSTA COMERCIAL
               </div>
               <div className="flex items-baseline gap-2 sm:justify-end print:justify-end mt-0.5">
                 <span className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight">
@@ -1587,7 +1587,7 @@ function PublicProposalPrintContent() {
           <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5 text-[11px]">
             <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700">
               <span>
-                Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
+                Vendedor: <strong className="text-slate-900">{sellerContact.name}</strong>
               </span>
               {sellerContact.phone && (
                 <span className="inline-flex items-center gap-1">
@@ -1657,9 +1657,6 @@ function PublicProposalPrintContent() {
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTime}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
-                <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
-                  {SETA_TELECOM_INSTITUTIONAL_SUMMARY.locationLabel}
-                </strong>
                 <span>{SETA_TELECOM_INSTITUTIONAL_SUMMARY.location}</span>
               </div>
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
@@ -1687,7 +1684,7 @@ function PublicProposalPrintContent() {
             {/* Pilares sempre visiveis (tela e PDF), sem toggle */}
             <section data-testid="proposal-pillars" className="text-[11px] text-slate-600">
               <div className="print-keep-with-next text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
-                Pilares de Soluções &amp; Arquitetura Seta Telecom
+                Pilares de Soluções &amp; Arquitetura
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2.5 print:gap-1.5 mt-2 print:mt-1">
                 {SETA_TELECOM_PORTFOLIO_PILLARS.map((pillar) => (
@@ -1896,16 +1893,16 @@ function PublicProposalPrintContent() {
 
           <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
             <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-extrabold tracking-wide`}>
-              <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS</span>
+              <span className="uppercase">Descrição</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs border-collapse">
               <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                 <tr className="print-avoid-break">
-                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código / SKU</th>
+                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código</th>
                   <th className="py-2 print:py-1.5 px-2.5 font-extrabold">Descrição do Item / Escopo</th>
                   <th className="py-2 print:py-1.5 px-2 text-center w-20 font-extrabold">Quantidade</th>
-                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Vlr. Unitário</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Unitário</th>
                   <th className="py-2 print:py-1.5 px-2 text-right w-20 font-extrabold">Desconto</th>
                   <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Subtotal</th>
                 </tr>
@@ -1968,7 +1965,7 @@ function PublicProposalPrintContent() {
             </div>
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                Descontos Aplicados
+                Descontos
               </span>
               <strong className="text-sm font-semibold text-slate-900">
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
@@ -2000,7 +1997,7 @@ function PublicProposalPrintContent() {
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                {showTotalInsteadOfMonthly ? "Valor Total da Proposta" : "Valor Mensal"}
+                {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
               </span>
               <span className="text-sm font-semibold text-emerald-700">
                 {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
@@ -2028,7 +2025,7 @@ function PublicProposalPrintContent() {
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
-                    {showTotalInsteadOfMonthly ? "Valor Total da Proposta Comercial" : "Valor Mensal"}
+                    {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
                   </span>
                   <div className="text-2xl print:text-xl font-semibold text-emerald-700 mt-0.5">
                     {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
