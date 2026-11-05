@@ -504,6 +504,8 @@ export async function handleMailboxRoute(
     const v = parsed.data;
     const denied = checkRecordAccess(deps.repo, actor, v);
     if (denied) return { status: 404, body: { error: 'Ficha não encontrada.', code: 'MAILBOX_RECORD_NOT_FOUND' } };
+    // Mesmo 404 da timeline: escopo restrito nao revela existencia da ficha (parecer CISO 04/11).
+    if (!canSeeRecordInScope(deps.repo, actor, v)) return { status: 404, body: { error: 'Ficha não encontrada.', code: 'MAILBOX_RECORD_NOT_FOUND' } };
     const accounts = (await deps.store.listAccounts(actor.email)).filter((a) => a.status === 'ATIVADO');
     const account = v.accountId ? accounts.find((a) => a.id === v.accountId) : accounts[0];
     if (!account) return { status: 409, body: { error: MAILBOX_MESSAGES.noAccount, code: 'MAILBOX_NO_ACCOUNT' } };
