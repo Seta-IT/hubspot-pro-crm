@@ -87,3 +87,94 @@ export async function saveCompanyEmitterSettings(
 ): Promise<void> {
   await store.save(mergeCompanyEmitter(rec));
 }
+
+/** Campos aceitos no PUT/PATCH de Dados da Empresa (lista fechada — CISO 05/11). */
+export const COMPANY_EMITTER_ALLOWED_FIELDS = [
+  'legalName',
+  'tradeName',
+  'cnpj',
+  'stateRegistration',
+  'municipalRegistration',
+  'cnaeMain',
+  'taxRegime',
+  'cep',
+  'addressStreet',
+  'addressNumber',
+  'addressComplement',
+  'neighborhood',
+  'city',
+  'state',
+  'ibgeCode',
+  'phone',
+  'financialEmail',
+  'defaultBankInterAccount',
+  'defaultBankItauAccount',
+] as const;
+
+export type CompanyEmitterField = (typeof COMPANY_EMITTER_ALLOWED_FIELDS)[number];
+
+/** Teto por campo de texto (evita JSON gigante no crm_kv_store). */
+export const COMPANY_EMITTER_FIELD_MAX_LEN = 200;
+export const COMPANY_EMITTER_TAX_REGIMES = ['LUCRO_PRESUMIDO', 'LUCRO_REAL', 'SIMPLES_NACIONAL'] as const;
+
+export type ParseCompanyEmitterResult =
+  | { ok: true; patch: Partial<StiHubCompanyEmitterSettings> }
+  | { ok: false; code: 'COMPANY_EMITTER_UNKNOWN_FIELDS' | 'COMPANY_EMITTER_FIELD_INVALID'; fields: string[]; error: string };
+
+/**
+ * Allowlist + tipos + tamanho. Chaves extras ou valor invalido => 400 (nada e aplicado).
+ * Campos omitidos nao entram no patch (PATCH parcial).
+ */
+export function parseCompanyEmitterPatch(raw: unknown): ParseCompanyEmitterResult {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      ok: false,
+      code: 'COMPANY_EMITTER_FIELD_INVALID',
+      fields: [],
+      error: 'Os Dados da Empresa devem ser enviados como objeto.',
+    };
+  }
+  const body = raw as Record<string, unknown>;
+  const allowed = new Set<string>(COMPANY_EMITTER_ALLOWED_FIELDS);
+  const unknown = Object.keys(body).filter((k) => !allowed.has(k));
+  if (unknown.length) {
+    return {
+      ok: false,
+      code: 'COMPANY_EMITTER_UNKNOWN_FIELDS',
+      fields: unknown.slice(0, 20),
+      error: `Campo(s) não aceito(s) nos Dados da Empresa: ${unknown.slice(0, 20).join(', ')}.`,
+    };
+  }
+  const patch: Partial<StiHubCompanyEmitterSettings> = {};
+  const invalid: string[] = [];
+  for (const key of COMPANY_EMITTER_ALLOWED_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const val = body[key];
+    if (key === 'taxRegime') {
+      if (typeof val !== 'string' || !(COMPANY_EMITTER_TAX_REGIMES as readonly string[]).includes(val)) {
+        invalid.push(key);
+        continue;
+      }
+      patch.taxRegime = val as StiHubCompanyEmitterSettings['taxRegime'];
+      continue;
+    }
+    if (typeof val !== 'string') {
+      invalid.push(key);
+      continue;
+    }
+    if (val.length > COMPANY_EMITTER_FIELD_MAX_LEN) {
+      invalid.push(key);
+      continue;
+    }
+    (patch as Record<string, string>)[key] = val;
+  }
+  if (invalid.length) {
+    return {
+      ok: false,
+      code: 'COMPANY_EMITTER_FIELD_INVALID',
+      fields: invalid,
+      error: `Campo(s) inválido(s) nos Dados da Empresa (texto até ${COMPANY_EMITTER_FIELD_MAX_LEN} caracteres; taxRegime: LUCRO_PRESUMIDO | LUCRO_REAL | SIMPLES_NACIONAL): ${invalid.join(', ')}.`,
+    };
+  }
+  return { ok: true, patch };
+}

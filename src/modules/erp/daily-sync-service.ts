@@ -388,7 +388,7 @@ export const DEFAULT_COMPANY_EMITTER_SETTINGS: StiHubCompanyEmitterSettings = {
   addressStreet: 'Rua Guapuruvu',
   addressNumber: '242',
   addressComplement: 'Sala 31',
-  neighborhood: 'Loteamento Alphaville Campinas',
+  neighborhood: 'Loteamento Alphaville',
   city: 'Campinas',
   state: 'SP',
   ibgeCode: '3509502',

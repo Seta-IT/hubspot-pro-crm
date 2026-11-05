@@ -145,6 +145,7 @@ import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { formatIssuerAddress } from '../app/lib/company-issuer-address';
 import {
   loadCompanyEmitterSettings,
+  parseCompanyEmitterPatch,
   saveCompanyEmitterSettings,
 } from '../modules/erp/company-emitter-store';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
@@ -177,6 +178,7 @@ import {
 import {
   DEFAULT_CERTIFICATE_SERIES_SETTINGS,
   DEFAULT_COMPANY_EMITTER_SETTINGS,
+  type StiHubCompanyEmitterSettings,
   DEFAULT_GENERAL_PARAMETERS,
   ErpSyncRunLog,
   INITIAL_MIGRATION_CHECKLIST_11_MODULES,
@@ -9121,7 +9123,19 @@ export class CrmApiRouter {
         }
         if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
           if (body.companyEmitter && typeof body.companyEmitter === 'object') {
-            const incomingEmitter = { ...(body.companyEmitter as Record<string, unknown>) };
+            // CISO 05/11: allowlist fechada + teto de tamanho (sem mass assignment no crm_kv_store).
+            const parsedEmitter = parseCompanyEmitterPatch(body.companyEmitter);
+            if (!parsedEmitter.ok) {
+              return {
+                status: 400,
+                body: {
+                  error: parsedEmitter.error,
+                  code: parsedEmitter.code,
+                  fields: parsedEmitter.fields,
+                },
+              };
+            }
+            const incomingEmitter = { ...parsedEmitter.patch } as Record<string, unknown>;
             const incomingCnpj = incomingEmitter.cnpj;
             // Pacote K: cnpj presente precisa ser texto nao vazio (antes numero/objeto/"" passavam sem validacao).
             if (Object.prototype.hasOwnProperty.call(incomingEmitter, 'cnpj') && (typeof incomingCnpj !== 'string' || !incomingCnpj.trim())) {
@@ -9155,7 +9169,7 @@ export class CrmApiRouter {
             }
             this.companyEmitter = {
               ...this.companyEmitter,
-              ...incomingEmitter,
+              ...(incomingEmitter as Partial<StiHubCompanyEmitterSettings>),
             };
             this.repo.updateGestaoClickConfig({
               companyLegalName: this.companyEmitter.legalName,

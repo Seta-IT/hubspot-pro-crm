@@ -226,7 +226,7 @@ const VERIFIED_SETA_CNPJ_DIRECTORY: Record<string, Partial<ReceitaFederalCnpjDat
     logradouro: 'Rua Guapuruvu',
     numero: '242',
     complemento: 'Sala 31',
-    bairro: 'Loteamento Alphaville Campinas',
+    bairro: 'Loteamento Alphaville',
     cidade: 'Campinas',
     uf: 'SP',
     codigoIbge: '3509502',

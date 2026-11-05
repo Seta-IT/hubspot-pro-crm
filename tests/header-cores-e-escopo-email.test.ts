@@ -22,12 +22,12 @@ function contrastWhite(h: string) {
 }
 
 describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
-  it('CRM: laranja mais claro que #9a3412, Chamados verde, ERP azul', () => {
-    assert.match(css, /--sti-header-crm:\s*linear-gradient\(90deg, #c2410c/);
-    assert.match(css, /--sti-header-service:\s*linear-gradient\(90deg, #047857/);
+  it('CRM: degradê com base escura AA + ponta clara; Chamados verde; ERP azul', () => {
+    assert.match(css, /--sti-header-crm:\s*linear-gradient\(90deg, #9a3412/);
+    assert.match(css, /--sti-header-service:\s*linear-gradient\(90deg, #065f46/);
     assert.match(css, /--sti-header-erp:\s*linear-gradient\(90deg, #1e3a6e/);
-    assert.ok(!css.includes('#9a3412'));
-    assert.ok(!css.includes('#065f46 0%'));
+    assert.ok(css.includes('#ea580c')); // ponta decorativa do degradê CRM
+    assert.ok(css.includes('#047857')); // accent/botões Chamados
   });
   for (const sys of ['crm', 'erp', 'service']) {
     it(`token --sti-header-${sys}: texto branco font-semibold com contraste >= 3:1`, () => {
@@ -38,8 +38,8 @@ describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
       for (const h of hexes) assert.ok(contrastWhite(h) >= 3, `${sys} ${h} = ${contrastWhite(h).toFixed(2)}`);
     });
   }
-  it('accent por data-system: CRM laranja, Chamados verde, ERP azul', () => {
-    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#ea580c/);
+  it('accent por data-system: CRM laranja AA (#c2410c), Chamados verde (#047857), ERP azul', () => {
+    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#c2410c/);
     assert.match(css, /\[data-system="service"\][\s\S]*?--sti-accent:\s*#047857/);
     assert.match(css, /\[data-system="erp"\][\s\S]*?--sti-accent:\s*#1e3a6e/);
     assert.match(tw, /DEFAULT: 'var\(--sti-accent\)'/);
@@ -59,10 +59,10 @@ describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
     assert.ok(!serviceDesk.includes('text-[#1e3a6e]'));
     assert.ok(!serviceDesk.includes('bg-[#0d2b4e] hover:bg-[#1e3a6e]'));
   });
-  it('botao accent CRM (#ea580c) e Chamados (#047857) com AA para texto branco', () => {
-    assert.ok(contrastWhite('#ea580c') >= 3);
+  it('botao accent CRM (#c2410c) e Chamados (#047857) com AA para texto branco', () => {
     assert.ok(contrastWhite('#c2410c') >= 4.5);
     assert.ok(contrastWhite('#047857') >= 4.5);
+    assert.ok(contrastWhite('#ea580c') >= 3); // ponta do degradê: so texto grande/bold
   });
 });
 
