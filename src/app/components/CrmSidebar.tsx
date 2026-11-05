@@ -131,7 +131,7 @@ export default function CrmSidebar({
             }}
             className="text-left min-w-0 cursor-pointer group"
           >
-            <span className="text-[10px] font-black uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
+            <span className="text-[10px] font-black uppercase tracking-wider text-accent group-hover:text-accent transition block truncate">
               MÓDULO CRM • SALES &amp; MARKETING
             </span>
             <span className="text-[10px] text-slate-500 font-semibold block truncate">
@@ -155,7 +155,7 @@ export default function CrmSidebar({
                 onClick={onToggleCollapse}
                 title="Recolher menu lateral do CRM"
                 aria-label="Recolher menu lateral do CRM"
-                className="p-1.5 rounded-md text-slate-500 hover:text-[#0d2b4e] hover:bg-slate-100 transition cursor-pointer shrink-0"
+                className="p-1.5 rounded-md text-slate-500 hover:text-accent hover:bg-slate-100 transition cursor-pointer shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -182,13 +182,13 @@ export default function CrmSidebar({
                   className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                     activeModule === 'OVERVIEW_AI'
                       ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                      : 'text-accent hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2 truncate">
                     <LayoutDashboard
                       className={`w-4 h-4 shrink-0 ${
-                        activeModule === 'OVERVIEW_AI' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                        activeModule === 'OVERVIEW_AI' ? 'text-accent' : 'text-accent'
                       }`}
                     />
                     <span className="truncate">Dashboard CRM</span>
@@ -217,13 +217,13 @@ export default function CrmSidebar({
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'DEALS_KANBAN'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <Kanban
                     className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'DEALS_KANBAN' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      activeModule === 'DEALS_KANBAN' ? 'text-accent' : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Negócios (Funil Kanban)</span>
@@ -261,8 +261,8 @@ export default function CrmSidebar({
                         }}
                         className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
                           isPipeActive
-                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                            ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                            : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                         }`}
                       >
                         <span className="truncate">{pipe.name}</span>
@@ -286,13 +286,13 @@ export default function CrmSidebar({
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'CONTACTS_COMPANIES'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <Users
                     className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'CONTACTS_COMPANIES' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      activeModule === 'CONTACTS_COMPANIES' ? 'text-accent' : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Contatos &amp; Empresas</span>
@@ -325,8 +325,8 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
-                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Contatos CRM</span>
@@ -340,8 +340,8 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
-                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Empresas CRM</span>
@@ -355,8 +355,8 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS'
-                        ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Tarefas &amp; Follow-up</span>
@@ -386,13 +386,13 @@ export default function CrmSidebar({
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'MARKETING_FORMS'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <Megaphone
                     className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'MARKETING_FORMS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      activeModule === 'MARKETING_FORMS' ? 'text-accent' : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Marketing</span>
@@ -428,8 +428,8 @@ export default function CrmSidebar({
                         }}
                         className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
                           isSubActive
-                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                            ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                            : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                         }`}
                       >
                         <span className="truncate">{sub.label}</span>
@@ -454,13 +454,13 @@ export default function CrmSidebar({
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'AUTOMATIONS'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <Workflow
                     className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'AUTOMATIONS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      activeModule === 'AUTOMATIONS' ? 'text-accent' : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Fluxos de Automação</span>
@@ -496,7 +496,7 @@ export default function CrmSidebar({
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   activeModule === 'DATA_HEALTH'
                     ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -535,8 +535,8 @@ export default function CrmSidebar({
                     }}
                     className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                       activeModule === 'DATA_HEALTH'
-                        ? 'bg-emerald-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#00bda5]'
-                        : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                        ? 'bg-emerald-50 text-accent font-extrabold border-l-2 border-[#00bda5]'
+                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                     }`}
                   >
                     <span>Auditoria Base CRM</span>
@@ -557,13 +557,13 @@ export default function CrmSidebar({
                   className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                     activeModule === 'ADMIN_RBAC'
                       ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                      : 'text-accent hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2 truncate">
                     <Settings
                       className={`w-4 h-4 shrink-0 ${
-                        activeModule === 'ADMIN_RBAC' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                        activeModule === 'ADMIN_RBAC' ? 'text-accent' : 'text-accent'
                       }`}
                     />
                     <span className="truncate">Políticas IAM &amp; Perfis</span>
@@ -596,8 +596,8 @@ export default function CrmSidebar({
                           }}
                           className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                             isSubActive
-                              ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                              : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                              ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                              : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                           }`}
                         >
                           <span className="truncate">{sub.label}</span>
@@ -613,7 +613,7 @@ export default function CrmSidebar({
       </div>
 
       <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
-        <div className="font-bold text-[#0d2b4e]">CRM • SETA TELECOM</div>
+        <div className="font-bold text-accent">CRM • SETA TELECOM</div>
         <div>Portal HubSpot #4369067</div>
         <div>4 Pipelines Ativos • Base Independente</div>
       </div>

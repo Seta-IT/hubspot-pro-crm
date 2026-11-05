@@ -16,7 +16,7 @@ describe('Cor de destaque única (#1e3a6e)', () => {
     const css = src('src/app/globals.css');
     assert.match(css, /--sti-accent: #1e3a6e;/);
     assert.match(css, /--hs-lorax: var\(--sti-accent\);/);
-    assert.match(src('tailwind.config.js'), /accent: \{ DEFAULT: '#1e3a6e'/);
+    assert.match(src('tailwind.config.js'), /accent: \{ DEFAULT: 'var\(--sti-accent\)'/);
   });
   it('sem laranja #ff7a59 nem #1F2B68 nas telas de Configurações, IAM, Início e moldura do ERP', () => {
     for (const f of [

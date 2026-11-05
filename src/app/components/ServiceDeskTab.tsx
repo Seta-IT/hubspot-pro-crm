@@ -522,7 +522,7 @@ export default function ServiceDeskTab({
               }}
               className="text-left min-w-0 cursor-pointer group"
             >
-              <span className="text-[10px] font-black uppercase tracking-wider text-[#0d2b4e] group-hover:text-[#ff7a59] transition block truncate">
+              <span className="text-[10px] font-black uppercase tracking-wider text-accent group-hover:text-accent transition block truncate">
                 MÓDULO CHAMADOS • SERVICE HUB
               </span>
               <span className="text-[10px] text-slate-500 font-semibold block truncate">
@@ -544,7 +544,7 @@ export default function ServiceDeskTab({
                 onClick={() => setSidebarCollapsed((v) => !v)}
                 title="Recolher menu lateral de Chamados"
                 aria-label="Recolher menu lateral de Chamados"
-                className="p-1.5 rounded-md text-slate-500 hover:text-[#0d2b4e] hover:bg-slate-100 transition cursor-pointer shrink-0"
+                className="p-1.5 rounded-md text-slate-500 hover:text-accent hover:bg-slate-100 transition cursor-pointer shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -566,14 +566,14 @@ export default function ServiceDeskTab({
                 }}
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   chamadosMacroTab === 'DASHBOARD_CHAMADOS'
-                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    ? 'bg-accent text-white font-extrabold shadow-xs'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <LayoutDashboard
                     className={`w-4 h-4 shrink-0 ${
-                      chamadosMacroTab === 'DASHBOARD_CHAMADOS' ? 'text-[#ff7a59]' : 'text-[#1e3a6e]'
+                      chamadosMacroTab === 'DASHBOARD_CHAMADOS' ? 'text-accent' : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Dashboard de Chamados &amp; SLA</span>
@@ -600,16 +600,16 @@ export default function ServiceDeskTab({
                   }}
                   className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                     chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter
-                      ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
-                      : 'text-[#1e3a6e] hover:bg-white font-bold'
+                      ? 'bg-accent text-white font-extrabold shadow-xs'
+                      : 'text-accent hover:bg-white font-bold'
                   }`}
                 >
                   <span className="flex items-center gap-2 truncate">
                     <Ticket
                       className={`w-4 h-4 shrink-0 ${
                         chamadosMacroTab === 'OPERATIONS' && !linkedOsOnlyFilter
-                          ? 'text-[#ff7a59]'
-                          : 'text-[#1e3a6e]'
+                          ? 'text-accent'
+                          : 'text-accent'
                       }`}
                     />
                     <span className="truncate">Fila de Chamados (5 Visões)</span>
@@ -633,7 +633,7 @@ export default function ServiceDeskTab({
                 </button>
 
                 {queuesAccordionOpen && (
-                  <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#0d2b4e]/25 space-y-0.5">
+                  <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-accent/25 space-y-0.5">
                     {[
                       {
                         id: 'ALL',
@@ -714,8 +714,8 @@ export default function ServiceDeskTab({
                         onClick={sub.onClick}
                         className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
                           sub.active
-                            ? 'bg-orange-50 text-[#0d2b4e] font-extrabold border-l-2 border-[#ff7a59]'
-                            : 'text-slate-600 hover:text-[#0d2b4e] hover:bg-white font-semibold'
+                            ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
+                            : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
                         }`}
                       >
                         <span className="truncate">{sub.label}</span>
@@ -736,16 +736,16 @@ export default function ServiceDeskTab({
                 }}
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   chamadosMacroTab === 'OPERATIONS' && linkedOsOnlyFilter
-                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    ? 'bg-accent text-white font-extrabold shadow-xs'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
                   <Wrench
                     className={`w-4 h-4 shrink-0 ${
                       chamadosMacroTab === 'OPERATIONS' && linkedOsOnlyFilter
-                        ? 'text-[#ff7a59]'
-                        : 'text-[#1e3a6e]'
+                        ? 'text-accent'
+                        : 'text-accent'
                     }`}
                   />
                   <span className="truncate">Ordens de Serviço Vinculadas</span>
@@ -776,8 +776,8 @@ export default function ServiceDeskTab({
                 }}
                 className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
                   chamadosMacroTab === 'DATA_HEALTH_CHAMADOS'
-                    ? 'bg-[#0d2b4e] text-white font-extrabold shadow-xs'
-                    : 'text-[#1e3a6e] hover:bg-white font-bold'
+                    ? 'bg-accent text-white font-extrabold shadow-xs'
+                    : 'text-accent hover:bg-white font-bold'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -794,7 +794,7 @@ export default function ServiceDeskTab({
         </div>
 
         <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-          <div className="font-bold text-[#0d2b4e]">CHAMADOS • NOC 24x7</div>
+          <div className="font-bold text-accent">CHAMADOS • NOC 24x7</div>
           <div>SLA no Prazo: {kpis.slaComplianceRate}%</div>
           <div>5 Filas Operacionais Telecom</div>
         </div>
@@ -810,7 +810,7 @@ export default function ServiceDeskTab({
           <button
             type="button"
             onClick={() => setChamadosMobileDrawerOpen(true)}
-            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-accent text-white text-xs font-extrabold shadow-xs cursor-pointer"
           >
             <Menu className="w-4 h-4" />
             <span>Menu Chamados</span>
@@ -830,7 +830,7 @@ export default function ServiceDeskTab({
                 setChamadosMacroTab('OPERATIONS');
                 setLinkedOsOnlyFilter(false);
               }}
-              className="font-extrabold text-[#0d2b4e] hover:underline cursor-pointer"
+              className="font-extrabold text-accent hover:underline cursor-pointer"
             >
               Chamados (NOC 24x7)
             </button>
@@ -873,7 +873,7 @@ export default function ServiceDeskTab({
                 }}
                 className={`px-2.5 py-1.5 rounded-md text-xs font-extrabold transition cursor-pointer ${
                   act
-                    ? 'bg-[#0d2b4e] text-white shadow-2xs'
+                    ? 'bg-accent text-white shadow-2xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
@@ -886,16 +886,16 @@ export default function ServiceDeskTab({
             href={activeTicket ? `/portal?ticket=${activeTicket.key}` : '/portal'}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] text-xs font-bold border border-slate-300 transition"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-accent text-xs font-bold border border-slate-300 transition"
           >
-            <ExternalLink className="w-3.5 h-3.5 text-[#ff7a59]" />
+            <ExternalLink className="w-3.5 h-3.5 text-accent" />
             <span>Abrir Portal do Cliente ({activeTicket ? activeTicket.key : '/portal'})</span>
           </a>
 
           <button
             type="button"
             onClick={() => setShowNewModal(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-extrabold shadow-2xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Abrir Novo Chamado NOC</span>
@@ -963,7 +963,7 @@ export default function ServiceDeskTab({
               <button
                 type="button"
                 onClick={() => setChamadosMacroTab('OPERATIONS')}
-                className="px-3.5 py-2 rounded-xl bg-[#0d2b4e] text-white text-xs font-extrabold cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-accent text-white text-xs font-extrabold cursor-pointer"
               >
                 Ir para Operação de Tickets &rarr;
               </button>
@@ -986,7 +986,7 @@ export default function ServiceDeskTab({
                         </div>
                         <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-[#0d2b4e] rounded-full"
+                            className="h-full bg-accent rounded-full"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -1092,7 +1092,7 @@ export default function ServiceDeskTab({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar JSM-101, S/N, empresa..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-[#ff7a59]"
+              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-accent"
             />
           </div>
 
@@ -1160,7 +1160,7 @@ export default function ServiceDeskTab({
                 onClick={() => handleSelectTicketViewMode(vm.id)}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer border ${
                   active
-                    ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-2xs'
+                    ? 'bg-accent text-white border-accent shadow-2xs'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
@@ -1185,7 +1185,7 @@ export default function ServiceDeskTab({
                   onClick={() => setMobileStatusFilter('ALL')}
                   className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold cursor-pointer ${
                     mobileStatusFilter === 'ALL'
-                      ? 'bg-[#ff7a59] text-white'
+                      ? 'bg-accent text-white'
                       : 'bg-white border border-slate-200 text-slate-700'
                   }`}
                 >
@@ -1204,7 +1204,7 @@ export default function ServiceDeskTab({
                       onClick={() => setMobileStatusFilter(col.id)}
                       className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer ${
                         mobileStatusFilter === col.id
-                          ? 'bg-[#0d2b4e] text-white'
+                          ? 'bg-accent text-white'
                           : 'bg-white border border-slate-200 text-slate-700'
                       }`}
                     >
@@ -1244,7 +1244,7 @@ export default function ServiceDeskTab({
                               onClick={() => setSelectedTicketId(t.id)}
                               className={`p-3.5 rounded-xl border bg-white cursor-pointer transition space-y-2 ${
                                 isSelected
-                                  ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/20 shadow-md'
+                                  ? 'border-accent ring-2 ring-accent/20 shadow-md'
                                   : 'border-slate-200 hover:border-slate-300 shadow-sm'
                               }`}
                             >
@@ -1378,7 +1378,7 @@ export default function ServiceDeskTab({
                           <button
                             type="button"
                             onClick={() => setSelectedTicketId(t.id)}
-                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-bold text-[11px] cursor-pointer"
+                            className="px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-white font-bold text-[11px] cursor-pointer"
                           >
                             Atender
                           </button>
@@ -1400,7 +1400,7 @@ export default function ServiceDeskTab({
                   onClick={() => setSelectedTicketId(t.id)}
                   className={`bg-white rounded-xl border p-4 shadow-2xs cursor-pointer transition flex flex-col justify-between gap-3 ${
                     activeTicket?.id === t.id
-                      ? 'border-[#ff7a59] ring-2 ring-[#ff7a59]/20'
+                      ? 'border-accent ring-2 ring-accent/20'
                       : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
@@ -1426,7 +1426,7 @@ export default function ServiceDeskTab({
                         e.stopPropagation();
                         setSelectedTicketId(t.id);
                       }}
-                      className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold cursor-pointer shrink-0"
+                      className="px-2.5 py-1 rounded bg-accent text-white font-bold cursor-pointer shrink-0"
                     >
                       Abrir / O.S.
                     </button>
@@ -1508,7 +1508,7 @@ export default function ServiceDeskTab({
                           <button
                             type="button"
                             onClick={() => setSelectedTicketId(t.id)}
-                            className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-bold text-[11px]"
+                            className="px-2.5 py-1 rounded bg-accent text-white font-bold text-[11px]"
                           >
                             Atender
                           </button>
@@ -1542,7 +1542,7 @@ export default function ServiceDeskTab({
                   >
                     <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                       <div>
-                        <h4 className="text-sm font-extrabold text-[#0d2b4e]">{queueName}</h4>
+                        <h4 className="text-sm font-extrabold text-accent">{queueName}</h4>
                         <span className="text-[11px] text-slate-500">
                           {qTickets.length} protocolo(s) • <strong>{openCnt} em aberto</strong>
                         </span>
@@ -1594,7 +1594,7 @@ export default function ServiceDeskTab({
             <div className="p-5 bg-slate-900 text-white space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-lg bg-[#ff7a59] text-white font-mono text-xs font-extrabold">
+                  <span className="px-2.5 py-1 rounded-lg bg-accent text-white font-mono text-xs font-extrabold">
                     {activeTicket.key}
                   </span>
                   {getPriorityBadge(activeTicket.priority)}
@@ -1810,9 +1810,9 @@ export default function ServiceDeskTab({
                     type="button"
                     disabled={creatingOs}
                     onClick={handleGenerateOs}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white text-xs font-extrabold shadow-xs transition cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-extrabold shadow-xs transition cursor-pointer disabled:opacity-50"
                   >
-                    <Wrench className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    <Wrench className="w-3.5 h-3.5 text-accent" />
                     {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (ERP GestãoClick)'}
                   </button>
                 )}
@@ -1954,7 +1954,7 @@ export default function ServiceDeskTab({
                   type="button"
                   disabled={sendingComment || !commentBody.trim()}
                   onClick={() => handleSendComment()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-extrabold transition disabled:opacity-40 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-extrabold transition disabled:opacity-40 cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {isInternalNote ? 'Salvar Nota Interna NOC' : 'Enviar Resposta'}
@@ -1977,7 +1977,7 @@ export default function ServiceDeskTab({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Ticket className="w-4 h-4 text-[#ff7a59]" />
+                <Ticket className="w-4 h-4 text-accent" />
                 Abrir Novo Chamado no Service Desk (NOC Seta Telecom)
               </h3>
               <button
@@ -2147,7 +2147,7 @@ export default function ServiceDeskTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#ff7a59] text-white text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-bold cursor-pointer"
                 >
                   Registrar Chamado com SLA
                 </button>

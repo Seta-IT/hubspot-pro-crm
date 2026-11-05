@@ -6,9 +6,9 @@ module.exports = {
   ],
   theme: {
     extend: {
-      // Cor de destaque única do sistema (azul-marinho #1e3a6e), espelhando --sti-accent em globals.css.
+      // Accent segue --sti-accent (redefinido por [data-system] em globals.css).
       colors: {
-        accent: { DEFAULT: '#1e3a6e', hover: '#162d57', soft: '#eef2f8' },
+        accent: { DEFAULT: 'var(--sti-accent)', hover: 'var(--sti-accent-hover)', soft: 'var(--sti-accent-soft)' },
       },
     },
   },

@@ -1375,7 +1375,7 @@ export default function HubSpotProCrmApp() {
     : "Matriz #118887";
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b] overflow-x-hidden">
+    <div data-system={headerSystem} data-testid="sti-shell" className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b] overflow-x-hidden">
       {/* ====================================================================
           OFFICIAL STI-HUB (SETA TELECOM CRM & ERP) TOP GLOBAL NAVIGATION BAR (#213343)
       ==================================================================== */}
@@ -1661,7 +1661,7 @@ export default function HubSpotProCrmApp() {
 
               {userMenuOpen && (
                 <div className="absolute right-0 mt-1.5 w-72 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-2xl z-50 overflow-hidden text-xs">
-                  <div className="p-3 bg-[#0d2b4e] text-white space-y-1">
+                  <div className="p-3 bg-accent text-white space-y-1">
                     <div className="font-semibold truncate">
                       {activeRbacUser?.name || "—"}
                     </div>
@@ -1672,7 +1672,7 @@ export default function HubSpotProCrmApp() {
                       {userEnabledModules.map((m) => (
                         <span
                           key={m}
-                          className="px-1.5 py-0.5 rounded bg-[#1e3a6e] text-white text-[9px] font-semibold"
+                          className="px-1.5 py-0.5 rounded bg-accent text-white text-[9px] font-semibold"
                         >
                           {m}
                         </span>
@@ -1692,7 +1692,7 @@ export default function HubSpotProCrmApp() {
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-[#0d2b4e] flex items-center justify-between cursor-pointer"
                     >
                       <span>Minha Conta &amp; Parear 2FA (QR Code)</span>
-                      <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" />
+                      <Lock className="w-3.5 h-3.5 text-accent" />
                     </button>
                     <button
                       type="button"
@@ -1759,7 +1759,7 @@ export default function HubSpotProCrmApp() {
         </div>
 
         {/* HubSpot Primary Module Tabs Bar (100% Visible on Mobile & Desktop) */}
-        <div className="bg-[linear-gradient(90deg,#26467d_0%,#325491_55%,#4167a5_100%)] border-t border-white/10 px-3 sm:px-5">
+        <div data-testid="sti-system-menu" className="bg-transparent border-t border-white/10 px-3 sm:px-5">
           <div className="max-w-[1680px] mx-auto flex flex-wrap items-center gap-1.5 py-1">
             {macroNavItems.map((item) => {
               const Icon = item.icon;
@@ -1832,7 +1832,7 @@ export default function HubSpotProCrmApp() {
                 {activeSectionLabel}
               </span>
               <ChevronRight className="w-3.5 h-3.5 text-[#99acc2]" />
-              <span className="font-semibold text-[#1e3a6e] text-xs">
+              <span className="font-semibold text-accent text-xs">
                 {activeSubModuleBreadcrumbLabel}
               </span>
             </div>
@@ -1897,7 +1897,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-accent-soft hover:opacity-90 text-accent border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.clientes ?? 1184} Clientes ERP
                 </button>
@@ -1909,7 +1909,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-accent-soft hover:opacity-90 text-accent border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.orcamentos ?? 2077} Orçamentos
                 </button>
@@ -1921,7 +1921,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-accent-soft hover:opacity-90 text-accent border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
                 >
                   Contratos de Locação
                 </button>
@@ -1933,7 +1933,7 @@ export default function HubSpotProCrmApp() {
                     setErpNavigationTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-[#eaf0f6] hover:bg-[#d5e1ee] text-[#1e3a6e] border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[4px] bg-accent-soft hover:opacity-90 text-accent border border-[#cbd6e2] text-[11px] font-semibold cursor-pointer transition"
                 >
                   {erpData?.gestaoClickConfig?.liveTotals?.ordensServicos ?? 1378} O.S.
                 </button>
@@ -2004,7 +2004,7 @@ export default function HubSpotProCrmApp() {
                       setActiveModule("DEALS_KANBAN");
                       setOpenNewDealTrigger((n) => n + 1);
                     }}
-                    className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                   >
                     + Novo Negócio (Deal)
                   </button>
@@ -2022,7 +2022,7 @@ export default function HubSpotProCrmApp() {
                     setAutoOpenNewProposalTrigger((n) => n + 1);
                     setActiveModule("ERP_GESTAOCLICK");
                   }}
-                  className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                 >
                   + Novo Orçamento / Proposta PDF
                 </button>
@@ -2037,7 +2037,7 @@ export default function HubSpotProCrmApp() {
                   setOpenNewTicketTrigger((n) => n + 1);
                   setActiveModule("SERVICE_DESK");
                 }}
-                className="px-3.5 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+                className="px-3.5 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
               >
                 + Novo Chamado NOC
               </button>
@@ -2069,7 +2069,7 @@ export default function HubSpotProCrmApp() {
         <main className="flex-1 p-4 sm:p-6 max-w-[1680px] w-full mx-auto">
           {!homeScreenResolved && (
             <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin text-[#1e3a6e]" />
+              <RefreshCw className="w-6 h-6 animate-spin text-accent" />
               <span className="text-sm font-semibold text-[#33475b]">Carregando sua tela inicial...</span>
             </div>
           )}
@@ -2128,7 +2128,7 @@ export default function HubSpotProCrmApp() {
                   <button
                     type="button"
                     onClick={() => setCrmMobileDrawerOpen(true)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1e3a6e] text-white text-xs font-semibold shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold shadow-xs cursor-pointer"
                   >
                     <Menu className="w-4 h-4" />
                     <span>Menu CRM</span>
@@ -2313,7 +2313,7 @@ export default function HubSpotProCrmApp() {
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-[#0d2b4e] cursor-pointer shadow-2xs"
                       title="Expandir menu lateral do CRM"
                     >
-                      <Menu className="w-3.5 h-3.5 text-[#1e3a6e]" />
+                      <Menu className="w-3.5 h-3.5 text-accent" />
                       <span>Expandir Menu CRM</span>
                     </button>
                   </div>

@@ -998,7 +998,7 @@ export default function ContactsCompaniesTab({
                             title="Consultar / Visualizar Cadastro"
                             aria-label="Consultar Cadastro"
                             onClick={() => handleSelectContact(contact.id, false)}
-                            className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-accent border border-slate-300 transition cursor-pointer"
                           >
                             <Search className="w-3.5 h-3.5" />
                           </button>
@@ -1007,7 +1007,7 @@ export default function ContactsCompaniesTab({
                             title="Editar Cadastro"
                             aria-label="Editar Cadastro"
                             onClick={() => handleSelectContact(contact.id, true)}
-                            className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
                           </button>
@@ -1121,7 +1121,7 @@ export default function ContactsCompaniesTab({
                       setGestaoClickModalMode('VIEW');
                       setGestaoClickModalCompany(company);
                     }}
-                    className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-accent border border-slate-300 transition cursor-pointer"
                   >
                     <Search className="w-3.5 h-3.5" />
                   </button>
@@ -1133,7 +1133,7 @@ export default function ContactsCompaniesTab({
                       setGestaoClickModalMode('EDIT');
                       setGestaoClickModalCompany(company);
                     }}
-                    className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                   >
                     <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
                   </button>

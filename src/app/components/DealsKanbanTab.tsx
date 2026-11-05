@@ -865,7 +865,7 @@ export default function DealsKanbanTab({
                 onClick={() => handleSelectViewMode(vm.id)}
                 className={`shrink-0 px-3 py-1.5 rounded-[4px] text-xs font-semibold transition cursor-pointer border ${
                   active
-                    ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-2xs'
+                    ? 'bg-accent text-white border-accent shadow-2xs'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
@@ -909,7 +909,7 @@ export default function DealsKanbanTab({
                   onClick={() => setMobileStageFilter(st.id)}
                   className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-semibold cursor-pointer ${
                     mobileStageFilter === st.id
-                      ? 'bg-[#0d2b4e] text-white'
+                      ? 'bg-accent text-white'
                       : 'bg-white border border-slate-200 text-slate-700'
                   }`}
                 >
@@ -1224,7 +1224,7 @@ export default function DealsKanbanTab({
                                 type="button"
                                 disabled={generatingProposalDealId === deal.id}
                                 onClick={() => handleQuickGenerateProposalForDeal(deal)}
-                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-semibold transition cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold transition cursor-pointer disabled:opacity-50"
                               >
                                 <FileText className="w-3 h-3 text-emerald-300" />
                                 {generatingProposalDealId === deal.id
@@ -1297,7 +1297,7 @@ export default function DealsKanbanTab({
       {viewMode === 'LIST' && (
         <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
           <div className="px-4 py-3 bg-[#f8f9fb] border-b border-[#cbd6e2] flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-semibold text-[#0d2b4e]">
+            <span className="font-semibold text-accent">
               Visão em Lista Corporativa — {activePipeline?.name} ({filteredDeals.length} negócios)
             </span>
             <span className="text-slate-500">
@@ -1362,7 +1362,7 @@ export default function DealsKanbanTab({
                           aria-label={`Etapa de ${deal.title}`}
                           value={deal.stageId}
                           onChange={(e) => handleStageChange(deal.id, e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-[#0d2b4e] text-xs"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-accent text-xs"
                         >
                           {stages.map((s) => (
                             <option key={s.id} value={s.id}>
@@ -1391,7 +1391,7 @@ export default function DealsKanbanTab({
                           <button
                             type="button"
                             onClick={() => openDealDetail(deal)}
-                            className="px-2.5 py-1 rounded bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-semibold text-[11px] cursor-pointer"
+                            className="px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-white font-semibold text-[11px] cursor-pointer"
                           >
                             Abrir / Editar
                           </button>
@@ -1468,7 +1468,7 @@ export default function DealsKanbanTab({
                   <button
                     type="button"
                     onClick={() => openDealDetail(deal)}
-                    className="px-3 py-1.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-semibold text-xs cursor-pointer shrink-0"
+                    className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold text-xs cursor-pointer shrink-0"
                   >
                     Abrir / Editar
                   </button>
@@ -1552,7 +1552,7 @@ export default function DealsKanbanTab({
                         <button
                           type="button"
                           onClick={() => openDealDetail(deal)}
-                          className="px-2.5 py-1 rounded bg-[#0d2b4e] text-white font-semibold text-[11px] cursor-pointer"
+                          className="px-2.5 py-1 rounded bg-accent text-white font-semibold text-[11px] cursor-pointer"
                         >
                           Abrir
                         </button>
@@ -1583,7 +1583,7 @@ export default function DealsKanbanTab({
                 type="button"
                 onClick={() => setOwnerPrioritySubMode('OWNER')}
                 className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
-                  ownerPrioritySubMode === 'OWNER' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
+                  ownerPrioritySubMode === 'OWNER' ? 'bg-accent text-white' : 'text-slate-700'
                 }`}
               >
                 Agrupar por Executivo Responsável
@@ -1592,7 +1592,7 @@ export default function DealsKanbanTab({
                 type="button"
                 onClick={() => setOwnerPrioritySubMode('PRIORITY')}
                 className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
-                  ownerPrioritySubMode === 'PRIORITY' ? 'bg-[#0d2b4e] text-white' : 'text-slate-700'
+                  ownerPrioritySubMode === 'PRIORITY' ? 'bg-accent text-white' : 'text-slate-700'
                 }`}
               >
                 Agrupar por Prioridade (Alta / Média / Baixa)
@@ -1655,7 +1655,7 @@ export default function DealsKanbanTab({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <h4 className="text-sm font-semibold text-[#0d2b4e]">{grp.groupTitle}</h4>
+                      <h4 className="text-sm font-semibold text-accent">{grp.groupTitle}</h4>
                       <span className="text-[11px] text-slate-500">
                         {grp.items.length} negócio(s) • Carteira: <strong>{formatBRL(totalVal)}</strong>
                       </span>
@@ -2588,7 +2588,7 @@ export default function DealsKanbanTab({
                     type="button"
                     disabled={generatingProposalDealId === selectedDeal.id}
                     onClick={() => handleQuickGenerateProposalForDeal(selectedDeal)}
-                    className="w-full py-2 px-3 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 px-3 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-emerald-300" />
                     {generatingProposalDealId === selectedDeal.id

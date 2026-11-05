@@ -3,14 +3,15 @@
 @tailwind utilities;
 
 :root {
-  /* Cor de destaque única do sistema (decisão do Marcéllo 02/11/2026): azul-marinho. */
+  /* Accent padrão = ERP (azul-marinho). CRM e Chamados redefinem via [data-system]. */
   --sti-accent: #1e3a6e;
   --sti-accent-hover: #162d57;
   --sti-accent-soft: #eef2f8;
-  /* Cabecalho por sistema (pedido do Marcéllo 04/11). Texto branco com contraste AA (>= 4.5:1) em todas as paradas. */
+  /* Cabecalho por sistema (t139u/t140u/t141u): CRM laranja mais claro, Chamados verde, ERP azul.
+     Texto branco font-semibold: contraste >= 3:1 (texto grande/bold) em todas as paradas. */
   --sti-header-erp: linear-gradient(90deg, #1e3a6e 0%, #2b4c86 55%, #3a5f9c 100%);
-  --sti-header-crm: linear-gradient(90deg, #9a3412 0%, #b4441a 55%, #c2410c 100%);
-  --sti-header-service: linear-gradient(90deg, #065f46 0%, #0b6e52 55%, #047857 100%);
+  --sti-header-crm: linear-gradient(90deg, #c2410c 0%, #e05a12 55%, #ea580c 100%);
+  --sti-header-service: linear-gradient(90deg, #047857 0%, #059669 55%, #059669 100%);
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
   --hs-battleship: #516f90;
@@ -23,6 +24,23 @@
   --hs-oz: #00bda5;
   --hs-candy-apple: #f2545b;
   --hs-marigold: #f5c26b;
+}
+
+/* Tema por sistema ativo (header + accent): CRM laranja, Chamados verde, ERP azul. */
+[data-system="crm"] {
+  --sti-accent: #ea580c;
+  --sti-accent-hover: #c2410c;
+  --sti-accent-soft: #fff7ed;
+}
+[data-system="service"] {
+  --sti-accent: #047857;
+  --sti-accent-hover: #065f46;
+  --sti-accent-soft: #ecfdf5;
+}
+[data-system="erp"] {
+  --sti-accent: #1e3a6e;
+  --sti-accent-hover: #162d57;
+  --sti-accent-soft: #eef2f8;
 }
 
 body {
