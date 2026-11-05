@@ -787,6 +787,10 @@ export default function ErpGestaoClickTab({
   const [invGrossAmount, setInvGrossAmount] = useState("");
   const [invCompetence, setInvCompetence] = useState(new Date().toISOString().slice(0, 7).split("-").reverse().join("/"));
   const [invDescription, setInvDescription] = useState("");
+  // Deve ficar ANTES do early return !erpData (Rules of Hooks). Em dominio novo / bootstrap
+  // frio o ERP monta com erpData=null e, ao chegar o payload, um useState depois do return
+  // estoura "Application error: a client-side exception has occurred".
+  const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
 
   if (!erpData) {
     return (
@@ -998,7 +1002,6 @@ export default function ErpGestaoClickTab({
     );
   };
 
-  const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
   const handleGenerateContractInvoice = async (contractId: string, options?: Record<string, unknown>) => {
     setBusyId(contractId);
     try {
