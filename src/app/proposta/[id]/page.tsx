@@ -29,7 +29,7 @@ import {
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
-import { defaultIssuerAddressLine } from '../../lib/company-issuer-address';
+import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
   appendClientProposalVersion,
   buildProposalVersionShortUrl,
@@ -121,8 +121,6 @@ function PublicProposalPrintContent() {
   const [signerName, setSignerName] = useState("");
   const [signerCpf, setSignerCpf] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  // t137u: endereco da emitente vindo do cadastro da empresa (GET da proposta devolve issuerAddress).
-  const [issuerAddress, setIssuerAddress] = useState(defaultIssuerAddressLine);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   // Sessao interna STI-hub: somente usuarios logados (MFA) veem a barra de edicao,
@@ -156,7 +154,6 @@ function PublicProposalPrintContent() {
         .then(async (r) => ({ ok: r.ok, json: await r.json().catch(() => null) }))
         .then(({ ok, json }) => {
           if (!activePublic) return;
-          if (ok && typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
           const dto = ok && json?.data && !Array.isArray(json.data) ? (json.data as PublicProposalDto) : null;
           if (dto) {
             setProposal(publicDtoToRenderableProposal(dto, rawId));
@@ -225,7 +222,6 @@ function PublicProposalPrintContent() {
         fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
           .then((r) => r.json())
           .then((json) => {
-            if (typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
             const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
             if (apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.length > 0) {
               setProposal((prev) =>
@@ -270,7 +266,6 @@ function PublicProposalPrintContent() {
       .then((r) => r.json())
       .then((json) => {
         if (!active) return;
-        if (typeof json?.issuerAddress === 'string') setIssuerAddress(json.issuerAddress);
         const apiData: ErpCommercialProposal | null =
           json?.data && !Array.isArray(json.data)
             ? (json.data as ErpCommercialProposal)
@@ -1564,7 +1559,7 @@ function PublicProposalPrintContent() {
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
                 <p data-testid="proposal-issuer-address" className="text-[11px] text-slate-500">
-                  {issuerAddress || defaultIssuerAddressLine()}
+                  {SETA_PROPOSAL_HEADER_ADDRESS}
                 </p>
               </div>
             </div>

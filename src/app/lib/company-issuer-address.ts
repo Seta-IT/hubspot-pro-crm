@@ -40,6 +40,10 @@ export function formatIssuerAddress(e: IssuerAddressInput | null | undefined): s
   return [street, clean(e.neighborhood), cityUf, cep].filter(Boolean).join(' - ');
 }
 
+/** Endereco completo no cabecalho da proposta (modelo comercial; Guapuruvu + 3º andar + CEP). */
+export const SETA_PROPOSAL_HEADER_ADDRESS =
+  'Rua Guapuruvu, 242 — 3º andar, Alphaville, Campinas/SP — CEP 13098-323';
+
 /** Linha usada quando o cliente ainda nao recebeu issuerAddress do servidor. */
 export function defaultIssuerAddressLine(): string {
   return formatIssuerAddress(SETA_ISSUER_ADDRESS_DEFAULT);

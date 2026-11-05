@@ -7,6 +7,7 @@ import {
   defaultIssuerAddressLine,
   formatIssuerAddress,
   SETA_ISSUER_ADDRESS_DEFAULT,
+  SETA_PROPOSAL_HEADER_ADDRESS,
 } from '../src/app/lib/company-issuer-address';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../src/modules/erp/daily-sync-service';
 import {
@@ -80,8 +81,11 @@ describe('Proposta e documentos - endereco da emitente', () => {
     assert.match(r, /ensureCompanyEmitterHydrated/);
 
     const p = readFileSync(join(root, 'src/app/proposta/[id]/page.tsx'), 'utf8');
-    assert.match(p, /defaultIssuerAddressLine\(\)/);
-    assert.doesNotMatch(p, /Alphaville, Campinas\/SP/);
+    assert.match(p, /SETA_PROPOSAL_HEADER_ADDRESS/);
+    assert.doesNotMatch(p, /\{issuerAddress \|\| defaultIssuerAddressLine\(\)\}/);
+    assert.equal(SETA_PROPOSAL_HEADER_ADDRESS, 'Rua Guapuruvu, 242 — 3º andar, Alphaville, Campinas/SP — CEP 13098-323');
+    const issuerLib = readFileSync(join(root, 'src/app/lib/company-issuer-address.ts'), 'utf8');
+    assert.match(issuerLib, /Rua Guapuruvu, 242 — 3º andar, Alphaville, Campinas\/SP — CEP 13098-323/);
 
     const receipt = readFileSync(join(root, 'src/app/lib/contract-billing-utils.ts'), 'utf8');
     assert.match(receipt, /companyAddress: htmlOptions\?\.issuerAddress \|\| defaultIssuerAddressLine\(\)/);
