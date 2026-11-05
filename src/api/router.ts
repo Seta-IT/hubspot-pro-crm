@@ -143,6 +143,10 @@ import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertif
 import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { formatIssuerAddress } from '../app/lib/company-issuer-address';
+import {
+  loadCompanyEmitterSettings,
+  saveCompanyEmitterSettings,
+} from '../modules/erp/company-emitter-store';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
@@ -737,6 +741,8 @@ export class CrmApiRouter {
     INITIAL_MIGRATION_CHECKLIST_11_MODULES
   );
   private companyEmitter = structuredClone(DEFAULT_COMPANY_EMITTER_SETTINGS);
+  /** t143u: Dados da Empresa carregados do crm_kv_store (erp_company_emitter_v1) uma vez por instancia. */
+  private companyEmitterHydrated = false;
   private certificateSettings = structuredClone(DEFAULT_CERTIFICATE_SERIES_SETTINGS);
   private generalParameters = structuredClone(DEFAULT_GENERAL_PARAMETERS);
 
@@ -797,6 +803,18 @@ export class CrmApiRouter {
       securityConfig: {} as StiHubRbacState['securityConfig'],
       auditLogs: [],
     };
+  }
+
+
+  /** t143u: carrega Dados da Empresa do Neon (crm_kv_store). Falha => mantem o padrao em memoria. */
+  private async ensureCompanyEmitterHydrated(): Promise<void> {
+    if (this.companyEmitterHydrated) return;
+    try {
+      this.companyEmitter = await loadCompanyEmitterSettings();
+    } catch {
+      // mantem DEFAULT em memoria
+    }
+    this.companyEmitterHydrated = true;
   }
 
   buildBootstrapPayload(
@@ -1112,6 +1130,8 @@ export class CrmApiRouter {
         return { status: 503, body: { error: 'Orçamentos temporariamente indisponíveis. Tente de novo em instantes.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
       }
     }
+
+    await this.ensureCompanyEmitterHydrated();
 
     // Conta de servico (Bearer): pipeline proprio, sem sessao, sem journal, sem override IAM.
     if (query._fromHttpBridge === "1" && query._svcBearer === "1") {
@@ -6089,7 +6109,13 @@ export class CrmApiRouter {
         const ov = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;
         return {
           status: 200,
-          body: { data: { ...ov, gestaoClickConfig: toGestaoClickConfigView(ov.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed) } },
+          body: {
+            data: {
+              ...ov,
+              gestaoClickConfig: toGestaoClickConfigView(ov.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed),
+              issuerAddress: formatIssuerAddress(this.companyEmitter),
+            },
+          },
         };
       }
 
@@ -9138,6 +9164,18 @@ export class CrmApiRouter {
               municipalRegistration: this.companyEmitter.municipalRegistration,
               taxRegime: this.companyEmitter.taxRegime,
             });
+            try {
+              await saveCompanyEmitterSettings(this.companyEmitter);
+              this.companyEmitterHydrated = true;
+            } catch {
+              return {
+                status: 503,
+                body: {
+                  error: 'Não foi possível gravar os Dados da Empresa no banco. Tente de novo em instantes.',
+                  code: 'COMPANY_EMITTER_STORE_UNAVAILABLE',
+                },
+              };
+            }
           }
           if (body.certificateSettings && typeof body.certificateSettings === 'object') {
             this.certificateSettings = {

@@ -7,6 +7,7 @@ import {
   cclSignatureFooterHtml,
   cclSummaryHtml,
 } from './proposal-sheet-theme';
+import { defaultIssuerAddressLine } from './company-issuer-address';
 import {
   PROPOSAL_TEMPLATE_STYLE_OPTIONS,
   resolveProposalLayoutKind,
@@ -363,6 +364,8 @@ export interface StandaloneInvoiceHtmlOptions {
   templateStyle?: ProposalLightTemplateId | string | null;
   /** Embutido na prévia do app (iframe): sem a barra superior própria. */
   embedded?: boolean;
+  /** Endereço completo da emitente no cabeçalho (t142u/t143u). */
+  issuerAddress?: string;
 }
 
 /** Chave do metadado leve (localStorage) com o último modelo escolhido para o recibo. */
@@ -498,6 +501,7 @@ ${CCL_SHEET_CSS}
       eyebrow: 'FATURA / RECIBO DE LOCAÇÃO',
       docNumber: `Nº ${invoice.documentNumber}`,
       companyLine: `CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}`,
+      companyAddress: htmlOptions?.issuerAddress || defaultIssuerAddressLine(),
       metaLinesHtml: [
         `Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong>`,
         `Vencimento: <strong>${invoice.dueDate}</strong> • ${dueRule}`,
@@ -946,6 +950,7 @@ export function downloadContractBillingHistoryReportOnDemand(
     <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:600;cursor:pointer;">Imprimir / Salvar PDF</button>
   </div>
   <h2 style="margin:0 0 4px 0;color:#0d2b4e;">Extrato de Faturamentos &amp; Notas do Contrato ${contract.contractNumber}</h2>
+  <p style="margin:0 0 6px 0;color:#64748b;font-size:11px;" data-testid="doc-issuer-address">SETA TELECOM LTDA — ${defaultIssuerAddressLine()}</p>
   <p style="margin:0 0 12px 0;color:#475569;">
     Cliente: <strong>${contract.companyName}</strong> (${contract.companyCnpj}) • Proposta: <strong>${contract.proposalNumber || '—'}</strong> • NF Remessa: <strong>${contract.remessaNfeNumber}</strong> • Vendedor: <strong>${contract.sellerName || 'Marcelo Mira'}</strong> • Centro de Custo: <strong>${contract.costCenter || 'LOCAÇÃO DE EQUIPAMENTO'}</strong> • Plano de Contas: <strong>${contract.chartOfAccounts || 'Locação de equipamento'}</strong>
   </p>
@@ -1088,9 +1093,10 @@ export function buildStandaloneContractA4Html(
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>${escHtml(docTitle)} — Nº ${escHtml(contract.contractNumber)}</title>
 <style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;font-size:12px;line-height:1.5}h1{font-size:17px;color:#0d2b4e;border-bottom:3px solid #1e3a6e;padding-bottom:6px}h2{font-size:13px;color:#1e3a6e;margin-top:18px}.basis{font-style:italic;color:#475569}table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#1e3a6e;color:#fff}.sig{display:flex;gap:40px;margin-top:50px}.sig div{flex:1;border-top:1px solid #0f172a;text-align:center;padding-top:4px}</style></head><body>
 <h1>${escHtml(docTitle)}</h1>
+<p style="margin:2px 0 10px 0;color:#64748b;font-size:11px;" data-testid="doc-issuer-address">${escHtml(defaultIssuerAddressLine())}</p>
 <p><strong>Contrato Nº:</strong> ${escHtml(contract.contractNumber)} &nbsp; <strong>Tipo:</strong> ${escHtml(templates.map((t) => t.shortLabel).join(' / '))}</p>
 <table><tr><th colspan="2">Partes</th></tr>
-<tr><td><strong>CONTRATADA / LOCADORA</strong></td><td>SETA TELECOM</td></tr>
+<tr><td><strong>CONTRATADA / LOCADORA</strong></td><td>SETA TELECOM LTDA — ${escHtml(defaultIssuerAddressLine())}</td></tr>
 <tr><td><strong>CONTRATANTE / LOCATÁRIO</strong></td><td>${escHtml(contract.companyName)} — CNPJ ${escHtml(contract.companyCnpj || '—')}</td></tr></table>
 <table><tr><th>Valor mensal</th><th>Vencimento</th><th>Vigência</th><th>Reajuste</th></tr>
 <tr><td>${brl(contract.monthlyValue)}</td><td>Dia ${escHtml(contract.dueDay)}</td><td>${escHtml(contract.startDate)} a ${escHtml(contract.endDate)} (${escHtml(contract.contractMonths)} meses)</td><td>${escHtml(contract.readjustmentIndex)}</td></tr></table>

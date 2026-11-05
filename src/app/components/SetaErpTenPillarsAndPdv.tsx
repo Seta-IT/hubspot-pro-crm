@@ -32,6 +32,7 @@ import {
   X,
   ArrowRight,
 } from 'lucide-react';
+import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import {
   Company,
   ErpCatalogItem,
@@ -713,6 +714,7 @@ export function SetaErpPdvPosView({
             <div className="p-5 space-y-3 text-xs font-mono text-slate-800">
               <div className="text-center border-b border-dashed border-slate-300 pb-3">
                 <div className="font-semibold text-sm">SETA TELECOM LTDA (SETA | IT)</div>
+                <div className="text-[10px] text-slate-500" data-testid="doc-issuer-address">{defaultIssuerAddressLine()}</div>
                 <div>CNPJ 14.806.925/0001-32 • Loja Matriz #118887</div>
                 <div>Documento Auxiliar NFC-e: {emittedReceipt.nfceNumber}</div>
                 <div>Data: {emittedReceipt.date}</div>

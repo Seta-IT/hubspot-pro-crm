@@ -29,6 +29,7 @@ import {
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { defaultIssuerAddressLine } from '../../lib/company-issuer-address';
 import {
   appendClientProposalVersion,
   buildProposalVersionShortUrl,
@@ -121,7 +122,7 @@ function PublicProposalPrintContent() {
   const [signerCpf, setSignerCpf] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   // t137u: endereco da emitente vindo do cadastro da empresa (GET da proposta devolve issuerAddress).
-  const [issuerAddress, setIssuerAddress] = useState("");
+  const [issuerAddress, setIssuerAddress] = useState(defaultIssuerAddressLine);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   // Sessao interna STI-hub: somente usuarios logados (MFA) veem a barra de edicao,
@@ -1563,7 +1564,7 @@ function PublicProposalPrintContent() {
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
                 <p data-testid="proposal-issuer-address" className="text-[11px] text-slate-500">
-                  {issuerAddress || "Alphaville, Campinas/SP"}
+                  {issuerAddress || defaultIssuerAddressLine()}
                 </p>
               </div>
             </div>

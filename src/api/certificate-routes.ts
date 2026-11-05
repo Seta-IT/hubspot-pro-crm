@@ -85,7 +85,7 @@ export interface CertificateRouteDeps {
  *    PATCH /api/erp/gestaoclick/config e por POST/PUT /api/admin/settings (este repassa o CNPJ via
  *    updateGestaoClickConfig); os dois exigem validateCnpj valido e a raiz 14.806.925.
  * 2) Sem valor valido da raiz Seta => SETA_CANONICAL_CNPJ_DIGITS (excecao do validators.ts).
- * O companyEmitter de /api/admin/settings fica so na memoria da instancia e NAO e usado.
+ * O companyEmitter de /api/admin/settings e persistido em crm_kv_store (erp_company_emitter_v1); o CNPJ fiscal usado no certificado continua vindo de erp.gestaoClickConfig.
  */
 export function resolveExpectedCompanyCnpj(deps: Pick<CertificateRouteDeps, 'repo'>): {
   digits: string;

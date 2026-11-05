@@ -118,6 +118,7 @@ import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import ImportFilePicker from './ImportFilePicker';
 import FiscalSettingsPanel from './FiscalSettingsPanel';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
+import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
 import { lastNumberFromCodes } from '../lib/erp-general-settings';
 
@@ -7747,7 +7748,8 @@ export default function ErpGestaoClickTab({
               <div className="flex justify-between border-b pb-3">
                 <div>
                   <h3 className="text-base font-semibold text-[#33475b]">SETA TELECOM LTDA</h3>
-                  <p>CNPJ {gestaoClickConfig.companyCnpj} • HubSpot Portal 4369067</p>
+                  <p className="text-[11px] text-slate-500" data-testid="doc-issuer-address">{defaultIssuerAddressLine()}</p>
+                  <p>CNPJ {gestaoClickConfig.companyCnpj}</p>
                   <p>Responsável Comercial: {selectedProposalForPrint.sellerName}</p>
                 </div>
                 <div className="text-right">

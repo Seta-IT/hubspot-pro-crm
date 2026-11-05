@@ -1,7 +1,7 @@
-// STI-hub — endereco da emitente (Seta Telecom LTDA) para o cabecalho da Proposta Comercial.
+// STI-hub — endereco da emitente (Seta Telecom LTDA) para cabecalhos de documentos.
 // Modulo puro: o servidor monta a linha a partir do cadastro da empresa (companyEmitter) e
-// devolve SO esta string (nada de CNPJ, IE, contas ou e-mails) junto da proposta, inclusive no
-// link publico. Campos vazios sao omitidos sem deixar separadores soltos.
+// devolve SO esta string (nada de CNPJ, IE, contas ou e-mails). Campos vazios sao omitidos
+// sem deixar separadores soltos. O CEP so entra se vier preenchido no cadastro.
 export interface IssuerAddressInput {
   addressStreet?: string | null;
   addressNumber?: string | null;
@@ -11,6 +11,17 @@ export interface IssuerAddressInput {
   state?: string | null;
   cep?: string | null;
 }
+
+/** Endereco confirmado pelo Marcéllo (t143u). CEP nao informado — omitido. */
+export const SETA_ISSUER_ADDRESS_DEFAULT: IssuerAddressInput = {
+  addressStreet: 'Rua Guapuruvu',
+  addressNumber: '242',
+  addressComplement: 'Sala 31',
+  neighborhood: 'Loteamento Alphaville Campinas',
+  city: 'Campinas',
+  state: 'SP',
+  cep: '',
+};
 
 const clean = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
 
@@ -27,4 +38,9 @@ export function formatIssuerAddress(e: IssuerAddressInput | null | undefined): s
   const cepDigits = clean(e.cep).replace(/\D+/g, '');
   const cep = cepDigits.length === 8 ? `CEP ${cepDigits.slice(0, 5)}-${cepDigits.slice(5)}` : '';
   return [street, clean(e.neighborhood), cityUf, cep].filter(Boolean).join(' - ');
+}
+
+/** Linha usada quando o cliente ainda nao recebeu issuerAddress do servidor. */
+export function defaultIssuerAddressLine(): string {
+  return formatIssuerAddress(SETA_ISSUER_ADDRESS_DEFAULT);
 }

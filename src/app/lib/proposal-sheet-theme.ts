@@ -320,6 +320,8 @@ export function cclLetterheadHtml(input: {
   chipsHtml?: string;
   companySubtitle?: string;
   companyLine?: string;
+  /** Endereco completo da emitente (cinza discreto abaixo do nome/CNPJ). */
+  companyAddress?: string;
 }): string {
   return `<div class="ccl-header">
       <div class="ccl-header-row">
@@ -329,6 +331,7 @@ export function cclLetterheadHtml(input: {
             <h1 class="ccl-company">SETA TELECOM LTDA</h1>
             <p class="ccl-company-sub">${input.companySubtitle ?? 'Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)'}</p>
             ${input.companyLine ? `<p class="ccl-company-sub2">${input.companyLine}</p>` : ''}
+            ${input.companyAddress ? `<p class="ccl-company-sub2" style="color:#64748b;" data-testid="doc-issuer-address">${input.companyAddress}</p>` : ''}
           </div>
         </div>
         <div class="ccl-meta">
