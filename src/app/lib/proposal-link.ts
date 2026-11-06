@@ -5,7 +5,9 @@
 //    STI_HUB_SESSION_SECRET. A chave de assinatura e derivada (HMAC-SHA256 com rotulo),
 //    entao um token de proposta nunca vale como sessao e vice-versa.
 //  - Token: base64url(JSON{v,pid,ver,iat,exp,jti}) "." base64url(HMAC-SHA256).
-//    Escopo: proposalId + versao + expiracao. Comparacao com timingSafeEqual.
+//    Escopo de autorizacao: proposalId + expiracao. `ver` e a revisao na emissao
+//    (auditoria): correcao posterior da proposta nao invalida o token. Comparacao
+//    com timingSafeEqual.
 //  - Validade: STI_HUB_PROPOSAL_LINK_TTL_DAYS (padrao 30), limitada ao teto de 90 dias.
 //  - Fail-closed: em producao/preview, sem o segredo (ou com segredo curto), nenhum link
 //    e emitido nem aceito. Em dev/testes usa um segredo aleatorio por processo.
@@ -155,7 +157,8 @@ export type ProposalLinkVerification = { valid: true; claims: ProposalLinkClaims
 
 /**
  * Valida assinatura (timingSafeEqual), formato, expiracao, teto de validade e o escopo
- * (proposalId; a versao e conferida pelo chamador contra a versao atual da proposta).
+ * (proposalId). `ver` nao entra na autorizacao: e a revisao da emissao. O chamador usa
+ * proposalLinkVersionStillValid e, se o token couber, devolve a proposta ATUAL.
  */
 export function verifyProposalLinkToken(
   token: unknown,
@@ -196,6 +199,17 @@ export function verifyProposalLinkToken(
   } catch {
     return { valid: false };
   }
+}
+
+/**
+ * O token emitido na revisao N continua valido depois que a proposta vai para N+1
+ * (preco, itens, texto, historico). So um `ver` acima da revisao atual e recusado:
+ * essa revisao ainda nao existe. Quem chama devolve sempre os dados atuais.
+ */
+export function proposalLinkVersionStillValid(tokenVersion: number, currentVersion: unknown): boolean {
+  if (!Number.isInteger(tokenVersion) || tokenVersion < 1) return false;
+  const current = Math.max(1, Math.floor(Number(currentVersion) || 1));
+  return tokenVersion <= current;
 }
 
 /**

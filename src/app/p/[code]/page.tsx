@@ -1,8 +1,9 @@
 'use client';
 
 // t33u: short link opaco do cliente: /p/<codigo>. O servidor (GET /api/p/<codigo>) valida o
-// codigo (existencia, expiracao, versao atual, revogacao, rate limit) e devolve o id e o token
-// assinado; a folha A4 publica e a mesma de /proposta/[id].
+// codigo (existencia, expiracao, revogacao, rate limit) e devolve o id e o token assinado.
+// Correcao comercial incrementa a versao interna e NAO invalida o codigo: a folha A4 (a mesma
+// de /proposta/[id]) mostra a proposta atual.
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { FileText } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function ProposalShortLinkPage() {
           <>
             <h1 className="text-lg text-slate-900">Link de proposta inválido ou expirado</h1>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Este link é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom.
+              Este link é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom.
             </p>
           </>
         )}

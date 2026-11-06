@@ -127,6 +127,7 @@ import {
   publicProposalApproveSchema,
   signProposalLinkToken,
   verifyProposalLinkToken,
+  proposalLinkVersionStillValid,
   describeProposalLinkInText,
   proposalValidUntilEndMs,
   ProposalLinkExpiredProposalError,
@@ -2960,9 +2961,22 @@ export class CrmApiRouter {
   }
 
   /**
+   * Token emitido na revisao N continua abrindo na revisao atual (N ou maior): preco, itens
+   * e texto novos aparecem no mesmo link. `ver` acima da revisao atual, proposta ausente ou
+   * situacao RASCUNHO => o mesmo 404 generico (a retracao para rascunho nao depende da versao).
+   */
+  private publicProposalLinkViewBlocked(found: ErpCommercialProposal | undefined, tokenVersion: number): boolean {
+    if (!found || !proposalLinkVersionStillValid(tokenVersion, found.version)) return true;
+    const st = CrmApiRouter.normalizeProposalStatus(found.status);
+    return st.kind === 'ok' && st.value === 'RASCUNHO';
+  }
+
+  /**
    * t33u: GET /api/p/:code (publico). Mesmo rate limit por IP da visualizacao publica; codigo fora
-   * do formato, inexistente, revogado, vencido, de versao antiga ou cujo token reassinado nao
-   * passa no verifyProposalLinkToken => o mesmo 404 generico (anti-enumeracao).
+   * do formato, inexistente, revogado, vencido, de revisao ainda nao alcancada, proposta em
+   * RASCUNHO ou cujo token reassinado nao passa no verifyProposalLinkToken => o mesmo 404
+   * generico (anti-enumeracao). Correcao comercial (versao interna maior) NAO entra nessa lista:
+   * o slug devolve a proposta atual.
    */
   private resolveProposalShortLink(code: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
@@ -2982,15 +2996,27 @@ export class CrmApiRouter {
     const v = verifyProposalLinkToken(token, { proposalId: rec.proposalId });
     if (!v.valid) return proposalNotFoundResponse();
     const found = this.findProposalExact(rec.proposalId);
-    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
-    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    if (this.publicProposalLinkViewBlocked(found, v.claims.ver)) return proposalNotFoundResponse();
+    this.proposalLinkAudit(
+      'PROPOSAL_PUBLIC_VIEW',
+      'SUCCESS',
+      ip,
+      found!.id,
+      `visualizacao pelo short link (token v${v.claims.ver}, proposta v${Math.max(1, Number(found!.version || 1))})`,
+      undefined,
+      v.claims.jti
+    );
     return {
       status: 200,
-      body: { data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
+      body: { data: toPublicProposalDto(found!), proposalId: found!.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
     };
   }
 
-  /** GET publico: so com token valido para ESTE id e a versao ATUAL. Qualquer falha => 404 generico. */
+  /**
+   * GET publico: token valido (assinatura, id, nao expirado) para ESTA proposta.
+   * A revisao gravada no token pode ser anterior a atual: a resposta e sempre o DTO atual.
+   * Qualquer outra falha => 404 generico.
+   */
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
@@ -2999,11 +3025,19 @@ export class CrmApiRouter {
     const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
     if (!v.valid) return proposalNotFoundResponse();
     const found = this.findProposalExact(pathId);
-    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
-    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    if (this.publicProposalLinkViewBlocked(found, v.claims.ver)) return proposalNotFoundResponse();
+    this.proposalLinkAudit(
+      'PROPOSAL_PUBLIC_VIEW',
+      'SUCCESS',
+      ip,
+      found!.id,
+      `visualizacao pelo link (token v${v.claims.ver}, proposta v${Math.max(1, Number(found!.version || 1))})`,
+      undefined,
+      v.claims.jti
+    );
     return {
       status: 200,
-      body: { data: toPublicProposalDto(found), issuerAddress: formatIssuerAddress(this.companyEmitter) },
+      body: { data: toPublicProposalDto(found!), issuerAddress: formatIssuerAddress(this.companyEmitter) },
     };
   }
 
@@ -3087,8 +3121,8 @@ export class CrmApiRouter {
               String(p.code || '').toLowerCase() === pathId.toLowerCase()
           )
       : this.findProposalExact(pathId);
-    if (!existing || (tokenVersion !== null && Math.max(1, Number(existing.version || 1)) !== tokenVersion)) {
-      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou versao diferente (404, nada criado)', undefined, jti);
+    if (!existing || (tokenVersion !== null && !proposalLinkVersionStillValid(tokenVersion, existing.version))) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou token de revisao futura (404, nada criado)', undefined, jti);
       return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
     }
     // Pacote M (D2): baldes por proposta pelo id CANONICO encontrado pelo servidor.
@@ -3320,7 +3354,8 @@ export class CrmApiRouter {
       signed = signProposalLinkToken({ proposalId: found.id, version: Math.max(1, Number(found.version || 1)), notAfterMs: proposalValidUntilEndMs(found.validUntil) });
       if (isDraft) {
         // D3: RASCUNHO -> ENVIADA na emissao, com o mesmo escopo/sessao ja conferidos acima,
-        // historico de status e auditoria. A transicao cria versao nova: o link sai dela.
+        // historico de status e auditoria. A transicao cria versao nova e o link sai dela.
+        // Correcoes posteriores incrementam a versao de novo e NAO invalidam este link.
         const sent = this.repo.updateProposal(found.id, {
           status: 'ENVIADA',
           statusObservation: 'Enviada ao cliente (link assinado emitido)',
@@ -6170,7 +6205,8 @@ export class CrmApiRouter {
 
       // ======================================================================
       // LINK ASSINADO DE PROPOSTA (29/10/2026) — src/app/lib/proposal-link.ts
-      // Publico (sem sessao) somente com X-Proposal-Token valido (HMAC, escopo id+versao+exp).
+      // Publico (sem sessao) somente com X-Proposal-Token valido (HMAC, escopo id+exp).
+      // `ver` e a revisao da emissao: correcao comercial nao invalida o token ja entregue.
       // Sem token valido => 404 generico identico ao de id inexistente. O token chega do
       // header via src/app/api/erp/proposals/[id]/* em query.proposalLinkToken (nunca na URL
       // do cliente: a rota descarta o parametro vindo da URL) e nunca e logado.

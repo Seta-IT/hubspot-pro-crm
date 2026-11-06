@@ -15,6 +15,7 @@ import {
   PROPOSAL_LINK_MAX_TTL_DAYS,
   resolveProposalLinkSecret,
   resolveProposalLinkTtlDays,
+  proposalLinkVersionStillValid,
   signProposalLinkToken,
   verifyProposalLinkToken,
 } from '../src/app/lib/proposal-link';
@@ -197,10 +198,16 @@ describe('Link assinado de proposta: GET publico', () => {
       linkFor(p.id, ver + 1),
     ];
     for (const t of bad) assert.equal((await getPublic(router, p.id, t)).status, 404);
-    // Proposta editada (versao nova) => link antigo deixa de valer.
+    // Correcao comercial sobe a versao e o token emitido na revisao anterior continua abrindo,
+    // com o titulo novo. Token de revisao ainda nao alcancada segue 404.
     repo.updateProposal(p.id, { title: `${p.title} (rev)` });
     const after = repo.listProposals().find((x) => x.id === p.id)!;
-    if ((after.version || 1) !== ver) assert.equal((await getPublic(router, p.id, good)).status, 404);
+    assert.ok((after.version || 1) > ver);
+    const still = await getPublic(router, p.id, good);
+    assert.equal(still.status, 200);
+    assert.equal((still.body as { data: { title: string; version: number } }).data.title, after.title);
+    assert.equal((still.body as { data: { version: number } }).data.version, after.version);
+    assert.equal((await getPublic(router, p.id, linkFor(p.id, (after.version || 1) + 1))).status, 404);
   });
 
   it('maleabilidade: so a forma canonica da assinatura e do payload vale (as outras grafias => o mesmo 404)', async () => {
@@ -1806,34 +1813,187 @@ describe('D3: status no aceite publico e na emissao do link', () => {
     assert.equal(cur(repo, p.id).status, 'CONVERTIDA_CONTRATO');
   });
 
-  it('status + conteudo na mesma edicao => versao nova (o link anterior deixa de valer)', async () => {
+  it('status + conteudo na mesma edicao => versao nova e o link anterior segue valendo com os dados novos', async () => {
     const { repo, router } = fresh();
     const admin = sessionFor(repo, 'usr-seta-01');
     const p = withStatus(repo, 'ENVIADA');
     const t = tokenOf(await issue(router, p.id, admin));
     const patch = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _sessionToken: admin }, body: { status: 'EM_NEGOCIACAO', paymentCondition: 'Boleto 30 dias' } });
     assert.equal(patch.status, 200);
-    assert.ok((cur(repo, p.id).version || 1) > (p.version || 1));
-    assert.equal((await getPublic(router, p.id, t)).status, 404);
-    assert.equal((await approve(router, p.id, t)).status, 404);
+    const after = cur(repo, p.id);
+    assert.ok((after.version || 1) > (p.version || 1));
+    const g = await getPublic(router, p.id, t);
+    assert.equal(g.status, 200);
+    const data = (g.body as { data: { paymentCondition: string; version: number; status: string } }).data;
+    assert.equal(data.paymentCondition, 'Boleto 30 dias');
+    assert.equal(data.status, 'EM_NEGOCIACAO');
+    assert.equal(data.version, after.version);
+    assert.equal((await approve(router, p.id, t)).status, 200);
+    assert.equal(cur(repo, p.id).status, 'CONVERTIDA_CONTRATO');
   });
 
   it('link para de valer quando o admin volta a proposta para RASCUNHO (GET e aceite => 404)', async () => {
     const { repo, router } = fresh();
     const admin = sessionFor(repo, 'usr-seta-01');
     const p = withStatus(repo, 'ENVIADA');
-    const t = tokenOf(await issue(router, p.id, admin));
+    const issued = await issue(router, p.id, admin);
+    const t = tokenOf(issued);
+    const shortCode = (issued.body as { data: { shortUrl: string } }).data.shortUrl.split('/p/')[1];
     assert.equal((await getPublic(router, p.id, t)).status, 200);
     const patch = await router.dispatch({ method: 'PATCH', path: `/api/erp/proposals/${p.id}`, query: { ...HTTP, _sessionToken: admin }, body: { status: 'RASCUNHO' } });
     assert.equal(patch.status, 200);
     assert.equal(cur(repo, p.id).status, 'RASCUNHO');
+    assert.ok((cur(repo, p.id).version || 1) > (p.version || 1), 'retracao gera versao de auditoria');
     const ref404 = await getPublic(router, 'prop-nao-existe');
     const g = await getPublic(router, p.id, t);
     assert.equal(g.status, 404);
+    const slug = await router.dispatch({ method: 'GET', path: `/api/p/${shortCode}`, query: { ...HTTP, _clientIp: '198.51.100.66' } });
+    assert.equal(slug.status, 404);
+    assert.deepEqual(slug.body, ref404.body);
     const a = await approve(router, p.id, t);
     assert.equal(a.status, 404);
     assert.deepEqual(a.body, ref404.body);
     assert.equal(cur(repo, p.id).status, 'RASCUNHO');
     assert.equal(repo.listRentalContracts().filter((c) => (c as { proposalId?: string }).proposalId === p.id).length, 0);
+  });
+});
+
+describe('Link publico sobrevive a correcao comercial (versao N -> N+1)', () => {
+  it('token e slug emitidos na versao N continuam validos e devolvem o preco novo', async () => {
+    assert.equal(proposalLinkVersionStillValid(2, 3), true);
+    assert.equal(proposalLinkVersionStillValid(3, 3), true);
+    assert.equal(proposalLinkVersionStillValid(4, 3), false);
+    assert.equal(proposalLinkVersionStillValid(0, 3), false);
+
+    const { repo, router } = fresh();
+    const admin = sessionFor(repo, 'usr-seta-01');
+    const created = repo.createProposal({
+      title: 'Venda SSD Kingston A400 — INETWEB',
+      companyName: 'INETWEB',
+      status: 'ENVIADA',
+      contractMonths: 1,
+      shippingCost: 50,
+      commercialNotes: 'Preco provisório.',
+      items: [
+        {
+          id: 'it-ssd',
+          description: 'SSD Kingston A400',
+          itemType: 'PRODUCT',
+          fiscalNature: 'VENDA_EQUIPAMENTO',
+          quantity: 2,
+          unitPrice: 900,
+          discountPercent: 0,
+          isRecurring: false,
+        },
+      ],
+    } as never);
+    const versionAtIssue = created.version || 1;
+    const issued = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${created.id}/public-link`,
+      query: { ...HTTP, _origin: 'https://sti-hub.setatelecom.com.br', _sessionToken: admin, _clientIp: '198.51.100.10' },
+      body: {},
+    });
+    assert.equal(issued.status, 200, JSON.stringify(issued.body));
+    const issuedData = (issued.body as { data: { url: string; shortUrl: string; version: number } }).data;
+    assert.equal(issuedData.version, versionAtIssue);
+    const token = decodeURIComponent(issuedData.url.split('#t=')[1]);
+    const claims = verifyProposalLinkToken(token, { proposalId: created.id });
+    assert.equal(claims.valid, true);
+    if (claims.valid) assert.equal(claims.claims.ver, versionAtIssue);
+    const code = issuedData.shortUrl.split('/p/')[1];
+    assert.match(code, /^[A-Za-z0-9]{10}$/);
+
+    const noSession = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${created.id}/public-link`,
+      query: { ...HTTP, _clientIp: '198.51.100.11' },
+      body: {},
+    });
+    assert.equal(noSession.status, 401);
+
+    const patch = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/erp/proposals/${created.id}`,
+      query: { ...HTTP, _sessionToken: admin, _clientIp: '198.51.100.12' },
+      body: {
+        shippingCost: 50,
+        commercialNotes: 'Preco unitario corrigido para R$ 977,50.',
+        items: [
+          {
+            id: 'it-ssd',
+            description: 'SSD Kingston A400',
+            itemType: 'PRODUCT',
+            fiscalNature: 'VENDA_EQUIPAMENTO',
+            quantity: 2,
+            unitPrice: 977.5,
+            discountPercent: 0,
+            isRecurring: false,
+          },
+        ],
+      },
+    });
+    assert.equal(patch.status, 200, JSON.stringify(patch.body));
+    const saved = repo.listProposals().find((p) => p.id === created.id)!;
+    assert.equal(saved.version, versionAtIssue + 1);
+    assert.equal(saved.status, 'ENVIADA');
+
+    const expectCurrent = (body: unknown) => {
+      const data = (body as { data: { version: number; shippingCost: number; totalContractValue: number; commercialNotes: string; items: Array<{ unitPrice: number; quantity: number; description: string }> } }).data;
+      assert.equal(data.version, versionAtIssue + 1);
+      assert.equal(data.items[0].description, 'SSD Kingston A400');
+      assert.equal(data.items[0].quantity, 2);
+      assert.equal(data.items[0].unitPrice, 977.5);
+      assert.equal(data.shippingCost, 50);
+      assert.equal(data.totalContractValue, 2005);
+      assert.equal(data.commercialNotes, 'Preco unitario corrigido para R$ 977,50.');
+    };
+
+    const viaToken = await getPublic(router, created.id, token, '198.51.100.13');
+    assert.equal(viaToken.status, 200);
+    expectCurrent(viaToken.body);
+
+    const viaSlug = await router.dispatch({
+      method: 'GET',
+      path: `/api/p/${code}`,
+      query: { ...HTTP, _clientIp: '198.51.100.14' },
+    });
+    assert.equal(viaSlug.status, 200);
+    expectCurrent(viaSlug.body);
+    const resigned = (viaSlug.body as { token: string; proposalId: string }).token;
+    assert.equal((viaSlug.body as { proposalId: string }).proposalId, created.id);
+    const viaResigned = await getPublic(router, created.id, resigned, '198.51.100.15');
+    assert.equal(viaResigned.status, 200);
+    expectCurrent(viaResigned.body);
+
+    assert.equal((await getPublic(router, created.id, undefined, '198.51.100.16')).status, 404);
+    assert.equal((await getPublic(router, created.id, linkFor(created.id, versionAtIssue + 2), '198.51.100.17')).status, 404);
+    assert.equal((await getPublic(router, created.id, linkFor('prop-outra', versionAtIssue), '198.51.100.18')).status, 404);
+    assert.equal((await getPublic(router, created.id, linkFor(created.id, versionAtIssue, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 }), '198.51.100.19')).status, 404);
+    const missingSlug = await router.dispatch({
+      method: 'GET',
+      path: '/api/p/AAAAAAAAAA',
+      query: { ...HTTP, _clientIp: '198.51.100.20' },
+    });
+    assert.equal(missingSlug.status, 404);
+
+    const links = repo.getState().erp!.proposalShortLinks!;
+    const rec = links[links.length - 1];
+    rec.revokedAt = new Date().toISOString();
+    const revoked = await router.dispatch({
+      method: 'GET',
+      path: `/api/p/${code}`,
+      query: { ...HTTP, _clientIp: '198.51.100.21' },
+    });
+    assert.equal(revoked.status, 404);
+    rec.revokedAt = null;
+
+    const logs = JSON.stringify(repo.listSecurityAuditLogs(1000).logs);
+    assert.equal(logs.includes(token), false);
+    assert.equal(logs.includes(token.split('.')[1]), false);
+    assert.equal(JSON.stringify(repo.getState()).includes(code), false);
+
+    const accepted = await approve(router, created.id, token, SIGNER, { ip: '198.51.100.22' });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
   });
 });
