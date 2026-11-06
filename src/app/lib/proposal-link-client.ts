@@ -120,9 +120,9 @@ export function proposalEmailLinkGate(input: {
 
 /**
  * t29u: short link ASSINADO de uma versao: /proposta/<id>/v/<n>#t=<token>. Reusa o mesmo
- * emissor (POST /public-link) e a mesma validacao do servidor: o token continua valendo so
- * para a versao ATUAL da proposta. Pedir o link de uma versao antiga => erro (409 local),
- * sem emitir link novo.
+ * emissor (POST /public-link), que so assina a revisao atual. Pedir o link de uma versao
+ * antiga do historico => erro (409 local), sem emitir link novo. Um link ja emitido
+ * continua abrindo depois de correcoes: o servidor devolve a proposta atual.
  */
 export function toSignedVersionShortUrl(signedUrl: string, proposalId: string, version: number): string {
   const enc = encodeURIComponent(String(proposalId || '').trim());

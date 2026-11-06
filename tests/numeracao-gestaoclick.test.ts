@@ -12,6 +12,7 @@ import { formatProposalCode } from '../src/db/record-id-guard';
 import { CrmApiRouter } from '../src/api/router';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { toSignedVersionShortUrl } from '../src/app/lib/proposal-link-client';
+import { signProposalLinkToken } from '../src/app/lib/proposal-link';
 import { createInMemoryRepository, isRemovedFictitiousProposalId, removeFictitiousProposals } from '../src/db/repository';
 
 describe('Numeracao de orcamentos no padrao GestaoClick', () => {
@@ -75,10 +76,14 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     assert.equal(anon.status, 200, 'abre sem login com o token');
     const noToken = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-gc-4695', query: { ...HTTP, _clientIp: '198.51.100.78' } });
     assert.notEqual(noToken.status, 200, 'sem token continua bloqueado');
-    // nova versao => o link antigo deixa de abrir (validacao do servidor inalterada)
+    // nova versao comercial => o mesmo token abre e devolve o titulo novo
     repo.updateProposal('prop-gc-4695', { title: 'Revisao' } as never);
-    const stale = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-gc-4695', query: { ...HTTP, _clientIp: '198.51.100.79', proposalLinkToken: token } });
-    assert.notEqual(stale.status, 200);
+    const revised = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-gc-4695', query: { ...HTTP, _clientIp: '198.51.100.79', proposalLinkToken: token } });
+    assert.equal(revised.status, 200);
+    assert.equal((revised.body as { data: { title: string } }).data.title, 'Revisao');
+    const future = signProposalLinkToken({ proposalId: 'prop-gc-4695', version: (repo.listProposals().find((p) => p.id === 'prop-gc-4695')!.version || 1) + 5 }).token;
+    const ahead = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-gc-4695', query: { ...HTTP, _clientIp: '198.51.100.80', proposalLinkToken: future } });
+    assert.notEqual(ahead.status, 200);
   });
 
   it('t33u: short link opaco /p/<codigo> abre sem login, sobrevive a outra instancia e respeita versao/expiracao/revogacao', async () => {
@@ -120,10 +125,11 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     const revoked = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.93' } });
     assert.equal(revoked.status, 404);
     st[st.length - 1].revokedAt = null;
-    // nova versao => short link antigo deixa de abrir
+    // nova versao comercial => o mesmo slug abre e devolve o titulo novo
     repo.updateProposal('prop-gc-4695', { title: 'Revisao t33u' } as never);
-    const stale = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.94' } });
-    assert.equal(stale.status, 404);
+    const revised = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.94' } });
+    assert.equal(revised.status, 200);
+    assert.equal((revised.body as { data: { title: string } }).data.title, 'Revisao t33u');
     // expiracao
     const issued2 = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-gc-4695/public-link', query: { ...HTTP, _origin: 'https://sti-hub.vercel.app', _sessionToken: session }, body: {} });
     const code2 = (issued2.body as { data: { shortUrl: string } }).data.shortUrl.split('/p/')[1];
