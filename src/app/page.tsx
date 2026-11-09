@@ -52,7 +52,7 @@ import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
-import { Settings, Lock, Menu } from 'lucide-react';
+import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
@@ -1638,7 +1638,7 @@ export default function HubSpotProCrmApp() {
               <button
                 type="button"
                 onClick={() => setUserMenuOpen((v) => !v)}
-                title="Abrir Menu da Conta, Configurar 2FA (Google Authenticator / E-mail OTP) e IAM"
+                title="Abrir menu da conta"
                 className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-[4px] bg-white/10 hover:bg-white/15 border border-white/20 transition cursor-pointer"
               >
                 <div className="w-7 h-7 rounded-full bg-white/20 ring-1 ring-white/30 text-white font-semibold text-[11px] flex items-center justify-center">
@@ -1661,58 +1661,35 @@ export default function HubSpotProCrmApp() {
 
               {userMenuOpen && (
                 <div className="absolute right-0 mt-1.5 w-72 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-2xl z-50 overflow-hidden text-xs">
-                  <div className="p-3 bg-accent text-white space-y-1">
-                    <div className="font-semibold truncate">
-                      {activeRbacUser?.name || "—"}
+                  <div className="px-3.5 py-3 flex items-center gap-3 border-b border-slate-100">
+                    <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-700 font-semibold text-[12px] flex items-center justify-center ring-1 ring-slate-200 shrink-0">
+                      {(activeRbacUser?.name || "Marcéllo Mira")
+                        .split(" ")
+                        .slice(0, 2)
+                        .map((p) => p[0])
+                        .join("")
+                        .toUpperCase()}
                     </div>
-                    <div className="text-[11px] text-slate-300 font-mono truncate">
-                      {activeRbacUser?.email || ""}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1 pt-1">
-                      {userEnabledModules.map((m) => (
-                        <span
-                          key={m}
-                          className="px-1.5 py-0.5 rounded bg-accent text-white text-[9px] font-semibold"
-                        >
-                          {m}
-                        </span>
-                      ))}
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-semibold">
-                        2FA Ativo
-                      </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-900 truncate text-[13px]">
+                        {activeRbacUser?.name || "—"}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {activeRbacUser?.email || ""}
+                      </div>
                     </div>
                   </div>
-                  <div className="p-1.5 divide-y divide-slate-100">
+                  <div className="p-1.5 space-y-0.5">
                     <button
                       type="button"
                       onClick={() => {
                         setUserMenuOpen(false);
                         setShowUserAccountModal(true);
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-[#0d2b4e] flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-2.5 cursor-pointer"
                     >
-                      <span>Minha Conta &amp; Parear 2FA (QR Code)</span>
-                      <Lock className="w-3.5 h-3.5 text-accent" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        setShowHomeScreenModal(true);
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 flex items-center justify-between cursor-pointer"
-                    >
-                      <span className="flex flex-col">
-                        <span>Tela inicial padrão</span>
-                        <span className="text-[10px] font-semibold text-slate-400">
-                          {homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
-                            ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
-                            : canChooseHomeScreen
-                              ? 'Não definida (Visão Geral do primeiro sistema)'
-                              : 'Apenas um sistema disponível'}
-                        </span>
-                      </span>
-                      <Home className="w-3.5 h-3.5 text-slate-500" />
+                      <User className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>Minha conta</span>
                     </button>
                     {canOpenAdminCentralUi && (
                     <button
@@ -1721,20 +1698,30 @@ export default function HubSpotProCrmApp() {
                         setUserMenuOpen(false);
                         setActiveModule("ADMIN_RBAC");
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 flex items-center justify-between cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-2.5 cursor-pointer"
                     >
-                      <span>Políticas IAM (Painel CRM &amp; Painel ERP)</span>
-                      <Settings className="w-3.5 h-3.5 text-slate-500" />
+                      <Settings className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>Configurações</span>
                     </button>
                     )}
-                    <a
-                      href="/login"
-                      onClick={() => setUserMenuOpen(false)}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 flex items-center justify-between"
+                    <div className="my-1 border-t border-slate-100" />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setUserMenuOpen(false);
+                        document.cookie = 'stihub_session=; path=/; max-age=0; SameSite=Lax';
+                        document.cookie = 'stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax';
+                        try {
+                          window.localStorage.removeItem('stihub_active_session_v1');
+                        } catch {}
+                        await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                        window.location.href = '/login';
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-2.5 cursor-pointer"
                     >
-                      <span>Trocar Conta / Login MFA (/login)</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                    </a>
+                      <LogOut className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>Sair</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -2525,6 +2512,18 @@ export default function HubSpotProCrmApp() {
             await fetchAllCrmData();
           }}
           onOpenAdminIam={canOpenAdminCentralUi ? () => setActiveModule("ADMIN_RBAC") : undefined}
+          homeScreenLabel={
+            homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
+              ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+              : canChooseHomeScreen
+                ? 'Não definida (Visão Geral do primeiro sistema)'
+                : 'Apenas um sistema disponível'
+          }
+          canChooseHomeScreen={canChooseHomeScreen}
+          onOpenHomeScreenPreference={() => {
+            setShowUserAccountModal(false);
+            setShowHomeScreenModal(true);
+          }}
           onLogout={async () => {
             document.cookie = "stihub_session=; path=/; max-age=0; SameSite=Lax";
             document.cookie = "stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax";

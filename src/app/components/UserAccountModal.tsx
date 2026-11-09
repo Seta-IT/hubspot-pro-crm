@@ -14,6 +14,7 @@ import {
   KeyRound,
   LogOut,
   Settings,
+  Home,
 } from 'lucide-react';
 import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
@@ -26,6 +27,10 @@ interface UserAccountModalProps {
   onUserUpdated: (updated: StiHubUserRecord) => void;
   /** Ausente => botão do Painel IAM oculto (só admin com 2FA abre a Central). */
   onOpenAdminIam?: () => void;
+  /** Resumo da tela inicial padrão; ausente => seção oculta. */
+  homeScreenLabel?: string;
+  canChooseHomeScreen?: boolean;
+  onOpenHomeScreenPreference?: () => void;
   onLogout: () => void;
   onShowToast: (msg: string) => void;
 }
@@ -35,6 +40,9 @@ export default function UserAccountModal({
   onClose,
   onUserUpdated,
   onOpenAdminIam,
+  homeScreenLabel,
+  canChooseHomeScreen = false,
+  onOpenHomeScreenPreference,
   onLogout,
   onShowToast,
 }: UserAccountModalProps) {
@@ -483,6 +491,35 @@ export default function UserAccountModal({
               </div>
             )}
           </div>
+
+          {/* Tela inicial padrão (antes ficava no menu do perfil) */}
+          {onOpenHomeScreenPreference && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                  <Home className="w-4 h-4 text-slate-500" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-slate-900">Tela inicial padrão</h4>
+                  <p className="text-[11px] text-slate-600 font-semibold mt-0.5 truncate">
+                    {homeScreenLabel || 'Não definida'}
+                  </p>
+                  {!canChooseHomeScreen && (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Disponível quando houver acesso a mais de um sistema.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenHomeScreenPreference}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+              >
+                {canChooseHomeScreen ? 'Alterar' : 'Ver'}
+              </button>
+            </div>
+          )}
 
           {/* 2FA Configuration: Google Authenticator (Real ISO 18004 QR Code) vs Email OTP */}
           <div className="rounded-xl border-2 border-[#0d2b4e]/20 bg-slate-50/70 p-4 space-y-4">

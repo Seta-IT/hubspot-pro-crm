@@ -86,7 +86,7 @@ describe('Outros caminhos para a Central e modelos de e-mail', () => {
   it('CRM: menu, pílula, menu do usuário e Minha Conta só levam à Central para admin', () => {
     const page = src('src/app/page.tsx');
     assert.match(page, /const canOpenAdminCentralUi = adminCentralAccess\?\.isAdmin === true;/);
-    assert.match(page, /\{canOpenAdminCentralUi && \(\s*<button[\s\S]*?Políticas IAM \(Painel CRM/);
+    assert.match(page, /\{canOpenAdminCentralUi && \(\s*<button[\s\S]*?Configurações/);
     assert.match(page, /filter\(\(pill\) => pill\.id !== 'ADMIN_RBAC' \|\| canOpenAdminCentralUi\)/);
     assert.match(page, /onSelectAdminRbac=\{canOpenAdminCentralUi \?/);
     assert.match(page, /onOpenAdminIam=\{canOpenAdminCentralUi \?/);
