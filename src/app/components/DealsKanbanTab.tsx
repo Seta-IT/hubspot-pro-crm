@@ -38,7 +38,7 @@ import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
-import CrmRecordEmailSection from './email/CrmRecordEmailSection';
+import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 
@@ -453,23 +453,6 @@ export default function DealsKanbanTab({
     }
   };
 
-  const handleSaveDealNote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDeal || !noteTitle.trim()) return;
-    setSavingNote(true);
-    try {
-      await onAddDealNote(selectedDeal.id, noteTitle.trim(), noteBody.trim(), noteType);
-      setNoteTitle('');
-      setNoteBody('');
-      const res = await fetch(`/api/deals/${selectedDeal.id}`);
-      if (res.ok) {
-        const json = await res.json();
-        setDealTimeline(json.data?.timeline || []);
-      }
-    } finally {
-      setSavingNote(false);
-    }
-  };
 
   const pipelineDeals = deals.filter(
     (d) => !activePipeline || d.pipelineId === activePipeline.id
@@ -562,9 +545,6 @@ export default function DealsKanbanTab({
       )
     : [];
 
-  const filteredTimeline = dealTimeline.filter(
-    (evt) => timelineFilterType === 'ALL' || evt.type === timelineFilterType
-  );
 
   return (
         <div className="space-y-5">
@@ -619,10 +599,10 @@ export default function DealsKanbanTab({
               href={createdProposalBanner.publicUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              Abrir Proposta
+              Abrir proposta
             </a>
             <a
               href={createdProposalBanner.printUrl}
@@ -804,7 +784,7 @@ export default function DealsKanbanTab({
           </button>
           <div className="text-left bg-sky-50/60 rounded-xl p-3 border border-sky-200/70">
             <span className="text-[11px] font-semibold uppercase text-[#0091ae] block">
-              MRR Recorrente (Funil)
+              Valor mensal (Funil)
             </span>
             <div className="text-base font-semibold text-[#0091ae] mt-0.5">
               {formatBRL(pipeTotalMrr)}/mês
@@ -878,7 +858,7 @@ export default function DealsKanbanTab({
 
         <div className="flex items-center justify-between md:justify-end gap-2 text-xs text-slate-600">
           <span>
-            Exibindo <strong>{filteredDeals.length}</strong> negócios • MRR:{' '}
+            Exibindo <strong>{filteredDeals.length}</strong> negócios • Valor mensal:{' '}
             <strong className="text-emerald-700">{formatBRL(pipeTotalMrr)}/mês</strong>
           </span>
         </div>
@@ -1084,7 +1064,7 @@ export default function DealsKanbanTab({
                               </span>
                             </div>
                             <div className="flex items-center justify-between text-[11px]">
-                              <span className="text-[#516f90]">Mensalidade (MRR):</span>
+                              <span className="text-[#516f90]">Valor mensal:</span>
                               <strong className="text-emerald-700 font-semibold">
                                 {formatBRL(mrr)}/mês
                               </strong>
@@ -1226,10 +1206,10 @@ export default function DealsKanbanTab({
                                 onClick={() => handleQuickGenerateProposalForDeal(deal)}
                                 className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold transition cursor-pointer disabled:opacity-50"
                               >
-                                <FileText className="w-3 h-3 text-emerald-300" />
+                                <FileText className="w-3 h-3" />
                                 {generatingProposalDealId === deal.id
                                   ? "Gerando..."
-                                  : "Gerar Proposta PDF"}
+                                  : "Criar proposta"}
                               </button>
                             </div>
 
@@ -1313,7 +1293,7 @@ export default function DealsKanbanTab({
                   <th className="py-2.5 px-3">Empresa / CNPJ</th>
                   <th className="py-2.5 px-3">Etapa do Funil (Inline)</th>
                   <th className="py-2.5 px-3 text-right">Valor Total (TCV)</th>
-                  <th className="py-2.5 px-3 text-right">MRR Mensal</th>
+                  <th className="py-2.5 px-3 text-right">Valor mensal</th>
                   <th className="py-2.5 px-3 text-center">Prob. %</th>
                   <th className="py-2.5 px-3">Fechamento Previsto</th>
                   <th className="py-2.5 px-3">Executivo Responsável</th>
@@ -1452,7 +1432,7 @@ export default function DealsKanbanTab({
                       <strong className="text-slate-900">{formatBRL(deal.value)}</strong>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block">MRR</span>
+                      <span className="text-[10px] text-slate-400 block">Valor mensal</span>
                       <strong className="text-emerald-700">{formatBRL(mrr)}</strong>
                     </div>
                     <div>
@@ -1732,7 +1712,7 @@ export default function DealsKanbanTab({
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-                  Título da Oportunidade *
+                  Nome do Negócio *
                 </label>
                 <input
                   type="text"
@@ -1747,7 +1727,7 @@ export default function DealsKanbanTab({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-                    MRR Mensal (R$)
+                    Valor mensal
                   </label>
                   <input
                     type="number"
@@ -1787,7 +1767,7 @@ export default function DealsKanbanTab({
 
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-                    Valor Total TCV (R$) *
+                    Valor total *
                   </label>
                   <input
                     type="number"
@@ -1943,718 +1923,69 @@ export default function DealsKanbanTab({
         </div>
       )}
 
-      {/* DEAL DETAIL DRAWER (3-COLUMN HUBSPOT RECORD VIEW) */}
       {selectedDeal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
-          <div className="bg-[#f5f8fa] w-full max-w-6xl h-full shadow-2xl border-l border-[#cbd6e2] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 bg-[#213343] text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-semibold uppercase">
-                    HUBSPOT DEAL RECORD 360°
-                  </span>
-                  <span className="text-xs text-[#99acc2]">
-                    Pipeline: <strong className="text-white">{activePipeline?.name}</strong>
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-300 text-[10px] font-semibold">
-                    TCV: {formatBRL(selectedDeal.value)} • MRR:{" "}
-                    {formatBRL(
-                      selectedDeal.mrr ||
-                        Math.round(selectedDeal.value / (selectedDeal.contractMonths || 24))
-                    )}
-                    /mês
-                  </span>
-                </div>
-                <h3 className="text-base sm:text-lg font-semibold text-white mt-1 truncate">
-                  {selectedDeal.title}
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={generatingProposalDealId === selectedDeal.id}
-                  onClick={() => handleQuickGenerateProposalForDeal(selectedDeal)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm cursor-pointer"
-                >
-                  <FileText className="w-4 h-4" />
-                  {generatingProposalDealId === selectedDeal.id
-                    ? "Gerando Proposta..."
-                    : "+ Gerar Proposta PDF p/ Cliente"}
-                </button>
-
-                {onNavigateToErp && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDeal(null);
-                      onNavigateToErp();
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#33475b] hover:bg-[#425b76] text-white text-xs font-semibold cursor-pointer"
-                  >
-                    Abrir ERP GestãoClick
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedDeal(null)}
-                  className="p-1.5 rounded bg-[#33475b] text-slate-300 hover:text-white cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-white px-6 py-3 border-b border-[#cbd6e2] shrink-0">
-              <div className="flex items-center justify-between text-[11px] font-semibold text-[#516f90] mb-1.5">
-                <span>Progresso das Etapas do Funil (Clique para mover)</span>
-                <span>
-                  Probabilidade de Fechamento:{" "}
-                  <strong className="text-[#0091ae]">{selectedDeal.probability}%</strong>
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-                {stages.map((st) => {
-                  const currentOrder =
-                    stages.find((s) => s.id === selectedDeal.stageId)?.order ?? 1;
-                  const isPassed = st.order <= currentOrder;
-                  const isCurrent = st.id === selectedDeal.stageId;
-                  return (
-                    <button
-                      key={st.id}
-                      type="button"
-                      onClick={async () => {
-                        await handleStageChange(selectedDeal.id, st.id);
-                        setSelectedDeal({
-                          ...selectedDeal,
-                          stageId: st.id,
-                          stageName: st.name,
-                          probability: st.defaultProbability,
-                          status: st.isWon ? "WON" : st.isClosed ? "LOST" : "OPEN",
-                        });
-                      }}
-                      className={`px-2.5 py-1.5 rounded-[4px] text-left text-[10px] font-semibold transition cursor-pointer border ${
-                        isCurrent
-                          ? "bg-[#ff7a59] text-white border-[#ff7a59]"
-                          : isPassed
-                            ? "bg-[#e5f8f6] text-[#007a6c] border-[#00bda5]/40"
-                            : "bg-[#f5f8fa] text-[#516f90] border-[#cbd6e2]"
-                      }`}
-                    >
-                      <div className="truncate">
-                        {st.order}. {st.name}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-5 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* LEFT PANE: ABOUT THIS DEAL (PROPERTIES) */}
-              <div className="lg:col-span-4 space-y-4">
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-[#eaf0f6] pb-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-[#33475b] flex items-center gap-1.5">
-                      <Briefcase className="w-3.5 h-3.5 text-[#0091ae]" />
-                      Sobre este Negócio (Properties)
-                    </h4>
-                  </div>
-
-                  <div className="space-y-2.5 text-xs">
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                        Título do Negócio
-                      </label>
-                      <input
-                        type="text"
-                        value={selectedDeal.title}
-                        onChange={(e) =>
-                          setSelectedDeal({ ...selectedDeal, title: e.target.value })
-                        }
-                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-semibold text-[#33475b]"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Valor Total TCV (R$)
-                        </label>
-                        <input
-                          type="number"
-                          value={selectedDeal.value}
-                          onChange={(e) => {
-                            const val = Number(e.target.value) || 0;
-                            const months = selectedDeal.contractMonths || 24;
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              value: val,
-                              mrr: Math.round(val / months),
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-semibold text-[#33475b]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          MRR Mensal (R$)
-                        </label>
-                        <input
-                          type="number"
-                          value={
-                            selectedDeal.mrr ||
-                            Math.round(selectedDeal.value / (selectedDeal.contractMonths || 24))
-                          }
-                          onChange={(e) => {
-                            const mrrVal = Number(e.target.value) || 0;
-                            const months = selectedDeal.contractMonths || 24;
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              mrr: mrrVal,
-                              value: mrrVal * months,
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] font-semibold text-emerald-700"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Prazo Contratual
-                        </label>
-                        <select
-                          value={String(selectedDeal.contractMonths || 24)}
-                          onChange={(e) => {
-                            const months = Number(e.target.value) || 24;
-                            const mrrVal =
-                              selectedDeal.mrr ||
-                              Math.round(selectedDeal.value / (selectedDeal.contractMonths || 24));
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              contractMonths: months,
-                              value: mrrVal * months,
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        >
-                          <option value="12">12 meses</option>
-                          <option value="24">24 meses</option>
-                          <option value="36">36 meses</option>
-                          <option value="48">48 meses</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Prioridade
-                        </label>
-                        <select
-                          value={selectedDeal.priority || "ALTA"}
-                          onChange={(e) =>
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              priority: e.target.value as DealPriority,
-                            })
-                          }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        >
-                          <option value="ALTA">Alta</option>
-                          <option value="MEDIA">Média</option>
-                          <option value="BAIXA">Baixa</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Tipo de Negócio
-                        </label>
-                        <select
-                          value={selectedDeal.dealType || "NEW_BUSINESS"}
-                          onChange={(e) =>
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              dealType: e.target.value as DealBusinessType,
-                            })
-                          }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        >
-                          <option value="NEW_BUSINESS">Novo Negócio B2B</option>
-                          <option value="LOCACAO_RECORRENTE">Locação Recorrente (0% ISS)</option>
-                          <option value="UPSELL_RENOVACAO">Upsell / Renovação</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Data de Fechamento
-                        </label>
-                        <input
-                          type="date"
-                          value={
-                            selectedDeal.expectedCloseDate
-                              ? selectedDeal.expectedCloseDate.slice(0, 10)
-                              : ""
-                          }
-                          onChange={(e) =>
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              expectedCloseDate: e.target.value
-                                ? new Date(e.target.value).toISOString()
-                                : null,
-                            })
-                          }
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                        Proprietário (Deal Owner)
-                      </label>
-                      <select
-                        value={selectedDeal.ownerName || "Marcelo Lopes Mira"}
-                        onChange={(e) =>
-                          setSelectedDeal({ ...selectedDeal, ownerName: e.target.value })
-                        }
-                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                      >
-                        <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
-                        <option value="Evelyn Ternero Seta Telecom">
-                          Evelyn Ternero Seta Telecom
-                        </option>
-                        <option value="Contato Seta Telecom">Contato Seta Telecom</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Empresa Associada
-                        </label>
-                        <select
-                          value={selectedDeal.companyId || ""}
-                          onChange={(e) => {
-                            const compId = e.target.value || null;
-                            const compObj = companies.find((c) => c.id === compId) || null;
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              companyId: compId,
-                              company: compObj,
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        >
-                          <option value="">Sem empresa vinculada</option>
-                          {companies.map((comp) => (
-                            <option key={comp.id} value={comp.id}>
-                              {comp.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                          Contato Decisor
-                        </label>
-                        <select
-                          value={selectedDeal.contactId || ""}
-                          onChange={(e) => {
-                            const contId = e.target.value || null;
-                            const contObj = contacts.find((c) => c.id === contId) || null;
-                            setSelectedDeal({
-                              ...selectedDeal,
-                              contactId: contId,
-                              contact: contObj,
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white font-semibold"
-                        >
-                          <option value="">Sem contato vinculado</option>
-                          {contacts.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.firstName} {c.lastName} ({c.email})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-0.5">
-                        Observação / Motivo de Ganho ou Perda
-                      </label>
-                      <input
-                        type="text"
-                        value={selectedDeal.wonReason || selectedDeal.lostReason || ""}
-                        onChange={(e) =>
-                          setSelectedDeal({
-                            ...selectedDeal,
-                            wonReason:
-                              selectedDeal.status === "LOST" ? selectedDeal.wonReason : e.target.value,
-                            lostReason:
-                              selectedDeal.status === "LOST" ? e.target.value : selectedDeal.lostReason,
-                          })
-                        }
-                        placeholder="Ex: Aprovado com isenção de ISS (SV 31 STF) / SLA 24x7"
-                        className="w-full px-2.5 py-1.5 rounded-[4px] border border-[#cbd6e2] text-[#33475b]"
-                      />
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between gap-2 border-t border-[#eaf0f6]">
-                      {onDeleteDeal && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await onDeleteDeal(selectedDeal.id);
-                            setSelectedDeal(null);
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[4px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Excluir
-                        </button>
-                      )}
-
-                      {onUpdateDeal && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await onUpdateDeal(selectedDeal.id, {
-                              title: selectedDeal.title,
-                              value: selectedDeal.value,
-                              mrr: selectedDeal.mrr,
-                              contractMonths: selectedDeal.contractMonths,
-                              priority: selectedDeal.priority,
-                              dealType: selectedDeal.dealType,
-                              ownerName: selectedDeal.ownerName,
-                              expectedCloseDate: selectedDeal.expectedCloseDate,
-                              companyId: selectedDeal.companyId,
-                              contactId: selectedDeal.contactId,
-                              wonReason: selectedDeal.wonReason,
-                              lostReason: selectedDeal.lostReason,
-                              stageId: selectedDeal.stageId,
-                            });
-                            onShowToast?.("Propriedades do Negócio atualizadas no HubSpot!");
-                          }}
-                          className="flex-1 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
-                        >
-                          Salvar Propriedades
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* CENTER PANE: ACTIVITY TIMELINE */}
-              <div className="lg:col-span-5 space-y-4">
-                <form
-                  onSubmit={handleSaveDealNote}
-                  className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-semibold uppercase text-[#33475b] flex items-center gap-1.5">
-                      <MessageSquarePlus className="w-4 h-4 text-[#ff7a59]" />
-                      Registrar Atividade no Negócio
-                    </span>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {([
-                        { id: "NOTE", label: "Nota" },
-                        { id: "CALL", label: "Ligação" },
-                        { id: "MEETING", label: "Reunião" },
-                        { id: "EMAIL", label: "E-mail" },
-                        { id: "TASK", label: "Tarefa" },
-                      ] as const).map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setNoteType(t.id)}
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer border ${
-                            noteType === t.id
-                              ? "bg-[#0091ae] text-white border-[#0091ae]"
-                              : "bg-[#f5f8fa] text-[#516f90] border-[#cbd6e2] hover:bg-slate-100"
-                          }`}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={noteTitle}
-                    onChange={(e) => setNoteTitle(e.target.value)}
-                    placeholder={`Assunto (${noteType === "CALL" ? "Resumo da ligação" : noteType === "MEETING" ? "Ata da reunião executiva" : noteType === "EMAIL" ? "E-mail enviado ao decisor" : noteType === "TASK" ? "Próxima tarefa comercial" : "Nota comercial / escopo técnico"})`}
-                    className="w-full px-3 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs text-[#33475b]"
-                  />
-                  <textarea
-                    rows={2}
-                    value={noteBody}
-                    onChange={(e) => setNoteBody(e.target.value)}
-                    placeholder="Escreva observações, escopo de ramais/PABX IP, condições de locação ou decisão do cliente..."
-                    className="w-full px-3 py-1.5 rounded-[4px] border border-[#cbd6e2] text-xs text-[#33475b]"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={savingNote}
-                      className="px-4 py-1.5 rounded-[4px] bg-[#213343] hover:bg-[#33475b] text-white text-xs font-semibold transition cursor-pointer"
-                    >
-                      {savingNote ? "Salvando..." : `Registrar ${noteType} na Timeline`}
-                    </button>
-                  </div>
-                </form>
-
-                {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTE NEGOCIO */}
-                <CrmRecordEmailSection
-                  record={{
-                    dealId: selectedDeal.id,
-                    contactId: selectedDeal.contactId || selectedDeal.contact?.id || null,
-                    companyId: selectedDeal.companyId || selectedDeal.company?.id || null,
-                  }}
-                  defaultTo={selectedDeal.contact?.email || ''}
-                  recordLabel={selectedDeal.title}
-                  suggestions={contacts
-                    .filter((c) =>
-                      selectedDeal.companyId
-                        ? c.companyId === selectedDeal.companyId
-                        : selectedDeal.contactId
-                          ? c.id === selectedDeal.contactId
-                          : false
-                    )
-                    .map((c) => c.email)
-                    .filter(Boolean)}
-                />
-
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eaf0f6] pb-2">
-                    <h4 className="text-xs font-semibold uppercase text-[#33475b]">
-                      Linha do Tempo de Atividades ({filteredTimeline.length})
-                    </h4>
-                    <select
-                      aria-label="Filtrar Timeline"
-                      value={timelineFilterType}
-                      onChange={(e) => setTimelineFilterType(e.target.value)}
-                      className="text-[10px] font-semibold px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[#33475b]"
-                    >
-                      <option value="ALL">Todas ({dealTimeline.length})</option>
-                      <option value="NOTE">Notas</option>
-                      <option value="CALL">Ligações</option>
-                      <option value="MEETING">Reuniões</option>
-                      <option value="EMAIL">E-mails</option>
-                      <option value="TASK">Tarefas</option>
-                      <option value="STAGE_CHANGE">Mudanças de Etapa</option>
-                    </select>
-                  </div>
-
-                  {loadingDetail ? (
-                    <p className="text-xs text-slate-400">Carregando histórico...</p>
-                  ) : filteredTimeline.length === 0 ? (
-                    <p className="text-xs text-slate-400">
-                      Nenhuma atividade encontrada para este filtro neste negócio.
-                    </p>
-                  ) : (
-                    <div className="space-y-2.5 max-h-[420px] overflow-y-auto">
-                      {filteredTimeline.map((evt) => (
-                        <div
-                          key={evt.id}
-                          className="p-3 rounded-[4px] border border-[#cbd6e2] bg-[#f5f8fa] space-y-1"
-                        >
-                          <div className="flex items-center justify-between text-[10px] text-[#516f90]">
-                            <span className="px-1.5 py-0.5 rounded bg-[#e5f8f6] font-semibold text-[#007a6c] border border-[#00bda5]/30">
-                              {evt.type}
-                            </span>
-                            <span>{formatDateTimeBR(evt.createdAt)}</span>
-                          </div>
-                          <div className="text-xs font-semibold text-[#33475b]">{evt.title}</div>
-                          {evt.body && <p className="text-xs text-[#516f90]">{evt.body}</p>}
-                          <div className="text-[10px] text-slate-400">Autor: {evt.actor}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT PANE: ASSOCIATIONS, PROPOSALS & RENTAL CONTRACTS */}
-              <div className="lg:col-span-3 space-y-4">
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
-                    <Building2 className="w-3.5 h-3.5 text-[#0091ae]" />
-                    Empresa Associada
-                  </div>
-                  <div className="text-xs font-semibold text-[#33475b]">
-                    {selectedDeal.company?.name || "Empresa Corporativa B2B"}
-                  </div>
-                  <div className="text-[11px] text-[#516f90] space-y-0.5">
-                    <div>CNPJ: {selectedDeal.company?.cnpj || "18.236.120/0001-58"}</div>
-                    <div>
-                      Cidade: {selectedDeal.company?.city || "São Paulo"}/
-                      {selectedDeal.company?.state || "SP"}
-                    </div>
-                    <div>Setor: {selectedDeal.company?.industry || "Telecom & Tecnologia"}</div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-[#0091ae]" />
-                    Contato Decisor
-                  </div>
-                  <div className="text-xs font-semibold text-[#33475b]">
-                    {selectedDeal.contact
-                      ? `${selectedDeal.contact.firstName} ${selectedDeal.contact.lastName}`
-                      : "Decisor de TI / Compras"}
-                  </div>
-                  <div className="text-[11px] text-[#516f90] space-y-0.5">
-                    <div>Cargo: {selectedDeal.contact?.jobTitle || "Diretor de Operações"}</div>
-                    <div>E-mail: {selectedDeal.contact?.email || "contato@empresa.com.br"}</div>
-                    <div>Telefone: {selectedDeal.contact?.phone || "(11) 3958-4929"}</div>
-                  </div>
-                </div>
-
-                {/* ASSOCIATED COMMERCIAL PROPOSALS (QUOTES) */}
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5 text-[#ff7a59]" />
-                      Propostas &amp; Orçamentos ({associatedProposals.length})
-                    </div>
-                  </div>
-
-                  {associatedProposals.length > 0 ? (
-                    <div className="space-y-2">
-                      {associatedProposals.map((prop) => {
-                        const pubUrl = buildInternalProposalUrl(prop);
-                        const prtUrl = buildInternalProposalUrl(prop, { autoPrint: true });
-                        return (
-                          <div
-                            key={prop.id}
-                            className="p-2.5 rounded-[4px] bg-[#f5f8fa] border border-[#cbd6e2] space-y-1.5 text-[11px]"
-                          >
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-mono font-semibold text-[#0091ae]">
-                                {prop.code}
-                              </span>
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-100 text-emerald-800">
-                                {prop.status}
-                              </span>
-                            </div>
-                            <div className="font-semibold text-[#33475b] truncate" title={prop.title}>
-                              {prop.title}
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-[#516f90]">
-                              <span>Mensal: <strong>{formatBRL(prop.monthlyRecurringTotal)}</strong></span>
-                              <span>TCV: <strong>{formatBRL(prop.totalContractValue)}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-1.5 pt-1">
-                              <a
-                                href={pubUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold text-center inline-flex items-center justify-center gap-1"
-                              >
-                                <ExternalLink className="w-2.5 h-2.5" />
-                                Abrir
-                              </a>
-                              <a
-                                href={prtUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex-1 py-1 px-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-semibold text-center inline-flex items-center justify-center gap-1"
-                              >
-                                <Printer className="w-2.5 h-2.5" />
-                                PDF
-                              </a>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const r = await copySignedProposalLink(prop.id);
-                                  onShowToast?.(r.ok ? `Link assinado da proposta ${prop.code} copiado!` : r.error);
-                                }}
-                                title="Copiar link para o cliente"
-                                className="p-1 rounded border border-[#cbd6e2] bg-white hover:bg-slate-100 text-[#33475b] cursor-pointer"
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-[#516f90]">
-                      Nenhuma proposta vinculada ainda. Gere o orçamento oficial com link PDF abaixo.
-                    </p>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={generatingProposalDealId === selectedDeal.id}
-                    onClick={() => handleQuickGenerateProposalForDeal(selectedDeal)}
-                    className="w-full py-2 px-3 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-emerald-300" />
-                    {generatingProposalDealId === selectedDeal.id
-                      ? "Gerando..."
-                      : "+ Gerar Nova Proposta + Link PDF"}
-                  </button>
-                </div>
-
-                {/* ASSOCIATED RENTAL CONTRACTS (ERP GESTÃOCLICK) */}
-                <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-3.5 space-y-2">
-                  <div className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    Contratos de Locação ({associatedContracts.length})
-                  </div>
-                  {associatedContracts.length > 0 ? (
-                    <div className="space-y-2">
-                      {associatedContracts.map((ctr) => (
-                        <div
-                          key={ctr.id}
-                          className="p-2.5 rounded-[4px] bg-emerald-50/50 border border-emerald-200 space-y-1 text-[11px]"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono font-semibold text-emerald-800">
-                              {ctr.contractNumber}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-600 text-white">
-                              {ctr.status}
-                            </span>
-                          </div>
-                          <div className="font-semibold text-[#33475b] truncate" title={ctr.title}>
-                            {ctr.title}
-                          </div>
-                          <div className="text-[10px] text-[#516f90] flex items-center justify-between">
-                            <span>Mensal: <strong>{formatBRL(ctr.monthlyValue)}</strong></span>
-                            <span>{ctr.contractMonths}m • {ctr.readjustmentIndex}</span>
-                          </div>
-                          <div className="text-[9px] text-emerald-800 font-mono">
-                            NF-e Remessa: {ctr.remessaNfeNumber} (CFOP {ctr.remessaCfop})
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-[#516f90]">
-                      Nenhum contrato de locação ativo para este negócio/empresa.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DealRecordDrawer
+          deal={selectedDeal}
+          stages={stages}
+          pipelineName={activePipeline?.name}
+          contacts={contacts}
+          companies={companies}
+          timeline={dealTimeline}
+          proposals={associatedProposals}
+          contracts={associatedContracts}
+          loadingDetail={loadingDetail}
+          generatingProposal={generatingProposalDealId === selectedDeal.id}
+          onClose={() => setSelectedDeal(null)}
+          onChangeDeal={setSelectedDeal}
+          onStageChange={handleStageChange}
+          onSave={async () => {
+            if (!onUpdateDeal) return;
+            await onUpdateDeal(selectedDeal.id, {
+              title: selectedDeal.title,
+              value: selectedDeal.value,
+              mrr: selectedDeal.mrr,
+              contractMonths: selectedDeal.contractMonths,
+              priority: selectedDeal.priority,
+              dealType: selectedDeal.dealType,
+              ownerName: selectedDeal.ownerName,
+              expectedCloseDate: selectedDeal.expectedCloseDate,
+              companyId: selectedDeal.companyId,
+              contactId: selectedDeal.contactId,
+              wonReason: selectedDeal.wonReason,
+              lostReason: selectedDeal.lostReason,
+              stageId: selectedDeal.stageId,
+            });
+            onShowToast?.('Negócio atualizado.');
+          }}
+          onDelete={
+            onDeleteDeal
+              ? async () => {
+                  await onDeleteDeal(selectedDeal.id);
+                  setSelectedDeal(null);
+                }
+              : undefined
+          }
+          onGenerateProposal={() => handleQuickGenerateProposalForDeal(selectedDeal)}
+          onAddNote={async (title, body, type) => {
+            await onAddDealNote(selectedDeal.id, title, body, type);
+            const res = await fetch(`/api/deals/${selectedDeal.id}`);
+            if (res.ok) {
+              const json = await res.json();
+              setDealTimeline(json.data?.timeline || []);
+            }
+            setNoteTitle('');
+            setNoteBody('');
+          }}
+          onShowToast={onShowToast}
+          onNavigateToErp={
+            onNavigateToErp
+              ? () => {
+                  setSelectedDeal(null);
+                  onNavigateToErp();
+                }
+              : undefined
+          }
+        />
       )}
     </div>
   );

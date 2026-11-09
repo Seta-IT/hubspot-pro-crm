@@ -8131,9 +8131,9 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[4px] bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-[4px] bg-accent hover:bg-accent-hover text-white font-semibold cursor-pointer"
                 >
-                  Criar Proposta &amp; Gerar Link PDF p/ Cliente
+                  Criar proposta
                 </button>
               </div>
             </form>

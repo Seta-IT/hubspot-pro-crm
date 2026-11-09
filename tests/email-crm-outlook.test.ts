@@ -423,7 +423,8 @@ describe('Padrao visual e encaixe nas fichas', () => {
     assert.match(src('src/app/components/email/CrmRecordEmailSection.tsx'), /<Mail className="w-3.5 h-3.5" \/> E-mail/);
     assert.match(src('src/app/components/ContactDetailDrawer.tsx'), /<CrmRecordEmailSection[\s\S]*?contactId: contactDetail.id/);
     assert.match(src('src/app/components/ContactsCompaniesTab.tsx'), /<CrmRecordEmailSection[\s\S]*?companyId: companyDetail.id/);
-    assert.match(src('src/app/components/DealsKanbanTab.tsx'), /<CrmRecordEmailSection[\s\S]*?dealId: selectedDeal.id/);
+    assert.match(src('src/app/components/DealRecordDrawer.tsx'), /<CrmEmailComposerModal[\s\S]*?dealId: deal.id/);
+    assert.match(src('src/app/components/DealsKanbanTab.tsx'), /DealRecordDrawer/);
     assert.match(src('src/app/components/UserAccountModal.tsx'), /<MailboxConnectionsPanel compact \/>/);
     assert.match(src('src/app/components/StiHubAdminRbacPanel.tsx'), /subView === 'EMAIL_MAILBOXES'[\s\S]*?<NeverLogPanel \/>/);
   });

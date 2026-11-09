@@ -397,10 +397,10 @@ export function HubSpotCardEmailComposer({
           </div>
           <div>
             <h4 className="text-xs font-semibold text-[#33475b] uppercase tracking-wider">
-              Composer de E-mail HubSpot (Contatos Vinculados, Templates &amp; Snippets)
+              E-mail
             </h4>
             <p className="text-[11px] text-[#516f90]">
-              Dispare para o contato do card ou outros executivos, insira templates/snippets (`#atalho`) e agende tarefa de follow-up.
+              Envie para contatos associados, use modelos e agende um acompanhamento.
             </p>
           </div>
         </div>

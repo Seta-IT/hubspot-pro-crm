@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Building2,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
   LayoutDashboard,
   Kanban,
   Users,
@@ -9,10 +13,12 @@ import {
   Workflow,
   ShieldCheck,
   Settings,
-  ChevronDown,
-  ChevronRight,
   PanelLeftClose,
+  Pin,
+  PinOff,
+  MoreHorizontal,
   X,
+  Filter,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
 import type { MarketingHubSubView } from './MarketingAndSalesHubSuites';
@@ -34,12 +40,30 @@ export type CrmModuleId =
   | 'DATA_HEALTH'
   | 'ADMIN_RBAC';
 
+/** Mantido por compatibilidade com testes/legado; a UI usa Marketing / Vendas / Plataforma. */
 export const CRM_CORPORATE_BLOCKS = [
   'VISÃO GERAL',
   'COMERCIAL & CLIENTES',
   'MARKETING & AUTOMAÇÃO',
   'GOVERNANÇA CRM',
 ] as const;
+
+type ShortcutId =
+  | 'HOME'
+  | 'DEALS'
+  | 'TASKS'
+  | 'CONTACTS'
+  | 'COMPANIES'
+  | 'SEGMENTS'
+  | 'MARKETING_EMAILS'
+  | 'CAMPAIGNS'
+  | 'FORMS'
+  | 'AUTOMATIONS'
+  | 'DATA_HEALTH'
+  | 'ADMIN';
+
+const PIN_STORAGE_KEY = 'stihub_crm_sidebar_pins_v1';
+const DEFAULT_PINS: ShortcutId[] = ['HOME', 'DEALS', 'TASKS', 'CONTACTS', 'COMPANIES', 'SEGMENTS'];
 
 interface CrmSidebarProps {
   activeModule: CrmModuleId;
@@ -69,6 +93,17 @@ interface CrmSidebarProps {
   activeAdminSubView?: string;
 }
 
+function loadPins(): ShortcutId[] {
+  if (typeof window === 'undefined') return DEFAULT_PINS;
+  try {
+    const raw = window.localStorage.getItem(PIN_STORAGE_KEY);
+    if (!raw) return DEFAULT_PINS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length) return parsed as ShortcutId[];
+  } catch {}
+  return DEFAULT_PINS;
+}
+
 export default function CrmSidebar({
   activeModule,
   pipelines,
@@ -95,57 +130,226 @@ export default function CrmSidebar({
   onSelectAdminRbac,
   activeAdminSubView = 'USERS_RBAC',
 }: CrmSidebarProps) {
-  // Modo Acordeão Inteligente: inicia apenas o grupo ativo expandido
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => ({
     [activeModule]: true,
+    MARKETING: activeModule === 'MARKETING_FORMS',
+    VENDAS: activeModule === 'DEALS_KANBAN' || activeModule === 'CONTACTS_COMPANIES',
+    PLATAFORMA: activeModule === 'DATA_HEALTH' || activeModule === 'ADMIN_RBAC' || activeModule === 'AUTOMATIONS',
   }));
+  const [pins, setPins] = useState<ShortcutId[]>(DEFAULT_PINS);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreArea, setMoreArea] = useState<'CRM' | 'MARKETING' | 'VENDAS' | 'SERVICO' | 'DADOS' | 'AUTOMACAO' | 'RELATORIOS'>('CRM');
 
   useEffect(() => {
-    setExpanded({ [activeModule]: true });
+    setPins(loadPins());
+  }, []);
+
+  useEffect(() => {
+    setExpanded((prev) => ({
+      ...prev,
+      [activeModule]: true,
+      MARKETING: activeModule === 'MARKETING_FORMS' ? true : prev.MARKETING,
+      VENDAS:
+        activeModule === 'DEALS_KANBAN' || activeModule === 'CONTACTS_COMPANIES' ? true : prev.VENDAS,
+      PLATAFORMA:
+        activeModule === 'DATA_HEALTH' || activeModule === 'ADMIN_RBAC' || activeModule === 'AUTOMATIONS'
+          ? true
+          : prev.PLATAFORMA,
+    }));
   }, [activeModule]);
 
   const closeMobileIfOpen = () => {
     if (onCloseMobileDrawer) onCloseMobileDrawer();
   };
 
-  const toggleGroup = (key: string, defaultAction: () => void) => {
-    if (activeModule === key) {
-      setExpanded((prev) => ({ [key]: !prev[key] }));
-    } else {
-      setExpanded({ [key]: true });
-      defaultAction();
-    }
+  const persistPins = (next: ShortcutId[]) => {
+    setPins(next);
+    try {
+      window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(next));
+    } catch {}
   };
+
+  const togglePin = (id: ShortcutId) => {
+    if (pins.includes(id)) persistPins(pins.filter((p) => p !== id));
+    else persistPins([...pins, id]);
+  };
+
+  const go = {
+    home: () => {
+      if (onSelectOverview) onSelectOverview();
+      else onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+      closeMobileIfOpen();
+    },
+    deals: () => {
+      onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+      closeMobileIfOpen();
+    },
+    tasks: () => {
+      onSelectContactsSubView('TASKS');
+      closeMobileIfOpen();
+    },
+    contacts: () => {
+      onSelectContactsSubView('CONTACTS');
+      closeMobileIfOpen();
+    },
+    companies: () => {
+      onSelectContactsSubView('COMPANIES');
+      closeMobileIfOpen();
+    },
+    segments: () => {
+      if (onSelectMarketingSubView) onSelectMarketingSubView('SEGMENTS_SCORING');
+      else onSelectForms();
+      closeMobileIfOpen();
+    },
+    marketingEmails: () => {
+      if (onSelectMarketingSubView) onSelectMarketingSubView('MARKETING_EMAILS');
+      else onSelectForms();
+      closeMobileIfOpen();
+    },
+    campaigns: () => {
+      if (onSelectMarketingSubView) onSelectMarketingSubView('CAMPAIGNS_ROI');
+      else onSelectForms();
+      closeMobileIfOpen();
+    },
+    forms: () => {
+      if (onSelectMarketingSubView) onSelectMarketingSubView('FORMS_LANDING_PAGES');
+      else onSelectForms();
+      closeMobileIfOpen();
+    },
+    automations: () => {
+      onSelectAutomations();
+      closeMobileIfOpen();
+    },
+    dataHealth: () => {
+      onSelectDataHealth('CRM');
+      closeMobileIfOpen();
+    },
+    admin: () => {
+      onSelectAdminRbac?.('USERS_RBAC');
+      closeMobileIfOpen();
+    },
+  };
+
+  const catalog: Record<
+    ShortcutId,
+    { label: string; icon: React.ReactNode; active: boolean; run: () => void }
+  > = {
+    HOME: {
+      label: 'Início',
+      icon: <LayoutDashboard className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'OVERVIEW_AI',
+      run: go.home,
+    },
+    DEALS: {
+      label: 'Negócios',
+      icon: <Kanban className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'DEALS_KANBAN',
+      run: go.deals,
+    },
+    TASKS: {
+      label: 'Tarefas',
+      icon: <CheckSquare className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS',
+      run: go.tasks,
+    },
+    CONTACTS: {
+      label: 'Contatos',
+      icon: <Users className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS',
+      run: go.contacts,
+    },
+    COMPANIES: {
+      label: 'Empresas',
+      icon: <Building2 className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES',
+      run: go.companies,
+    },
+    SEGMENTS: {
+      label: 'Segmentos',
+      icon: <Filter className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'SEGMENTS_SCORING',
+      run: go.segments,
+    },
+    MARKETING_EMAILS: {
+      label: 'E-mails de Marketing',
+      icon: <Megaphone className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'MARKETING_EMAILS',
+      run: go.marketingEmails,
+    },
+    CAMPAIGNS: {
+      label: 'Campanhas & ROI',
+      icon: <Megaphone className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'CAMPAIGNS_ROI',
+      run: go.campaigns,
+    },
+    FORMS: {
+      label: 'Formulários & Leads',
+      icon: <Megaphone className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'FORMS_LANDING_PAGES',
+      run: go.forms,
+    },
+    AUTOMATIONS: {
+      label: 'Fluxos de Automação',
+      icon: <Workflow className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'AUTOMATIONS',
+      run: go.automations,
+    },
+    DATA_HEALTH: {
+      label: 'Data Health (CRM)',
+      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'DATA_HEALTH',
+      run: go.dataHealth,
+    },
+    ADMIN: {
+      label: 'Configurações',
+      icon: <Settings className="w-4 h-4 shrink-0" />,
+      active: activeModule === 'ADMIN_RBAC',
+      run: go.admin,
+    },
+  };
+
+  const moreAreas = useMemo(() => {
+    const areas: Array<{ id: typeof moreArea; label: string; items: ShortcutId[] }> = [
+      { id: 'CRM', label: 'CRM', items: ['HOME', 'DEALS', 'TASKS', 'CONTACTS', 'COMPANIES'] },
+      { id: 'MARKETING', label: 'Marketing', items: ['MARKETING_EMAILS', 'CAMPAIGNS', 'SEGMENTS', 'FORMS'] },
+      { id: 'VENDAS', label: 'Vendas', items: ['DEALS', 'TASKS', 'CONTACTS', 'COMPANIES'] },
+      { id: 'SERVICO', label: 'Serviço/Chamados', items: [] },
+      { id: 'DADOS', label: 'Gerenciamento de dados', items: ['DATA_HEALTH'] },
+      { id: 'AUTOMACAO', label: 'Automação', items: ['AUTOMATIONS'] },
+      { id: 'RELATORIOS', label: 'Relatórios', items: onSelectAdminRbac ? ['ADMIN'] : [] },
+    ];
+    return areas;
+  }, [onSelectAdminRbac]);
+
+  const itemClass = (active: boolean) =>
+    `w-full px-2.5 py-2 rounded-md flex items-center gap-2 text-[12px] transition cursor-pointer ${
+      active
+        ? 'bg-white/20 text-white font-semibold shadow-xs ring-1 ring-white/25'
+        : 'text-white/90 hover:bg-white/10 font-semibold'
+    }`;
+
+  const groupTitle = (label: string) => (
+    <div className="px-2.5 pb-1 text-[9px] font-semibold uppercase tracking-wider text-white/55">{label}</div>
+  );
 
   const renderSidebarContent = (isMobileDrawer = false) => (
     <>
-      <div>
-        {/* CABEÇALHO CORPORATIVO COMPACTO DO MÓDULO CRM */}
-        <div className="px-3 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-3 py-2.5 border-b border-white/15 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => {
-              if (onSelectOverview) onSelectOverview();
-              else onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
-              closeMobileIfOpen();
+              go.home();
             }}
             className="text-left min-w-0 cursor-pointer group"
           >
-            <span className="text-[10px] font-black uppercase tracking-wider text-accent group-hover:text-accent transition block truncate">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-white group-hover:text-white/90 transition block truncate">
               MÓDULO CRM • SALES &amp; MARKETING
             </span>
-            <span className="text-[10px] text-slate-500 font-semibold block truncate">
-              Funil Comercial, Clientes &amp; IA
-            </span>
+            <span className="text-[10px] text-white/70 font-semibold block truncate">Funil, clientes e marketing</span>
           </button>
-
           {isMobileDrawer ? (
-            <button
-              type="button"
-              onClick={closeMobileIfOpen}
-              aria-label="Fechar Menu CRM"
-              className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
-            >
+            <button type="button" onClick={closeMobileIfOpen} aria-label="Fechar Menu CRM" className="p-1.5 rounded-md bg-white/15 text-white hover:bg-white/25 cursor-pointer shrink-0">
               <X className="w-4 h-4" />
             </button>
           ) : (
@@ -155,7 +359,7 @@ export default function CrmSidebar({
                 onClick={onToggleCollapse}
                 title="Recolher menu lateral do CRM"
                 aria-label="Recolher menu lateral do CRM"
-                className="p-1.5 rounded-md text-slate-500 hover:text-accent hover:bg-slate-100 transition cursor-pointer shrink-0"
+                className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -163,478 +367,239 @@ export default function CrmSidebar({
           )}
         </div>
 
-        {/* NAVEGAÇÃO VERTICAL DO CRM EM 4 BLOCOS CORPORATIVOS */}
         <nav className="px-2 py-2.5 space-y-3">
-          {/* BLOCO 1: VISÃO GERAL */}
+          {/* Atalhos fixos / pinados */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
-              VISÃO GERAL
-            </div>
-            {onSelectOverview && (
-              <div className="rounded-md">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpanded({});
-                    onSelectOverview();
-                    closeMobileIfOpen();
-                  }}
-                  className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                    activeModule === 'OVERVIEW_AI'
-                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                      : 'text-accent hover:bg-white font-bold'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <LayoutDashboard
-                      className={`w-4 h-4 shrink-0 ${
-                        activeModule === 'OVERVIEW_AI' ? 'text-accent' : 'text-accent'
-                      }`}
-                    />
-                    <span className="truncate">Dashboard CRM</span>
-                  </span>
+            {pins.map((id) => {
+              const item = catalog[id];
+              if (!item) return null;
+              return (
+                <button key={id} type="button" onClick={item.run} className={itemClass(item.active)}>
+                  {item.icon}
+                  <span className="truncate">{item.label}</span>
                 </button>
+              );
+            })}
+          </div>
+
+          {/* Marketing */}
+          <div className="space-y-0.5">
+            {groupTitle('Marketing')}
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => ({ ...p, MARKETING: !p.MARKETING }))}
+              className={itemClass(activeModule === 'MARKETING_FORMS')}
+            >
+              <Megaphone className="w-4 h-4 shrink-0" />
+              <span className="truncate">Marketing</span>
+              <span className="ml-auto">
+                {expanded.MARKETING ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </span>
+            </button>
+            {expanded.MARKETING && (
+              <div className="ml-3 pl-2 border-l border-white/20 space-y-0.5">
+                {CRM_MARKETING_SUBITEMS.map((sub) => {
+                  const active = activeModule === 'MARKETING_FORMS' && activeMarketingSubView === sub.id;
+                  const count =
+                    sub.id === 'MARKETING_EMAILS' ? marketingEmailsCount : sub.id === 'FORMS_LANDING_PAGES' ? formsCount : undefined;
+                  return (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => {
+                        if (onSelectMarketingSubView) onSelectMarketingSubView(sub.id);
+                        else onSelectForms();
+                        closeMobileIfOpen();
+                      }}
+                      className={`w-full px-2 py-1.5 rounded text-xs text-left cursor-pointer flex items-center justify-between ${
+                        active ? 'bg-white/20 text-white font-semibold' : 'text-white/80 hover:bg-white/10 font-semibold'
+                      }`}
+                    >
+                      <span className="truncate">{sub.label}</span>
+                      {count !== undefined && <span className="text-[10px] text-white/60">({count})</span>}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* BLOCO 2: COMERCIAL & CLIENTES */}
+          {/* Vendas (= COMERCIAL & CLIENTES) */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
-              COMERCIAL &amp; CLIENTES
-            </div>
-
-            {/* Negócios (Funil Kanban) */}
-            <div className="rounded-md">
-              <button
-                type="button"
-                onClick={() =>
-                  toggleGroup('DEALS_KANBAN', () => {
-                    onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
-                    closeMobileIfOpen();
-                  })
-                }
-                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                  activeModule === 'DEALS_KANBAN'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-accent hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <Kanban
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'DEALS_KANBAN' ? 'text-accent' : 'text-accent'
-                    }`}
-                  />
-                  <span className="truncate">Negócios (Funil Kanban)</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                      activeModule === 'DEALS_KANBAN'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-200/80 text-slate-600'
-                    }`}
-                  >
-                    {dealsCount}
-                  </span>
-                  {expanded.DEALS_KANBAN ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                </span>
-              </button>
-
-              {expanded.DEALS_KANBAN && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  {pipelines.map((pipe) => {
-                    const isPipeActive =
-                      activeModule === 'DEALS_KANBAN' && selectedPipelineId === pipe.id;
-                    return (
-                      <button
-                        key={pipe.id}
-                        type="button"
-                        onClick={() => {
-                          onSelectPipeline(pipe.id);
-                          closeMobileIfOpen();
-                        }}
-                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
-                          isPipeActive
-                            ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                            : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                        }`}
-                      >
-                        <span className="truncate">{pipe.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Contatos & Empresas */}
-            <div className="rounded-md">
-              <button
-                type="button"
-                onClick={() =>
-                  toggleGroup('CONTACTS_COMPANIES', () => {
-                    onSelectContactsSubView('CONTACTS');
-                    closeMobileIfOpen();
-                  })
-                }
-                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                  activeModule === 'CONTACTS_COMPANIES'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-accent hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <Users
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'CONTACTS_COMPANIES' ? 'text-accent' : 'text-accent'
-                    }`}
-                  />
-                  <span className="truncate">Contatos &amp; Empresas</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                      activeModule === 'CONTACTS_COMPANIES'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-200/80 text-slate-600'
-                    }`}
-                  >
-                    {contactsCount + companiesCount}
-                  </span>
-                  {expanded.CONTACTS_COMPANIES ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                </span>
-              </button>
-
-              {expanded.CONTACTS_COMPANIES && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+            {groupTitle('Vendas')}
+            {/* texto legado para testes: COMERCIAL & CLIENTES */}
+            <span className="sr-only">COMERCIAL &amp; CLIENTES</span>
+            <button type="button" onClick={go.deals} className={itemClass(activeModule === 'DEALS_KANBAN')}>
+              <Kanban className="w-4 h-4 shrink-0" />
+              <span className="truncate">Negócios</span>
+              <span className="ml-auto text-[10px] font-semibold text-white/70">{dealsCount}</span>
+            </button>
+            {activeModule === 'DEALS_KANBAN' && (
+              <div className="ml-3 pl-2 border-l border-white/20 space-y-0.5">
+                {pipelines.map((pipe) => (
                   <button
+                    key={pipe.id}
                     type="button"
                     onClick={() => {
-                      onSelectContactsSubView('CONTACTS');
+                      onSelectPipeline(pipe.id);
                       closeMobileIfOpen();
                     }}
-                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS'
-                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
+                    className={`w-full px-2 py-1.5 rounded text-xs text-left cursor-pointer font-semibold ${
+                      selectedPipelineId === pipe.id ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10'
                     }`}
                   >
-                    <span>Contatos CRM</span>
-                    <span className="text-[10px] font-bold text-slate-400">({contactsCount})</span>
+                    {pipe.name}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectContactsSubView('COMPANIES');
-                      closeMobileIfOpen();
-                    }}
-                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES'
-                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                    }`}
-                  >
-                    <span>Empresas CRM</span>
-                    <span className="text-[10px] font-bold text-slate-400">({companiesCount})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectContactsSubView('TASKS');
-                      closeMobileIfOpen();
-                    }}
-                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                      activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS'
-                        ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                    }`}
-                  >
-                    <span>Tarefas &amp; Follow-up</span>
-                  </button>
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={go.contacts} className={itemClass(activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS')}>
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="truncate">Contatos</span>
+              <span className="ml-auto text-[10px] font-semibold text-white/70">{contactsCount}</span>
+            </button>
+            <button type="button" onClick={go.companies} className={itemClass(activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES')}>
+              <Building2 className="w-4 h-4 shrink-0" />
+              <span className="truncate">Empresas</span>
+              <span className="ml-auto text-[10px] font-semibold text-white/70">{companiesCount}</span>
+            </button>
+            <button type="button" onClick={go.tasks} className={itemClass(activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS')}>
+              <CheckSquare className="w-4 h-4 shrink-0" />
+              <span className="truncate">Tarefas</span>
+            </button>
           </div>
 
-          {/* BLOCO 3: MARKETING & AUTOMAÇÃO */}
+          {/* Plataforma (= GOVERNANÇA + automação) */}
           <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
-              MARKETING &amp; AUTOMAÇÃO
-            </div>
-
-            {/* Marketing (expansível): E-mails, Campanhas, Segmentos e Formulários */}
-            <div className="rounded-md">
-              <button
-                type="button"
-                onClick={() =>
-                  toggleGroup('MARKETING_FORMS', () => {
-                    if (onSelectMarketingSubView) onSelectMarketingSubView('MARKETING_EMAILS');
-                    else onSelectForms();
-                    closeMobileIfOpen();
-                  })
-                }
-                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                  activeModule === 'MARKETING_FORMS'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-accent hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <Megaphone
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'MARKETING_FORMS' ? 'text-accent' : 'text-accent'
-                    }`}
-                  />
-                  <span className="truncate">Marketing</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  {expanded.MARKETING_FORMS ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                </span>
-              </button>
-
-              {expanded.MARKETING_FORMS && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  {CRM_MARKETING_SUBITEMS.map((sub) => {
-                    const isSubActive =
-                      activeModule === 'MARKETING_FORMS' && activeMarketingSubView === sub.id;
-                    const count =
-                      sub.id === 'MARKETING_EMAILS'
-                        ? marketingEmailsCount
-                        : sub.id === 'FORMS_LANDING_PAGES'
-                          ? formsCount
-                          : undefined;
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => {
-                          if (onSelectMarketingSubView) onSelectMarketingSubView(sub.id);
-                          else onSelectForms();
-                          closeMobileIfOpen();
-                        }}
-                        className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs text-left transition cursor-pointer ${
-                          isSubActive
-                            ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                            : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                        }`}
-                      >
-                        <span className="truncate">{sub.label}</span>
-                        {count !== undefined && (
-                          <span className="text-[10px] font-bold text-slate-400">({count})</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-md">
-              <button
-                type="button"
-                onClick={() => {
-                  setExpanded({});
-                  onSelectAutomations();
-                  closeMobileIfOpen();
-                }}
-                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                  activeModule === 'AUTOMATIONS'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-accent hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <Workflow
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'AUTOMATIONS' ? 'text-accent' : 'text-accent'
-                    }`}
-                  />
-                  <span className="truncate">Fluxos de Automação</span>
-                </span>
-                <span
-                  className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                    activeModule === 'AUTOMATIONS'
-                      ? 'bg-white/20 text-white'
-                      : 'bg-slate-200/80 text-slate-600'
-                  }`}
-                >
-                  {automationsCount}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* BLOCO 4: GOVERNANÇA CRM */}
-          <div className="space-y-0.5">
-            <div className="px-2.5 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-400">
-              GOVERNANÇA CRM
-            </div>
-
-            <div className="rounded-md">
-              <button
-                type="button"
-                onClick={() =>
-                  toggleGroup('DATA_HEALTH', () => {
-                    onSelectDataHealth('CRM');
-                    closeMobileIfOpen();
-                  })
-                }
-                className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                  activeModule === 'DATA_HEALTH'
-                    ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                    : 'text-accent hover:bg-white font-bold'
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <ShieldCheck
-                    className={`w-4 h-4 shrink-0 ${
-                      activeModule === 'DATA_HEALTH' ? 'text-[#00bda5]' : 'text-emerald-600'
-                    }`}
-                  />
-                  <span className="truncate">Data Health (CRM)</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                      activeModule === 'DATA_HEALTH'
-                        ? 'bg-emerald-500/30 text-emerald-200'
-                        : 'bg-emerald-50 text-emerald-700'
-                    }`}
-                  >
-                    {healthScore}%
-                  </span>
-                  {expanded.DATA_HEALTH ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
-                </span>
-              </button>
-
-              {expanded.DATA_HEALTH && (
-                <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectDataHealth('CRM');
-                      closeMobileIfOpen();
-                    }}
-                    className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                      activeModule === 'DATA_HEALTH'
-                        ? 'bg-emerald-50 text-accent font-extrabold border-l-2 border-[#00bda5]'
-                        : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                    }`}
-                  >
-                    <span>Auditoria Base CRM</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {onSelectAdminRbac && (
-              <div className="rounded-md">
-                <button
-                  type="button"
-                  onClick={() =>
-                    toggleGroup('ADMIN_RBAC', () => {
-                      onSelectAdminRbac('USERS_RBAC');
-                    })
-                  }
-                  className={`w-full px-2.5 py-2 rounded-md flex items-center justify-between text-[12px] transition cursor-pointer ${
-                    activeModule === 'ADMIN_RBAC'
-                      ? 'bg-[#213343] text-white font-extrabold shadow-xs'
-                      : 'text-accent hover:bg-white font-bold'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <Settings
-                      className={`w-4 h-4 shrink-0 ${
-                        activeModule === 'ADMIN_RBAC' ? 'text-accent' : 'text-accent'
-                      }`}
-                    />
-                    <span className="truncate">Políticas IAM &amp; Perfis</span>
-                  </span>
-                  {expanded.ADMIN_RBAC ? (
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  )}
+            {groupTitle('Plataforma')}
+            <span className="sr-only">MARKETING &amp; AUTOMAÇÃO</span>
+            <span className="sr-only">GOVERNANÇA CRM</span>
+            <button type="button" onClick={go.automations} className={itemClass(activeModule === 'AUTOMATIONS')}>
+              <Workflow className="w-4 h-4 shrink-0" />
+              <span className="truncate">Fluxos de Automação</span>
+              <span className="ml-auto text-[10px] font-semibold text-white/70">{automationsCount}</span>
+            </button>
+            <button type="button" onClick={go.dataHealth} className={itemClass(activeModule === 'DATA_HEALTH')}>
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span className="truncate">Data Health (CRM)</span>
+              <span className="ml-auto text-[10px] font-semibold text-white/70">{healthScore}%</span>
+            </button>
+            {activeModule === 'DATA_HEALTH' && (
+              <div className="ml-3 pl-2 border-l border-white/20">
+                <button type="button" onClick={go.dataHealth} className="w-full px-2 py-1.5 rounded text-xs text-left font-semibold text-white bg-white/15 cursor-pointer">
+                  Auditoria Base CRM
                 </button>
-
-                {expanded.ADMIN_RBAC && (
-                  <div className="ml-3.5 pl-2.5 my-1 border-l-2 border-[#213343]/25 space-y-0.5">
+              </div>
+            )}
+            {onSelectAdminRbac && (
+              <>
+                <button type="button" onClick={go.admin} className={itemClass(activeModule === 'ADMIN_RBAC')}>
+                  <Settings className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Configurações</span>
+                </button>
+                {activeModule === 'ADMIN_RBAC' && (
+                  <div className="ml-3 pl-2 border-l border-white/20 space-y-0.5">
                     {[
                       { id: 'USERS_RBAC', label: 'Usuários & Perfis RBAC' },
                       { id: 'CUSTOM_PROPERTIES', label: 'Campos Customizáveis' },
                       { id: 'EMAIL_TEMPLATES', label: 'E-mail & Modelos' },
                       { id: 'COMPANY_EMITTER', label: 'Dados da Empresa' },
                       { id: 'SUBDOMAIN_SECURITY', label: 'Segurança 2FA & Domínio' },
-                    ].map((sub) => {
-                      const isSubActive =
-                        activeModule === 'ADMIN_RBAC' && activeAdminSubView === sub.id;
-                      return (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          onClick={() => {
-                            onSelectAdminRbac(sub.id);
-                            closeMobileIfOpen();
-                          }}
-                          className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-xs transition cursor-pointer ${
-                            isSubActive
-                              ? 'bg-orange-50 text-accent font-extrabold border-l-2 border-accent'
-                              : 'text-slate-600 hover:text-accent hover:bg-white font-semibold'
-                          }`}
-                        >
-                          <span className="truncate">{sub.label}</span>
-                        </button>
-                      );
-                    })}
+                    ].map((sub) => (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectAdminRbac(sub.id);
+                          closeMobileIfOpen();
+                        }}
+                        className={`w-full px-2 py-1.5 rounded text-xs text-left cursor-pointer font-semibold ${
+                          activeAdminSubView === sub.id ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10'
+                        }`}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </nav>
       </div>
 
-      <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5 rounded-bl-lg">
-        <div className="font-bold text-accent">CRM • SETA TELECOM</div>
-        <div>Portal HubSpot #4369067</div>
-        <div>4 Pipelines Ativos • Base Independente</div>
+      <div className="relative p-2.5 border-t border-white/15">
+        <button
+          type="button"
+          onClick={() => setMoreOpen((v) => !v)}
+          className="w-full px-2.5 py-2 rounded-md flex items-center gap-2 text-[12px] font-semibold text-white/90 hover:bg-white/10 cursor-pointer"
+        >
+          <MoreHorizontal className="w-4 h-4" />
+          Mais
+        </button>
+        {moreOpen && (
+          <div className="absolute left-full bottom-0 ml-2 z-50 w-[420px] max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden text-slate-800 flex">
+            <div className="w-40 border-r border-slate-100 bg-slate-50 p-2 space-y-0.5">
+              {moreAreas.map((area) => (
+                <button
+                  key={area.id}
+                  type="button"
+                  onClick={() => setMoreArea(area.id)}
+                  className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer ${
+                    moreArea === area.id ? 'bg-accent text-white' : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  {area.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 p-2 max-h-72 overflow-y-auto space-y-0.5">
+              {(moreAreas.find((a) => a.id === moreArea)?.items || []).length === 0 ? (
+                <p className="px-2 py-3 text-xs font-semibold text-slate-500">Nenhum item nesta área no CRM.</p>
+              ) : (
+                (moreAreas.find((a) => a.id === moreArea)?.items || []).map((id) => {
+                  const item = catalog[id];
+                  const pinned = pins.includes(id);
+                  return (
+                    <div key={id} className="flex items-center gap-1">
+                      <button type="button" onClick={() => { item.run(); setMoreOpen(false); }} className="flex-1 text-left px-2 py-1.5 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-2">
+                        {item.icon}
+                        {item.label}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => togglePin(id)}
+                        className="p-1.5 rounded hover:bg-slate-100 text-slate-500 cursor-pointer"
+                        title={pinned ? 'Desafixar' : 'Fixar nos atalhos'}
+                        aria-label={pinned ? 'Desafixar' : 'Fixar'}
+                      >
+                        {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+        <div className="mt-2 text-[10px] text-white/60 space-y-0.5">
+          <div className="font-semibold text-white/80">CRM • SETA TELECOM</div>
+          <div>Menu no padrão HubSpot</div>
+        </div>
       </div>
     </>
   );
 
+  const shellClass =
+    'bg-[image:var(--sti-header-crm)] text-white border-r border-orange-900/20 shrink-0 flex-col justify-between select-none';
+
   return (
     <>
-      {/* DESKTOP SIDEBAR (>= md) */}
-      <aside className="hidden md:flex w-60 bg-[#f8f9fb] border-r border-slate-200 shrink-0 flex-col justify-between select-none rounded-l-lg">
-        {renderSidebarContent(false)}
-      </aside>
-
-      {/* MOBILE SLIDE-OVER DRAWER (< md) */}
+      <aside className={`hidden md:flex w-60 rounded-l-lg ${shellClass}`}>{renderSidebarContent(false)}</aside>
       {mobileDrawerOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
-            onClick={closeMobileIfOpen}
-          />
-          <aside className="relative z-10 w-72 max-w-[86vw] bg-[#f8f9fb] h-full overflow-y-auto flex flex-col justify-between shadow-2xl select-none">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={closeMobileIfOpen} />
+          <aside className={`relative z-10 w-72 max-w-[86vw] h-full overflow-y-auto flex ${shellClass} shadow-2xl`}>
             {renderSidebarContent(true)}
           </aside>
         </div>

@@ -1673,7 +1673,7 @@ export default function StiHubAdminRbacPanel({
                 <div className="font-semibold text-slate-900">Rotas Públicas Liberadas (Whitelisted):</div>
                 <ul className="text-[11px] text-slate-600 space-y-1 font-mono">
                   <li>• /login (Autenticação + Desafio MFA 2FA)</li>
-                  <li>• /proposta/[id] (Link Público PDF A4 p/ Cliente)</li>
+                  <li>• /proposta/[id] (link público da proposta)</li>
                   <li>• /portal &amp; /api/portal/* (Portal Externo NOC SLA)</li>
                   <li>• /api/health (Monitoramento de Infraestrutura)</li>
                 </ul>

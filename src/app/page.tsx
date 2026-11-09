@@ -1650,11 +1650,8 @@ export default function HubSpotProCrmApp() {
                     .toUpperCase()}
                 </div>
                 <div className="hidden xl:block leading-tight text-left">
-                  <div className="text-[11px] font-semibold text-white">
+                  <div className="text-[11px] font-semibold text-white truncate max-w-[140px]">
                     {activeRbacUser?.name || "Marcéllo Mira"}
-                  </div>
-                  <div className="text-[9px] text-[#7fe3d4] font-semibold">
-                    {activeRbacUser?.roleId || "SUPER_ADMIN"} • Escopo: {activeRbacUser?.scope || "TODOS"}
                   </div>
                 </div>
               </button>
