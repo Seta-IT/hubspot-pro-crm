@@ -3582,11 +3582,11 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(erpTabSrc.includes("e-Assinatura"));
     assert.ok(erpTabSrc.includes("Ordem de serviço"));
     assert.ok(erpTabSrc.includes("Histórico de situações"));
-    assert.ok(erpTabSrc.includes("Histórico de versões da proposta"));
+    assert.ok(erpTabSrc.includes("Versões anteriores") || erpTabSrc.includes("Histórico de versões da proposta"));
     assert.ok(erpTabSrc.includes("handleConfirmChangeProposalStatus"));
-    assert.ok(pageSrc.includes("Abrir Tela da Versão") || pageSrc.includes("<span>Abrir</span>"));
-    assert.ok(pageSrc.includes("Baixar / Imprimir PDF") || pageSrc.includes("<span>PDF</span>"));
-    assert.ok(erpTabSrc.includes("Abrir Tela da Versão") || erpTabSrc.includes("<span>Abrir</span>"));
+    assert.ok(pageSrc.includes("<span>Abrir</span>") || pageSrc.includes("Abrir Tela da Versão") || pageSrc.includes(">Abrir<"));
+    assert.ok(pageSrc.includes("Gerar PDF") || pageSrc.includes("Baixar PDF") || pageSrc.includes("<span>PDF</span>") || pageSrc.includes("Baixar / Imprimir PDF"));
+    assert.ok(erpTabSrc.includes("<span>Abrir</span>") || erpTabSrc.includes("Abrir Tela da Versão"));
     assert.equal(erpTabSrc.includes("Prod / Serv / Frete"), false, "Coluna Prod / Serv / Frete removida da listagem de propostas");
     assert.equal(erpTabSrc.includes("<th className=\"py-2.5 px-3\">Tipo</th>"), false, "Coluna Tipo removida da listagem de propostas");
 

@@ -1102,17 +1102,17 @@ function PublicProposalPrintContent() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-bold cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-[#ff7a59]" />
-                Baixar / Imprimir PDF desta Versão
+                Baixar PDF
               </button>
               {currentViewedEntry && isInternalUser && (
                 <button
                   type="button"
                   disabled={restoringVersion === currentViewedEntry.version}
                   onClick={() => handleRestoreVersionInPage(currentViewedEntry)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
-                  Restaurar esta versão
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restaurar
                 </button>
               )}
               {latestEntry && (
@@ -1121,7 +1121,7 @@ function PublicProposalPrintContent() {
                   onClick={() => handleOpenVersionInPage(latestEntry, latestVerNum)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 font-bold cursor-pointer"
                 >
-                  Voltar p/ Versão Atual (Versão {latestVerNum})
+                  Versão atual
                 </button>
               )}
             </div>
