@@ -254,13 +254,8 @@ export function ProposalItemsGrid({
           ) : (
             <Wrench className="w-5 h-5 text-slate-600" />
           )}
-          <div>
-            <div className="text-[15px] font-normal text-slate-700">
-              Adicione os <span className="font-semibold text-slate-900">{noun}</span> do orçamento
-            </div>
-            <div className="text-[11px] text-slate-500">
-              {isProduct ? 'Produto' : 'Serviço'}, quantidade, valor e desconto por linha.
-            </div>
+          <div className="text-[15px] font-semibold text-slate-900">
+            {isProduct ? 'Produtos' : 'Serviços'}
           </div>
         </div>
         <button

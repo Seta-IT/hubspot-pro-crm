@@ -615,14 +615,9 @@ export function ProposalEditModal({
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                   <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
-                  <span>
-                    Informe os <span className="text-[#1e3a6e]">dados</span> do orçamento
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Número, cliente, vendedor, datas e a introdução da proposta
+                  <span>Dados do orçamento</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1218,14 +1213,9 @@ export function ProposalEditModal({
           {/* BLOCO 2 DO GESTÃOCLICK: PREENCHA OS CAMPOS EXTRAS DA SUA EMPRESA (CAPA) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                 <FileText className="w-4 h-4 text-[#1e3a6e]" />
-                <span>
-                  Preencha os <span className="text-[#1e3a6e]">campos extras</span> da sua empresa
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Campos que a sua empresa criou para os orçamentos
+                <span>Campos personalizados</span>
               </div>
             </div>
             <div className="p-5">
@@ -1267,18 +1257,15 @@ export function ProposalEditModal({
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Truck className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  4. Transporte / <span className="text-[#1e3a6e]">Frete e Endereço de Entrega</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Transportadora, valor do frete, endereço de instalação e índice de reajuste contratual.
+                <div className="text-sm font-semibold text-slate-800">
+                  Frete e entrega
                 </div>
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
               <div className="sm:col-span-3">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Prazo de Entrega / Ativação
+                  Prazo de entrega
                 </label>
                 <input
                   type="text"
@@ -1296,7 +1283,7 @@ export function ProposalEditModal({
               </div>
               <div className="sm:col-span-3">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Transportadora / Modalidade de Envio
+                  Transportadora
                 </label>
                 <select
                   value={draft.shippingCarrier || 'Frota Própria Seta Telecom'}
@@ -1326,7 +1313,7 @@ export function ProposalEditModal({
               </div>
               <div className="sm:col-span-4">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Endereço de Entrega / Instalação
+                  Endereço de entrega
                 </label>
                 <input
                   type="text"
@@ -1345,11 +1332,8 @@ export function ProposalEditModal({
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Calculator className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  5. Totalizadores &amp; <span className="text-[#1e3a6e]">Condição de Pagamento / Parcelas</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Resumo financeiro em tempo real e gerador automático de cronograma de parcelas.
+                <div className="text-sm font-semibold text-slate-800">
+                  Totais e pagamento
                 </div>
               </div>
             </div>
@@ -1648,11 +1632,8 @@ export function ProposalEditModal({
           {/* BLOCO 6: OBSERVAÇÕES COMERCIAIS/FISCAIS E OBSERVAÇÕES INTERNAS */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800">
-                6. Observações Comerciais, <span className="text-[#1e3a6e]">Cláusulas SLA &amp; Notas Internas</span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Observações impressas no PDF do cliente e anotações internas.
+              <div className="text-sm font-semibold text-slate-800">
+                Observações
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2980,9 +2961,6 @@ export function ContractEditModal({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-sm font-semibold text-[#1e3a6e]">Faturamento</h4>
-                    <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
-                      Confira os dados antes de emitir a fatura mensal.
-                    </p>
                   </div>
                   <ReceiptDraftPreviewButton onClick={() => setReceiptDraftOpen(true)} />
                 </div>
@@ -3069,7 +3047,7 @@ export function ContractEditModal({
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <span className="text-[11px] font-semibold text-[#1e3a6e] block">
-                  Escolha a cobrança e as automações
+                  Cobrança e automações
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
@@ -3166,7 +3144,7 @@ export function ContractEditModal({
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <span className="text-[11px] font-semibold text-[#1e3a6e] block">
-                  Logística e observações da fatura
+                  Logística e observações
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div><label className={lblCls}>Cidade de Entrega</label><input type="text" value={draft.deliveryCity || ''} onChange={(e) => setDraft({ ...draft, deliveryCity: e.target.value })} className={inpCls} /></div>

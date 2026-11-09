@@ -39,13 +39,13 @@ export function computeContractTotals(c: ErpRentalContract) {
   return { products, addition, discount, freight, total };
 }
 
-function SectionCard({ title, subtitle, right, children }: { title: string; subtitle: string; right?: React.ReactNode; children: React.ReactNode }) {
+function SectionCard({ title, subtitle, right, children }: { title: string; subtitle?: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-          <p className="text-[11px] text-slate-500">{subtitle}</p>
+          {subtitle ? <p className="text-[11px] text-slate-500">{subtitle}</p> : null}
         </div>
         {right}
       </div>
@@ -122,7 +122,7 @@ export function ContractGestaoClickDataPanel({
       <datalist id="aux-chart-accounts">{aux.chartOfAccountsList.map((o) => <option key={o} value={o} />)}</datalist>
       <datalist id="aux-catalog-products">{catalog.map((c) => <option key={c.id} value={`${c.gestaoClickCode} - ${c.name}`} />)}</datalist>
 
-      <SectionCard title="Dados do contrato" subtitle="Vendedor, centro de custo, plano de contas, proposta, frete, número, NF de remessa e prazo.">
+      <SectionCard title="Dados do contrato">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <ClearableInput label="Vendedor" value={draft.sellerName || ''} onChange={(v) => patch({ sellerName: v })} />
           <div>
@@ -143,7 +143,7 @@ export function ContractGestaoClickDataPanel({
         </div>
       </SectionCard>
 
-      <SectionCard title="Adicione os produtos locados" subtitle="Produto, variação, quantidade e valor de cada cobrança.">
+      <SectionCard title="Produtos">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="text-[10px] uppercase text-slate-500">
@@ -193,12 +193,12 @@ export function ContractGestaoClickDataPanel({
         <button type="button" onClick={() => patch({ equipments: [...(draft.equipments || []), { id: `eq-${Date.now()}`, skuGestaoClick: '', description: '', serialNumber: '', assetTag: '', assetStatus: 'EM_CLIENTE', ncm: '8517.62.59', quantity: 1, unitMonthlyRent: 0, assetValueBrl: 0, remessaCfop: draft.remessaCfop || '5.908', remessaNfeKey: '' }] })} className="px-3 py-1.5 rounded border border-[#1e3a6e] text-[#1e3a6e] text-xs font-semibold cursor-pointer">+ Adicionar outro produto</button>
       </SectionCard>
 
-      <SectionCard title="Confira o total da locação" subtitle="Acréscimo e desconto aplicados sobre a soma dos produtos.">
+      <SectionCard title="Total da locação">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <MoneyBox label="Produtos" prefix="R$" value={totals.products} readOnly caption="Soma dos produtos." />
           <MoneyBox label="Acréscimo" prefix="R$" value={totals.addition} onChange={(n) => patch({ additionValueBrl: n })} caption="Somado à locação." />
           <MoneyBox label="Desconto" prefix="R$" value={totals.discount} onChange={(n) => patch({ discountValueBrl: n, discountPercent: totals.products > 0 ? round2((n / totals.products) * 100) : 0 })} caption="Em reais." />
-          <MoneyBox label="Desconto" prefix="%" value={Number(draft.discountPercent || 0)} onChange={(n) => patch({ discountPercent: n, discountValueBrl: round2((totals.products * n) / 100) })} caption="Preencha um dos dois." />
+          <MoneyBox label="Desconto" prefix="%" value={Number(draft.discountPercent || 0)} onChange={(n) => patch({ discountPercent: n, discountValueBrl: round2((totals.products * n) / 100) })} caption="" />
           <MoneyBox label="Valor total *" prefix="R$" value={totals.total} readOnly bold caption="Valor de cada fatura do aluguel." />
         </div>
         <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-slate-700">
@@ -206,7 +206,7 @@ export function ContractGestaoClickDataPanel({
         </label>
       </SectionCard>
 
-      <SectionCard title="Combine a entrega e a retirada" subtitle="Quando e onde os produtos chegam e de onde voltam.">
+      <SectionCard title="Entrega e retirada">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Data de Entrega / Envio</label><input type="date" value={(draft.deliveryDate || '').slice(0, 10)} onChange={(e) => patch({ deliveryDate: e.target.value })} className="w-full px-2 py-2 rounded border border-slate-300 text-xs" /></div>
           <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Data Prevista de Retirada / Devolução</label><input type="date" value={(draft.pickupDate || '').slice(0, 10)} onChange={(e) => patch({ pickupDate: e.target.value })} className="w-full px-2 py-2 rounded border border-slate-300 text-xs" /></div>
@@ -229,7 +229,7 @@ export function ContractGestaoClickDataPanel({
         <ClearableInput label="Observações de Logística / Entrega e Retirada" value={draft.deliveryNotes || ''} onChange={(v) => patch({ deliveryNotes: v })} />
       </SectionCard>
 
-      <SectionCard title="Insira as informações de observação e anexos" subtitle="Observação que sai na impressão e arquivos da locação.">
+      <SectionCard title="Observações e anexos">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Observações (impressas no contrato e na fatura)</label><textarea rows={3} value={draft.contractNotes || ''} onChange={(e) => patch({ contractNotes: e.target.value })} className="w-full px-2 py-2 rounded border border-slate-300 text-xs" /></div>
           <div><label className="block text-[11px] font-semibold text-slate-600 mb-1">Observações internas</label><textarea rows={3} value={draft.internalNotes || ''} onChange={(e) => patch({ internalNotes: e.target.value })} className="w-full px-2 py-2 rounded border border-slate-300 text-xs" /></div>
