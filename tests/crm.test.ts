@@ -4296,7 +4296,8 @@ describe('15. Contratos GestãoClick: 12 ações no final do contrato (3 pontos)
     assert.ok(start > 0);
     const fields = ['customerPurchaseOrderNumber', 'measurementNumber', 'measurementPeriod', 'customDueRuleEnabled', 'customDueOffsetDays', 'customDueTargetWeekday', 'billingRecipientEmails', 'costCenter', 'chartOfAccounts', 'paymentMethod', 'additionValueBrl', 'discountValueBrl', 'freightValueBrl', 'deliveryCity', 'deliveryCarrier', 'downloadInvoicePdfOnDemand'];
     for (const f of fields) assert.ok(src.includes(f), `campo ausente: ${f}`);
-    assert.ok(src.includes('renderContractDataBlock()'));
+    assert.ok(src.includes('renderContractDataBlock({ includePoMeasurement: true })') || src.includes('renderContractDataBlock()'));
+    assert.ok(src.includes("'PRODUTOS'") || src.includes('PRODUTOS'));
     const tab = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
     assert.ok(tab.includes('invoices={invoices}'));
     assert.ok(tab.includes("setEditingContractTab('FATURAMENTO_RECIBOS')"));

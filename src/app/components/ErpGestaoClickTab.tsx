@@ -504,7 +504,7 @@ export default function ErpGestaoClickTab({
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
   const [editingContractTab, setEditingContractTab] = useState<
-    'DADOS_GERAIS' | 'RENOVAR_VIGENCIA' | 'FATURAMENTO_RECIBOS' | 'REAJUSTE_ADITIVOS' | 'EQUIPAMENTOS_PATRIMONIO' | 'DOCUMENTO_HISTORICO'
+    'DADOS_GERAIS' | 'RENOVAR_VIGENCIA' | 'FATURAMENTO_RECIBOS' | 'REAJUSTE_ADITIVOS' | 'PRODUTOS' | 'EQUIPAMENTOS_PATRIMONIO' | 'DOCUMENTO_HISTORICO'
   >('DADOS_GERAIS');
   const [editingContractReadOnly, setEditingContractReadOnly] = useState<boolean>(false);
   const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);

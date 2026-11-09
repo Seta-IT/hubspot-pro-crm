@@ -2108,13 +2108,14 @@ function computeContractEndDate(startDateStr: string, months: number): string {
   return target.toISOString().slice(0, 10);
 }
 
-// 2. RENTAL CONTRACT FULL EDITOR MODAL (COM 6 ABAS SEPARADAS: DADOS GERAIS, RENOVAR VIGÊNCIA, FATURAMENTO, REAJUSTE & ADITIVOS, EQUIPAMENTOS S/N, DOCUMENTO PDF)
+// 2. RENTAL CONTRACT FULL EDITOR MODAL (abas: Dados Gerais, Renovar Vigência, Faturamento, Reajuste, Produtos, Documento PDF)
 export type ContractModalTabId =
   | 'DADOS_GERAIS'
   | 'RENOVAR_VIGENCIA'
   | 'FATURAMENTO_RECIBOS'
   | 'REAJUSTE_ADITIVOS'
-  | 'EQUIPAMENTOS_PATRIMONIO'
+  | 'PRODUTOS'
+  | 'EQUIPAMENTOS_PATRIMONIO' // alias legado → mesma UI da aba Produtos
   | 'DOCUMENTO_HISTORICO';
 
 export function ContractEditModal({
@@ -2253,29 +2254,38 @@ export function ContractEditModal({
       setBillingIssuing(false);
     }
   };
-  const renderContractDataBlock = () => (
-    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
+  const renderContractDataBlock = (opts?: { includePoMeasurement?: boolean }) => {
+    const includePoMeasurement = opts?.includePoMeasurement === true;
+    return (
+    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid={includePoMeasurement ? 'contract-data-po-bm' : 'contract-data-core'}>
       <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
-        1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)
+        {includePoMeasurement
+          ? '1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)'
+          : '1. Dados do Contrato e Classificação GestãoClick'}
       </span>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-bold`} /></div>
-        <div><label className={lblCls}>CNPJ</label><input type="text" value={draft.companyCnpj} onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })} className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Contrato n.</label><input type="text" value={draft.contractNumber} onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })} className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Nº Contrato Externo</label><input type="text" value={draft.externalContractNumber || ''} onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Proposta Vinculada</label><input type="text" value={draft.proposalNumber || ''} onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>NF-e de Remessa / CFOP</label><div className="flex gap-1"><input type="text" value={draft.remessaNfeNumber || ''} onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })} className={`${inpCls} font-mono`} /><input type="text" value={draft.remessaCfop || ''} onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value } as ErpRentalContract)} className={`${inpCls} font-mono w-20`} /></div></div>
-        <div><label className={lblCls}>Prazo do Contrato</label><input type="text" value={draft.contractTermLabel || `${draft.contractMonths || ''} meses`} onChange={(e) => setDraft({ ...draft, contractTermLabel: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Vendedor</label><input type="text" value={draft.sellerName || ''} onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Centro de Custo</label><input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} className={inpCls} /><datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        <div><label className={lblCls}>Plano de Contas</label><input list="ctr-chart-accounts" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} className={inpCls} /><datalist id="ctr-chart-accounts">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        <div><label className={lblCls}>Nº Pedido do Cliente (PO)</label><input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Nº Boletim de Medição (BM)</label><input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} placeholder="BM-11/2026-453" className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Período de Medição (BM)</label><input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={inpCls} /></div>
-        <div className="sm:col-span-4"><label className={lblCls}>Observações da Medição (BM)</label><textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={inpCls} /></div>
+        <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+        <div><label className={lblCls}>CNPJ</label><input type="text" value={draft.companyCnpj} onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })} className={`${inpCls} font-mono font-semibold`} /></div>
+        <div><label className={lblCls}>Contrato n.</label><input type="text" value={draft.contractNumber} onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })} className={`${inpCls} font-mono font-semibold`} /></div>
+        <div><label className={lblCls}>Nº Contrato Externo</label><input type="text" value={draft.externalContractNumber || ''} onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+        <div><label className={lblCls}>Proposta Vinculada</label><input type="text" value={draft.proposalNumber || ''} onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+        <div><label className={lblCls}>NF-e de Remessa / CFOP</label><div className="flex gap-1"><input type="text" value={draft.remessaNfeNumber || ''} onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })} className={`${inpCls} font-mono font-semibold`} /><input type="text" value={draft.remessaCfop || ''} onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value } as ErpRentalContract)} className={`${inpCls} font-mono font-semibold w-20`} /></div></div>
+        <div><label className={lblCls}>Prazo do Contrato</label><input type="text" value={draft.contractTermLabel || `${draft.contractMonths || ''} meses`} onChange={(e) => setDraft({ ...draft, contractTermLabel: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+        <div><label className={lblCls}>Vendedor</label><input type="text" value={draft.sellerName || ''} onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+        <div><label className={lblCls}>Centro de Custo</label><input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} className={`${inpCls} font-semibold`} /><datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist></div>
+        <div><label className={lblCls}>Plano de Contas</label><input list="ctr-chart-accounts" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} className={`${inpCls} font-semibold`} /><datalist id="ctr-chart-accounts">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist></div>
+        {includePoMeasurement ? (
+          <>
+            <div><label className={lblCls}>Nº Pedido do Cliente (PO)</label><input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono font-semibold`} /></div>
+            <div><label className={lblCls}>Nº Boletim de Medição (BM)</label><input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} placeholder="BM-11/2026-453" className={`${inpCls} font-mono font-semibold`} /></div>
+            <div><label className={lblCls}>Período de Medição (BM)</label><input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={`${inpCls} font-semibold`} /></div>
+            <div className="sm:col-span-4"><label className={lblCls}>Observações da Medição (BM)</label><textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={`${inpCls} font-semibold`} /></div>
+          </>
+        ) : null}
       </div>
     </div>
-  );
+    );
+  };
 
   const updateEquipments = (nextEquipments: ErpRentalEquipmentItem[]) => {
     const computedMonthly = sumEquipmentsMonthly(nextEquipments);
@@ -2405,7 +2415,7 @@ export function ContractEditModal({
     { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
     { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
     { id: 'REAJUSTE_ADITIVOS', label: '4. Reajuste & Aditivos' },
-    { id: 'EQUIPAMENTOS_PATRIMONIO', label: '5. Equipamentos & Patrimônio' },
+    { id: 'PRODUTOS', label: '5. Produtos' },
     { id: 'DOCUMENTO_HISTORICO', label: '6. Documento PDF & Histórico' },
   ];
 
@@ -2468,7 +2478,7 @@ export function ContractEditModal({
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
           {activeTab === 'DADOS_GERAIS' && (
             <fieldset disabled={isReadOnly} className="space-y-4">
-              {renderContractDataBlock()}
+              {renderContractDataBlock({ includePoMeasurement: false })}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
@@ -2972,7 +2982,7 @@ export function ContractEditModal({
                 />
               )}
 
-              {renderContractDataBlock()}
+              {renderContractDataBlock({ includePoMeasurement: true })}
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
@@ -3332,12 +3342,12 @@ export function ContractEditModal({
             </div>
           )}
 
-          {activeTab === 'EQUIPAMENTOS_PATRIMONIO' && (
+          {(activeTab === 'PRODUTOS' || activeTab === 'EQUIPAMENTOS_PATRIMONIO') && (
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="font-semibold text-slate-800 uppercase text-[11px] block">
-                    Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
+                    Produtos / Equipamentos do Contrato ({draft.equipments.length})
                   </span>
                   <span className="text-[11px] text-slate-500">
                     Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-slate-800">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
