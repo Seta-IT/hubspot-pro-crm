@@ -3019,6 +3019,8 @@ export default function ErpGestaoClickTab({
     function buildContractRowActions(ctr: ErpRentalContract, modality: ErpContractModality) {
       const renewLabel = modality === "SERVICO" ? "Renovar locação / contrato" : modality === "ASSINATURA" ? "Renovar locação / assinatura" : "Renovar locação";
       return [
+        { key: "VISUALIZAR", label: "Visualizar", icon: Search, run: () => { setEditingContractReadOnly(true); setEditingContractTab('DADOS_GERAIS'); setEditingContract(ctr); } },
+        { key: "EDITAR", label: "Editar", icon: Pencil, run: () => { setEditingContractReadOnly(false); setEditingContractTab('DADOS_GERAIS'); setEditingContract(ctr); } },
         { key: "LINK_COBRANCA", label: "Link de cobrança", icon: ExternalLink, run: async () => { const l = contractChargeLink(ctr); await copyText(l); onShowToast(`Link de cobrança do contrato ${ctr.contractNumber} copiado: ${l}`); } },
         { key: "IMPRIMIR_A4", label: "Imprimir A4", icon: Printer, run: () => handleOpenContractA4(ctr, modality) },
         { key: "ALTERAR_SITUACAO", label: "Alterar situação", icon: CheckCircle2, run: () => setContractStatusPickerFor(ctr) },
@@ -3622,11 +3624,23 @@ export default function ErpGestaoClickTab({
           </div>
         ) : (
           <div className={`bg-white rounded-md border border-slate-200 shadow-xs ${contractRowMenuId ? "pb-72" : ""}`}>
-            <div className="overflow-x-auto overflow-y-visible">
-              <table className="w-full min-w-[880px] text-left text-xs">
-                <thead className="bg-slate-100 text-slate-800 border-b border-slate-200 font-bold text-xs">
+            <div className="overflow-x-auto overflow-y-visible max-w-full">
+              <table className="w-full table-fixed text-left text-xs min-w-[960px]">
+                <colgroup>
+                  <col className="w-8" />
+                  <col className="w-[9%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[170px]" />
+                </colgroup>
+                <thead className="bg-slate-100 text-slate-800 border-b border-slate-200 font-bold text-[11px]">
                   <tr>
-                    <th className="py-2.5 px-3 w-8">
+                    <th className="py-2 px-2 w-8">
                       <input
                         type="checkbox"
                         checked={displayedContracts.length > 0 && displayedContracts.every((c) => selectedContractIdsForBatch.includes(c.id))}
@@ -3640,15 +3654,15 @@ export default function ErpGestaoClickTab({
                         className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                       />
                     </th>
-                    <th className="py-2.5 px-3">Nº</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Tipo</th>
-                    <th className="py-2.5 px-3">Cliente</th>
-                    <th className="py-2.5 px-3">Data</th>
-                    <th className="py-2.5 px-3">Próximo vencimento</th>
-                    <th className="py-2.5 px-3">Periodicidade</th>
-                    <th className="py-2.5 px-3">Situação</th>
-                    <th className="py-2.5 px-3 text-right">Valor</th>
-                    <th className="py-2.5 px-3 text-right">Ações</th>
+                    <th className="py-2 px-2">Nº</th>
+                    <th className="py-2 px-2">Tipo</th>
+                    <th className="py-2 px-2">Cliente</th>
+                    <th className="py-2 px-2">Data</th>
+                    <th className="py-2 px-2">Vencimento</th>
+                    <th className="py-2 px-2">Periodicidade</th>
+                    <th className="py-2 px-2">Situação</th>
+                    <th className="py-2 px-2 text-right">Valor</th>
+                    <th className="py-2 px-2 text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_8px_-6px_rgba(0,0,0,0.15)]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -3685,69 +3699,65 @@ export default function ErpGestaoClickTab({
                             className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                           />
                         </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          <div>{ctr.gestaoClickCode || ctr.contractNumber}</div>
-                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-slate-50 text-slate-800 border border-slate-200 text-[9px] font-semibold">
+                        <td className="py-2 px-2 font-mono font-semibold text-slate-800">
+                          <div className="truncate" title={ctr.gestaoClickCode || ctr.contractNumber}>{ctr.gestaoClickCode || ctr.contractNumber}</div>
+                          <span className="inline-block mt-0.5 px-1 py-0.5 rounded bg-slate-50 text-slate-700 border border-slate-200 text-[9px] font-semibold">
                             {ctr.versionLabel || `v${ctr.version || 1}.0`}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-700">
-                          {contractTypeLabel(modality)}
+                        <td className="py-2 px-2 font-semibold text-slate-700">
+                          <span className="truncate block" title={contractTypeLabel(modality)}>{contractTypeLabel(modality)}</span>
                         </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleOpenErpCustomerByCompany(ctr.companyId, ctr.companyName, ctr.companyCnpj)}
-                            className="font-bold text-slate-800 hover:underline text-left cursor-pointer block"
-                            title="Abrir cadastro do cliente (Navegação Cruzada)"
+                            className="font-semibold text-slate-800 hover:underline text-left cursor-pointer block max-w-full"
+                            title={ctr.companyName}
                           >
-                            <span className="text-slate-800 underline">{ctr.companyName}</span>
+                            <span className="truncate block">{ctr.companyName}</span>
                           </button>
-                          <div className="italic text-[11px] text-slate-600">({ctr.companyName})</div>
-                          {ctr.remessaNfeNumber && (
-                            <div className="font-mono text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                              <span>{ctr.companyCnpj || '—'}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
-                                className="px-1.5 py-0.2 rounded bg-slate-50 text-[#1e3a6e] border border-slate-200 font-mono text-[9px] font-semibold hover:bg-slate-50 cursor-pointer"
-                                title="Ir para Nota Fiscal de Remessa / Fatura no módulo Fiscal"
-                              >
-                                NF {ctr.remessaNfeNumber} &rarr;
-                              </button>
-                            </div>
-                          )}
+                          <div className="font-mono text-[10px] text-slate-500 truncate mt-0.5" title={[ctr.companyCnpj, ctr.remessaNfeNumber ? `NF ${ctr.remessaNfeNumber}` : ''].filter(Boolean).join(' · ')}>
+                            {ctr.companyCnpj || '—'}
+                            {ctr.remessaNfeNumber ? (
+                              <>
+                                {' · '}
+                                <button
+                                  type="button"
+                                  onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
+                                  className="text-[#1e3a6e] font-semibold hover:underline cursor-pointer"
+                                  title="Ir para Nota Fiscal de Remessa / Fatura no módulo Fiscal"
+                                >
+                                  NF {ctr.remessaNfeNumber}
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                        <td className="py-2 px-2 text-[11px] text-slate-700 whitespace-nowrap" title={fmtBrDate(ctr.startDate)}>
                           {fmtBrDate(ctr.startDate)}
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
-                          {fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}
-                          {ctr.customDueRuleEnabled && ctr.customDueRuleLabel && (<div className="text-[10px] text-slate-800 font-bold">{ctr.customDueRuleLabel}</div>)}
-                          {(ctr.customerPurchaseOrderNumber || ctr.measurementNumber) && (
-                            <div className="text-[10px] font-mono text-slate-500">
-                              {ctr.customerPurchaseOrderNumber ? `PO ${ctr.customerPurchaseOrderNumber}` : ''}
-                              {ctr.customerPurchaseOrderNumber && ctr.measurementNumber ? ' | ' : ''}
-                              {ctr.measurementNumber ? `BM ${ctr.measurementNumber}` : ''}
-                            </div>
-                          )}
+                        <td className="py-2 px-2 text-[11px] text-slate-700">
+                          <div className="truncate whitespace-nowrap" title={fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}>{fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}</div>
+                          {ctr.customDueRuleEnabled && ctr.customDueRuleLabel && (<div className="text-[9px] text-slate-500 truncate" title={ctr.customDueRuleLabel}>{ctr.customDueRuleLabel}</div>)}
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{ctr.periodicityLabel || "A cada 1 mês"}</td>
-                        <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2 text-[11px] text-slate-700">
+                          <span className="truncate block" title={ctr.periodicityLabel || "A cada 1 mês"}>{ctr.periodicityLabel || "A cada 1 mês"}</span>
+                        </td>
+                        <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => openContractBilling(ctr)}
                             title="Abrir Faturamento do Contrato"
-                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold cursor-pointer ${statusMeta.cls}`}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer max-w-full truncate ${statusMeta.cls}`}
                           >
-                            • {statusMeta.label}
+                            {statusMeta.label}
                           </button>
-                          <button type="button" onClick={() => setContractStatusPickerFor(ctr)} className="ml-1 text-[10px] text-slate-500 underline cursor-pointer" title="Alterar situação">alterar</button>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                        <td className="py-2 px-2 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
                           {(Number(ctr.monthlyValue) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2 text-right whitespace-nowrap sticky right-0 bg-white z-[1] shadow-[-4px_0_8px_-6px_rgba(0,0,0,0.12)]" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
@@ -3755,7 +3765,7 @@ export default function ErpGestaoClickTab({
                               onClick={() =>
                                 setExpandedContractHistoryId((prev) => (prev === ctr.id ? null : ctr.id))
                               }
-                              className="px-2 py-1 rounded border border-[#1e3a6e] text-[#1e3a6e] bg-white hover:bg-slate-50 text-[10px] font-semibold cursor-pointer"
+                              className="px-1.5 py-1 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-[10px] font-semibold cursor-pointer"
                             >
                               Faturas ({matchInvoicesForContract(ctr, invoices).length})
                             </button>
@@ -3763,35 +3773,9 @@ export default function ErpGestaoClickTab({
                               type="button"
                               title="Visualizar o recibo (rascunho) e então finalizar a Fatura de Locação do Mês"
                               onClick={() => setRowBillingPreviewContract(ctr)}
-                              className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-[10px] font-semibold cursor-pointer"
+                              className="px-1.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[10px] font-semibold cursor-pointer"
                             >
                               + Faturar
-                            </button>
-                            <button
-                              type="button"
-                              title="Consultar / Visualizar Contrato (6 Abas)"
-                              aria-label="Consultar Cadastro"
-                              onClick={() => {
-                                setEditingContractReadOnly(true);
-                                setEditingContractTab('DADOS_GERAIS');
-                                setEditingContract(ctr);
-                              }}
-                              className="w-8 h-8 rounded bg-[#17a2b8] hover:bg-[#138496] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
-                            >
-                              <Search className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Editar Contrato / Renovar Vigência / Faturar / Reajustar"
-                              aria-label="Editar Cadastro"
-                              onClick={() => {
-                                setEditingContractReadOnly(false);
-                                setEditingContractTab('DADOS_GERAIS');
-                                setEditingContract(ctr);
-                              }}
-                              className="w-8 h-8 rounded bg-[#f39c12] hover:bg-[#d68910] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <div className="relative">
                               <button
@@ -3799,7 +3783,7 @@ export default function ErpGestaoClickTab({
                                 title="Mais ações do contrato"
                                 aria-label="Mais ações do contrato"
                                 onClick={() => setContractRowMenuId((id) => (id === ctr.id ? null : ctr.id))}
-                                className="w-8 h-8 rounded bg-[#2c3e50] hover:bg-[#1a252f] text-white inline-flex items-center justify-center font-semibold transition shadow-2xs cursor-pointer"
+                                className="w-7 h-7 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center justify-center font-semibold transition cursor-pointer"
                               >
                                 ⋮
                               </button>

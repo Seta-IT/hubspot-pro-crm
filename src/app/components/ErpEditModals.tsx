@@ -101,6 +101,7 @@ export function ProposalEditModal({
     })
   );
   const [saving, setSaving] = useState(false);
+  const [contractFormError, setContractFormError] = useState<string | null>(null);
   const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(true);
   const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
@@ -2161,6 +2162,7 @@ export function ContractEditModal({
   }));
   const [autoSyncMonthly, setAutoSyncMonthly] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
+  const [contractFormError, setContractFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -2402,6 +2404,16 @@ export function ContractEditModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const missingBilling: string[] = [];
+    if (!(draft.paymentMethod || '').trim()) missingBilling.push('Forma de pagamento');
+    if (!(draft.emailAutomationMode || '').trim()) missingBilling.push('Enviar a fatura por e-mail');
+    if (!(draft.nextBillingDate || draft.nextDueDate || '').trim()) missingBilling.push('Próximo vencimento');
+    if (missingBilling.length > 0) {
+      setContractFormError(`Preencha em Faturamento: ${missingBilling.join(', ')}.`);
+      setActiveTab('FATURAMENTO_RECIBOS');
+      return;
+    }
+    setContractFormError(null);
     setSaving(true);
     try {
       await onSave(draft);
@@ -2476,6 +2488,11 @@ export function ContractEditModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+          {contractFormError && (
+            <div role="alert" data-testid="contract-form-error" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
+              {contractFormError}
+            </div>
+          )}
           {activeTab === 'DADOS_GERAIS' && (
             <fieldset disabled={isReadOnly} className="space-y-4">
               {renderContractDataBlock({ includePoMeasurement: false })}
@@ -3053,11 +3070,11 @@ export function ContractEditModal({
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
                 <span className="text-[11px] font-semibold text-[#1e3a6e] block">
-                  Regra de vencimento, recorrência e e-mails
+                  Escolha a cobrança e as automações
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className={lblCls}>Periodicidade de Cobrança</label>
+                    <label className={lblCls}>Repetir a cobrança *</label>
                     <select value={draft.billingRecurrence || 'MENSAL'} onChange={(e) => setDraft({ ...draft, billingRecurrence: e.target.value as ErpRentalContract['billingRecurrence'] })} className={inpCls}>
                       {auxOptions.recurrenceOptions.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
                     </select>
@@ -3074,17 +3091,17 @@ export function ContractEditModal({
                     )}
                   </div>
                   <div>
-                    <label className={lblCls}>Forma de Pagamento</label>
-                    <input list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={inpCls} />
+                    <label className={lblCls}>Forma de pagamento *</label>
+                    <input required list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={inpCls} />
                     <datalist id="ctr-payment-methods">{auxOptions.paymentMethods.map((p) => (<option key={p} value={p} />))}</datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className={lblCls}>Próximo Vencimento</label>
-                      <input type="date" value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={inpCls} />
+                      <label className={lblCls}>Próximo vencimento *</label>
+                      <input type="date" required value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={inpCls} />
                     </div>
                     <div>
-                      <label className={lblCls}>Gerar fatura (dias antes)</label>
+                      <label className={lblCls}>Gerar a fatura *</label>
                       <select value={String(draft.autoGenerateInvoiceDaysBeforeDue ?? 0)} onChange={(e) => setDraft({ ...draft, autoGenerateInvoiceDaysBeforeDue: Number(e.target.value) })} className={inpCls}>
                         {auxOptions.invoiceAdvanceDaysOptions.map((d) => (<option key={d} value={d}>{d} dias</option>))}
                       </select>
@@ -3092,60 +3109,57 @@ export function ContractEditModal({
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2">
-                  <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
-                    <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
-                    Ativar Regra de Vencimento Customizada (ex.: 45 dias + próxima quarta-feira)
-                  </label>
-                  {draft.customDueRuleEnabled && (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                      <div>
-                        <label className={lblCls}>Preset rápido</label>
-                        <select value="" onChange={(e) => { const p = auxOptions.customDueDateRules.find((r) => r.id === e.target.value); if (p) setDraft({ ...draft, customDueOffsetDays: p.offsetDays, customDueTargetWeekday: p.targetWeekday, customDueRuleLabel: p.label }); }} className={inpCls}>
-                          <option value="">Selecionar preset...</option>
-                          {auxOptions.customDueDateRules.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={lblCls}>Prazo em Dias (Offset)</label>
-                        <input type="number" min={0} value={draft.customDueOffsetDays ?? 0} onChange={(e) => setDraft({ ...draft, customDueOffsetDays: Number(e.target.value) || 0, customDueRuleLabel: undefined })} className={inpCls} />
-                      </div>
-                      <div>
-                        <label className={lblCls}>Dia da Semana Alvo</label>
-                        <select value={draft.customDueTargetWeekday || 'NONE'} onChange={(e) => setDraft({ ...draft, customDueTargetWeekday: e.target.value as ErpRentalContract['customDueTargetWeekday'], customDueRuleLabel: undefined })} className={inpCls}>
-                          <option value="NONE">Nenhum (dias corridos)</option>
-                          <option value="MONDAY">Segunda-feira</option>
-                          <option value="TUESDAY">Terça-feira</option>
-                          <option value="WEDNESDAY">Quarta-feira</option>
-                          <option value="THURSDAY">Quinta-feira</option>
-                          <option value="FRIDAY">Sexta-feira</option>
-                        </select>
-                      </div>
-                      <div className="p-2 rounded bg-white border border-slate-200">
-                        <div className="text-[10px] font-black uppercase text-amber-800">Vencimento calculado</div>
-                        <div className="font-semibold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
-                        <div className="text-[10px] text-slate-600">{dueRulePreview.ruleLabel}</div>
-                        <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[10px] font-semibold cursor-pointer">
-                          Aplicar no Próximo Vencimento
-                        </button>
-                      </div>
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2" data-testid="custom-due-rule-block">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
+                      <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
+                      Regra de vencimento personalizada
+                    </label>
+                    <select aria-label="Aplicar regra salva em Opções Auxiliares" value="" onChange={(e) => { const p = auxOptions.customDueDateRules.find((r) => r.id === e.target.value); if (p) setDraft({ ...draft, customDueRuleEnabled: true, customDueOffsetDays: p.offsetDays, customDueTargetWeekday: p.targetWeekday, customDueRuleLabel: p.label }); }} className={inpCls + ' max-w-[280px]'}>
+                      <option value="">Aplicar regra salva em Opções Auxiliares...</option>
+                      {auxOptions.customDueDateRules.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                    <div>
+                      <label className={lblCls}>Prazo base (dias)</label>
+                      <input type="number" min={0} value={draft.customDueOffsetDays ?? 45} onChange={(e) => setDraft({ ...draft, customDueOffsetDays: Math.max(0, Number(e.target.value) || 0), customDueRuleLabel: undefined })} className={inpCls} />
                     </div>
-                  )}
+                    <div>
+                      <label className={lblCls}>Ajustar para dia da semana</label>
+                      <select value={draft.customDueTargetWeekday || 'WEDNESDAY'} onChange={(e) => setDraft({ ...draft, customDueTargetWeekday: e.target.value as ErpRentalContract['customDueTargetWeekday'], customDueRuleLabel: undefined })} className={inpCls}>
+                        <option value="NONE">Nenhum (dias corridos)</option>
+                        <option value="MONDAY">Segunda-feira</option>
+                        <option value="TUESDAY">Terça-feira</option>
+                        <option value="WEDNESDAY">Quarta-feira</option>
+                        <option value="THURSDAY">Quinta-feira</option>
+                        <option value="FRIDAY">Sexta-feira</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <button type="button" onClick={() => setDraft({ ...draft, customDueRuleEnabled: true, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="w-full px-3 py-2 rounded text-xs font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
+                        Aplicar ao próximo vencimento
+                      </button>
+                    </div>
+                  </div>
+                  <div data-testid="due-rule-preview" className="text-[11px] font-semibold text-slate-800">
+                    Simulação: vencimento calculado em {dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt.toLowerCase()})
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className={lblCls}>Automação de Envio de E-mail</label>
-                    <select value={draft.emailAutomationMode || ''} onChange={(e) => setDraft({ ...draft, emailAutomationMode: e.target.value })} className={inpCls}>
-                      <option value="">Selecionar...</option>
+                    <label className={lblCls}>Enviar a fatura por e-mail *</label>
+                    <select required value={draft.emailAutomationMode || ''} onChange={(e) => setDraft({ ...draft, emailAutomationMode: e.target.value, autoSendEmailOnBilling: e.target.value !== '' && e.target.value !== 'Não enviar e-mail' })} className={inpCls}>
+                      <option value="">Selecione</option>
                       {auxOptions.emailAutomationOptions.map((o) => (<option key={o} value={o}>{o}</option>))}
                     </select>
                     <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.autoSendEmailOnBilling)} onChange={(e) => setDraft({ ...draft, autoSendEmailOnBilling: e.target.checked })} /> Enviar e-mail automaticamente ao faturar</label>
                     <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.dunningRuleEnabled)} onChange={(e) => setDraft({ ...draft, dunningRuleEnabled: e.target.checked })} /> Régua de Cobrança / Dunning</label>
-                    <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.generateNextInvoiceOnSave)} onChange={(e) => setDraft({ ...draft, generateNextInvoiceOnSave: e.target.checked })} /> Gerar próxima fatura ao salvar contrato</label>
+                    <label className="flex items-center gap-2 text-slate-700 mt-2"><input type="checkbox" role="switch" aria-label="Gerar a próxima fatura agora" checked={Boolean(draft.generateNextInvoiceOnSave)} onChange={(e) => setDraft({ ...draft, generateNextInvoiceOnSave: e.target.checked })} /> Gerar a próxima fatura agora</label>
                   </div>
                   <div>
-                    <label className={lblCls}>Destinatários de E-mail de Faturamento (múltiplos e-mails separados por vírgula)</label>
+                    <label className={lblCls}>Destinatários da fatura (e-mails separados por vírgula)</label>
                     <textarea rows={4} value={recipientEmailsText} onChange={(e) => { setRecipientEmailsText(e.target.value); setDraft({ ...draft, billingRecipientEmails: e.target.value.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) }); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
                   </div>
                 </div>
