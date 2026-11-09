@@ -1176,7 +1176,7 @@ export function ProposalEditModal({
                         }
                         className="accent-[#1e3a6e]"
                       />
-                      <span>Incluir Setup / Ativação (R$)</span>
+                      <span>Incluir setup (R$)</span>
                     </label>
                   </div>
                   {Number(draft.setupFee || 0) > 0 ? (
@@ -1188,12 +1188,12 @@ export function ProposalEditModal({
                       onChange={(e) =>
                         updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
                       }
-                      placeholder="Valor do Setup (Isolado)"
+                      placeholder="Valor do setup"
                       className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
                     />
                   ) : (
                     <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
-                      Sem Setup (não exibido na proposta)
+                      Sem setup
                     </div>
                   )}
                 </div>
@@ -1366,7 +1366,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Subtotal Serviços
+                    Subtotal serviços
                   </span>
                   <strong className="text-xs font-extrabold text-indigo-900">
                     {formatBRL(draft.servicesSubtotal || 0)}
@@ -1374,9 +1374,10 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Desconto Global (R$ / %)
+                    Desconto
                   </span>
                   <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] text-slate-500">R$</span>
                     <input
                       type="number"
                       min={0}
@@ -1385,7 +1386,8 @@ export function ProposalEditModal({
                       onChange={(e) =>
                         updateDraft({ discountAmount: Math.max(0, Number(e.target.value) || 0) })
                       }
-                      title="Desconto Global R$"
+                      title="Desconto em R$"
+                      aria-label="Desconto em reais"
                       className="w-16 px-1.5 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
                     <input
@@ -1399,7 +1401,8 @@ export function ProposalEditModal({
                           discountPercentGlobal: Math.max(0, Number(e.target.value) || 0),
                         })
                       }
-                      title="Desconto Global %"
+                      title="Desconto em %"
+                      aria-label="Desconto em percentual"
                       className="w-12 px-1 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
                     <span className="text-[10px] text-slate-500">%</span>
@@ -1407,7 +1410,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Total Descontos
+                    Total de descontos
                   </span>
                   <strong className="text-xs font-extrabold text-slate-900">
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
@@ -1415,7 +1418,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Setup Único (Isolado)
+                    Setup único
                   </span>
                   <strong className="text-xs font-extrabold text-amber-800">
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
@@ -1423,7 +1426,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Frete (Isolado)
+                    Frete
                   </span>
                   <strong className="text-xs font-bold text-slate-800">
                     {formatBRL(draft.shippingCost || 0)}
@@ -1439,7 +1442,7 @@ export function ProposalEditModal({
                 </div>
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
                   <span className="text-[10px] uppercase font-bold text-emerald-300 block">
-                    Total / TCV ({draft.contractMonths}m)
+                    Total ({draft.contractMonths}m)
                   </span>
                   <strong className="text-sm font-black text-white">
                     {formatBRL(draft.totalContractValue)}
@@ -1666,7 +1669,7 @@ export function ProposalEditModal({
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Cláusulas Técnicas, Remessa CFOP 5.908 &amp; SLA (Sai no PDF)
+                  Cláusulas técnicas e SLA
                 </label>
                 <textarea
                   rows={3}
@@ -1676,15 +1679,16 @@ export function ProposalEditModal({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-amber-800 mb-1">
-                  Observações Internas (Uso exclusivo interno — NÃO sai no PDF)
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex flex-wrap items-center gap-2">
+                  <span>Observações internas</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-semibold normal-case">Não aparece na proposta</span>
                 </label>
                 <textarea
                   rows={3}
                   value={draft.internalNotes || ''}
                   onChange={(e) => updateDraft({ internalNotes: e.target.value })}
-                  placeholder="Anotações confidenciais da negociação, margem ou aprovação..."
-                  className="w-full px-3 py-2 rounded border border-amber-300 bg-amber-50/30"
+                  placeholder="Anotações da negociação, margem ou aprovação..."
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
             </div>

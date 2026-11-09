@@ -3552,7 +3552,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(pageSrc.includes("DADOS DA EMPRESA:"));
     assert.ok(pageSrc.includes("CONDIÇÕES GERAIS:"));
     assert.ok(pageSrc.includes("FRETE R$:"));
-    assert.equal(pageSrc.includes("Frete (Isolado)"), false);
+    assert.equal(pageSrc.includes("Frete"), false);
     assert.equal(pageSrc.includes("R$ 0,00 (Cortesia)"), false);
     assert.equal(pageSrc.includes("Valor Global do Orçamento"), false);
     assert.equal(pageSrc.includes("Subtotal Líquido"), false);
