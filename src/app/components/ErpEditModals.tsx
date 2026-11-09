@@ -2258,10 +2258,10 @@ export function ContractEditModal({
     const includePoMeasurement = opts?.includePoMeasurement === true;
     return (
     <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid={includePoMeasurement ? 'contract-data-po-bm' : 'contract-data-core'}>
-      <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
+      <span className="text-[11px] font-semibold text-[#1e3a6e] block">
         {includePoMeasurement
-          ? '1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)'
-          : '1. Dados do Contrato e Classificação GestãoClick'}
+          ? 'Pedido e medição'
+          : 'Dados do contrato'}
       </span>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-semibold`} /></div>
@@ -2961,13 +2961,13 @@ export function ContractEditModal({
           {activeTab === 'FATURAMENTO_RECIBOS' && (
             <div className="space-y-4" data-testid="contract-billing-tab">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                  FATURAMENTO DO CONTRATO — FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF), NFS-E OU NF-E REMESSA
-                </span>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-semibold text-slate-900">
-                    Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
-                  </h4>
+                  <div>
+                    <h4 className="text-sm font-semibold text-[#1e3a6e]">Faturamento</h4>
+                    <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                      Confira os dados antes de emitir a fatura mensal.
+                    </p>
+                  </div>
                   <ReceiptDraftPreviewButton onClick={() => setReceiptDraftOpen(true)} />
                 </div>
               </div>
@@ -2985,8 +2985,8 @@ export function ContractEditModal({
               {renderContractDataBlock({ includePoMeasurement: true })}
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
-                  2. Confira o Total da Locação / Faturamento (Produtos, Acréscimo, Desconto e Frete)
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Total da fatura
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
@@ -3052,8 +3052,8 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
-                  3. Regra de Vencimento Customizada, Recorrência, Forma de Pagamento e Automação de E-mails
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Regra de vencimento, recorrência e e-mails
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
@@ -3152,8 +3152,8 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
-                  4. Logística de Entrega e Retirada e Observações Impressas na Fatura
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Logística e observações da fatura
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div><label className={lblCls}>Cidade de Entrega</label><input type="text" value={draft.deliveryCity || ''} onChange={(e) => setDraft({ ...draft, deliveryCity: e.target.value })} className={inpCls} /></div>
@@ -3168,8 +3168,8 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-semibold uppercase text-[#1e3a6e] block">
-                  5. Próximos ciclos e faturas do contrato
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Próximos ciclos e faturas
                 </span>
                 <table className="w-full text-left text-xs">
                   <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Parcela</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Regra</th><th className="text-right">Valor</th></tr></thead>
@@ -3346,11 +3346,11 @@ export function ContractEditModal({
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="font-semibold text-slate-800 uppercase text-[11px] block">
-                    Produtos / Equipamentos do Contrato ({draft.equipments.length})
+                  <span className="font-semibold text-slate-800 text-sm block">
+                    Produtos do contrato ({draft.equipments.length})
                   </span>
-                  <span className="text-[11px] text-slate-500">
-                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-slate-800">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Itens locados neste contrato.
                   </span>
                 </div>
                 <button
@@ -3374,7 +3374,7 @@ export function ContractEditModal({
                   }}
                   className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-semibold cursor-pointer"
                 >
-                  + Adicionar Equipamento / Patrimônio (S/N)
+                  Adicionar produto
                 </button>
               </div>
 
