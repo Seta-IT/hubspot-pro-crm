@@ -99,7 +99,7 @@ function humanizePropKey(key: string): string {
     acquisitionChannel: 'Canal de Aquisição',
     canal_de_aquisicao: 'Canal de Aquisição',
     canal_aquisicao: 'Canal de Aquisição',
-    seats: 'Assentos / Ramais',
+    seats: 'Assentos ou ramais',
     contractMonths: 'Meses de contrato',
     contractNumber: 'Número do contrato',
     currentContract: 'Contrato atual',
@@ -110,8 +110,8 @@ function humanizePropKey(key: string): string {
     supplierName: 'Fornecedor',
     ocCode: 'Código OC',
     cfopRemessa: 'CFOP remessa',
-    seta_deal_modality: 'Modalidade Comercial (Locação SV 31 vs Venda/Serviço)',
-    hs_mrr_brl: 'Receita Mensal Recorrente (MRR R$)',
+    seta_deal_modality: 'Modalidade comercial',
+    hs_mrr_brl: 'Valor mensal',
   };
   if (known[key]) return known[key];
   return key

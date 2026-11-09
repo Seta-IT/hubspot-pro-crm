@@ -1724,7 +1724,7 @@ function PublicProposalPrintContent() {
               <div className="text-sm sm:text-base font-semibold text-slate-900">{proposal.companyName}</div>
               {!isPublicLinkMode && (
                 <div className="text-xs text-slate-600">
-                  <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
+                  <strong className="text-slate-800">CNPJ ou CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
                 </div>
               )}
               {(proposal.careOf || proposal.contactName) && (
@@ -1856,7 +1856,7 @@ function PublicProposalPrintContent() {
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  {hasSelectedSla ? "SLA Contratado" : "Condição de Pagamento"}
+                  {hasSelectedSla ? "SLA contratado" : "Condição de Pagamento"}
                 </span>
                 <span className="font-semibold text-slate-800">
                   {hasSelectedSla ? resolvedSla.shortLabel : displayPaymentCondition}

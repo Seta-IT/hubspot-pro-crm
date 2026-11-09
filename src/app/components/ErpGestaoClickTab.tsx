@@ -2535,7 +2535,7 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-900">Modelos de proposta (PDF A4)</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Modelos de proposta</h3>
               <div className="text-xs border border-slate-200 rounded-md divide-y divide-slate-100">
                 {([
                   {
@@ -2880,7 +2880,7 @@ export default function ErpGestaoClickTab({
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                        Mensalidade (MRR)
+                        Valor mensal
                       </span>
                       <span className="text-base font-semibold text-slate-800">
                         {formatBRL(prop.monthlyRecurringTotal)}/mês
@@ -3357,7 +3357,7 @@ export default function ErpGestaoClickTab({
                     onClick={() => printOrDownloadContractA4(contractA4PreviewModal.contract, contractA4PreviewModal.modality, getCustomClausesForModality(contractA4PreviewModal.modality))}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5" /> Imprimir / Salvar PDF A4
+                    <Printer className="w-3.5 h-3.5" /> Imprimir PDF
                   </button>
                   <button
                     type="button"
@@ -4583,7 +4583,7 @@ export default function ErpGestaoClickTab({
                     <td className="py-2 px-3">Locação pura de bens móveis (Dispensa NFS-e — LC 116/03)</td>
                     <td className="py-2 px-3">0% ISSQN (SV 31 STF)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
-                    <td className="py-2 px-3 text-slate-700">Gera Contas a Receber MRR (100% Líquido)</td>
+                    <td className="py-2 px-3 text-slate-700">Gera contas a receber (valor líquido)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.933 / 6.933</td>
@@ -6730,7 +6730,7 @@ export default function ErpGestaoClickTab({
             if (proRataInvoice) recordUpsertedInvoice(proRataInvoice);
             setPartialReturnModalContract(null);
             onShowToast(
-              `Devolução parcial e Rateio Pro-Rata aplicados ao contrato ${updatedCtr.contractNumber} (mantido ATIVO)! Novo MRR: ${formatBRL(updatedCtr.monthlyValue)}/mês.`
+              `Devolução parcial e Rateio Pro-Rata aplicados ao contrato ${updatedCtr.contractNumber} (mantido ATIVO)! Novo valor mensal: ${formatBRL(updatedCtr.monthlyValue)}/mês.`
             );
             await onRefresh();
             if (proRataInvoice) {
@@ -6779,7 +6779,7 @@ export default function ErpGestaoClickTab({
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{readjustModal.contract.title}</div>
                 <div className="text-slate-500">
-                  Cliente: <strong>{readjustModal.contract.companyName}</strong> • Mensalidade Atual:{" "}
+                  Cliente: <strong>{readjustModal.contract.companyName}</strong> • Valor mensal atual:{" "}
                   <strong className="text-slate-900">{formatBRL(readjustModal.contract.monthlyValue)}/mês</strong>
                 </div>
               </div>
@@ -6824,7 +6824,7 @@ export default function ErpGestaoClickTab({
               <div className="p-3.5 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase text-slate-800 block">
-                    Nova Mensalidade Após Reajuste (+{Number(readjustModal.percentage || 0).toFixed(2)}%)
+                    Novo valor mensal após reajuste (+{Number(readjustModal.percentage || 0).toFixed(2)}%)
                   </span>
                   <strong className="text-base font-semibold text-slate-800">
                     {formatBRL(Math.round(readjustModal.contract.monthlyValue * (1 + (Number(readjustModal.percentage) || 0) / 100) * 100) / 100)}/mês
@@ -7780,16 +7780,16 @@ export default function ErpGestaoClickTab({
               </h4>
               <p className="text-[#516f90]">{selectedProposalForPrint.commercialNotes}</p>
               <p className="text-[#516f90]">
-                <strong>Cláusulas Técnicas &amp; SLA:</strong>{' '}
+                <strong>Cláusulas técnicas e SLA:</strong>{' '}
                 {selectedProposalForPrint.technicalClauses}
               </p>
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-[4px] flex justify-between items-center">
                 <span className="font-bold text-slate-800">
-                  Mensalidade Recorrente (MRR):{' '}
+                  Valor mensal:{' '}
                   {formatBRL(selectedProposalForPrint.monthlyRecurringTotal)}/mês
                 </span>
                 <span className="font-semibold text-slate-800 text-sm">
-                  Valor Global ({selectedProposalForPrint.contractMonths} meses):{' '}
+                  Valor total ({selectedProposalForPrint.contractMonths} meses):{' '}
                   {formatBRL(selectedProposalForPrint.totalContractValue)}
                 </span>
               </div>
@@ -7808,7 +7808,7 @@ export default function ErpGestaoClickTab({
                   Seta Telecom • Orçamentos &amp; Propostas Comerciais
                 </span>
                 <h3 className="text-sm font-semibold">
-                  Criar Nova Proposta Comercial (PDF A4; link assinado para o cliente)
+                  Nova proposta comercial
                 </h3>
               </div>
               <button
@@ -7822,7 +7822,7 @@ export default function ErpGestaoClickTab({
             <form onSubmit={handleCreateProposalSubmit} className="p-6 space-y-3.5 text-xs">
               <div>
                 <label className="block font-bold text-[#33475b] mb-1">
-                  Título / Escopo da Proposta Comercial *
+                  Nome da proposta *
                 </label>
                 <input
                   type="text"
@@ -7837,7 +7837,7 @@ export default function ErpGestaoClickTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#33475b] mb-1">
-                    Selecionar Cliente Cadastrado (GestãoClick / CRM)
+                    Cliente
                   </label>
                   <select
                     value={propCompanyId}
@@ -7868,7 +7868,7 @@ export default function ErpGestaoClickTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-bold text-[#33475b] mb-1">CNPJ / CPF do Cliente</label>
+                  <label className="block font-bold text-[#33475b] mb-1">CNPJ ou CPF do Cliente</label>
                   <input
                     type="text"
                     value={propCustomCnpj}
@@ -7904,7 +7904,7 @@ export default function ErpGestaoClickTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#33475b] mb-1">
-                    Equipamento / Serviço Principal (Catálogo GestãoClick)
+                    Produto ou serviço
                   </label>
                   <select
                     value={propSku}

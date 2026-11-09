@@ -626,7 +626,7 @@ export function ProposalEditModal({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-bold text-slate-600">Layout / Template da Proposta:</label>
+                <label className="text-[11px] font-bold text-slate-600">Modelo da proposta</label>
                 <select
                   value={resolveProposalLayoutKind(draft.templateStyle)}
                   onChange={(e) =>
@@ -643,7 +643,7 @@ export function ProposalEditModal({
                   ))}
                 </select>
 
-                <label className="text-[11px] font-bold text-slate-600">Tipo de Orçamento:</label>
+                <label className="text-[11px] font-bold text-slate-600">Tipo de orçamento</label>
                 <select
                   value={draft.budgetType || 'LOCACAO'}
                   onChange={(e) =>
@@ -655,8 +655,8 @@ export function ProposalEditModal({
                 >
                   <option value="PRODUTOS">Orçamento de Produtos</option>
                   <option value="SERVICOS">Orçamento de Serviços</option>
-                  <option value="CONJUNTO">Orçamento Conjunto (Produtos + Serviços)</option>
-                  <option value="LOCACAO">Locação Pura &amp; Conectividade (MRR)</option>
+                  <option value="CONJUNTO">Orçamento conjunto</option>
+                  <option value="LOCACAO">Locação Pura &amp; Conectividade</option>
                 </select>
               </div>
             </div>
@@ -967,7 +967,7 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ / CPF | Prazo Contratual */}
+              {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ ou CPF | Prazo Contratual */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                 <div className="sm:col-span-3">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
@@ -983,7 +983,7 @@ export function ProposalEditModal({
                   />
                   <datalist id="gestaoclick-cost-centers">
                     <option value="Comercial Telecom & TI" />
-                    <option value="Locação de Ativos (MRR)" />
+                    <option value="Locação de Ativos" />
                     <option value="Projetos & Engenharia NOC" />
                     <option value="VENDAS" />
                   </datalist>
@@ -991,7 +991,7 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-5">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Título / Escopo Comercial da Proposta <span className="text-rose-600">*</span>
+                    Nome da proposta <span className="text-rose-600">*</span>
                   </label>
                   <input
                     type="text"
@@ -1004,7 +1004,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ / CPF</label>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ ou CPF</label>
                   <input
                     type="text"
                     placeholder="00.000.000/0000-00"
@@ -1016,7 +1016,7 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Tempo de Contrato (Meses) *
+                    Prazo do contrato (meses) *
                   </label>
                   <input
                     type="number"
@@ -1036,7 +1036,7 @@ export function ProposalEditModal({
                 <div className="p-3.5 rounded-md border border-indigo-200 bg-indigo-50/50 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="block text-[11px] font-semibold text-indigo-950">
-                      Tipo de Serviço (Exibido no Cabeçalho e Escopo da Proposta de Serviços) *
+                      Tipo de serviço *
                     </label>
                     <span className="text-[10px] text-indigo-700">
                       Clique nos botões abaixo para combinar ou digite livremente
@@ -1097,7 +1097,7 @@ export function ProposalEditModal({
                 {draft.budgetType !== "PRODUTOS" && (
                   <div className="sm:col-span-4">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
-                      SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
+                      SLA contratado <span className="text-rose-600">*</span>
                     </label>
                     <select
                       value={resolveProposalSlaOption(draft).id}
@@ -1453,7 +1453,7 @@ export function ProposalEditModal({
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-[#1e3a6e]" />
                     <span className="font-extrabold text-slate-800">
-                      Gerador de Parcelas e Vencimentos (Padrão GestãoClick)
+                      Parcelas e vencimentos
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1845,12 +1845,12 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  MRR Mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
+                  Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
                   <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
                 <strong className="text-base font-black text-[#1e3a6e]">
-                  Valor Global ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
+                  Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
                 </strong>
               </div>
               <button
@@ -1862,7 +1862,7 @@ export function ProposalEditModal({
                 {saving
                   ? 'Salvando...'
                   : isNew
-                    ? 'Cadastrar Orçamento & Gerar Link PDF A4'
+                    ? 'Salvar orçamento'
                     : 'Salvar Alterações & Atualizar Link PDF'}
               </button>
             </div>
@@ -1878,7 +1878,7 @@ export function ProposalEditModal({
                   <Building2 className="w-5 h-5" />
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 block">
-                      Cadastro Rápido Integrado ao Orçamento (Receita Federal + GestãoClick)
+                      Cadastro rápido do cliente
                     </span>
                     <h3 className="text-sm font-extrabold">
                       + Adicionar Novo Cliente e Vincular Automaticamente à Proposta
@@ -1990,7 +1990,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                    <label className="block font-bold text-slate-700 mb-1">Telefone ou WhatsApp</label>
                     <input
                       type="text"
                       value={qcPhone}
@@ -2000,7 +2000,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail Comercial / NFe</label>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail comercial</label>
                     <input
                       type="email"
                       value={qcEmail}
@@ -2507,7 +2507,7 @@ export function ContractEditModal({
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Objeto / Título do Contrato *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Nome do contrato *</label>
                   <input
                     type="text"
                     required
@@ -2535,7 +2535,7 @@ export function ContractEditModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Cliente *</label>
                   <input
                     type="text"
                     required
@@ -2585,7 +2585,7 @@ export function ContractEditModal({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prazo (Meses)</label>
+                  <label className="block font-bold text-slate-700 mb-1">Prazo (meses)</label>
                   <input
                     type="number"
                     min={1}
@@ -2637,7 +2637,7 @@ export function ContractEditModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Mensalidade (R$)</label>
+                  <label className="block font-bold text-slate-700 mb-1">Valor mensal (R$)</label>
                   <input
                     type="number"
                     min={0}
@@ -2654,7 +2654,7 @@ export function ContractEditModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">NF-e Remessa Nº &amp; CFOP</label>
+                  <label className="block font-bold text-slate-700 mb-1">NF-e remessa e CFOP</label>
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
@@ -2676,7 +2676,7 @@ export function ContractEditModal({
                   </div>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
+                  <label className="block font-bold text-slate-700 mb-1">Amparo legal e observações fiscais</label>
                   <input
                     type="text"
                     value={draft.legalBasisNote}
@@ -2867,7 +2867,7 @@ export function ContractEditModal({
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Cliente / Razão Social</label>
+                    <label className="block font-bold text-slate-700 mb-1">Cliente</label>
                     <input
                       type="text"
                       value={draft.companyName}
@@ -2942,7 +2942,7 @@ export function ContractEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Objeto / Escopo do Contrato</label>
+                    <label className="block font-bold text-slate-700 mb-1">Nome do contrato</label>
                     <input
                       type="text"
                       value={draft.title}
@@ -3296,7 +3296,7 @@ export function ContractEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Mensalidade Atual (R$)</label>
+                    <label className="block font-bold text-slate-700 mb-1">Valor mensal atual (R$)</label>
                     <input
                       type="number"
                       value={draft.monthlyValue}
@@ -3307,7 +3307,7 @@ export function ContractEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
+                    <label className="block font-bold text-slate-700 mb-1">Novo valor mensal</label>
                     <div className="px-3 py-2 rounded bg-slate-50 border border-slate-200 font-semibold text-slate-800">
                       {formatBRL(
                         Math.round(
@@ -3753,7 +3753,7 @@ export interface GenericFieldSpec {
 
 export const SERVICE_ORDER_EDITOR_FIELDS: GenericFieldSpec[] = [
   { key: 'code', label: 'Nº da O.S.' },
-  { key: 'companyName', label: 'Cliente / Razão Social *' },
+  { key: 'companyName', label: 'Cliente *' },
   {
     key: 'technicianName',
     label: 'Técnico Responsável',
@@ -3803,7 +3803,7 @@ export const SERVICE_ORDER_EDITOR_FIELDS: GenericFieldSpec[] = [
 ];
 
 export const CATALOG_ITEM_EDITOR_FIELDS: GenericFieldSpec[] = [
-  { key: 'gestaoClickCode', label: 'Código / SKU GestãoClick *' },
+  { key: 'gestaoClickCode', label: 'Código / SKU *' },
   { key: 'name', label: 'Descrição do Equipamento / Serviço *' },
   {
     key: 'category',

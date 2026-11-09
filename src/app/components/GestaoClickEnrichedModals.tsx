@@ -2873,7 +2873,7 @@ export function PartialEquipmentReturnProRataModal({
             </div>
             <div className="bg-white/10 p-2 rounded border border-slate-200">
               <span className="text-[10px] uppercase text-slate-200 font-semibold block">
-                Novo MRR (Próximos Meses)
+                Novo valor mensal
               </span>
               <strong className="text-base font-semibold text-white">
                 {formatBRL(newRecurringMonthlyValue)}/mês

@@ -1581,7 +1581,7 @@ export default function HubSpotProCrmApp() {
                   className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] bg-white/10 hover:bg-white/15 text-[11px] font-semibold text-white border border-white/20 transition cursor-pointer"
                 >
                   <Receipt className="w-3.5 h-3.5 text-[#7fe3d4]" />
-                  <span>MRR Locação:</span>
+                  <span>Valor mensal:</span>
                   <strong className="text-[#7fe3d4]">{formatBRL(erpData?.kpis?.monthlyRentalMrr ?? 0)}</strong>
                 </button>
 

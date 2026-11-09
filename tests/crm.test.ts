@@ -3086,7 +3086,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(created.totalContractValue, 3000 * 24 + 1500 + 350);
 
     // 6. SLA é um campo selecionável durante a criação/edição da proposta
-    assert.ok(modalsSrc.includes("SLA Contratado (Acordo de Nível de Serviço)"));
+    assert.ok(modalsSrc.includes("SLA contratado"));
     assert.ok(Array.isArray(shareMod.PROPOSAL_SLA_OPTIONS) && shareMod.PROPOSAL_SLA_OPTIONS.length >= 4);
 
     // 7. Seletor de templates persiste no link compartilhado (?d=), no estado/API e altera o layout

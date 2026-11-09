@@ -313,7 +313,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'LOC-2026-102 — RD Station (R$ 6.600/mês • CFOP 6.908)',
       'LOC-2026-103 — VTEX Commerce Cloud Brasil (R$ 5.250/mês • IPCA)',
     ],
-    requiredFieldsVerified: ['Nº Contrato', 'Locatária & CNPJ', 'Mensalidade (MRR)', 'Dia Vencimento', 'Índice Reajuste (IPCA/IGP-M)', 'Equipamentos S/N'],
+    requiredFieldsVerified: ['Nº Contrato', 'Locatária & CNPJ', 'Valor mensal', 'Dia Vencimento', 'Índice Reajuste (IPCA/IGP-M)', 'Equipamentos S/N'],
     cnpjFiscalLockCheck: 'Amparo legal LC 116/2003 + Súmula Vinculante 31 STF (0% ISS) + NF-e Remessa CFOP 5.908.',
     relationalIntegrityCheck: 'Geração de Fatura Mensal em lote, NF-e de Remessa e vínculo com Chamados/O.S. por S/N.',
     validationStatus: 'PASSOU',
