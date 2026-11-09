@@ -1383,7 +1383,7 @@ export default function DealsKanbanTab({
                             onClick={() => openDealDetail(deal)}
                             className="px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-white font-semibold text-[11px] cursor-pointer"
                           >
-                            Abrir / Editar
+                            Abrir
                           </button>
                           <button
                             type="button"
@@ -1460,7 +1460,7 @@ export default function DealsKanbanTab({
                     onClick={() => openDealDetail(deal)}
                     className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold text-xs cursor-pointer shrink-0"
                   >
-                    Abrir / Editar
+                    Abrir
                   </button>
                 </div>
               </div>

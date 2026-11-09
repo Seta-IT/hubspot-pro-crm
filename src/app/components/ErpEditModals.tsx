@@ -196,7 +196,7 @@ export function ProposalEditModal({
       });
       setVersionChangeNote(`Restaurado a partir da revisão ${entry.versionLabel}`);
       onShowToast?.(
-        `Dados da ${entry.versionLabel} carregados no formulário! Clique em "Salvar Alterações" para gravar a nova revisão.`
+        `Dados da ${entry.versionLabel} carregados no formulário! Clique em "Salvar" para gravar a nova revisão.`
       );
     } finally {
       setRestoringVersionNum(null);
@@ -1829,10 +1829,10 @@ export function ProposalEditModal({
                 <button
                   type="button"
                   onClick={() => onGenerateContract(draft)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
                   <FileCheck2 className="w-4 h-4" />
-                  <span>Gerar Contrato</span>
+                  <span>Gerar contrato</span>
                 </button>
               )}
             </div>
@@ -1851,14 +1851,14 @@ export function ProposalEditModal({
               <button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm cursor-pointer"
               >
                 <Save className="w-4 h-4" />
                 {saving
                   ? 'Salvando...'
                   : isNew
-                    ? 'Salvar orçamento'
-                    : 'Salvar Alterações & Atualizar Link PDF'}
+                    ? 'Salvar'
+                    : 'Salvar'}
               </button>
             </div>
           </div>
@@ -2963,7 +2963,7 @@ export function ContractEditModal({
                     onClick={handleConfirmRenewalAndSave}
                     className="px-6 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                   >
-                    {saving ? 'Confirmando Renovação...' : 'Confirmar Renovação de Vigência e Salvar Alterações'}
+                    {saving ? 'Confirmando Renovação...' : 'Confirmar renovação'}
                   </button>
                 </div>
               </div>
@@ -3207,7 +3207,7 @@ export function ContractEditModal({
                           <td>{inv.status}</td>
                           <td className="text-right font-bold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
                           <td className="text-right whitespace-nowrap">
-                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-bold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Imprimir / PDF Fatura A4</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-bold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Baixar PDF</button>
                             <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-bold cursor-pointer">Baixar Fatura HTML</button>
                           </td>
                         </tr>
@@ -3558,7 +3558,7 @@ export function ContractEditModal({
                   disabled={saving}
                   className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                 >
-                  {saving ? 'Salvando...' : 'Salvar Alterações do Contrato'}
+                  {saving ? 'Salvando...' : 'Salvar'}
                 </button>
               )}
             </div>

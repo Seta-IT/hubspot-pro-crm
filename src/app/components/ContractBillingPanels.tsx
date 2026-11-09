@@ -347,7 +347,7 @@ export function ReceiptDraftPreviewModal({
             }}
             className="mr-auto px-2.5 py-2 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer"
           />
-          <button type="button" onClick={print} className={`px-3 py-2 ${BTN_OUTLINE}`}>Imprimir / Baixar PDF</button>
+          <button type="button" onClick={print} className={`px-3 py-2 ${BTN_OUTLINE}`}>Baixar PDF</button>
           <button type="button" onClick={onClose} disabled={finalizing} className={`px-3 py-2 ${BTN_OUTLINE}`}>Voltar e editar</button>
           {onFinalize && (
             <button
@@ -433,10 +433,10 @@ export function ContractBillingHistoryPanel({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <ReceiptDraftPreviewButton onClick={() => setDraftPreview({ options: { competenceMonth: '11/2026' }, finalize: onGenerateNew ? () => onGenerateNew() : undefined })} />
-          {onGenerateNew && <button type="button" onClick={() => void onGenerateNew()} className={`px-3 py-1.5 ${BTN_PRIMARY}`}>+ Gerar novo faturamento</button>}
-          {onGenerateCustom && <button type="button" onClick={() => setShowCustom((v) => !v)} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Personalizar competência / valor</button>}
-          <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(contract, list)} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Baixar histórico (CSV / Excel)</button>
-          <button type="button" onClick={() => downloadContractBillingHistoryReportOnDemand(contract, list, 'PRINT')} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Imprimir relatório (PDF / A4)</button>
+          {onGenerateNew && <button type="button" onClick={() => void onGenerateNew()} className={`px-3 py-1.5 ${BTN_PRIMARY}`}>+ Faturar</button>}
+          {onGenerateCustom && <button type="button" onClick={() => setShowCustom((v) => !v)} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Personalizar</button>}
+          <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(contract, list)} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Baixar CSV</button>
+          <button type="button" onClick={() => downloadContractBillingHistoryReportOnDemand(contract, list, 'PRINT')} className={`px-3 py-1.5 ${BTN_OUTLINE}`}>Imprimir relatório</button>
         </div>
       </div>
 
@@ -474,7 +474,7 @@ export function ContractBillingHistoryPanel({
 
       {view === 'EMITIDAS' ? (
         list.length === 0 ? (
-          <div className="p-3 rounded bg-white border border-dashed border-slate-300 text-slate-600">Nenhuma fatura emitida ainda para este contrato. Clique em <strong className="font-semibold">+ Gerar novo faturamento</strong>.</div>
+          <div className="p-3 rounded bg-white border border-dashed border-slate-300 text-slate-600">Nenhuma fatura emitida ainda para este contrato. Clique em <strong className="font-semibold">+ Faturar</strong>.</div>
         ) : (
           <div className="overflow-x-auto rounded border border-slate-200 bg-white">
             <table className="w-full text-left text-[11px]">
@@ -532,7 +532,7 @@ export function ContractBillingHistoryPanel({
                     <td className="py-1.5 px-2 font-semibold">{cy.dueDateBr}</td>
                     <td className="py-1.5 px-2">{cy.recurrenceLabel}{cy.ruleLabel ? ` • ${cy.ruleLabel}` : ''}</td>
                     <td className="py-1.5 px-2 text-right font-semibold">{formatBRL(cy.expectedAmountBrl)}</td>
-                    <td className="py-1.5 px-2 text-right">{onGenerateCustom && <button type="button" onClick={() => void onGenerateCustom({ competenceMonth: cy.competenceMonth, dueDate: cy.dueDateIso })} className={`px-2 py-0.5 ${BTN_OUTLINE}`}>Antecipar / Emitir agora</button>}</td>
+                    <td className="py-1.5 px-2 text-right">{onGenerateCustom && <button type="button" onClick={() => void onGenerateCustom({ competenceMonth: cy.competenceMonth, dueDate: cy.dueDateIso })} className={`px-2 py-0.5 ${BTN_OUTLINE}`}>Emitir agora</button>}</td>
                   </tr>
                 ))}
               </tbody>

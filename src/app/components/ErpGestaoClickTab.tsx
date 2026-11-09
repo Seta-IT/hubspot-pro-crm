@@ -6907,7 +6907,7 @@ export default function ErpGestaoClickTab({
                   Cancelar
                 </button>
                 <button type="submit" className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer">
-                  Salvar Patrimônio / S/N
+                  Salvar S/N
                 </button>
               </div>
             </form>
@@ -7514,7 +7514,7 @@ export default function ErpGestaoClickTab({
                 );
               })()}
 
-              {/* Acordeão 2: Versões anteriores (com os 3 botões diretos: Abrir Tela, PDF e Restaurar) */}
+              {/* Acordeão 2: Versões anteriores */}
               {(() => {
                 const versions: ErpProposalVersionEntry[] =
                   Array.isArray(statusModalProposal.versionHistory) &&
