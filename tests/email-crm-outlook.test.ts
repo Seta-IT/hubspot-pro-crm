@@ -511,9 +511,9 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
     assert.match(company, /contactId: companyDetail\.contacts\?\.\[0\]\?\.id/);
     assert.match(company, /defaultTo=\{companyDetail\.contacts\?\.\[0\]\?\.email/);
 
-    const deal = readSrc('src/app/components/DealsKanbanTab.tsx');
-    assert.match(deal, /dealId: selectedDeal\.id/);
-    assert.match(deal, /defaultTo=\{selectedDeal\.contact\?\.email/);
+    const deal = readSrc('src/app/components/DealRecordDrawer.tsx');
+    assert.match(deal, /dealId: deal\.id/);
+    assert.match(deal, /defaultTo=\{deal\.contact\?\.email/);
     assert.match(deal, /suggestions=\{contacts/);
   });
 });

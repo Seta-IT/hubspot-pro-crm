@@ -1983,7 +1983,7 @@ function PublicProposalPrintContent() {
                 <strong className="text-sm font-semibold text-amber-900">
                   {formatBRL(displaySetupAmount)}
                 </strong>
-                <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
+                <span className="block text-[10px] text-slate-500">Taxa única</span>
               </div>
             )}
             <div>

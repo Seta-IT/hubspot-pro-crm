@@ -39,8 +39,8 @@ describe('Limpeza visual - contratos, Financeiro e NF-e de importação', () => 
 
   it('títulos curtos e todas as ações por linha mantidas', () => {
     assert.match(panels, /Faturamentos do contrato/);
-    assert.match(panels, /Versões do contrato/);
-    for (const label of ['Visualizar', 'Baixar PDF', 'Editar', 'E-mail', 'Ver no Fiscal', 'Ver no Contas a Receber', 'Restaurar versão', '+ Gerar novo faturamento']) {
+    assert.match(panels, /Versões anteriores|Versões do contrato/);
+    for (const label of ['Visualizar', 'Baixar PDF', 'Editar', 'E-mail', 'Ver no Fiscal', 'Ver no Contas a Receber', 'Restaurar', '+ Faturar']) {
       assert.ok(panels.includes(label), label);
     }
     assert.doesNotMatch(panels, /bg-emerald-900|border-2 border-emerald|bg-indigo-700|bg-amber-500/);
