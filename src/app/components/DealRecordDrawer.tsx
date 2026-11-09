@@ -28,16 +28,29 @@ import type { EnrichedDeal } from './DealsKanbanTab';
 
 function dash(v: unknown): string {
   if (v === null || v === undefined || v === '') return '--';
+  if (typeof v === 'boolean') return v ? 'Verdadeiro' : 'Falso';
   return String(v);
 }
 
-function formatDateBR(iso: string | null | undefined): string {
+/** Datas no padrão HubSpot local: 08/09/2026 16:18 */
+function formatPropDateTime(iso: string | null | undefined): string {
   if (!iso) return '--';
   try {
-    return new Date(iso).toLocaleDateString('pt-BR');
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '--';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
   } catch {
     return '--';
   }
+}
+
+function formatDateBR(iso: string | null | undefined): string {
+  return formatPropDateTime(iso) === '--' ? '--' : formatPropDateTime(iso).slice(0, 10);
 }
 
 function monthKey(iso: string): string {
@@ -49,6 +62,132 @@ function monthKey(iso: string): string {
 function propVal(deal: EnrichedDeal, key: string): unknown {
   const cp = deal.customProperties || {};
   return cp[key];
+}
+
+function firstProp(deal: EnrichedDeal, keys: string[]): unknown {
+  const cp = deal.customProperties || {};
+  for (const k of keys) {
+    if (cp[k] !== undefined && cp[k] !== null && cp[k] !== '') return cp[k];
+  }
+  return undefined;
+}
+
+function humanizePropKey(key: string): string {
+  const known: Record<string, string> = {
+    proposalNumber: 'Número da Proposta',
+    proposalCode: 'Número da Proposta',
+    numero_da_proposta: 'Número da Proposta',
+    link_da_proposta: 'Link da Proposta',
+    proposalLink: 'Link da Proposta',
+    description: 'Descrição do negócio',
+    descricao_do_negocio: 'Descrição do negócio',
+    deal_description: 'Descrição do negócio',
+    solutionTag: 'Solução',
+    solucao: 'Solução',
+    acquisitionChannel: 'Canal de Aquisição',
+    canal_de_aquisicao: 'Canal de Aquisição',
+    canal_aquisicao: 'Canal de Aquisição',
+    seats: 'Assentos / Ramais',
+    contractMonths: 'Meses de contrato',
+    contractNumber: 'Número do contrato',
+    currentContract: 'Contrato atual',
+    legalReviewPending: 'Revisão jurídica pendente',
+    paymentTerms: 'Condição de pagamento',
+    pocApproved: 'POC aprovada',
+    proposalVersion: 'Versão da proposta',
+    supplierName: 'Fornecedor',
+    ocCode: 'Código OC',
+    cfopRemessa: 'CFOP remessa',
+    seta_deal_modality: 'Modalidade Comercial (Locação SV 31 vs Venda/Serviço)',
+    hs_mrr_brl: 'Receita Mensal Recorrente (MRR R$)',
+  };
+  if (known[key]) return known[key];
+  return key
+    .replace(/^hs_/, '')
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function isInternalCustomKey(key: string): boolean {
+  const k = key.toLowerCase();
+  if (k === 'hs_object_id' || k === 'objectid' || k === 'portalid') return true;
+  if (/^hs_.*(_timestamp|_id|_ids)$/.test(k)) return true;
+  if (k.endsWith('_timestamp') || k.endsWith('timestamp')) return true;
+  if (k === 'id' || k === 'dealid' || k === 'hubspot_owner_id') return true;
+  if (k.startsWith('hs_analytics_') || k.startsWith('hs_date_entered') || k.startsWith('hs_time_in')) return true;
+  if (k.startsWith('hs_v2_') || k === 'hs_all_assigned_business_unit_ids') return true;
+  return false;
+}
+
+const CANONICAL_CUSTOM_KEYS = new Set([
+  'proposalNumber',
+  'proposalCode',
+  'numero_da_proposta',
+  'numero_proposta',
+  'link_da_proposta',
+  'proposalLink',
+  'link_proposta',
+  'description',
+  'descricao_do_negocio',
+  'deal_description',
+  'descricao',
+  'solutionTag',
+  'solucao',
+  'solução',
+  'acquisitionChannel',
+  'canal_de_aquisicao',
+  'canal_aquisicao',
+  'last_meeting_scheduled',
+  'data_da_ultima_reuniao_agendada',
+  'hs_last_meeting_date',
+  'notes_last_contacted',
+  'ultimo_contato',
+  'hs_mrr_brl',
+  'amount',
+  'dealname',
+  'closedate',
+  'dealstage',
+  'pipeline',
+  'hs_is_closed',
+  'hubspot_owner_id',
+  'seta_deal_modality',
+]);
+
+type AboutRow = {
+  label: string;
+  value: string;
+  href?: string | null;
+  tags?: string[];
+  key: string;
+};
+
+function dealTypeAsTag(dealType: EnrichedDeal['dealType']): string | null {
+  if (!dealType) return null;
+  if (dealType === 'LOCACAO_RECORRENTE') return 'Locação Recorrente (0% ISS)';
+  if (dealType === 'UPSELL_RENOVACAO') return 'Upsell / Renovação';
+  if (dealType === 'NEW_BUSINESS') return 'Novo Negócio B2B';
+  return String(dealType);
+}
+
+function formatCustomValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '--';
+  if (typeof v === 'boolean') return v ? 'Verdadeiro' : 'Falso';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '--';
+  if (typeof v === 'string') {
+    // ISO date-ish
+    if (/^\d{4}-\d{2}-\d{2}T/.test(v) || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      const f = formatPropDateTime(v);
+      return f;
+    }
+    return v;
+  }
+  if (Array.isArray(v)) return v.map((x) => dash(x)).join(', ') || '--';
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
 
 export interface DealRecordDrawerProps {
@@ -104,6 +243,7 @@ export default function DealRecordDrawer({
   const [noteBody, setNoteBody] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [showAllAbout, setShowAllAbout] = useState(false);
 
   const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
   const monthly = deal.mrr ?? null;
@@ -131,38 +271,123 @@ export default function DealRecordDrawer({
     return Array.from(map.entries());
   }, [filteredTimeline]);
 
-  const aboutRows: Array<{ label: string; value: string }> = [
-    { label: 'Nome do Negócio', value: dash(deal.title) },
-    { label: 'Número da Proposta', value: dash(propVal(deal, 'proposalNumber') || proposals[0]?.code) },
+  const proposalLinkRaw =
+    firstProp(deal, ['link_da_proposta', 'proposalLink', 'link_proposta']) ||
+    (proposals[0] ? buildInternalProposalUrl(proposals[0]) : null);
+  const proposalLink = proposalLinkRaw ? String(proposalLinkRaw) : null;
+
+  const solutionRaw = firstProp(deal, ['solutionTag', 'solucao', 'solução', 'seta_deal_modality']);
+  const solutionTags: string[] = [];
+  if (Array.isArray(solutionRaw)) {
+    for (const s of solutionRaw) if (s) solutionTags.push(String(s));
+  } else if (typeof solutionRaw === 'string' && solutionRaw.trim()) {
+    solutionTags.push(...solutionRaw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean));
+  }
+  const dealTypeTag = dealTypeAsTag(deal.dealType);
+  if (dealTypeTag && !solutionTags.includes(dealTypeTag)) solutionTags.push(dealTypeTag);
+
+  const lastMeetingFromTimeline = timeline
+    .filter((e) => e.type === 'MEETING')
+    .map((e) => e.createdAt)
+    .sort((a, b) => +new Date(b) - +new Date(a))[0];
+  const lastMeeting =
+    firstProp(deal, ['last_meeting_scheduled', 'data_da_ultima_reuniao_agendada', 'hs_last_meeting_date']) ||
+    lastMeetingFromTimeline ||
+    null;
+
+  const lastContact =
+    firstProp(deal, ['notes_last_contacted', 'ultimo_contato', 'hs_last_contacted']) || deal.lastActivityAt;
+
+  const description =
+    firstProp(deal, ['description', 'descricao_do_negocio', 'deal_description', 'descricao']) || null;
+
+  const aboutRowsAll: AboutRow[] = [
+    { key: 'dealname', label: 'Nome do negócio', value: dash(deal.title) },
     {
+      key: 'proposal_number',
+      label: 'Número da Proposta',
+      value: dash(
+        firstProp(deal, ['proposalNumber', 'proposalCode', 'numero_da_proposta', 'numero_proposta']) ||
+          proposals[0]?.code
+      ),
+    },
+    {
+      key: 'proposal_link',
       label: 'Link da Proposta',
-      value: proposals[0] ? buildInternalProposalUrl(proposals[0]) : '--',
+      value: proposalLink || '--',
+      href: proposalLink,
     },
-    { label: 'Descrição', value: dash(propVal(deal, 'description') || deal.nextBestAction?.title) },
-    { label: 'Valor mensal', value: monthly != null ? formatBRL(monthly) : '--' },
-    { label: 'Valor total', value: total != null ? formatBRL(total) : '--' },
-    { label: 'Pipeline', value: dash(pipelineName) },
-    { label: 'Etapa', value: dash(stageName) },
-    { label: 'Solução como etiqueta', value: dash(propVal(deal, 'solutionTag') || deal.dealType) },
-    { label: 'Canal de Aquisição', value: dash(propVal(deal, 'acquisitionChannel')) },
+    { key: 'description', label: 'Descrição do negócio', value: dash(description) },
     {
-      label: 'Descrição Motivo Ganho/Perda',
-      value: dash(deal.wonReason || deal.lostReason),
+      key: 'mrr',
+      label: 'Valor mensal',
+      value: monthly != null ? formatBRL(monthly) : dash(firstProp(deal, ['hs_mrr_brl'])),
     },
-    { label: 'Data de criação', value: formatDateBR(deal.createdAt) },
-    { label: 'Próxima etapa', value: dash(deal.nextBestAction?.title) },
-    { label: 'Data de fechamento', value: formatDateBR(deal.expectedCloseDate) },
-    { label: 'Última modificação', value: formatDateBR(deal.updatedAt) },
-    { label: 'Última atividade', value: formatDateBR(deal.lastActivityAt) },
-    { label: 'Proprietário', value: dash(deal.ownerName) },
-    { label: 'Probabilidade', value: `${deal.probability ?? 0}%` },
-    { label: 'Último contato', value: formatDateBR(deal.lastActivityAt) },
     {
+      key: 'amount',
+      label: 'Valor total',
+      value: total != null ? formatBRL(total) : '--',
+    },
+    { key: 'pipeline', label: 'Pipeline', value: dash(pipelineName) },
+    { key: 'dealstage', label: 'Etapa do negócio', value: dash(stageName) },
+    {
+      key: 'solution',
+      label: 'Solução',
+      value: solutionTags.length ? solutionTags.join(', ') : '--',
+      tags: solutionTags.length ? solutionTags : undefined,
+    },
+    {
+      key: 'acquisition',
+      label: 'Canal de Aquisição',
+      value: dash(firstProp(deal, ['acquisitionChannel', 'canal_de_aquisicao', 'canal_aquisicao'])),
+    },
+    { key: 'won_reason', label: 'Descrição Motivo Ganho', value: dash(deal.wonReason) },
+    { key: 'lost_reason', label: 'Descrição Motivo Perda', value: dash(deal.lostReason) },
+    { key: 'createdate', label: 'Data de criação', value: formatPropDateTime(deal.createdAt) },
+    { key: 'next_step', label: 'Próxima etapa', value: dash(deal.nextBestAction?.title) },
+    { key: 'closedate', label: 'Data de fechamento', value: formatPropDateTime(deal.expectedCloseDate) },
+    { key: 'hs_lastmodifieddate', label: 'Data da última modificação', value: formatPropDateTime(deal.updatedAt) },
+    { key: 'notes_last_updated', label: 'Data da última atividade', value: formatPropDateTime(deal.lastActivityAt) },
+    { key: 'hubspot_owner_id', label: 'Proprietário do negócio', value: dash(deal.ownerName) },
+    {
+      key: 'hs_deal_stage_probability',
+      label: 'Probabilidade da fase de negócios (%)',
+      value: deal.probability != null ? `${deal.probability}%` : '--',
+    },
+    { key: 'notes_last_contacted', label: 'Último contato', value: formatPropDateTime(lastContact as string | null) },
+    {
+      key: 'contact',
       label: 'Pessoa de contato',
-      value: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}`.trim() : '--',
+      value: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}`.trim() || dash(deal.contact.email) : '--',
     },
-    { label: 'É negócio fechado', value: deal.status === 'OPEN' ? 'Não' : 'Sim' },
+    {
+      key: 'last_meeting',
+      label: 'Data da última reunião agendada',
+      value: formatPropDateTime(lastMeeting as string | null),
+    },
+    {
+      key: 'hs_is_closed',
+      label: 'É negócio fechado',
+      value: deal.status === 'OPEN' ? 'Falso' : 'Verdadeiro',
+    },
   ];
+
+  const customExtra: AboutRow[] = Object.entries(deal.customProperties || {})
+    .filter(([k]) => !isInternalCustomKey(k) && !CANONICAL_CUSTOM_KEYS.has(k))
+    .sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
+    .map(([k, v]) => ({
+      key: `cp:${k}`,
+      label: humanizePropKey(k),
+      value: formatCustomValue(v),
+      href: typeof v === 'string' && /^https?:\/\//i.test(v) ? v : undefined,
+    }));
+
+  const ABOUT_PREVIEW_LIMIT = 30;
+  const aboutCombined = [...aboutRowsAll, ...customExtra];
+  const aboutRows = showAllAbout || aboutCombined.length <= ABOUT_PREVIEW_LIMIT
+    ? aboutCombined
+    : aboutCombined.slice(0, ABOUT_PREVIEW_LIMIT);
+  const aboutHasMore = aboutCombined.length > ABOUT_PREVIEW_LIMIT && !showAllAbout;
 
   const toggleCard = (id: string) =>
     setCollapsedCards((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -370,11 +595,43 @@ export default function DealRecordDrawer({
               {aboutOpen && (
                 <div className="p-3 space-y-3">
                   {aboutRows.map((row) => (
-                    <div key={row.label} className="space-y-0.5">
+                    <div key={row.key} className="space-y-0.5">
                       <div className="text-[10px] font-semibold text-slate-400">{row.label}</div>
-                      <div className="text-xs font-semibold text-slate-800 break-words">{row.value}</div>
+                      {row.tags && row.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {row.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-700 border border-slate-200"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : row.href && row.value !== '--' ? (
+                        <a
+                          href={row.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline break-all"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                          <span className="break-all">{row.value}</span>
+                        </a>
+                      ) : (
+                        <div className="text-xs font-semibold text-slate-800 break-words whitespace-pre-wrap">{row.value}</div>
+                      )}
                     </div>
                   ))}
+                  {aboutHasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllAbout(true)}
+                      className="text-[11px] font-semibold text-accent hover:underline cursor-pointer"
+                    >
+                      Ver todas as propriedades ({aboutCombined.length})
+                    </button>
+                  )}
 
                   <div className="pt-2 border-t border-slate-100 space-y-2">
                     <label className="block text-[10px] font-semibold text-slate-400">Editar nome</label>
