@@ -33,7 +33,7 @@ import {
   List,
   Users,
 } from 'lucide-react';
-import { Company, Contact, Deal, DealBusinessType, DealPriority, ErpCommercialProposal, ErpRentalContract, PipelineStage, TimelineEvent } from '../../db/types';
+import { Company, Contact, Deal, DealBusinessType, DealPriority, ErpCommercialProposal, ErpFinancialEntry, ErpFiscalInvoice, ErpRentalContract, PipelineStage, ServiceTicket, TimelineEvent } from '../../db/types';
 import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
@@ -94,6 +94,11 @@ interface DealsKanbanTabProps {
   companies: Company[];
   proposals?: ErpCommercialProposal[];
   rentalContracts?: ErpRentalContract[];
+  tickets?: ServiceTicket[];
+  invoices?: ErpFiscalInvoice[];
+  financialEntries?: ErpFinancialEntry[];
+  canViewChamados?: boolean;
+  canViewFinance?: boolean;
   onMoveDealStage: (dealId: string, newStageId: string) => Promise<void>;
   onCreateDeal: (payload: {
     title: string;
@@ -151,6 +156,11 @@ export default function DealsKanbanTab({
   companies,
   proposals = [],
   rentalContracts = [],
+  tickets = [],
+  invoices = [],
+  financialEntries = [],
+  canViewChamados = false,
+  canViewFinance = false,
   onMoveDealStage,
   onCreateDeal,
   onAddDealNote,
@@ -1930,9 +1940,15 @@ export default function DealsKanbanTab({
           pipelineName={activePipeline?.name}
           contacts={contacts}
           companies={companies}
+          deals={deals}
           timeline={dealTimeline}
           proposals={associatedProposals}
           contracts={associatedContracts}
+          tickets={tickets}
+          invoices={invoices}
+          financialEntries={financialEntries}
+          canViewChamados={canViewChamados}
+          canViewFinance={canViewFinance}
           loadingDetail={loadingDetail}
           generatingProposal={generatingProposalDealId === selectedDeal.id}
           onClose={() => setSelectedDeal(null)}

@@ -1069,6 +1069,14 @@ export default function HubSpotProCrmApp() {
     chamados: userEnabledModules.includes('CHAMADOS'),
   };
 
+  const erpFinancePerm =
+    activeRbacUser?.erpItemPermissions?.['erp.financeiro_pagar_receber'] ||
+    activeRbacUser?.itemPermissions?.['erp.financeiro_pagar_receber'];
+  const canViewFinanceDealDrawer = Boolean(
+    userModuleAccess.erp && (erpFinancePerm ? erpFinancePerm.view : true)
+  );
+  const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
+
   const isCrmActive =
     activeModule === 'OVERVIEW_AI' ||
     activeModule === 'DEALS_KANBAN' ||
@@ -2369,6 +2377,11 @@ export default function HubSpotProCrmApp() {
                     companies={companies}
                     proposals={erpData?.proposals || []}
                     rentalContracts={erpData?.rentalContracts || []}
+                    tickets={tickets}
+                    invoices={erpData?.invoices || []}
+                    financialEntries={erpData?.financialEntries || []}
+                    canViewChamados={canViewChamadosDealDrawer}
+                    canViewFinance={canViewFinanceDealDrawer}
                     onMoveDealStage={handleMoveDealStage}
                     onCreateDeal={handleCreateDeal}
                     onAddDealNote={handleAddDealNote}

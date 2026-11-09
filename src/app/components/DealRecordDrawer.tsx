@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
+  Building2,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -15,11 +16,22 @@ import {
   MoreHorizontal,
   Phone,
   Search,
+  Settings,
   StickyNote,
   Trash2,
   X,
 } from 'lucide-react';
-import { Company, Contact, ErpCommercialProposal, ErpRentalContract, PipelineStage, TimelineEvent } from '../../db/types';
+import {
+  Company,
+  Contact,
+  ErpCommercialProposal,
+  ErpFinancialEntry,
+  ErpFiscalInvoice,
+  ErpRentalContract,
+  PipelineStage,
+  ServiceTicket,
+  TimelineEvent,
+} from '../../db/types';
 import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
@@ -196,9 +208,16 @@ export interface DealRecordDrawerProps {
   pipelineName?: string;
   contacts: Contact[];
   companies: Company[];
+  /** Outros negócios (mesmo store) — filtrados por empresa no drawer. */
+  deals?: EnrichedDeal[];
   timeline: TimelineEvent[];
   proposals: ErpCommercialProposal[];
   contracts: ErpRentalContract[];
+  tickets?: ServiceTicket[];
+  invoices?: ErpFiscalInvoice[];
+  financialEntries?: ErpFinancialEntry[];
+  canViewChamados?: boolean;
+  canViewFinance?: boolean;
   loadingDetail: boolean;
   generatingProposal: boolean;
   onClose: () => void;
@@ -217,10 +236,16 @@ export default function DealRecordDrawer({
   stages,
   pipelineName,
   contacts,
-  companies: _companies,
+  companies,
+  deals = [],
   timeline,
   proposals,
   contracts,
+  tickets = [],
+  invoices = [],
+  financialEntries = [],
+  canViewChamados = false,
+  canViewFinance = false,
   loadingDetail,
   generatingProposal,
   onClose,
@@ -244,6 +269,8 @@ export default function DealRecordDrawer({
   const [savingNote, setSavingNote] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [showAllAbout, setShowAllAbout] = useState(false);
+  const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
+
 
   const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
   const monthly = deal.mrr ?? null;
@@ -388,6 +415,90 @@ export default function DealRecordDrawer({
     ? aboutCombined
     : aboutCombined.slice(0, ABOUT_PREVIEW_LIMIT);
   const aboutHasMore = aboutCombined.length > ABOUT_PREVIEW_LIMIT && !showAllAbout;
+
+  const associatedContacts = useMemo(() => {
+    const list: Contact[] = [];
+    const seen = new Set<string>();
+    if (deal.contact) {
+      list.push(deal.contact);
+      seen.add(deal.contact.id);
+    }
+    for (const c of contacts) {
+      if (seen.has(c.id)) continue;
+      if (deal.companyId && c.companyId === deal.companyId) {
+        list.push(c);
+        seen.add(c.id);
+      } else if (deal.contactId && c.id === deal.contactId) {
+        list.push(c);
+        seen.add(c.id);
+      }
+    }
+    return list;
+  }, [contacts, deal.contact, deal.contactId, deal.companyId]);
+
+  const associatedCompanies = useMemo(() => {
+    const list: Company[] = [];
+    const seen = new Set<string>();
+    if (deal.company) {
+      list.push(deal.company);
+      seen.add(deal.company.id);
+    }
+    for (const c of companies) {
+      if (seen.has(c.id)) continue;
+      if (deal.companyId && c.id === deal.companyId) {
+        list.push(c);
+        seen.add(c.id);
+      }
+    }
+    return list;
+  }, [companies, deal.company, deal.companyId]);
+
+  const associatedTickets = useMemo(() => {
+    if (!canViewChamados) return [] as ServiceTicket[];
+    return tickets.filter(
+      (t) =>
+        t.dealId === deal.id ||
+        (deal.companyId && t.companyId === deal.companyId) ||
+        (deal.contactId && t.contactId === deal.contactId)
+    );
+  }, [tickets, canViewChamados, deal.id, deal.companyId, deal.contactId]);
+
+  const relatedDeals = useMemo(() => {
+    if (!deal.companyId) return [] as EnrichedDeal[];
+    return deals.filter((d) => d.companyId === deal.companyId && d.id !== deal.id);
+  }, [deals, deal.companyId, deal.id]);
+
+  const companyCnpjDigits = String(deal.company?.cnpj || '').replace(/\D+/g, '');
+  const companyNameNorm = String(deal.company?.name || '').trim().toLowerCase();
+
+  const associatedFinance = useMemo(() => {
+    if (!canViewFinance) return { invoices: [] as ErpFiscalInvoice[], entries: [] as ErpFinancialEntry[] };
+    const inv = invoices.filter(
+      (i) =>
+        i.dealId === deal.id ||
+        (deal.companyId && i.companyId === deal.companyId) ||
+        (companyCnpjDigits && String(i.companyCnpj || '').replace(/\D+/g, '') === companyCnpjDigits)
+    );
+    const ent = financialEntries.filter((e) => {
+      if (e.type !== 'RECEBER' && e.type !== 'PAGAR') return false;
+      const n = String(e.companyName || '').trim().toLowerCase();
+      return Boolean(companyNameNorm && n && (n === companyNameNorm || n.includes(companyNameNorm) || companyNameNorm.includes(n)));
+    });
+    return { invoices: inv, entries: ent };
+  }, [canViewFinance, invoices, financialEntries, deal.id, deal.companyId, companyCnpjDigits, companyNameNorm]);
+
+  const companyPhone = (co: Company): string => {
+    const cp = (co.customProperties || {}) as Record<string, unknown>;
+    const v = cp.phone || cp.whatsappPhone || cp.telefone;
+    return v ? String(v) : '--';
+  };
+
+  const companyDomainUrl = (co: Company): string | null => {
+    const d = (co.domain || '').trim();
+    if (!d) return null;
+    if (/^https?:\/\//i.test(d)) return d;
+    return `https://${d}`;
+  };
 
   const toggleCard = (id: string) =>
     setCollapsedCards((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -905,61 +1016,187 @@ export default function DealRecordDrawer({
             </div>
           </section>
 
-          {/* RIGHT */}
+          {/* RIGHT — cartões de associação */}
           <aside className="lg:col-span-3 border-l border-slate-200 bg-white overflow-y-auto p-3 space-y-3">
-            {(
-              [
+            {(() => {
+              type CardDef = {
+                id: string;
+                title: string;
+                count: number;
+                visible: boolean;
+                emptyHint: string;
+                body: React.ReactNode;
+                onAdd?: () => void;
+                /** Sem fluxo real: botão + Adicionar desabilitado com tooltip Em breve */
+                addSoon?: boolean;
+              };
+
+              const contactLimit = showAllAssoc.contacts ? associatedContacts.length : 3;
+              const companyLimit = showAllAssoc.companies ? associatedCompanies.length : 3;
+              const financeCount = associatedFinance.invoices.length + associatedFinance.entries.length;
+
+              const cards: CardDef[] = [
                 {
                   id: 'contacts',
                   title: 'Contatos',
-                  count: deal.contact ? 1 : 0,
-                  body: deal.contact ? (
-                    <div className="text-xs space-y-0.5">
-                      <div className="font-semibold text-slate-900">
-                        {deal.contact.firstName} {deal.contact.lastName}
-                      </div>
-                      <div className="text-slate-500 font-semibold">{deal.contact.email || '--'}</div>
-                      <div className="text-slate-500">{deal.contact.jobTitle || '--'}</div>
+                  count: associatedContacts.length,
+                  visible: true,
+                  emptyHint: 'Veja as pessoas associadas a este registro.',
+                  addSoon: true,
+                  body: associatedContacts.length === 0 ? null : (
+                    <div className="space-y-3">
+                      {associatedContacts.slice(0, contactLimit).map((c) => (
+                        <div key={c.id} className="text-xs space-y-0.5">
+                          <div className="font-semibold text-slate-900">
+                            {`${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || '--'}
+                          </div>
+                          {c.jobTitle ? <div className="text-slate-500 font-semibold">{c.jobTitle}</div> : null}
+                          <div className="text-slate-600 font-semibold break-all">{c.email || '--'}</div>
+                          <div className="text-slate-500 font-semibold">{c.phone || c.normalizedPhone || '--'}</div>
+                        </div>
+                      ))}
+                      {associatedContacts.length > 3 && !showAllAssoc.contacts ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllAssoc((p) => ({ ...p, contacts: true }))}
+                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
+                        >
+                          Exibir todos os contatos associados
+                        </button>
+                      ) : associatedContacts.length > 0 ? (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
+                          onClick={() => setShowAllAssoc((p) => ({ ...p, contacts: true }))}
+                        >
+                          Exibir todos os contatos associados
+                        </button>
+                      ) : null}
                     </div>
-                  ) : (
-                    <p className="text-xs font-semibold text-slate-500">Nenhum contato associado.</p>
                   ),
                 },
                 {
                   id: 'companies',
                   title: 'Empresas',
-                  count: deal.company ? 1 : 0,
-                  body: deal.company ? (
-                    <div className="text-xs space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-900">{deal.company.name}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-semibold text-slate-600">
-                          Principal
-                        </span>
-                      </div>
-                      <div className="text-slate-500 font-semibold">{deal.company.cnpj || '--'}</div>
-                      <div className="text-slate-500">
-                        {[deal.company.city, deal.company.state].filter(Boolean).join('/') || '--'}
-                      </div>
+                  count: associatedCompanies.length,
+                  visible: true,
+                  emptyHint: 'Veja as empresas associadas a este registro.',
+                  addSoon: true,
+                  body: associatedCompanies.length === 0 ? null : (
+                    <div className="space-y-3">
+                      {associatedCompanies.slice(0, companyLimit).map((co, idx) => {
+                        const domain = (co.domain || '').trim();
+                        const domainHref = companyDomainUrl(co);
+                        return (
+                          <div key={co.id} className="text-xs space-y-1">
+                            <div className="flex items-start gap-2">
+                              <span className="w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                                <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-slate-900 truncate">{co.name}</span>
+                                  {idx === 0 || co.id === deal.companyId ? (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[9px] font-semibold">
+                                      Principal
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1">
+                                  <div className="text-[10px] font-semibold text-slate-400">Nome de domínio</div>
+                                  {domainHref ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <a
+                                        href={domainHref}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-sky-700 font-semibold hover:underline break-all"
+                                      >
+                                        {domain} <ExternalLink className="w-3 h-3 shrink-0" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        title="Copiar domínio"
+                                        className="p-0.5 rounded border border-slate-200 text-slate-500 cursor-pointer"
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(domain);
+                                            onShowToast?.('Domínio copiado.');
+                                          } catch {
+                                            onShowToast?.('Não foi possível copiar.');
+                                          }
+                                        }}
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="font-semibold text-slate-500">--</div>
+                                  )}
+                                </div>
+                                <div className="mt-1">
+                                  <div className="text-[10px] font-semibold text-slate-400">Telefone</div>
+                                  <div className="font-semibold text-slate-700">{companyPhone(co)}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {associatedCompanies.length > 0 ? (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
+                          onClick={() => setShowAllAssoc((p) => ({ ...p, companies: true }))}
+                        >
+                          Exibir todas as empresas associadas
+                        </button>
+                      ) : null}
                     </div>
-                  ) : (
-                    <p className="text-xs font-semibold text-slate-500">Nenhuma empresa associada.</p>
                   ),
                 },
                 {
                   id: 'tickets',
                   title: 'Tickets/Chamados',
-                  count: 0,
-                  body: <p className="text-xs font-semibold text-slate-500">Nenhum chamado associado.</p>,
+                  count: canViewChamados ? associatedTickets.length : 0,
+                  visible: true,
+                  emptyHint: 'Acompanhe as solicitações dos clientes associadas a este registro.',
+                  addSoon: true,
+                  body:
+                    !canViewChamados || associatedTickets.length === 0 ? null : (
+                      <div className="space-y-2">
+                        {associatedTickets.slice(0, showAllAssoc.tickets ? associatedTickets.length : 5).map((tk) => (
+                          <div key={tk.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[10px] font-semibold text-slate-500">{tk.key}</span>
+                              <span className="text-[9px] font-semibold text-slate-500">{tk.status}</span>
+                            </div>
+                            <div className="font-semibold text-slate-900 line-clamp-2">{tk.subject}</div>
+                            <div className="text-[10px] text-slate-500 font-semibold">
+                              {tk.priority} · {tk.assignee}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ),
                 },
                 {
                   id: 'deals',
                   title: 'Negócios',
-                  count: 1,
-                  body: (
-                    <div className="text-xs">
-                      <div className="font-semibold text-slate-900">{deal.title}</div>
-                      <div className="text-slate-500 font-semibold">{stageName}</div>
+                  count: relatedDeals.length,
+                  visible: true,
+                  emptyHint: 'Acompanhe as oportunidades de receita associadas a este registro.',
+                  addSoon: true,
+                  body: relatedDeals.length === 0 ? null : (
+                    <div className="space-y-2">
+                      {relatedDeals.slice(0, 6).map((d) => (
+                        <div key={d.id} className="text-xs space-y-0.5 rounded-md border border-slate-200 p-2">
+                          <div className="font-semibold text-slate-900 line-clamp-2">{d.title}</div>
+                          <div className="text-slate-500 font-semibold">
+                            {d.stageName || '--'} · {formatBRL(d.value)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ),
                 },
@@ -967,22 +1204,13 @@ export default function DealRecordDrawer({
                   id: 'proposals',
                   title: 'Propostas',
                   count: proposals.length,
-                  body:
-                    proposals.length === 0 ? (
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold text-slate-500">Nenhuma proposta vinculada.</p>
-                        <button
-                          type="button"
-                          disabled={generatingProposal}
-                          onClick={onGenerateProposal}
-                          className="w-full py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
-                        >
-                          {generatingProposal ? 'Gerando...' : 'Criar proposta'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {proposals.map((prop) => (
+                  visible: true,
+                  emptyHint: 'Nenhuma proposta vinculada a este negócio.',
+                  onAdd: onGenerateProposal,
+                  body: (
+                    <div className="space-y-2">
+                      {proposals.length === 0 ? null : (
+                        proposals.map((prop) => (
                           <div key={prop.id} className="rounded-md border border-slate-200 p-2 space-y-1">
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono text-[11px] font-semibold text-accent">{prop.code}</span>
@@ -1015,61 +1243,173 @@ export default function DealRecordDrawer({
                               </button>
                             </div>
                           </div>
-                        ))}
+                        ))
+                      )}
+                      <button
+                        type="button"
+                        disabled={generatingProposal}
+                        onClick={onGenerateProposal}
+                        className="w-full py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                      >
+                        {generatingProposal ? 'Gerando...' : 'Criar proposta'}
+                      </button>
+                    </div>
+                  ),
+                },
+                {
+                  id: 'contracts',
+                  title: 'Contratos/Pagamentos',
+                  count: contracts.length,
+                  visible: true,
+                  emptyHint: 'Nenhum contrato associado a esta empresa.',
+                  addSoon: !onNavigateToErp,
+                  onAdd: onNavigateToErp,
+                  body: contracts.length === 0 ? null : (
+                    <div className="space-y-2">
+                      {contracts.map((ctr) => (
+                        <div key={ctr.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
+                          <div className="font-semibold text-slate-900">{ctr.contractNumber}</div>
+                          <div className="text-slate-500 font-semibold truncate">{ctr.title}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {formatBRL(ctr.monthlyValue)}/mês · {ctr.status}
+                          </div>
+                        </div>
+                      ))}
+                      {onNavigateToErp ? (
                         <button
                           type="button"
-                          disabled={generatingProposal}
-                          onClick={onGenerateProposal}
-                          className="w-full py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer"
+                          onClick={onNavigateToErp}
+                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
                         >
-                          + Adicionar
+                          Abrir no ERP
                         </button>
-                      </div>
-                    ),
+                      ) : null}
+                    </div>
+                  ),
+                },
+                {
+                  id: 'payment_links',
+                  title: 'Links de pagamento',
+                  count: 0,
+                  visible: true,
+                  emptyHint:
+                    'Adicione um link de pagamento para aceitar um pagamento e associá-lo a este registro.',
+                  addSoon: true,
+                  body: null,
+                },
+                {
+                  id: 'subscriptions',
+                  title: 'Assinaturas',
+                  count: 0,
+                  visible: true,
+                  emptyHint: 'Automatize o gerenciamento de assinaturas e a cobrança recorrente a partir deste registro.',
+                  addSoon: true,
+                  body: null,
                 },
                 {
                   id: 'payments',
-                  title: 'Contratos / Pagamentos',
-                  count: contracts.length,
+                  title: 'Pagamentos',
+                  count: canViewFinance ? financeCount : 0,
+                  visible: canViewFinance,
+                  emptyHint: 'Acompanhe os pagamentos associados a este registro.',
+                  addSoon: true,
                   body:
-                    contracts.length === 0 ? (
-                      <p className="text-xs font-semibold text-slate-500">Nenhum contrato associado.</p>
-                    ) : (
+                    !canViewFinance || financeCount === 0 ? null : (
                       <div className="space-y-2">
-                        {contracts.map((ctr) => (
-                          <div key={ctr.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
-                            <div className="font-semibold text-slate-900">{ctr.contractNumber}</div>
-                            <div className="text-slate-500 font-semibold truncate">{ctr.title}</div>
-                            <div className="text-[10px] text-slate-500">
-                              {formatBRL(ctr.monthlyValue)}/mês · {ctr.status}
+                        {associatedFinance.invoices.slice(0, 5).map((inv) => (
+                          <div key={inv.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
+                            <div className="flex justify-between gap-2">
+                              <span className="font-semibold text-slate-900">{inv.documentNumber}</span>
+                              <span className="text-[9px] font-semibold text-slate-500">{inv.status}</span>
+                            </div>
+                            <div className="text-slate-500 font-semibold">{inv.documentType}</div>
+                            <div className="text-[10px] text-slate-500 font-semibold">
+                              {formatBRL(inv.netAmount)} · venc. {formatPropDateTime(inv.dueDate).slice(0, 10)}
+                            </div>
+                          </div>
+                        ))}
+                        {associatedFinance.entries.slice(0, 5).map((en) => (
+                          <div key={en.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
+                            <div className="flex justify-between gap-2">
+                              <span className="font-semibold text-slate-900">
+                                {en.type === 'RECEBER' ? 'Receber' : 'Pagar'}
+                              </span>
+                              <span className="text-[9px] font-semibold text-slate-500">{en.status}</span>
+                            </div>
+                            <div className="text-slate-600 font-semibold line-clamp-2">{en.description}</div>
+                            <div className="text-[10px] text-slate-500 font-semibold">
+                              {formatBRL(en.amount)} · venc. {formatPropDateTime(en.dueDate).slice(0, 10)}
                             </div>
                           </div>
                         ))}
                       </div>
                     ),
                 },
-              ] as const
-            ).map((card) => {
-              const open = !collapsedCards[card.id];
-              return (
-                <div key={card.id} className="rounded-lg border border-slate-200 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => toggleCard(card.id)}
-                    className="w-full px-3 py-2 flex items-center justify-between bg-slate-50 hover:bg-slate-100 cursor-pointer"
-                  >
-                    <span className="text-xs font-semibold text-slate-800">
-                      {card.title} ({card.count})
-                    </span>
-                    <span className="flex items-center gap-2 text-[11px] font-semibold text-accent">
-                      + Adicionar
-                      {open ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
-                    </span>
-                  </button>
-                  {open && <div className="p-3">{card.body}</div>}
-                </div>
-              );
-            })}
+              ];
+
+              return cards
+                .filter((c) => c.visible)
+
+                .map((card) => {
+                  const open = !collapsedCards[card.id];
+                  return (
+                    <div key={card.id} className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="w-full px-3 py-2 flex items-center gap-2 bg-slate-50 border-b border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => toggleCard(card.id)}
+                          className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
+                        >
+                          {open ? (
+                            <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                          )}
+                          <span className="text-xs font-semibold text-slate-800 truncate">
+                            {card.title} ({card.count})
+                          </span>
+                        </button>
+                        {card.addSoon || !card.onAdd ? (
+                          <span
+                            title="Em breve"
+                            className="text-[11px] font-semibold text-slate-300 cursor-not-allowed shrink-0 select-none"
+                          >
+                            + Adicionar
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              card.onAdd?.();
+                            }}
+                            className="text-[11px] font-semibold text-accent hover:underline cursor-pointer shrink-0"
+                          >
+                            + Adicionar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          title="Configurações do cartão"
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {open && (
+                        <div className="p-3">
+                          {card.body ? (
+                            card.body
+                          ) : (
+                            <p className="text-xs font-semibold text-slate-400">{card.emptyHint}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+            })()}
           </aside>
         </div>
       </div>
