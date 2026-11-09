@@ -181,6 +181,7 @@ export const mailboxSendSchema = z
     accountId: z.string().trim().min(1).max(200).optional(),
     to: addrList,
     cc: addrList,
+    bcc: addrList,
     subject: z
       .string()
       .transform((s) => s.normalize('NFC').trim())
@@ -198,7 +199,7 @@ export const mailboxSendSchema = z
   })
   .strict()
   .refine((v) => v.to.length >= 1, { message: 'informe ao menos um destinatário', path: ['to'] })
-  .refine((v) => v.to.length + v.cc.length <= MAILBOX_MAX_RECIPIENTS, { message: `até ${MAILBOX_MAX_RECIPIENTS} destinatários`, path: ['to'] })
+  .refine((v) => v.to.length + v.cc.length + v.bcc.length <= MAILBOX_MAX_RECIPIENTS, { message: `até ${MAILBOX_MAX_RECIPIENTS} destinatários`, path: ['to'] })
   .refine((v) => Boolean(v.contactId || v.companyId || v.dealId), { message: 'e-mail precisa estar ligado a uma ficha', path: ['contactId'] });
 
 function invalid(error: z.ZodError | null, msg = 'Dados do e-mail inválidos.'): ApiResponse {
@@ -516,14 +517,14 @@ export async function handleMailboxRoute(
     if (!token) return { status: 409, body: { error: MAILBOX_MESSAGES.reconnect, code: 'MAILBOX_RECONNECT' } };
 
     const patterns = (await deps.store.listNeverLog()).map((e) => e.pattern);
-    const logIt = shouldLogEmail([...v.to, ...v.cc], patterns);
+    const logIt = shouldLogEmail([...v.to, ...v.cc, ...v.bcc], patterns);
     const track = logIt && v.track !== false;
     const trackingId = track ? newTrackingId() : null;
     const signature = await deps.store.getSignature(actor.email);
     const built = buildTrackedEmailBody({ body: v.body, signature, trackingId });
     let sent;
     try {
-      sent = await sendGraphMail(deps.fetch, token, { to: v.to, cc: v.cc, subject: v.subject, html: built.html });
+      sent = await sendGraphMail(deps.fetch, token, { to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: built.html });
     } catch (e) {
       if (e instanceof GraphError && e.status === 401) await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
       audit(deps.repo, actor, query, 'MAILBOX_SEND_FAILED', `${m} ${cleanPath}`, 'BLOCKED', `Falha no envio pela caixa ${account.mailboxAddress}.`);
@@ -562,7 +563,7 @@ export async function handleMailboxRoute(
       item = toTimelineEmail(rec);
     }
     audit(deps.repo, actor, query, 'MAILBOX_EMAIL_SENT', `${m} ${cleanPath}`, 'SUCCESS',
-      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}.`);
+      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length + v.bcc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}.`);
     return { status: 201, body: { data: { sent: true, logged: logIt, tracked: track, email: item } } };
   }
 

@@ -2,14 +2,15 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Briefcase,
-  Calendar,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
   ExternalLink,
+  Handshake,
+  ListTodo,
   Mail,
   MoreHorizontal,
   Phone,
@@ -26,16 +27,16 @@ import { CrmEmailComposerModal } from './email/CrmRecordEmailSection';
 import type { EnrichedDeal } from './DealsKanbanTab';
 
 function dash(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—';
+  if (v === null || v === undefined || v === '') return '--';
   return String(v);
 }
 
 function formatDateBR(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '--';
   try {
     return new Date(iso).toLocaleDateString('pt-BR');
   } catch {
-    return '—';
+    return '--';
   }
 }
 
@@ -104,7 +105,7 @@ export default function DealRecordDrawer({
   const [savingNote, setSavingNote] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
 
-  const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '—';
+  const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
   const monthly = deal.mrr ?? null;
   const total = deal.value ?? null;
 
@@ -135,11 +136,11 @@ export default function DealRecordDrawer({
     { label: 'Número da Proposta', value: dash(propVal(deal, 'proposalNumber') || proposals[0]?.code) },
     {
       label: 'Link da Proposta',
-      value: proposals[0] ? buildInternalProposalUrl(proposals[0]) : '—',
+      value: proposals[0] ? buildInternalProposalUrl(proposals[0]) : '--',
     },
     { label: 'Descrição', value: dash(propVal(deal, 'description') || deal.nextBestAction?.title) },
-    { label: 'Valor mensal', value: monthly != null ? formatBRL(monthly) : '—' },
-    { label: 'Valor total', value: total != null ? formatBRL(total) : '—' },
+    { label: 'Valor mensal', value: monthly != null ? formatBRL(monthly) : '--' },
+    { label: 'Valor total', value: total != null ? formatBRL(total) : '--' },
     { label: 'Pipeline', value: dash(pipelineName) },
     { label: 'Etapa', value: dash(stageName) },
     { label: 'Solução como etiqueta', value: dash(propVal(deal, 'solutionTag') || deal.dealType) },
@@ -158,7 +159,7 @@ export default function DealRecordDrawer({
     { label: 'Último contato', value: formatDateBR(deal.lastActivityAt) },
     {
       label: 'Pessoa de contato',
-      value: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}`.trim() : '—',
+      value: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}`.trim() : '--',
     },
     { label: 'É negócio fechado', value: deal.status === 'OPEN' ? 'Não' : 'Sim' },
   ];
@@ -174,7 +175,7 @@ export default function DealRecordDrawer({
   }> = [
     {
       id: 'note',
-      label: 'Observação',
+      label: 'Nota',
       icon: <StickyNote className="w-4 h-4" />,
       onClick: () => {
         setComposerKind('NOTE');
@@ -202,7 +203,7 @@ export default function DealRecordDrawer({
     {
       id: 'task',
       label: 'Tarefa',
-      icon: <CheckCircle2 className="w-4 h-4" />,
+      icon: <ListTodo className="w-4 h-4" />,
       onClick: () => {
         setComposerKind('TASK');
         setCenterTab('ACTIVITIES');
@@ -211,7 +212,7 @@ export default function DealRecordDrawer({
     {
       id: 'meeting',
       label: 'Reunião',
-      icon: <Calendar className="w-4 h-4" />,
+      icon: <CalendarDays className="w-4 h-4" />,
       onClick: () => {
         setComposerKind('MEETING');
         setCenterTab('ACTIVITIES');
@@ -284,12 +285,12 @@ export default function DealRecordDrawer({
           {/* LEFT */}
           <aside className="lg:col-span-3 border-r border-slate-200 bg-white overflow-y-auto p-4 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
-                <Briefcase className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 ring-1 ring-slate-200">
+                <Handshake className="w-5 h-5" />
               </div>
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-slate-900 leading-snug break-words">
-                  {deal.title || '—'}
+                  {deal.title || '--'}
                 </h2>
               </div>
             </div>
@@ -298,7 +299,7 @@ export default function DealRecordDrawer({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500 font-semibold">Valor</span>
                 <span className="font-semibold text-slate-900">
-                  {total != null ? formatBRL(total) : '—'}
+                  {total != null ? formatBRL(total) : '--'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">
@@ -336,18 +337,18 @@ export default function DealRecordDrawer({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 pt-1">
+            <div className="flex items-start justify-between gap-1 pt-1">
               {actionButtons.map((btn) => (
                 <button
                   key={btn.id}
                   type="button"
                   onClick={btn.onClick}
-                  className="flex flex-col items-center gap-1 w-14 cursor-pointer group"
+                  className="flex flex-col items-center gap-1 flex-1 min-w-0 cursor-pointer group"
                 >
-                  <span className="w-10 h-10 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center group-hover:border-accent group-hover:text-accent">
+                  <span className="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center group-hover:border-accent group-hover:text-accent">
                     {btn.icon}
                   </span>
-                  <span className="text-[10px] font-semibold text-slate-600 text-center leading-tight">
+                  <span className="text-[10px] font-semibold text-slate-600 text-center leading-tight truncate w-full">
                     {btn.label}
                   </span>
                 </button>
@@ -472,20 +473,20 @@ export default function DealRecordDrawer({
                     <div className="rounded-lg border border-slate-200 p-3">
                       <div className="text-[10px] font-semibold text-slate-400">Valor mensal</div>
                       <div className="font-semibold text-slate-900">
-                        {monthly != null ? formatBRL(monthly) : '—'}
+                        {monthly != null ? formatBRL(monthly) : '--'}
                       </div>
                     </div>
                     <div className="rounded-lg border border-slate-200 p-3">
                       <div className="text-[10px] font-semibold text-slate-400">Valor total</div>
                       <div className="font-semibold text-slate-900">
-                        {total != null ? formatBRL(total) : '—'}
+                        {total != null ? formatBRL(total) : '--'}
                       </div>
                     </div>
                   </div>
                 </div>
               ) : (
                 <div className="p-3 space-y-3">
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-0 border-b border-slate-100">
                     {(
                       [
                         { id: 'ALL', label: 'Todas as atividades' },
@@ -500,10 +501,10 @@ export default function DealRecordDrawer({
                         key={f.id}
                         type="button"
                         onClick={() => setActivityFilter(f.id)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer ${
+                        className={`px-2.5 py-2 text-[11px] font-semibold border-b-2 cursor-pointer ${
                           activityFilter === f.id
-                            ? 'bg-accent text-white border-accent'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            ? 'border-accent text-accent'
+                            : 'border-transparent text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         {f.label}
@@ -660,8 +661,8 @@ export default function DealRecordDrawer({
                       <div className="font-semibold text-slate-900">
                         {deal.contact.firstName} {deal.contact.lastName}
                       </div>
-                      <div className="text-slate-500 font-semibold">{deal.contact.email || '—'}</div>
-                      <div className="text-slate-500">{deal.contact.jobTitle || '—'}</div>
+                      <div className="text-slate-500 font-semibold">{deal.contact.email || '--'}</div>
+                      <div className="text-slate-500">{deal.contact.jobTitle || '--'}</div>
                     </div>
                   ) : (
                     <p className="text-xs font-semibold text-slate-500">Nenhum contato associado.</p>
@@ -679,9 +680,9 @@ export default function DealRecordDrawer({
                           Principal
                         </span>
                       </div>
-                      <div className="text-slate-500 font-semibold">{deal.company.cnpj || '—'}</div>
+                      <div className="text-slate-500 font-semibold">{deal.company.cnpj || '--'}</div>
                       <div className="text-slate-500">
-                        {[deal.company.city, deal.company.state].filter(Boolean).join('/') || '—'}
+                        {[deal.company.city, deal.company.state].filter(Boolean).join('/') || '--'}
                       </div>
                     </div>
                   ) : (
@@ -717,7 +718,7 @@ export default function DealRecordDrawer({
                           type="button"
                           disabled={generatingProposal}
                           onClick={onGenerateProposal}
-                          className="w-full py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer"
+                          className="w-full py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
                         >
                           {generatingProposal ? 'Gerando...' : 'Criar proposta'}
                         </button>

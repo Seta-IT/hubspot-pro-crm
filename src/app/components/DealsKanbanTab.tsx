@@ -599,7 +599,7 @@ export default function DealsKanbanTab({
               href={createdProposalBanner.publicUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Abrir proposta
@@ -1204,7 +1204,7 @@ export default function DealsKanbanTab({
                                 type="button"
                                 disabled={generatingProposalDealId === deal.id}
                                 onClick={() => handleQuickGenerateProposalForDeal(deal)}
-                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold transition cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold transition cursor-pointer disabled:opacity-50"
                               >
                                 <FileText className="w-3 h-3" />
                                 {generatingProposalDealId === deal.id

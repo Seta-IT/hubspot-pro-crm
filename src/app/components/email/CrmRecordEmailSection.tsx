@@ -3,7 +3,7 @@
 // proprio usuario, com assinatura) e a linha do tempo de e-mails enviados e recebidos, com
 // aberturas e cliques. Estilo: cartao branco, so o botao principal em azul-marinho.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Bold, Italic, Underline, Link2, Loader2, Mail, Minus, MousePointerClick, RefreshCw, RemoveFormatting, Send, X, Eye, FileText, LayoutTemplate } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Bold, Italic, Underline, Link2, Loader2, Mail, Minus, MousePointerClick, RefreshCw, RemoveFormatting, Send, X, Eye, FileText, LayoutTemplate, Phone, Globe, MessageCircle } from 'lucide-react';
 import {
   BTN_OUTLINE,
   BTN_PRIMARY,
@@ -145,6 +145,11 @@ export function EmailTimelineItem({ item }: { item: TimelineEmailView }) {
   );
 }
 
+export const CONFIDENTIALITY_NOTE_1 =
+  'As informações contidas nesta proposta comercial ou email são de caráter sigiloso, com intuito de evitar a divulgação a terceiros de qualquer informação trocada entre as partes, que estejam diretamente relacionadas ao serviço prestado ao cliente.';
+export const CONFIDENTIALITY_NOTE_2 =
+  'Este termo de confidencialidade é firmado com o intuito de proibir a divulgação e utilização não autorizada das informações confidenciais trocadas entre as PARTES por ocasião da realização do Serviço contratado pelo CLIENTE, mediante proposta assinada pelo mesmo.';
+
 export const DEFAULT_SETA_SIGNATURE = `Marcéllo MMíra
 Business Consultant
 WhatsApp
@@ -152,10 +157,10 @@ WhatsApp
 setatelecom.com.br
 
 Nota de Confidencialidade 1
-Esta mensagem e seus anexos são confidenciais e destinados exclusivamente ao(s) destinatário(s) indicado(s). Se você a recebeu por engano, avise o remetente e apague-a imediatamente.
+${CONFIDENTIALITY_NOTE_1}
 
 Nota de Confidencialidade 2
-A Seta Telecom não se responsabiliza por informações incorretas ou incompletas nesta mensagem. A divulgação, cópia ou uso não autorizado é proibida.`;
+${CONFIDENTIALITY_NOTE_2}`;
 
 export function CrmEmailComposerModal({
   record,
@@ -283,7 +288,8 @@ export function CrmEmailComposerModal({
       body: {
         accountId,
         to,
-        cc: [showCc ? cc : '', showBcc ? bcc : ''].filter((s) => s && s.trim()).join('; '),
+        cc: showCc ? cc : '',
+        bcc: showBcc ? bcc : '',
         subject,
         body: fullBody,
         track,
@@ -433,24 +439,10 @@ export function CrmEmailComposerModal({
 
           {!loading && (
             <>
-              <div className="flex items-center gap-2 border-b border-slate-100 py-1.5">
-                <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">De</span>
-                {activeAccounts.length ? (
-                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="flex-1 text-xs font-semibold border-0 focus:ring-0 p-0 bg-transparent">
-                    {activeAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.displayName ? `${a.displayName} <${a.mailboxAddress}>` : a.mailboxAddress}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-xs font-semibold text-slate-500">Conecte sua caixa em Minha conta</span>
-                )}
-              </div>
               <div className="flex items-start gap-2 border-b border-slate-100 py-1.5">
                 <span className="text-xs font-semibold text-slate-500 w-12 shrink-0 pt-1">Para</span>
                 <div className="flex-1 min-w-0">
-                  <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="contato@empresa.com.br" className="w-full text-xs font-semibold border-0 focus:ring-0 p-0" />
+                  <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="contato@empresa.com.br" className="w-full text-xs border-0 focus:ring-0 p-0" />
                   {extraSuggestions.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {extraSuggestions.map((s) => (
@@ -473,39 +465,82 @@ export function CrmEmailComposerModal({
               {showCc && (
                 <div className="flex items-center gap-2 border-b border-slate-100 py-1.5">
                   <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">Cc</span>
-                  <input value={cc} onChange={(e) => setCc(e.target.value)} className="flex-1 text-xs font-semibold border-0 focus:ring-0 p-0" />
+                  <input value={cc} onChange={(e) => setCc(e.target.value)} className="flex-1 text-xs border-0 focus:ring-0 p-0" />
                 </div>
               )}
               {showBcc && (
                 <div className="flex items-center gap-2 border-b border-slate-100 py-1.5">
                   <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">Cco</span>
-                  <input value={bcc} onChange={(e) => setBcc(e.target.value)} className="flex-1 text-xs font-semibold border-0 focus:ring-0 p-0" />
+                  <input value={bcc} onChange={(e) => setBcc(e.target.value)} className="flex-1 text-xs border-0 focus:ring-0 p-0" />
                 </div>
               )}
               <div className="flex items-center gap-2 border-b border-slate-100 py-1.5">
+                <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">De</span>
+                {activeAccounts.length ? (
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="flex-1 text-xs border-0 focus:ring-0 p-0 bg-transparent">
+                    {activeAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.displayName ? `${a.displayName} <${a.mailboxAddress}>` : a.mailboxAddress}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-500">Conecte sua caixa em Minha conta</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 border-b border-slate-100 py-1.5">
                 <span className="text-xs font-semibold text-slate-500 w-12 shrink-0">Assunto</span>
-                <input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} className="flex-1 text-xs font-semibold border-0 focus:ring-0 p-0" />
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} className="flex-1 text-xs border-0 focus:ring-0 p-0" />
               </div>
 
               <textarea
                 ref={bodyRef}
-                rows={8}
+                rows={7}
                 maxLength={20000}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder="Escreva sua mensagem..."
-                className="w-full text-sm text-slate-800 border-0 focus:ring-0 p-1 resize-y min-h-[140px]"
+                className="w-full text-sm text-slate-800 border-0 focus:ring-0 p-1 resize-y min-h-[120px]"
               />
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <textarea
-                  rows={7}
-                  maxLength={4000}
-                  value={signature}
-                  onChange={(e) => setSignature(e.target.value)}
-                  className="w-full text-xs text-slate-700 bg-transparent border-0 focus:ring-0 p-0 whitespace-pre-line font-semibold"
-                  aria-label="Assinatura"
-                />
+              {/* Assinatura no corpo (sem caixa cinza), padrão HubSpot */}
+              <div className="pt-3 mt-1 border-t border-slate-200 space-y-3 text-sm text-slate-800">
+                <div className="space-y-0.5">
+                  <div>Marcéllo MMíra</div>
+                  <div className="text-slate-600">Business Consultant</div>
+                  <a href="https://wa.me/551139584929" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-accent hover:underline">
+                    <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                  </a>
+                  <div className="inline-flex items-center gap-1.5 text-slate-700">
+                    <Phone className="w-3.5 h-3.5 text-slate-500" /> +55 (11) 3958 4929
+                  </div>
+                  <div>
+                    <a href="https://setatelecom.com.br" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-accent hover:underline">
+                      <Globe className="w-3.5 h-3.5" /> setatelecom.com.br
+                    </a>
+                  </div>
+                </div>
+                <div className="space-y-2 text-xs text-slate-700">
+                  <div>
+                    <div className="font-semibold text-slate-900">Nota de Confidencialidade 1</div>
+                    <p className="mt-0.5 font-normal leading-relaxed">{CONFIDENTIALITY_NOTE_1}</p>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-900">Nota de Confidencialidade 2</div>
+                    <p className="mt-0.5 font-normal leading-relaxed">{CONFIDENTIALITY_NOTE_2}</p>
+                  </div>
+                </div>
+                <details className="text-[11px] text-slate-500">
+                  <summary className="cursor-pointer font-semibold">Editar texto da assinatura enviada</summary>
+                  <textarea
+                    rows={6}
+                    maxLength={4000}
+                    value={signature}
+                    onChange={(e) => setSignature(e.target.value)}
+                    className="mt-2 w-full text-xs text-slate-700 border border-slate-200 rounded-md p-2 font-normal"
+                    aria-label="Assinatura"
+                  />
+                </details>
               </div>
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} className="accent-accent" />

@@ -152,7 +152,7 @@ export interface GraphSentMessage {
 export async function sendGraphMail(
   fetchFn: FetchLike,
   accessToken: string,
-  msg: { to: string[]; cc: string[]; subject: string; html: string }
+  msg: { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string }
 ): Promise<GraphSentMessage> {
   const rcpt = (list: string[]): GraphRecipient[] => list.map((address) => ({ emailAddress: { address } }));
   const draft = await graph(fetchFn, accessToken, '/me/messages', {
@@ -162,6 +162,7 @@ export async function sendGraphMail(
       body: { contentType: 'HTML', content: msg.html },
       toRecipients: rcpt(msg.to),
       ccRecipients: rcpt(msg.cc),
+      bccRecipients: rcpt(msg.bcc || []),
     },
   });
   const id = String(draft?.id || '');

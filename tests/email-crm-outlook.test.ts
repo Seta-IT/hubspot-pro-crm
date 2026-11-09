@@ -292,6 +292,33 @@ describe('Rotas /api/mailbox', () => {
     assert.ok(!JSON.stringify(list).includes(store.messages[0].trackingId!));
   });
 
+  it('bcc vai em bccRecipients do Graph e nao e mesclado em cc', async () => {
+    enableEnv();
+    const { router, mock, contact } = setup();
+    await connect(router);
+    const s = await router.dispatch({
+      method: 'POST', path: '/api/mailbox/send', query: ADMIN(),
+      body: {
+        to: contact.email,
+        cc: 'copia@cliente.com',
+        bcc: 'oculto@interno.setatelecom.com.br',
+        subject: 'Proposta com Cco',
+        body: 'Corpo',
+        contactId: contact.id,
+      },
+    });
+    assert.equal(s.status, 201, JSON.stringify(s.body));
+    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
+    const payload = JSON.parse(String(draft.body));
+    const toAddrs = (payload.toRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
+    const ccAddrs = (payload.ccRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
+    const bccAddrs = (payload.bccRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
+    assert.deepEqual(toAddrs, [contact.email.toLowerCase()]);
+    assert.deepEqual(ccAddrs, ['copia@cliente.com']);
+    assert.deepEqual(bccAddrs, ['oculto@interno.setatelecom.com.br']);
+    assert.ok(!ccAddrs.includes('oculto@interno.setatelecom.com.br'), 'Cco nao pode aparecer em Cc');
+  });
+
   it('destinatarios so da lista Nunca registrar: envia, mas nao registra nem rastreia', async () => {
     enableEnv();
     const { router, store, mock, contact } = setup();
