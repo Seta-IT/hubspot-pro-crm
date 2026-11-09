@@ -744,7 +744,7 @@ export default function AdminSettingsCenterTab({
                 >
                   <option value="CONTACT">Contato (CRM)</option>
                   <option value="COMPANY">Empresa / Cliente</option>
-                  <option value="DEAL">Negócio (Deal)</option>
+                  <option value="DEAL">Negócio</option>
                   <option value="TICKET">Chamado / O.S.</option>
                   <option value="PROPOSAL">Orçamento / Proposta</option>
                   <option value="CONTRACT">Contrato de Locação</option>

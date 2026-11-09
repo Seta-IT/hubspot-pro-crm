@@ -21,6 +21,7 @@ import {
 
 import OverviewAiCopilotTab from './components/OverviewAiCopilotTab';
 import DealsKanbanTab, { EnrichedDeal, EnrichedPipeline } from './components/DealsKanbanTab';
+import { formatPipelineDisplayName } from './lib/pipeline-display';
 import ContactsCompaniesTab, {
   EnrichedCompanyItem,
   EnrichedContactItem,
@@ -1952,7 +1953,8 @@ export default function HubSpotProCrmApp() {
           <div className="flex flex-wrap items-center gap-2">
             {isCrmActive && (
               <>
-                <div className="flex items-center gap-1.5 bg-[#f5f8fa] border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
+                {activeModule !== "DEALS_KANBAN" && (
+                <div className="flex items-center gap-1.5 bg-white border border-[#cbd6e2] rounded-[4px] px-2.5 py-1">
                   <span className="text-[11px] font-semibold text-[#516f90]">Pipeline:</span>
                   <select
                     aria-label="Seletor Global de Pipeline"
@@ -1961,15 +1963,16 @@ export default function HubSpotProCrmApp() {
                       setSelectedPipelineId(e.target.value);
                       setActiveModule("DEALS_KANBAN");
                     }}
-                    className="bg-transparent text-xs font-semibold text-[#0091ae] focus:outline-none cursor-pointer"
+                    className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
                   >
                     {pipelines.map((p) => (
                       <option key={p.id} value={p.id} className="text-[#33475b]">
-                        {p.name} ({deals.filter((d) => d.pipelineId === p.id).length} deals)
+                        {formatPipelineDisplayName(p.name)} ({deals.filter((d) => d.pipelineId === p.id).length})
                       </option>
                     ))}
                   </select>
                 </div>
+                )}
 
                 <button
                   type="button"
@@ -1998,7 +2001,7 @@ export default function HubSpotProCrmApp() {
                     }}
                     className="px-3.5 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                   >
-                    + Novo Negócio (Deal)
+                    + Novo negócio
                   </button>
                 )}
               </>

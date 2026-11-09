@@ -152,7 +152,7 @@ export default function OverviewAiCopilotTab({
                 <span className="font-semibold text-slate-700 truncate">{st.stageName}</span>
                 <span className="font-semibold text-slate-900">
                   {formatBRL(st.totalValue)}{' '}
-                  <span className="text-slate-400 font-semibold">({st.dealCount} deals)</span>
+                  <span className="text-slate-400 font-semibold">({st.dealCount} negócios)</span>
                 </span>
               </div>
               <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
@@ -219,7 +219,7 @@ export default function OverviewAiCopilotTab({
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-800 truncate">{p.name}</span>
               <span className="font-semibold text-slate-900">
-                {formatBRL(p.value)} <span className="text-slate-400 font-semibold">({p.deals} deals)</span>
+                {formatBRL(p.value)} <span className="text-slate-400 font-semibold">({p.deals} negócios)</span>
               </span>
             </div>
             <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">

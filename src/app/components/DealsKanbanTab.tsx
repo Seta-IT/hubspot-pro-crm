@@ -41,6 +41,8 @@ import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEma
 import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
+import PipelineSelect from './PipelineSelect';
+import { formatPipelineDisplayName } from '../lib/pipeline-display';
 
 export type DealsViewMode =
   | 'KANBAN'
@@ -637,57 +639,23 @@ export default function DealsKanbanTab({
         onOpenEmailModal={(p) => setEmailModalPayload(p)}
         onShowToast={onShowToast}
       />
-      {/* SELETOR DE PIPELINE EM DESTAQUE (3 FUNIS SETA TELECOM) */}
-      <div className="bg-[#213343] rounded-[6px] p-4 text-white shadow-2xs border border-[#33475b]">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#ff987f] block">
-              STI-hub • Seletor de Pipeline Seta Telecom (Portal 4369067)
-            </span>
-            <h3 className="text-sm sm:text-base font-semibold text-white">
-              Selecione o Funil de Vendas ou Locação Recorrente:
-            </h3>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {pipelines.map((p) => {
-              const isSelected = activePipeline?.id === p.id;
-              const pipeCount = deals.filter((d) => d.pipelineId === p.id).length;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleSelectPipe(p.id)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-2 cursor-pointer border ${
-                    isSelected
-                      ? 'bg-[#ff7a59] text-white border-[#ff7a59] shadow-md'
-                      : 'bg-slate-800/90 text-slate-200 border-slate-700 hover:bg-slate-700'
-                  }`}
-                >
-                  <span>{p.name}</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-black/25 text-white">
-                    {pipeCount}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
       {/* PIPELINE SUMMARY & TOOLBAR */}
       <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-5 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-lg font-semibold text-slate-900">
-                {activePipeline?.name || 'Funil Comercial Enterprise B2B'}
-              </h2>
+              <PipelineSelect
+                pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))}
+                counts={Object.fromEntries(
+                  pipelines.map((p) => [p.id, deals.filter((d) => d.pipelineId === p.id).length])
+                )}
+                selectedId={activePipeline?.id || currentPipelineId}
+                onChange={handleSelectPipe}
+              />
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-[#e05835] border border-orange-200">
-                {pipelineDeals.length} neste funil ({deals.length} total nos 3 funis)
+                {pipelineDeals.length} neste funil ({deals.length} no total)
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Arraste e solte os cards entre colunas ou utilize os seletores rápidos para atualizar estágio, probabilidade e forecast em tempo real.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1288,7 +1256,7 @@ export default function DealsKanbanTab({
         <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xs overflow-hidden">
           <div className="px-4 py-3 bg-[#f8f9fb] border-b border-[#cbd6e2] flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="font-semibold text-accent">
-              Visão em Lista Corporativa — {activePipeline?.name} ({filteredDeals.length} negócios)
+              Visão em Lista Corporativa — {formatPipelineDisplayName(activePipeline?.name)} ({filteredDeals.length} negócios)
             </span>
             <span className="text-slate-500">
               Total Aberto: <strong>{formatBRL(pipeOpenValue)}</strong> • Forecast Ponderado:{' '}
