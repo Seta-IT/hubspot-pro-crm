@@ -1649,7 +1649,7 @@ export function ProposalEditModal({
                 6. Observações Comerciais, <span className="text-[#1e3a6e]">Cláusulas SLA &amp; Notas Internas</span>
               </div>
               <div className="text-[11px] text-slate-500">
-                Observações impressas no PDF A4 do cliente e anotações de uso exclusivo interno.
+                Observações impressas no PDF do cliente e anotações internas.
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1692,27 +1692,22 @@ export function ProposalEditModal({
 
           {/* BLOCO 7: VERSÕES DA PROPOSTA (SIMPLES, DIRETO E COM OS 3 BOTÕES: ABRIR TELA, PDF E RESTAURAR) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-[#1e3a6e] text-white flex flex-wrap items-center justify-between gap-2">
+            <div className="px-5 py-3 bg-white border-b border-slate-200 text-slate-900 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-emerald-300" />
-                <div>
-                  <div className="text-sm font-extrabold flex items-center gap-2">
-                    <span>Versões da Proposta ({versionHistoryList.length})</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black">
-                      Versão Atual: Versão {draft.version || 1}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-200">
-                    Abra a tela de qualquer versão anterior, gere o PDF A4 ou restaure em 1 clique.
-                  </div>
+                <History className="w-4 h-4 text-[#1e3a6e]" />
+                <div className="text-sm font-semibold flex items-center gap-2">
+                  <span>Versões anteriores</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                    Atual: v{draft.version || 1}
+                  </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowVersionHistoryPanel((v) => !v)}
-                className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+                className="px-3 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
               >
-                {showVersionHistoryPanel ? "Ocultar Versões ▲" : `Ver Versões (${versionHistoryList.length}) ▼`}
+                {showVersionHistoryPanel ? "Ocultar" : `Ver (${versionHistoryList.length})`}
               </button>
             </div>
 
@@ -1723,8 +1718,8 @@ export function ProposalEditModal({
                     <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
                       <tr>
                         <th className="py-2.5 px-3 w-36">Versão</th>
-                        <th className="py-2.5 px-3 w-48">Data / Hora &amp; Responsável</th>
-                        <th className="py-2.5 px-3">Valor Mensal / Resumo</th>
+                        <th className="py-2.5 px-3 w-48">Data e responsável</th>
+                        <th className="py-2.5 px-3">Valor mensal</th>
                         <th className="py-2.5 px-3 text-right">Ações</th>
                       </tr>
                     </thead>
@@ -1783,30 +1778,30 @@ export function ProposalEditModal({
                                   href={screenUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold"
                                 >
                                   <ExternalLink className="w-3 h-3" />
-                                  <span>Abrir Tela da Versão</span>
+                                  <span>Abrir</span>
                                 </a>
 
                                 <a
                                   href={pdfUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold"
                                 >
                                   <Printer className="w-3 h-3" />
-                                  <span>Baixar / Imprimir PDF</span>
+                                  <span>Gerar PDF</span>
                                 </a>
 
                                 <button
                                   type="button"
                                   disabled={restoringVersionNum === ver.version}
                                   onClick={() => handleLoadVersionSnapshotIntoForm(ver)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
                                 >
-                                  <RotateCcw className="w-3 h-3 text-emerald-300" />
-                                  <span>Restaurar esta versão</span>
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Restaurar</span>
                                 </button>
                               </div>
                             </td>

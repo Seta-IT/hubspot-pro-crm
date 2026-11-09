@@ -504,7 +504,7 @@ export function ContractBillingHistoryPanel({
                       <td className="py-1.5 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${inv.status === 'VENCIDA' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{invoiceStatusLabel(inv)}</span>{contract.lastEmailSentAt && <div className="text-[9px] font-semibold text-slate-500">ENVIADA POR E-MAIL</div>}</td>
                       <td className="py-1.5 px-2 text-right whitespace-nowrap space-x-1">
                         {onView && <button type="button" onClick={() => onView(inv)} className={`px-1.5 py-0.5 ${BTN_PRIMARY}`}>Visualizar</button>}
-                        <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, contract, 'DOWNLOAD')} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Baixar PDF</button>
+                        <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, contract, 'DOWNLOAD')} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Gerar PDF</button>
                         {onEdit && <button type="button" onClick={() => onEdit(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Editar</button>}
                         {onEmail && <button type="button" onClick={() => onEmail(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>E-mail</button>}
                         {onGoFiscal && <button type="button" onClick={() => onGoFiscal(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Ver no Fiscal</button>}
@@ -568,7 +568,7 @@ export function ContractVersionHistoryPanel({
   return (
     <div data-testid="contract-version-history" className="rounded-lg border border-slate-200 bg-white p-3 space-y-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm font-semibold text-slate-900">Versões do contrato ({versions.length})</h4>
+        <h4 className="text-sm font-semibold text-slate-900">Versões anteriores ({versions.length})</h4>
         <span className={`px-2 py-0.5 ${PILL} text-[10px]`}>Versão atual: {contract.versionLabel || `v${contract.version || 1}.0`}</span>
       </div>
       <div className="space-y-1.5">
@@ -586,8 +586,8 @@ export function ContractVersionHistoryPanel({
                 <div className="flex flex-wrap gap-1">{v.changedFields.map((f) => <span key={f} className={`px-1.5 ${PILL} text-[10px]`}>{f}</span>)}</div>
               </div>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => downloadContractVersionPdfOnDemand(contract, v, 'PRINT')} className={`px-2 py-1 ${BTN_OUTLINE}`}>Baixar PDF</button>
-                {onRestore && !isCurrent && <button type="button" onClick={() => void onRestore(v)} className={`px-2 py-1 ${BTN_OUTLINE}`}>Restaurar versão</button>}
+                <button type="button" onClick={() => downloadContractVersionPdfOnDemand(contract, v, 'PRINT')} className={`px-2 py-1 ${BTN_OUTLINE}`}>Gerar PDF</button>
+                {onRestore && !isCurrent && <button type="button" onClick={() => void onRestore(v)} className={`px-2 py-1 ${BTN_OUTLINE}`}>Restaurar</button>}
               </div>
             </div>
           );
