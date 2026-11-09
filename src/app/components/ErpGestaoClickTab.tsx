@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FileText,
   FileCheck2,
@@ -488,6 +489,8 @@ export default function ErpGestaoClickTab({
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
+  /** Posição fixed do menu ⋮ — evita clip por overflow-hidden/overflow-x-auto da tabela. */
+  const [proposalMenuCoords, setProposalMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const [expandedProposalSubmenu, setExpandedProposalSubmenu] = useState<"IMPRIMIR" | "COMPARTILHAR" | "GERAR" | null>(null);
   const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
   const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
@@ -1575,11 +1578,27 @@ export default function ErpGestaoClickTab({
         {/* 3. Botão Menu 3 Pontos Verticais GestãoClick */}
         <button
           type="button"
-          onClick={() => {
+          onClick={(e) => {
             if (isMenuOpen) {
               setOpenProposalMenuId(null);
               setExpandedProposalSubmenu(null);
+              setProposalMenuCoords(null);
             } else {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const menuWidth = 224; // w-56
+              const estHeight = 420;
+              const spaceBelow = window.innerHeight - rect.bottom;
+              const openUp = spaceBelow < Math.min(estHeight, window.innerHeight * 0.7);
+              const usable = openUp ? Math.max(120, rect.top - 8) : Math.max(120, spaceBelow - 8);
+              const height = Math.min(estHeight, usable, window.innerHeight * 0.7);
+              const top = openUp
+                ? Math.max(8, rect.top - height)
+                : rect.bottom + 4;
+              const left = Math.min(
+                Math.max(8, rect.right - menuWidth),
+                Math.max(8, window.innerWidth - menuWidth - 8)
+              );
+              setProposalMenuCoords({ top, left });
               setOpenProposalMenuId(prop.id);
               setExpandedProposalSubmenu(null);
             }
@@ -1594,8 +1613,15 @@ export default function ErpGestaoClickTab({
           <span className="font-semibold text-sm leading-none select-none">&#8942;</span>
         </button>
 
-        {isMenuOpen && (
-          <div className="absolute right-0 top-9 w-56 bg-white rounded-md border border-slate-200 shadow-xl py-1.5 z-50 text-left text-xs text-slate-700">
+        {isMenuOpen &&
+          proposalMenuCoords &&
+          typeof document !== "undefined" &&
+          createPortal(
+          <div
+            data-testid="proposal-gestao-click-menu"
+            className="fixed w-56 max-h-[70vh] overflow-y-auto bg-white rounded-md border border-slate-200 shadow-xl py-1.5 z-[100] text-left text-xs text-slate-700"
+            style={{ top: proposalMenuCoords.top, left: proposalMenuCoords.left }}
+          >
             {/* Ver proposta */}
             <a
               href={publicUrl}
@@ -1699,9 +1725,11 @@ export default function ErpGestaoClickTab({
                   </button>
                   <button
                     type="button"
+                    data-testid="menu-share-email"
                     onClick={async () => {
                       // Link assinado (29/10): o cliente so abre a proposta com o link gerado no servidor.
                       setOpenProposalMenuId(null);
+                      setProposalMenuCoords(null);
                       const signed = await copySignedProposalLink(prop.id);
                       if (!signed.ok) {
                         onShowToast(signed.error);
@@ -1840,6 +1868,7 @@ export default function ErpGestaoClickTab({
               type="button"
               onClick={() => {
                 setOpenProposalMenuId(null);
+                setProposalMenuCoords(null);
                 handleDeleteProposal(prop);
               }}
               className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center gap-2.5 text-rose-600 font-semibold cursor-pointer text-left"
@@ -1847,8 +1876,9 @@ export default function ErpGestaoClickTab({
               <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
               <span>Excluir</span>
             </button>
-          </div>
-        )}
+          </div>,
+          document.body
+          )}
       </div>
     );
   };
@@ -2624,8 +2654,8 @@ export default function ErpGestaoClickTab({
 
         {/* VISÃO TABELA GESTÃOCLICK */}
         {effectiveOrcTab !== "ORC_AUXILIARES" && proposalsViewMode === "TABLE" && (
-          <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
+          <div className="bg-white rounded-md border border-slate-200 shadow-xs overflow-visible">
+            <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
                   <tr>

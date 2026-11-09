@@ -141,6 +141,7 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     assert.equal(isPublicStiHubPath('/api/p/a/b', 'GET'), false);
     const tab = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
     assert.ok(tab.includes('data-testid="menu-copy-client-link"'));
+    assert.ok(tab.includes('data-testid="menu-share-email"'));
     assert.ok(tab.includes('data-testid="status-modal-copy-client-link"'));
     const pageSrc = fs.readFileSync(path.join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
     assert.ok(pageSrc.includes('data-testid="copy-client-link"'));
