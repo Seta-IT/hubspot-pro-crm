@@ -4332,6 +4332,23 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.equal(r30Thu.ruleLabel, '30 dias + próxima quinta-feira');
   });
 
+  it('computeCustomDueDateClient (UI) espelha o mesmo cálculo: 45 dias + quarta-feira a partir de 2026-10-28 => 16/12/2026 (quarta-feira)', async () => {
+    const { computeCustomDueDateClient } = await import('../src/app/lib/contract-billing-utils');
+    const r = computeCustomDueDateClient({
+      baseDate: '2026-10-28',
+      offsetDays: 45,
+      targetWeekday: 'WEDNESDAY',
+    });
+    assert.equal(r.afterOffsetDateIso, '2026-12-12');
+    assert.equal(r.dueDateIso, '2026-12-16');
+    assert.equal(r.dueDateBr, '16/12/2026');
+    assert.equal(r.weekdayLabelPt, 'Quarta-feira');
+    assert.equal(r.ruleLabel, '45 dias + próxima quarta-feira');
+    // A simulação da UI deve usar weekdayLabelPt do vencimento FINAL (após ajuste), nunca o dia pós-offset sem ajuste.
+    assert.notEqual(r.weekdayLabelPt, 'Sábado');
+    assert.notEqual(r.dueDateBr, '12/12/2026');
+  });
+
   it('versiona contratos automaticamente em JSON leve (0 MB PDF), restaura versões e imprime Recibo de Locação em 1 Página A4 Única', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
