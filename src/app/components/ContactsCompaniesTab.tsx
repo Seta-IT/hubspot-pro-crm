@@ -1531,7 +1531,10 @@ export default function ContactsCompaniesTab({
 
                   {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTA EMPRESA */}
                   <CrmRecordEmailSection
-                    record={{ companyId: companyDetail.id }}
+                    record={{
+                      companyId: companyDetail.id,
+                      contactId: companyDetail.contacts?.[0]?.id || null,
+                    }}
                     defaultTo={companyDetail.contacts?.[0]?.email || ''}
                     recordLabel={companyDetail.name}
                     suggestions={(companyDetail.contacts || []).map((c) => c.email)}

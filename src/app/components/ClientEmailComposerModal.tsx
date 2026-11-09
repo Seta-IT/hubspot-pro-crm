@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { buildClientEmailGreeting } from '../lib/client-email-greeting';
 import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
 import {
   Mail,
@@ -119,9 +120,10 @@ function buildDefaultBody(p: ClientEmailInitialPayload, docType: StiHubEmailDocT
     (typeof window !== 'undefined'
       ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
       : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`);
+  const greeting = buildClientEmailGreeting(p);
 
   if (docType === 'PROPOSAL') {
-    return `Olá, ${contact} (${comp}),
+    return `${greeting}
 
 Segue para sua avaliação e aprovação a nossa Proposta Comercial / Orçamento Nº ${code}, elaborada pela equipe da SETA TELECOM LTDA (SETA | IT).
 
@@ -142,7 +144,7 @@ CNPJ 14.806.925/0001-32 • Tel: (11) 3958-4929`;
   }
 
   if (docType === 'TICKET_REPLY') {
-    return `Olá, ${contact} (${comp}),
+    return `${greeting}
 
 Informamos uma nova atualização técnica referente ao seu chamado / Ordem de Serviço protocolo #${code} na Central de Atendimento 24x7 da Seta Telecom:
 

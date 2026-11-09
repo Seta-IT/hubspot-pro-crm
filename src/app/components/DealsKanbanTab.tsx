@@ -2417,9 +2417,23 @@ export default function DealsKanbanTab({
 
                 {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTE NEGOCIO */}
                 <CrmRecordEmailSection
-                  record={{ dealId: selectedDeal.id }}
+                  record={{
+                    dealId: selectedDeal.id,
+                    contactId: selectedDeal.contactId || selectedDeal.contact?.id || null,
+                    companyId: selectedDeal.companyId || selectedDeal.company?.id || null,
+                  }}
                   defaultTo={selectedDeal.contact?.email || ''}
                   recordLabel={selectedDeal.title}
+                  suggestions={contacts
+                    .filter((c) =>
+                      selectedDeal.companyId
+                        ? c.companyId === selectedDeal.companyId
+                        : selectedDeal.contactId
+                          ? c.id === selectedDeal.contactId
+                          : false
+                    )
+                    .map((c) => c.email)
+                    .filter(Boolean)}
                 />
 
                 <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-4 space-y-3">

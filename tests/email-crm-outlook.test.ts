@@ -21,6 +21,7 @@ import { MemoryMailboxStore, type CrmEmailMessage } from '../src/modules/email/m
 import { importHubSpotEmailHistory, mapHubSpotEmail, type HubSpotEmailPage } from '../src/modules/email/hubspot-email-history';
 import { isMailboxFeatureEnabled } from '../src/modules/email/ms-graph';
 import { handleEmailTrackRequest } from '../src/app/lib/email-track-route';
+import { mailboxSendDisabledReason } from '../src/app/components/email/mailbox-client';
 const oPath = (id: string) => `/api/email-track/o/${id}/${trackingSignature(id)}`;
 const cPath = (id: string, n: number) => `/api/email-track/c/${id}/${n}/${trackingSignature(id, n)}`;
 
@@ -429,5 +430,62 @@ describe('Padrao visual e encaixe nas fichas', () => {
   it('tokens nunca no navegador', () => {
     for (const [name, s] of files) assert.doesNotMatch(s, /localStorage|sessionStorage/, name);
     assert.doesNotMatch(src('src/app/conta/email/retorno/page.tsx'), /localStorage|sessionStorage|access_token/);
+  });
+});
+
+describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
+  const readSrc = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
+
+  it('mailboxSendDisabledReason cobre Para, Assunto e caixa não conectada', () => {
+    assert.equal(
+      mailboxSendDisabledReason({ enabled: true, activeAccountCount: 1, to: 'a@b.com', subject: 'Oi' }),
+      null
+    );
+    assert.match(
+      mailboxSendDisabledReason({ enabled: false, activeAccountCount: 0, to: 'a@b.com', subject: 'Oi' }) || '',
+      /não liberada|Minha Conta|administrador/i
+    );
+    assert.match(
+      mailboxSendDisabledReason({ enabled: true, activeAccountCount: 0, to: 'a@b.com', subject: 'Oi' }) || '',
+      /Conecte sua caixa|Minha Conta/
+    );
+    assert.match(
+      mailboxSendDisabledReason({ enabled: true, activeAccountCount: 1, to: '', subject: 'Oi' }) || '',
+      /Para/
+    );
+    assert.match(
+      mailboxSendDisabledReason({ enabled: true, activeAccountCount: 1, to: 'a@b.com', subject: '  ' }) || '',
+      /assunto/i
+    );
+  });
+
+  it('compositor mostra motivo do Enviar desabilitado e erros com role=alert', () => {
+    const s = readSrc('src/app/components/email/CrmRecordEmailSection.tsx');
+    assert.match(s, /mailboxSendDisabledReason/);
+    assert.match(s, /data-testid="crm-mail-send-reason"/);
+    assert.match(s, /role="alert"/);
+    assert.match(s, /title=\{sendDisabledReason/);
+  });
+
+  it('HubSpotCardEmailComposer some quando Outlook/Graph está ativo', () => {
+    const s = readSrc('src/app/components/HubSpotEmailAndTasksPanel.tsx');
+    assert.match(s, /mailboxApi<MailboxStatusView>\('\/status'\)/);
+    assert.match(s, /if \(outlookReady\) return null;/);
+  });
+
+  it('fichas associam envio ao registro e pré-preenchem Para', () => {
+    const contact = readSrc('src/app/components/ContactDetailDrawer.tsx');
+    assert.match(contact, /contactId: contactDetail\.id, companyId: contactDetail\.companyId/);
+    assert.match(contact, /defaultTo=\{contactDetail\.email\}/);
+
+    const company = readSrc('src/app/components/ContactsCompaniesTab.tsx');
+    assert.match(company, /companyId: companyDetail\.id/);
+    assert.match(company, /contactId: companyDetail\.contacts\?\.\[0\]\?\.id/);
+    assert.match(company, /defaultTo=\{companyDetail\.contacts\?\.\[0\]\?\.email/);
+
+    const deal = readSrc('src/app/components/DealsKanbanTab.tsx');
+    assert.match(deal, /dealId: selectedDeal\.id/);
+    assert.match(deal, /defaultTo=\{selectedDeal\.contact\?\.email/);
+    assert.match(deal, /suggestions=\{contacts/);
   });
 });

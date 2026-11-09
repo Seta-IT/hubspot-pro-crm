@@ -88,3 +88,24 @@ export const TAG_GRAY = 'inline-flex items-center px-2 py-0.5 rounded-full bg-sl
 export const CARD = 'bg-white rounded-xl border border-slate-200 p-4 space-y-3';
 export const INPUT = 'w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs text-slate-800 font-semibold focus:outline-none focus:border-accent';
 export const LABEL = 'block text-[11px] font-semibold text-slate-600 mb-1';
+
+/** Motivo legível quando o botão Enviar do compositor Outlook deve ficar desabilitado. */
+export function mailboxSendDisabledReason(opts: {
+  loading?: boolean;
+  enabled?: boolean;
+  activeAccountCount?: number;
+  to?: string;
+  subject?: string;
+  sending?: boolean;
+  statusMessage?: string | null;
+}): string | null {
+  if (opts.loading) return 'Carregando status da caixa...';
+  if (opts.sending) return 'Enviando...';
+  if (!opts.enabled) {
+    return (opts.statusMessage && opts.statusMessage.trim()) || 'Caixa de e-mail não liberada pelo administrador.';
+  }
+  if (!opts.activeAccountCount) return 'Conecte sua caixa do Outlook em Minha Conta.';
+  if (!String(opts.to || '').trim()) return 'Informe o destinatário (Para).';
+  if (!String(opts.subject || '').trim()) return 'Informe o assunto.';
+  return null;
+}

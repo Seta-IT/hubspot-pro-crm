@@ -12,6 +12,7 @@ import {
   INPUT,
   LABEL,
   mailboxApi,
+  mailboxSendDisabledReason,
   recordQuery,
   TAG_GRAY,
   type EmailRecordRef,
@@ -193,7 +194,16 @@ export function CrmEmailComposerModal({
     () => [...new Set(suggestions.map((s) => s.trim().toLowerCase()).filter((s) => s.includes('@')))].filter((s) => !to.toLowerCase().includes(s)).slice(0, 6),
     [suggestions, to]
   );
-  const canSend = Boolean(status?.enabled && activeAccounts.length && to.trim() && subject.trim() && !sending);
+  const sendDisabledReason = mailboxSendDisabledReason({
+    loading,
+    enabled: status?.enabled,
+    activeAccountCount: activeAccounts.length,
+    to,
+    subject,
+    sending,
+    statusMessage: status?.message,
+  });
+  const canSend = !sendDisabledReason;
 
   const send = async () => {
     if (!canSend) return;
@@ -329,16 +339,34 @@ export function CrmEmailComposerModal({
               </label>
             </>
           )}
-          {error && <p className="text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-2.5">{error}</p>}
+          {error && (
+            <p role="alert" className="text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-300 rounded-lg p-2.5">
+              {error}
+            </p>
+          )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200">
-          <button type="button" onClick={onClose} className={BTN_OUTLINE}>
-            Cancelar
-          </button>
-          <button type="button" onClick={send} disabled={!canSend} className={BTN_PRIMARY}>
-            {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Enviar
-          </button>
+        <div className="flex flex-col items-stretch gap-1.5 px-5 py-3 border-t border-slate-200">
+          {(sendDisabledReason || error) && (
+            <p className="text-[11px] font-semibold text-slate-600 text-right" data-testid="crm-mail-send-reason">
+              {error ? error : sendDisabledReason}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={onClose} className={BTN_OUTLINE}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              title={sendDisabledReason || undefined}
+              aria-disabled={!canSend}
+              className={BTN_PRIMARY}
+            >
+              {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Enviar
+            </button>
+          </div>
         </div>
       </div>
     </div>

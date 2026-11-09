@@ -791,7 +791,7 @@ export default function ContactDetailDrawer({
 
               {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO (ENVIO, RESPOSTAS, ABERTURAS E CLIQUES) */}
               <CrmRecordEmailSection
-                record={{ contactId: contactDetail.id }}
+                record={{ contactId: contactDetail.id, companyId: contactDetail.companyId || null }}
                 defaultTo={contactDetail.email}
                 recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
                 suggestions={

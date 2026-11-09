@@ -33,6 +33,7 @@ import {
   SETA_OWNER_OPTIONS,
   formatDateTimeBR,
 } from './ui-helpers';
+import { mailboxApi, type MailboxStatusView } from './email/mailbox-client';
 import {
   recordDeletedTask,
   recordTimelineEvent,
@@ -92,6 +93,22 @@ export function HubSpotCardEmailComposer({
   allContacts = [],
   onSent,
 }: HubSpotCardEmailComposerProps) {
+  // t127u: se a caixa Outlook/Graph estiver disponível, esconde este compositor legado
+  // (só registra em /api/emails/send) para não confundir com o envio real via CrmRecordEmailSection.
+  const [outlookReady, setOutlookReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const r = await mailboxApi<MailboxStatusView>('/status');
+      if (!active) return;
+      const accounts = r.ok && r.data ? r.data.accounts.filter((a) => a.status === 'ATIVADO') : [];
+      setOutlookReady(Boolean(r.ok && r.data?.enabled && accounts.length > 0));
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const [templates, setTemplates] = useState<CrmEmailTemplate[]>([]);
   const [snippets, setSnippets] = useState<CrmSnippet[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -368,6 +385,8 @@ export function HubSpotCardEmailComposer({
       )
       .slice(0, 6),
   ];
+
+  if (outlookReady) return null;
 
   return (
     <div className="p-4 rounded-2xl border-2 border-[#0091ae]/40 bg-[#f5f8fa] space-y-3.5 shadow-xs">
