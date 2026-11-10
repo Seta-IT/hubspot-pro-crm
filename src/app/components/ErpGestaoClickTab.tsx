@@ -158,6 +158,16 @@ import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedPr
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
 import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
+import {
+  countRecordUsage,
+  formatRecordUsageText,
+  parseRecordInUseResponse,
+  recordUsageTotal,
+  type RecordUsageKind,
+  type RecordUsageRef,
+  type RecordUsageSources,
+} from '../../modules/erp/record-in-use';
+import { CannotDeleteModal } from './CannotDeleteModal';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 import {
   BatchRentalBillingAndEmailModal,
@@ -517,6 +527,8 @@ export default function ErpGestaoClickTab({
     readOnly?: boolean;
     onSave: (values: Record<string, unknown>) => Promise<void>;
     onDelete?: () => Promise<void>;
+    deleteInUse?: boolean;
+    deleteUsageText?: string;
   } | null>(null);
   const [hideBalances, setHideBalances] = useState(false);
   const [cadastrosSubTab, setCadastrosSubTab] = useState<
@@ -795,6 +807,7 @@ export default function ErpGestaoClickTab({
   // frio o ERP monta com erpData=null e, ao chegar o payload, um useState depois do return
   // estoura "Application error: a client-side exception has occurred".
   const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
+  const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
 
   if (!erpData) {
     return (
@@ -839,6 +852,29 @@ export default function ErpGestaoClickTab({
   const handleGenerateInvoiceLink = async (inv: (typeof invoices)[number]) => {
     const r = await copySignedInvoiceLink(inv.id);
     onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+  };
+
+  const recordUsageSources: RecordUsageSources = {
+    contracts: rentalContracts,
+    proposals,
+    deals,
+    invoices,
+    serviceOrders,
+    financialEntries,
+    bankAccounts,
+    catalog,
+  };
+
+  const isRecordInUse = (kind: RecordUsageKind, ref: RecordUsageRef) =>
+    recordUsageTotal(countRecordUsage(kind, ref, recordUsageSources)) > 0;
+
+  const usageTextFor = (kind: RecordUsageKind, ref: RecordUsageRef) =>
+    formatRecordUsageText(countRecordUsage(kind, ref, recordUsageSources));
+
+  const blockDeleteIfUsed = (kind: RecordUsageKind, ref: RecordUsageRef): boolean => {
+    if (!isRecordInUse(kind, ref)) return false;
+    setCannotDeleteText(usageTextFor(kind, ref));
+    return true;
   };
   const nextProposalCodeHint = (): string =>
     proposalsTableMode
@@ -1874,13 +1910,17 @@ export default function ErpGestaoClickTab({
             {/* Excluir */}
             <button
               type="button"
+              title={isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId }) ? 'Em uso' : 'Excluir'}
+              aria-disabled={isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId })}
               onClick={() => {
                 setOpenProposalMenuId(null);
-                  handleDeleteProposal(prop);
+                const ref = { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId };
+                if (blockDeleteIfUsed('proposal', ref)) return;
+                void handleDeleteProposal(prop);
               }}
-              className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center gap-2.5 text-rose-600 font-semibold cursor-pointer text-left"
+              className={`w-full px-3.5 py-2 flex items-center gap-2.5 font-semibold text-left ${isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId }) ? 'text-slate-400 cursor-not-allowed' : 'hover:bg-rose-50 text-rose-600 cursor-pointer'}`}
             >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
               <span>Excluir</span>
             </button>
         </RowKebabMenu>
@@ -1930,7 +1970,20 @@ export default function ErpGestaoClickTab({
   };
 
   const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
-    await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
+    const ref = { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId };
+    if (blockDeleteIfUsed('proposal', ref)) return;
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir a proposta ${showCode(prop)}?`)) return;
+    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir a proposta.');
+      return;
+    }
     recordDeletedProposal(prop.id);
     onShowToast(`Proposta ${showCode(prop)} excluída.`);
     await onRefresh();
@@ -1966,8 +2019,21 @@ export default function ErpGestaoClickTab({
     return true;
   };
 
-  const handleDeleteContract = async (ctr: ErpRentalContract) => {
-    await fetch(`/api/erp/rental-contracts/${encodeURIComponent(ctr.id)}`, { method: 'DELETE' });
+  const handleDeleteContract = async (ctr: ErpRentalContract, opts?: { alreadyConfirmed?: boolean }) => {
+    const ref = { id: ctr.id, contractNumber: ctr.contractNumber };
+    if (blockDeleteIfUsed('rentalContract', ref)) return;
+    if (!opts?.alreadyConfirmed && typeof window !== 'undefined' && !window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) return;
+    const res = await fetch(`/api/erp/rental-contracts/${encodeURIComponent(ctr.id)}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir o contrato.');
+      return;
+    }
     recordDeletedContract(ctr.id);
     onShowToast(`Contrato ${ctr.contractNumber} excluído.`);
     await onRefresh();
@@ -2005,12 +2071,21 @@ export default function ErpGestaoClickTab({
       initialValues,
       fields,
       readOnly: options?.readOnly,
+      deleteInUse:
+        collection === 'bankAccounts' && options?.deleteId
+          ? isRecordInUse('bankAccount', { id: options.deleteId, name: options.deleteLabel || String(initialValues.name || '') })
+          : false,
+      deleteUsageText:
+        collection === 'bankAccounts' && options?.deleteId
+          ? usageTextFor('bankAccount', { id: options.deleteId, name: options.deleteLabel || String(initialValues.name || '') })
+          : undefined,
       onDelete: options?.deleteId
         ? async () => {
             await handleDeleteCollectionRecord(
               collection,
               options.deleteId!,
-              options.deleteLabel || title
+              options.deleteLabel || title,
+              { name: options.deleteLabel || String(initialValues.name || '') }
             );
             setGenericModal(null);
           }
@@ -2040,11 +2115,23 @@ export default function ErpGestaoClickTab({
   const handleDeleteCollectionRecord = async (
     collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
     id: string,
-    label: string
+    label: string,
+    extra?: { name?: string }
   ) => {
-    await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
+    if (collection === 'bankAccounts' && blockDeleteIfUsed('bankAccount', { id, name: extra?.name })) return;
+    const res = await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir o registro.');
+      return;
+    }
     if (collection === 'purchaseOrders') recordDeletedPurchaseOrder(id);
     if (collection === 'suppliers') recordDeletedSupplier(id);
     if (collection === 'employees') recordDeletedEmployee(id);
@@ -3063,8 +3150,12 @@ export default function ErpGestaoClickTab({
         { key: "AGENDAR", label: "Agendar compromisso", icon: Calendar, run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
         { key: "VER_FINANCEIRO", label: "Ver no financeiro", icon: Wallet, run: () => { setActiveSection("FINANCEIRO" as GestaoClickMenuSection); onShowToast(`Financeiro filtrado por ${ctr.companyName} / contrato ${ctr.contractNumber}.`); } },
         { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", icon: FileCheck2, run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil / Gov.br registrada. Link copiado: ${l}`); } },
-        { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, run: () => { if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr); } },
-      ] as { key: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean; run: () => unknown }[];
+        { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, disabled: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }), title: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }) ? 'Em uso' : 'Excluir', run: () => {
+          const ref = { id: ctr.id, contractNumber: ctr.contractNumber };
+          if (blockDeleteIfUsed('rentalContract', ref)) return;
+          if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr, { alreadyConfirmed: true });
+        } },
+      ] as { key: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean; disabled?: boolean; title?: string; run: () => unknown }[];
     }
     const effectiveTab: "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES" =
       activeSubId === "CTR_TODOS"
@@ -3814,8 +3905,10 @@ export default function ErpGestaoClickTab({
                                     key={act.key}
                                     type="button"
                                     role="menuitem"
-                                    onClick={() => { setContractRowMenuId(null); void act.run(); }}
-                                    className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
+                                    onClick={() => { setContractRowMenuId(null); if (act.disabled) return; void act.run(); }}
+                                    title={act.title}
+                                    aria-disabled={Boolean(act.disabled)}
+                                    className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium ${act.disabled ? "text-slate-400 cursor-not-allowed" : "cursor-pointer"} ${act.danger && !act.disabled ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : act.danger ? "border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
                                   >
                                     <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
                                     <span>{act.label}</span>
@@ -5947,13 +6040,28 @@ export default function ErpGestaoClickTab({
                             </button>
                             <button
                               type="button"
+                              title={isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode }) ? 'Em uso' : 'Excluir'}
+                              aria-disabled={isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode })}
                               onClick={async () => {
-                                await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                                const ref = { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode };
+                                if (blockDeleteIfUsed('catalogItem', ref)) return;
+                                if (typeof window !== 'undefined' && !window.confirm(`Excluir o item ${it.gestaoClickCode}?`)) return;
+                                const res = await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                                const json = await res.json().catch(() => null);
+                                const blocked = parseRecordInUseResponse(json);
+                                if (blocked) {
+                                  setCannotDeleteText(blocked.usageText);
+                                  return;
+                                }
+                                if (!res.ok) {
+                                  onShowToast((json && json.error) || 'Não foi possível excluir o item.');
+                                  return;
+                                }
                                 recordDeletedCatalogItem(it.id);
                                 onShowToast(`Item ${it.gestaoClickCode} excluído.`);
                                 await onRefresh();
                               }}
-                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                              className={`px-2 py-1 rounded border text-[11px] font-bold ${isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode }) ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-rose-50 text-rose-700 border-rose-200 cursor-pointer'}`}
                             >
                               Excluir
                             </button>
@@ -6579,6 +6687,9 @@ export default function ErpGestaoClickTab({
         </div>
       </div>
 
+      {cannotDeleteText && (
+        <CannotDeleteModal text={cannotDeleteText} onClose={() => setCannotDeleteText(null)} />
+      )}
       {emailModalPayload && (
         <ClientEmailComposerModal
           payload={emailModalPayload}
@@ -6629,7 +6740,9 @@ export default function ErpGestaoClickTab({
           readOnly={editingContractReadOnly}
           onClose={() => setEditingContract(null)}
           onSave={async (updated) => { await handleSaveEditedContract(updated); }}
-          onDelete={handleDeleteContract}
+          onDelete={(ctr) => handleDeleteContract(ctr, { alreadyConfirmed: true })}
+          deleteInUse={isRecordInUse('rentalContract', { id: editingContract.id, contractNumber: editingContract.contractNumber })}
+          deleteUsageText={usageTextFor('rentalContract', { id: editingContract.id, contractNumber: editingContract.contractNumber })}
           onGenerateInvoice={handleGenerateContractInvoice}
           onGenerateRemessaNfe={handleGenerateRemessaNfe}
           onOpenPartialReturn={(ctr) => setPartialReturnModalContract(ctr)}
@@ -6652,6 +6765,8 @@ export default function ErpGestaoClickTab({
           onClose={() => setGenericModal(null)}
           onSave={genericModal.onSave}
           onDelete={genericModal.onDelete}
+          deleteInUse={genericModal.deleteInUse}
+          deleteUsageText={genericModal.deleteUsageText}
         />
       )}
 
@@ -6686,12 +6801,35 @@ export default function ErpGestaoClickTab({
             );
             await onRefresh();
           }}
+          deleteInUse={
+            editingCustomerModal.company
+              ? isRecordInUse('company', { id: editingCustomerModal.company.id, name: editingCustomerModal.company.name, cnpj: editingCustomerModal.company.cnpj })
+              : false
+          }
+          deleteUsageText={
+            editingCustomerModal.company
+              ? usageTextFor('company', { id: editingCustomerModal.company.id, name: editingCustomerModal.company.name, cnpj: editingCustomerModal.company.cnpj })
+              : undefined
+          }
           onDelete={
             editingCustomerModal.company?.id && !editingCustomerModal.isNew
               ? async (companyId: string) => {
-                  await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
+                  const company = editingCustomerModal.company;
+                  const ref = { id: companyId, name: company?.name, cnpj: company?.cnpj };
+                  if (blockDeleteIfUsed('company', ref)) return;
+                  const res = await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
                     method: 'DELETE',
                   });
+                  const json = await res.json().catch(() => null);
+                  const blocked = parseRecordInUseResponse(json);
+                  if (blocked) {
+                    setCannotDeleteText(blocked.usageText);
+                    throw new Error(blocked.usageText);
+                  }
+                  if (!res.ok) {
+                    onShowToast((json && json.error) || 'Não foi possível excluir o cliente.');
+                    throw new Error('delete failed');
+                  }
                   recordDeletedCompany(companyId);
                   setEditingCustomerModal(null);
                   onShowToast(`Cliente ${editingCustomerModal.company?.name || ''} excluído após confirmação.`);

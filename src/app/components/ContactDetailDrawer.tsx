@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
 import {
@@ -48,6 +50,8 @@ interface ContactDetailDrawerProps {
   onSingleEnrich: (contactId: string) => Promise<void>;
   onUpdateContact: (contactId: string, patch: Record<string, unknown>) => Promise<void>;
   onDeleteContact: (contactId: string) => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
   onAddContactActivity: (payload: {
     contactId: string;
     companyId?: string | null;
@@ -70,10 +74,13 @@ export default function ContactDetailDrawer({
   onSingleEnrich,
   onUpdateContact,
   onDeleteContact,
+  deleteInUse = false,
+  deleteUsageText,
   onAddContactActivity,
 }: ContactDetailDrawerProps) {
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -195,6 +202,9 @@ export default function ContactDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
         <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -493,7 +503,18 @@ export default function ContactDetailDrawer({
                   </div>
 
                   <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
-                    {!confirmDelete ? (
+                    {deleteInUse ? (
+                      <button
+                        type="button"
+                        title="Em uso"
+                        aria-disabled
+                        onClick={() => setShowInUseModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-400 cursor-not-allowed text-xs font-semibold"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Excluir Contato
+                      </button>
+                    ) : !confirmDelete ? (
                       <button
                         type="button"
                         onClick={() => setConfirmDelete(true)}

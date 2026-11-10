@@ -2153,6 +2153,25 @@ export class CrmRepository {
     return pipeline;
   }
 
+  deletePipeline(id: string): boolean {
+    const before = this.state.pipelines.length;
+    this.state.pipelines = this.state.pipelines.filter((p) => p.id !== id);
+    if (this.state.pipelines.length === before) return false;
+    this.save();
+    return true;
+  }
+
+  deletePipelineStage(pipelineId: string, stageId: string): boolean {
+    const pipeline = this.getPipelineById(pipelineId);
+    if (!pipeline) return false;
+    const before = pipeline.stages.length;
+    pipeline.stages = pipeline.stages.filter((s) => s.id !== stageId);
+    if (pipeline.stages.length === before) return false;
+    pipeline.updatedAt = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
   listDeals(filters?: {
     pipelineId?: string;
     stageId?: string;

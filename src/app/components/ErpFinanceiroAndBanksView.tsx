@@ -28,6 +28,13 @@ import { formatBRL } from './ui-helpers';
 import { buildIssuedInvoiceEmailPayload } from '../lib/invoice-email-payload';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
+import {
+  countRecordUsage,
+  formatRecordUsageText,
+  parseRecordInUseResponse,
+  recordUsageTotal,
+} from '../../modules/erp/record-in-use';
+import { CannotDeleteModal } from './CannotDeleteModal';
 
 export interface ErpFinanceiroAndBanksViewProps {
   activeSubId: string;
@@ -44,7 +51,8 @@ export interface ErpFinanceiroAndBanksViewProps {
     collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
     title: string,
     record: Record<string, unknown>,
-    fields: Array<{ key: string; label: string; type?: 'text' | 'number' | 'select'; options?: string[] }>
+    fields: Array<{ key: string; label: string; type?: 'text' | 'number' | 'select'; options?: string[] }>,
+    options?: { readOnly?: boolean; deleteId?: string; deleteLabel?: string }
   ) => void;
   setGenericModal: (modal: any) => void;
   setEmailModalPayload: (payload: any) => void;
@@ -117,6 +125,9 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const sub = SUB_IDS.includes(activeSubId) ? activeSubId : 'FIN_FLUXO';
   const money = (v: number) => (hideBalances ? 'R$ •••••' : formatBRL(v));
 
+  const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
+  const usageSources = { invoices, financialEntries, bankAccounts };
+
   const [typeFilter, setTypeFilter] = useState<'AUTO' | 'TODOS'>('AUTO');
   const [statusFilter, setStatusFilter] = useState('TODOS');
   const [bankFilter, setBankFilter] = useState('TODAS');
@@ -136,7 +147,23 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
     await onRefresh();
   };
   const deleteEntry = async (fin: ErpFinancialEntry) => {
-    await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, { method: 'DELETE' });
+    const counts = countRecordUsage('financialEntry', { id: fin.id }, usageSources);
+    if (recordUsageTotal(counts) > 0) {
+      setCannotDeleteText(formatRecordUsageText(counts));
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir o lançamento ${fin.description}?`)) return;
+    const res = await fetch(`/api/erp/financial/${encodeURIComponent(fin.id)}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir o lançamento.');
+      return;
+    }
     onShowToast('Lançamento excluído.');
     await onRefresh();
   };
@@ -366,7 +393,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
             ...(fin.status !== 'PAGO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
             { label: 'Editar', icon: Pencil, onClick: () => editEntry(fin) },
             { label: 'Enviar boleto por e-mail', icon: Mail, onClick: () => emailEntry(fin) },
-            { label: 'Excluir', icon: Trash2, onClick: () => deleteEntry(fin), danger: true },
+            { label: 'Excluir', icon: Trash2, onClick: () => void deleteEntry(fin), danger: true, disabled: recordUsageTotal(countRecordUsage('financialEntry', { id: fin.id }, usageSources)) > 0, title: recordUsageTotal(countRecordUsage('financialEntry', { id: fin.id }, usageSources)) > 0 ? 'Em uso' : 'Excluir' },
           ]}
         />
       </td>
@@ -662,7 +689,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
                       <td className={`${td} text-right whitespace-nowrap font-semibold ${acc && acc.balance < 0 ? 'text-rose-700' : acc ? 'text-slate-900' : 'text-slate-400 font-normal'}`}>{acc ? money(acc.balance) : 'Não sincronizada'}</td>
                       <td className={`${td} text-right`}>
                         {acc && (
-                          <button type="button" onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, bankFields)} className="text-xs font-medium text-[#1e3a6e] hover:underline cursor-pointer">
+                          <button type="button" onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, bankFields, { deleteId: acc.id, deleteLabel: acc.name })} className="text-xs font-medium text-[#1e3a6e] hover:underline cursor-pointer">
                             Editar saldo
                           </button>
                         )}
@@ -714,6 +741,9 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
 
   return (
     <div className="space-y-4">
+      {cannotDeleteText && (
+        <CannotDeleteModal text={cannotDeleteText} onClose={() => setCannotDeleteText(null)} />
+      )}
       {(sub === 'FIN_PAGAR' || sub === 'FIN_RECEBER') && renderTitles()}
       {sub === 'FIN_FLUXO' && renderFluxo()}
       {sub === 'FIN_DRE' && renderDre()}
@@ -723,7 +753,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   );
 }
 
-type RowMenuItem = { label: string; icon?: LucideIcon; onClick: () => void; danger?: boolean };
+type RowMenuItem = { label: string; icon?: LucideIcon; onClick: () => void; danger?: boolean; disabled?: boolean; title?: string };
 
 function IconBtn({ title, icon: Icon, onClick }: { title: string; icon: LucideIcon; onClick: () => void }) {
   return (
@@ -765,8 +795,10 @@ function RowMenu({ items }: { items: RowMenuItem[] }) {
             key={it.label}
             type="button"
             role="menuitem"
-            onClick={() => { setOpen(false); it.onClick(); }}
-            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-slate-50 ${it.danger ? 'text-rose-700' : 'text-slate-700'}`}
+            title={it.title}
+            aria-disabled={Boolean(it.disabled)}
+            onClick={() => { setOpen(false); if (it.disabled) return; it.onClick(); }}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${it.disabled ? 'text-slate-400 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'} ${it.danger && !it.disabled ? 'text-rose-700' : it.disabled ? '' : 'text-slate-700'}`}
           >
             {Icon && <Icon size={13} />} {it.label}
           </button>

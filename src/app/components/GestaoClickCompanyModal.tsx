@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useEffect, useState } from 'react';
 import {
   Building2,
@@ -59,6 +61,8 @@ interface GestaoClickCompanyModalProps {
   onClose: () => void;
   onSave: (payload: any, secondArg?: any) => Promise<void>;
   onDelete?: (companyId: string) => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }
 
 function GestaoClickCompanyModalForm({
@@ -71,6 +75,8 @@ function GestaoClickCompanyModalForm({
   onClose,
   onSave,
   onDelete,
+  deleteInUse = false,
+  deleteUsageText,
 }: GestaoClickCompanyModalProps) {
   const company = companyProp !== undefined ? companyProp : (initialCompany ?? null);
   const isNew = isNewProp !== undefined ? isNewProp : mode === 'CREATE' || !company?.id;
@@ -213,6 +219,7 @@ function GestaoClickCompanyModalForm({
   const [validationErrorBanner, setValidationErrorBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirmStep, setShowDeleteConfirmStep] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Reset all fields whenever modal opens in New Mode vs Edit Mode
@@ -455,6 +462,9 @@ function GestaoClickCompanyModalForm({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-5xl w-full overflow-hidden my-4">
         {/* TOP HEADER GESTÃOCLICK / STI-HUB */}
         <div className="sticky top-0 z-20 px-4 sm:px-6 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
@@ -1218,7 +1228,17 @@ function GestaoClickCompanyModalForm({
             <div>
               {!isNew && !isReadOnly && company?.id && onDelete && canDelete && (
                 <>
-                  {!showDeleteConfirmStep ? (
+                  {deleteInUse ? (
+                    <button
+                      type="button"
+                      title="Em uso"
+                      aria-disabled
+                      onClick={() => setShowInUseModal(true)}
+                      className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 text-xs font-semibold cursor-not-allowed"
+                    >
+                      Excluir Cadastro
+                    </button>
+                  ) : !showDeleteConfirmStep ? (
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirmStep(true)}

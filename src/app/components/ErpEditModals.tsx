@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useState } from 'react';
 import {
   Plus,
@@ -2139,6 +2141,8 @@ export function ContractEditModal({
   onEmailInvoice,
   onRestoreVersion,
   onShowToast,
+  deleteInUse = false,
+  deleteUsageText,
 }: {
   contract: ErpRentalContract;
   catalog?: ErpCatalogItem[];
@@ -2156,6 +2160,8 @@ export function ContractEditModal({
   onEmailInvoice?: (inv: ErpFiscalInvoice) => void;
   onRestoreVersion?: (versionNumber: number) => Promise<void>;
   onShowToast?: (msg: string) => void;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }) {
   const [activeTab, setActiveTab] = useState<ContractModalTabId>(initialTab);
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnlyProp));
@@ -2169,6 +2175,7 @@ export function ContractEditModal({
   const [contractFieldErrors, setContractFieldErrors] = useState<ContractFieldError[]>([]);
   const [productToDeleteIdx, setProductToDeleteIdx] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [renewalPresetMode, setRenewalPresetMode] = useState<
@@ -2459,6 +2466,9 @@ export function ContractEditModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div className="bg-white rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
         <div className="px-5 py-3.5 bg-white border-b border-slate-200 text-slate-900 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -3532,7 +3542,17 @@ export function ContractEditModal({
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
             <div>
               {!isReadOnly && onDelete && (
-                !confirmDelete ? (
+                deleteInUse ? (
+                  <button
+                    type="button"
+                    title="Em uso"
+                    aria-disabled
+                    onClick={() => setShowInUseModal(true)}
+                    className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                  >
+                    Excluir Contrato
+                  </button>
+                ) : !confirmDelete ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}
@@ -3864,6 +3884,8 @@ export function GenericRecordEditModal({
   onClose,
   onSave,
   onDelete,
+  deleteInUse = false,
+  deleteUsageText,
 }: {
   title: string;
   initialValues: Record<string, unknown>;
@@ -3872,10 +3894,13 @@ export function GenericRecordEditModal({
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
   onDelete?: () => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initialValues }));
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnly));
   const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -3908,6 +3933,9 @@ export function GenericRecordEditModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div
         className={`bg-white rounded-lg border border-slate-300 shadow-2xl ${
           isWide ? 'max-w-2xl' : 'max-w-lg'
@@ -4032,7 +4060,17 @@ export function GenericRecordEditModal({
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
             <div>
               {!isReadOnly && onDelete && (
-                !confirmDelete ? (
+                deleteInUse ? (
+                  <button
+                    type="button"
+                    title="Em uso"
+                    aria-disabled
+                    onClick={() => setShowInUseModal(true)}
+                    className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                  >
+                    Excluir Registro
+                  </button>
+                ) : !confirmDelete ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}

@@ -26,6 +26,12 @@ import ContactsCompaniesTab, {
   EnrichedCompanyItem,
   EnrichedContactItem,
 } from './components/ContactsCompaniesTab';
+import {
+  countRecordUsage,
+  formatRecordUsageText,
+  parseRecordInUseResponse,
+  recordUsageTotal,
+} from '../modules/erp/record-in-use';
 import DataHealthTab, { DuplicatesPayload } from './components/DataHealthTab';
 import AutomationsSequencesTab from './components/AutomationsSequencesTab';
 import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './components/FormsBuilderTab';
@@ -543,15 +549,23 @@ export default function HubSpotProCrmApp() {
   };
 
   const handleDeleteContact = async (contactId: string) => {
-    recordDeletedContact(contactId);
-    setContacts((prev) => prev.filter((c) => c.id !== contactId));
     const res = await fetch(`/api/contacts/${contactId}`, {
       method: 'DELETE',
       cache: 'no-store',
     });
-    if (res.ok) {
-      showToast('Contato excluído com sucesso!');
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      showToast(blocked.usageText);
+      throw new Error(blocked.usageText);
     }
+    if (!res.ok) {
+      showToast((json && json.error) || 'Não foi possível excluir o contato.');
+      throw new Error('delete contact failed');
+    }
+    recordDeletedContact(contactId);
+    setContacts((prev) => prev.filter((c) => c.id !== contactId));
+    showToast('Contato excluído com sucesso!');
     await fetchAllCrmData();
   };
 
@@ -609,15 +623,23 @@ export default function HubSpotProCrmApp() {
   };
 
   const handleDeleteCompany = async (companyId: string) => {
-    recordDeletedCompany(companyId);
-    setCompanies((prev) => prev.filter((c) => c.id !== companyId));
     const res = await fetch(`/api/companies/${companyId}`, {
       method: 'DELETE',
       cache: 'no-store',
     });
-    if (res.ok) {
-      showToast('Empresa excluída com sucesso!');
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      showToast(blocked.usageText);
+      throw new Error(blocked.usageText);
     }
+    if (!res.ok) {
+      showToast((json && json.error) || 'Não foi possível excluir a empresa.');
+      throw new Error('delete company failed');
+    }
+    recordDeletedCompany(companyId);
+    setCompanies((prev) => prev.filter((c) => c.id !== companyId));
+    showToast('Empresa excluída com sucesso!');
     await fetchAllCrmData();
   };
 
@@ -1378,6 +1400,26 @@ export default function HubSpotProCrmApp() {
                   : activeModule === 'DATA_HEALTH'
                     ? 'Data Health (CRM)'
                     : 'Políticas IAM & Perfis';
+
+  const recordUsageSources = {
+    contracts: erpData?.rentalContracts || [],
+    proposals: erpData?.proposals || [],
+    deals,
+    invoices: erpData?.invoices || [],
+    serviceOrders: erpData?.serviceOrders || [],
+    tickets,
+    financialEntries: erpData?.financialEntries || [],
+    bankAccounts: erpData?.bankAccounts || [],
+    catalog: erpData?.catalog || [],
+  };
+  const companyUsage = (company: { id: string; name?: string; cnpj?: string }) => {
+    const counts = countRecordUsage('company', company, recordUsageSources);
+    return { inUse: recordUsageTotal(counts) > 0, usageText: formatRecordUsageText(counts) };
+  };
+  const contactUsage = (contact: { id: string }) => {
+    const counts = countRecordUsage('contact', contact, recordUsageSources);
+    return { inUse: recordUsageTotal(counts) > 0, usageText: formatRecordUsageText(counts) };
+  };
 
   const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
     ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
@@ -2420,6 +2462,8 @@ export default function HubSpotProCrmApp() {
                     onCreateContact={handleCreateContact}
                     onUpdateContact={handleUpdateContact}
                     onDeleteContact={handleDeleteContact}
+                    companyUsage={companyUsage}
+                    contactUsage={contactUsage}
                     onCreateCompany={handleCreateCompany}
                     onUpdateCompany={handleUpdateCompany}
                     onDeleteCompany={handleDeleteCompany}

@@ -154,6 +154,14 @@ import {
   buildShortInvoiceUrl,
 } from '../app/lib/invoice-link';
 import { isIssuedInvoiceStatus } from '../modules/erp/invoice-send-attachments';
+import {
+  countRecordUsage,
+  recordInUseBody,
+  recordUsageTotal,
+  type RecordUsageKind,
+  type RecordUsageRef,
+  type RecordUsageSources,
+} from '../modules/erp/record-in-use';
 import { formatIssuerAddress } from '../app/lib/company-issuer-address';
 import {
   loadCompanyEmitterSettings,
@@ -1042,6 +1050,28 @@ export class CrmApiRouter {
       rbac: this.buildRbacForViewer(rbacView),
       serverTimestamp: new Date().toISOString(),
     };
+  }
+
+
+  private recordUsageSources(): RecordUsageSources {
+    const erp = this.repo.getErpState();
+    return {
+      contracts: this.repo.listRentalContracts(),
+      proposals: this.repo.listProposals(),
+      deals: this.repo.listDeals(),
+      invoices: this.repo.listInvoices(),
+      serviceOrders: erp.serviceOrders || [],
+      tickets: this.repo.listServiceTickets(),
+      financialEntries: this.repo.listFinancialEntries(),
+      bankAccounts: erp.bankAccounts || [],
+      catalog: this.repo.listCatalog(),
+    };
+  }
+
+  private rejectIfRecordInUse(kind: RecordUsageKind, ref: RecordUsageRef): ApiResponse | null {
+    const counts = countRecordUsage(kind, ref, this.recordUsageSources());
+    if (recordUsageTotal(counts) <= 0) return null;
+    return { status: 409, body: recordInUseBody(counts) };
   }
 
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
@@ -4138,6 +4168,12 @@ export class CrmApiRouter {
         }
 
         if (method === 'DELETE') {
+          const existing = this.repo.getContactById(id);
+          if (!existing) {
+            return { status: 404, body: { error: 'Contato não encontrado.' } };
+          }
+          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteContact(id);
           if (!deleted) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
@@ -4255,6 +4291,12 @@ export class CrmApiRouter {
         }
 
         if (method === 'DELETE') {
+          const existing = this.repo.getCompanyById(id);
+          if (!existing) {
+            return { status: 404, body: { error: 'Empresa não encontrada.' } };
+          }
+          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteCompany(id);
           if (!deleted) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
@@ -4429,6 +4471,33 @@ export class CrmApiRouter {
           const created = this.repo.createPipeline(body as { name: string });
           return { status: 201, body: { data: created } };
         }
+      }
+
+      const pipelineStageMatch = cleanPath.match(/^\/api\/pipelines\/([^/]+)\/stages\/([^/]+)$/);
+      if (pipelineStageMatch && method === 'DELETE') {
+        const pipelineId = decodeURIComponent(pipelineStageMatch[1]);
+        const stageId = decodeURIComponent(pipelineStageMatch[2]);
+        const pipeline = this.repo.getPipelineById(pipelineId);
+        if (!pipeline || !pipeline.stages.some((st) => st.id === stageId)) {
+          return { status: 404, body: { error: 'Etapa não encontrada.' } };
+        }
+        const blockedStage = this.rejectIfRecordInUse('pipelineStage', { id: stageId, pipelineId });
+        if (blockedStage) return blockedStage;
+        const deletedStage = this.repo.deletePipelineStage(pipelineId, stageId);
+        if (!deletedStage) return { status: 404, body: { error: 'Etapa não encontrada.' } };
+        return { status: 200, body: { success: true, deletedId: stageId } };
+      }
+
+      const pipelineIdMatch = cleanPath.match(/^\/api\/pipelines\/([^/]+)$/);
+      if (pipelineIdMatch && method === 'DELETE') {
+        const pipelineId = decodeURIComponent(pipelineIdMatch[1]);
+        const pipeline = this.repo.getPipelineById(pipelineId);
+        if (!pipeline) return { status: 404, body: { error: 'Pipeline não encontrado.' } };
+        const blockedPipe = this.rejectIfRecordInUse('pipeline', { id: pipeline.id, name: pipeline.name });
+        if (blockedPipe) return blockedPipe;
+        const deletedPipe = this.repo.deletePipeline(pipelineId);
+        if (!deletedPipe) return { status: 404, body: { error: 'Pipeline não encontrado.' } };
+        return { status: 200, body: { success: true, deletedId: pipelineId } };
       }
 
       // ======================================================================
@@ -6558,6 +6627,15 @@ export class CrmApiRouter {
           if (delScope.kind === 'denied' || (delCurrent && !CrmApiRouter.proposalVisibleIn(delScope, delCurrent))) {
             return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           }
+          const existingProp = this.findProposalExact(propId) || this.repo.listProposals().find((p) => p.id === propId || p.code === propId);
+          if (!existingProp) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          const blocked = this.rejectIfRecordInUse('proposal', {
+            id: existingProp.id,
+            code: existingProp.code,
+            convertedContractId: existingProp.convertedContractId,
+            convertedInvoiceId: existingProp.convertedInvoiceId,
+          });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteProposal(propId);
           if (!deleted) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           return { status: 200, body: { success: true, deletedId: propId } };
@@ -6837,6 +6915,10 @@ export class CrmApiRouter {
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingCtr = this.repo.listRentalContracts().find((c) => c.id === ctrId || c.contractNumber === ctrId);
+          if (!existingCtr) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('rentalContract', { id: existingCtr.id, contractNumber: existingCtr.contractNumber });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteRentalContract(ctrId);
           if (!deleted) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: ctrId } };
@@ -7127,6 +7209,15 @@ export class CrmApiRouter {
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingCat = this.repo.listCatalog().find((c) => c.id === catId || c.gestaoClickCode === catId);
+          if (!existingCat) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('catalogItem', {
+            id: existingCat.id,
+            name: existingCat.name,
+            sku: existingCat.gestaoClickCode,
+            gestaoClickCode: existingCat.gestaoClickCode,
+          });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteCatalogItem(catId);
           if (!deleted) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: catId } };
@@ -7324,6 +7415,10 @@ export class CrmApiRouter {
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingFin = this.repo.listFinancialEntries().find((f) => f.id === finId);
+          if (!existingFin) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('financialEntry', { id: existingFin.id, name: existingFin.description });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteFinancialEntry(finId);
           if (!deleted) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: finId } };
@@ -7364,6 +7459,13 @@ export class CrmApiRouter {
           return { status: 200, body: { data: saved } };
         }
         if (method === 'DELETE' && recId) {
+          if (col === 'bankAccounts') {
+            const erp = this.repo.getErpState();
+            const existingBank = (erp.bankAccounts || []).find((b) => b.id === recId);
+            if (!existingBank) return { status: 404, body: { error: 'Registro não encontrado.' } };
+            const blocked = this.rejectIfRecordInUse('bankAccount', { id: existingBank.id, name: existingBank.name });
+            if (blocked) return blocked;
+          }
           const deleted = this.repo.deleteErpCollectionRecord(col, recId);
           if (!deleted) return { status: 404, body: { error: 'Registro não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: recId } };
