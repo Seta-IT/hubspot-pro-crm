@@ -1410,9 +1410,23 @@ export interface ErpFiscalInvoice {
   customDueRuleLabel?: string | null;
   customDueOffsetDays?: number;
   customDueTargetWeekday?: "NONE" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | null;
+  lastEmailSentAt?: string | null;
+  emailHistory?: ErpInvoiceEmailHistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ErpInvoiceEmailHistoryEntry {
+  sentAt: string;
+  to: string;
+  cc?: string | null;
+  bcc?: string | null;
+  subject: string;
+  protocol: string;
+  actor?: string;
+  attachments?: string[];
+}
+
 
 export interface ErpCatalogItem {
   id: string;
@@ -1774,6 +1788,8 @@ export interface ErpDatabaseState {
   fiscalDocumentSettings?: FiscalDocumentSettings;
   /** t33u: short links /p/<code> do link assinado (so o HMAC do codigo + as claims do token). */
   proposalShortLinks?: ErpProposalShortLink[];
+  /** Short links /p/<code> de faturas emitidas (so o HMAC do codigo + claims). */
+  invoiceShortLinks?: ErpInvoiceShortLink[];
   /**
    * 04/11/2026: 'table' => as propostas vivem na tabela erp_proposals (src/db/proposal-store.ts) e
    * `proposals` aqui guarda so as hidratadas pela requisicao (no JSON persistido fica []).
@@ -1785,6 +1801,16 @@ export interface ErpProposalShortLink {
   codeHash: string;
   proposalId: string;
   version: number;
+  iat: number;
+  exp: number;
+  jti: string;
+  createdBy?: string;
+  revokedAt?: string | null;
+}
+
+export interface ErpInvoiceShortLink {
+  codeHash: string;
+  invoiceId: string;
   iat: number;
   exp: number;
   jti: string;

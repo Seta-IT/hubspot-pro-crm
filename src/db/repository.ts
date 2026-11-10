@@ -55,6 +55,8 @@ import {
   ErpPurchaseOrder,
   ErpDatabaseState,
   ErpProposalShortLink,
+  ErpInvoiceShortLink,
+  ErpInvoiceEmailHistoryEntry,
   GestaoClickConfig,
   ErpServiceOrder,
   ErpSaleOrder,
@@ -3968,6 +3970,44 @@ export class CrmRepository {
   findProposalShortLink(codeHash: string): ErpProposalShortLink | undefined {
     const erp = this.ensureErp();
     return (erp.proposalShortLinks || []).find((r) => r && r.codeHash === codeHash);
+  }
+
+  addInvoiceShortLink(rec: ErpInvoiceShortLink): void {
+    const erp = this.ensureErp();
+    const now = Date.now();
+    const list = (Array.isArray(erp.invoiceShortLinks) ? erp.invoiceShortLinks : []).filter((r) => r && Number(r.exp) > now);
+    list.push(rec);
+    erp.invoiceShortLinks = list.slice(-5000);
+    this.save();
+  }
+
+  findInvoiceShortLink(codeHash: string): ErpInvoiceShortLink | undefined {
+    const erp = this.ensureErp();
+    return (erp.invoiceShortLinks || []).find((r) => r && r.codeHash === codeHash);
+  }
+
+  getInvoiceByIdOrNumber(idOrDoc: string): ErpFiscalInvoice | undefined {
+    const erp = this.ensureErp();
+    const key = String(idOrDoc || '').trim().toLowerCase();
+    return erp.invoices.find((i) => i.id === idOrDoc || String(i.documentNumber || '').toLowerCase() === key);
+  }
+
+  appendInvoiceEmailHistory(idOrDoc: string, entry: ErpInvoiceEmailHistoryEntry): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const idx = erp.invoices.findIndex(
+      (i) => i.id === idOrDoc || i.documentNumber.toLowerCase() === String(idOrDoc || '').toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.invoices[idx];
+    const next: ErpFiscalInvoice = {
+      ...current,
+      lastEmailSentAt: entry.sentAt,
+      emailHistory: [...(current.emailHistory || []), entry],
+      updatedAt: new Date().toISOString(),
+    };
+    erp.invoices[idx] = next;
+    this.save();
+    return next;
   }
 
   getErpState(): ErpDatabaseState {

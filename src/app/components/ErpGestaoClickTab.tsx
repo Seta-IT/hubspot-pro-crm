@@ -155,6 +155,9 @@ import {
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
+import { copySignedInvoiceLink } from '../lib/invoice-link-client';
+import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
+import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 import {
   BatchRentalBillingAndEmailModal,
@@ -819,6 +822,24 @@ export default function ErpGestaoClickTab({
   } = erpData;
   // Modo tabela: a lista e a pagina vinda do servidor; senao, as do bootstrap (como antes).
   const proposals: ErpCommercialProposal[] = proposalsTableMode ? proposalsPage?.data || [] : bootstrapProposals;
+
+  const auxUsageSources = {
+    contracts: rentalContracts,
+    proposals,
+    invoices,
+    financialEntries,
+    purchaseOrders,
+  };
+
+  const openIssuedInvoiceEmail = (inv: (typeof invoices)[number]) => {
+    const contract = findLinkedRentalContract(inv, rentalContracts);
+    setEmailModalPayload(buildIssuedInvoiceEmailPayload(inv, { contract, remessaDocs: invoices }));
+  };
+
+  const handleGenerateInvoiceLink = async (inv: (typeof invoices)[number]) => {
+    const r = await copySignedInvoiceLink(inv.id);
+    onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+  };
   const nextProposalCodeHint = (): string =>
     proposalsTableMode
       ? String(erpData.proposalsNextNumber || '')
@@ -3433,7 +3454,7 @@ export default function ErpGestaoClickTab({
                 <span className="text-[11px] text-slate-500">Periodicidades disponíveis: A cada 1 mês • A cada 3 meses • A cada 6 meses • A cada 12 meses</span>
               </div>
             </div>
-            <ContractAuxOptionsManager onShowToast={onShowToast} />
+            <ContractAuxOptionsManager onShowToast={onShowToast} usageSources={auxUsageSources} />
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-md border border-slate-200 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
@@ -3816,19 +3837,8 @@ export default function ErpGestaoClickTab({
                               onGenerateCustom={(opts) => handleGenerateContractInvoice(ctr.id, opts)}
                               onView={(inv) => setSelectedInvoiceForPrint(inv)}
                               onEdit={(inv) => setEditingInvoice(inv)}
-                              onEmail={(inv) =>
-                                setEmailModalPayload({
-                                  docType: inv.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
-                                  recipientName: ctr.companyName,
-                                  recipientEmail: (inv.billingRecipientEmails || ctr.billingRecipientEmails || []).join(', '),
-                                  companyName: ctr.companyName,
-                                  companyCnpj: ctr.companyCnpj,
-                                  documentCode: inv.documentNumber,
-                                  amountBrl: inv.netAmount,
-                                  pixCode: inv.pixCopyPaste,
-                                  boletoLine: inv.boletoDigitableLine,
-                                })
-                              }
+                              onEmail={(inv) => openIssuedInvoiceEmail(inv)}
+                              onGenerateLink={(inv) => { void handleGenerateInvoiceLink(inv); }}
                               onGoFiscal={(inv) => {
                                 setInvoicesSearchQuery(inv.documentNumber);
                                 setActiveSection('FISCAL');
@@ -4750,6 +4760,7 @@ export default function ErpGestaoClickTab({
                         Líquido: {formatBRL(inv.netAmount)}
                       </strong>
                     </div>
+                    {!isIssuedInvoiceStatus(inv.status) && (
                     <button
                       type="button"
                       onClick={() => setEditingInvoice(inv)}
@@ -4757,24 +4768,30 @@ export default function ErpGestaoClickTab({
                     >
                       <Edit3 className="w-3.5 h-3.5" /> Editar
                     </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        setEmailModalPayload({
-                          docType: inv.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
-                          companyName: inv.companyName,
-                          companyCnpj: inv.companyCnpj,
-                          documentCode: inv.documentNumber,
-                          amountBrl: inv.netAmount,
-                          dueDate: inv.dueDate,
-                          boletoLine: inv.boletoDigitableLine,
-                          pixCode: inv.pixCopyPaste,
-                        })
-                      }
+                      onClick={() => setSelectedInvoiceForPrint(inv)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      Visualizar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openIssuedInvoiceEmail(inv)}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
                       <Mail className="w-3.5 h-3.5" /> Enviar
                     </button>
+                    {isIssuedInvoiceStatus(inv.status) && (
+                    <button
+                      type="button"
+                      onClick={() => { void handleGenerateInvoiceLink(inv); }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      Gerar link
+                    </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleDeleteInvoice(inv)}
@@ -6566,7 +6583,10 @@ export default function ErpGestaoClickTab({
         <ClientEmailComposerModal
           payload={emailModalPayload}
           onClose={() => setEmailModalPayload(null)}
-          onSentSuccess={(msg) => onShowToast(msg)}
+          onSentSuccess={(msg) => {
+            onShowToast(msg);
+            if (emailModalPayload.invoiceId) void onRefresh();
+          }}
         />
       )}
       {editingProposal && (
@@ -6976,6 +6996,23 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="button"
+                  onClick={() => openIssuedInvoiceEmail(selectedInvoiceForPrint)}
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Enviar
+                </button>
+                {isIssuedInvoiceStatus(selectedInvoiceForPrint.status) && (
+                <button
+                  type="button"
+                  onClick={() => { void handleGenerateInvoiceLink(selectedInvoiceForPrint); }}
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Gerar link
+                </button>
+                )}
+                {!isIssuedInvoiceStatus(selectedInvoiceForPrint.status) && (
+                <button
+                  type="button"
                   onClick={() => {
                     const inv = selectedInvoiceForPrint;
                     setSelectedInvoiceForPrint(null);
@@ -6985,6 +7022,7 @@ export default function ErpGestaoClickTab({
                 >
                   Editar
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedInvoiceForPrint(null)}
@@ -7021,6 +7059,7 @@ export default function ErpGestaoClickTab({
                     {gestaoClickConfig.companyLegalName}
                   </div>
                   <div>CNPJ: {gestaoClickConfig.companyCnpj}</div>
+                  <div data-testid="doc-issuer-address">{defaultIssuerAddressLine()}</div>
                   <div>
                     Inscrição Municipal: {gestaoClickConfig.municipalRegistration} • IE:{' '}
                     {gestaoClickConfig.stateRegistration}

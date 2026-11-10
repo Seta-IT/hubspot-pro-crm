@@ -4,6 +4,14 @@ import { createPortal } from "react-dom";
 import { Eye } from "lucide-react";
 import { ErpCatalogItem, ErpContractVersionEntry, ErpFiscalInvoice, ErpRentalContract, ErpRentalEquipmentItem } from "../../db/types";
 import { formatBRL } from "./ui-helpers";
+import {
+  auxUsageTotal,
+  countAuxOptionUsage,
+  formatAuxOptionUsageText,
+  type AuxUsageKind,
+  type AuxUsageSources,
+} from "../../modules/erp/aux-option-usage";
+import { isIssuedInvoiceStatus } from "../../modules/erp/invoice-send-attachments";
 import { ContractAuxiliaryOptions, ContractBillingRunOptions, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
 import { ProposalTemplateSelect } from "./ProposalTemplateSelect";
 
@@ -384,6 +392,7 @@ export function ContractBillingHistoryPanel({
   onView,
   onEdit,
   onEmail,
+  onGenerateLink,
   onGoFiscal,
   onGoReceivables,
   compact = false,
@@ -396,6 +405,7 @@ export function ContractBillingHistoryPanel({
   onView?: (inv: ErpFiscalInvoice) => void;
   onEdit?: (inv: ErpFiscalInvoice) => void;
   onEmail?: (inv: ErpFiscalInvoice) => void;
+  onGenerateLink?: (inv: ErpFiscalInvoice) => void;
   onGoFiscal?: (inv: ErpFiscalInvoice) => void;
   onGoReceivables?: (inv: ErpFiscalInvoice) => void;
   compact?: boolean;
@@ -501,12 +511,13 @@ export function ContractBillingHistoryPanel({
                       <td className="py-1.5 px-2 font-semibold">{inv.dueDate}{inv.customDueRuleLabel && <div className="text-[9px] text-slate-500">{inv.customDueRuleLabel}</div>}</td>
                       {!compact && <td className="py-1.5 px-2">{inv.customerPurchaseOrderNumber || '—'}<div className="text-[10px] text-slate-500">{inv.measurementNumber || '—'}</div></td>}
                       <td className="py-1.5 px-2 text-right">{formatBRL(inv.grossAmount)}<div className="font-semibold text-slate-900">{formatBRL(inv.netAmount)}</div></td>
-                      <td className="py-1.5 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${inv.status === 'VENCIDA' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{invoiceStatusLabel(inv)}</span>{contract.lastEmailSentAt && <div className="text-[9px] font-semibold text-slate-500">ENVIADA POR E-MAIL</div>}</td>
+                      <td className="py-1.5 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${inv.status === 'VENCIDA' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>{invoiceStatusLabel(inv)}</span>{(inv.lastEmailSentAt || contract.lastEmailSentAt) && <div className="text-[9px] font-semibold text-slate-500">ENVIADA POR E-MAIL</div>}</td>
                       <td className="py-1.5 px-2 text-right whitespace-nowrap space-x-1">
                         {onView && <button type="button" onClick={() => onView(inv)} className={`px-1.5 py-0.5 ${BTN_PRIMARY}`}>Visualizar</button>}
                         <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, contract, 'DOWNLOAD')} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Gerar PDF</button>
-                        {onEdit && <button type="button" onClick={() => onEdit(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Editar</button>}
-                        {onEmail && <button type="button" onClick={() => onEmail(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>E-mail</button>}
+                        {onEmail && <button type="button" onClick={() => onEmail(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Enviar</button>}
+                        {onGenerateLink && isIssuedInvoiceStatus(inv.status) && <button type="button" onClick={() => onGenerateLink(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Gerar link</button>}
+                        {onEdit && !isIssuedInvoiceStatus(inv.status) && <button type="button" onClick={() => onEdit(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Editar</button>}
                         {onGoFiscal && <button type="button" onClick={() => onGoFiscal(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Ver no Fiscal</button>}
                         {onGoReceivables && <button type="button" onClick={() => onGoReceivables(inv)} className={`px-1.5 py-0.5 ${BTN_OUTLINE}`}>Ver no Contas a Receber</button>}
                       </td>
@@ -597,11 +608,18 @@ export function ContractVersionHistoryPanel({
   );
 }
 
-export function ContractAuxOptionsManager({ onShowToast }: { onShowToast?: (m: string) => void }) {
+export function ContractAuxOptionsManager({
+  onShowToast,
+  usageSources,
+}: {
+  onShowToast?: (m: string) => void;
+  usageSources?: AuxUsageSources;
+}) {
   const [aux, setAux] = useState<ContractAuxiliaryOptions>(() => loadContractAuxiliaryOptions());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [ruleDays, setRuleDays] = useState('45');
   const [ruleWd, setRuleWd] = useState<Weekday>('WEDNESDAY');
+  const [blockModal, setBlockModal] = useState<{ text: string } | null>(null);
   const persist = (next: ContractAuxiliaryOptions) => { setAux(next); saveContractAuxiliaryOptions(next); };
 
   const lists: Array<{ key: 'paymentMethods' | 'costCenters' | 'chartOfAccountsList' | 'emailAutomationOptions'; title: string }> = [
@@ -621,12 +639,29 @@ export function ContractAuxOptionsManager({ onShowToast }: { onShowToast?: (m: s
         {lists.map((l) => (
           <div key={l.key} data-testid={`aux-list-${l.key}`} className="rounded border border-slate-200 p-3 space-y-1.5">
             <div className="font-semibold text-slate-800">{l.title} ({aux[l.key].length})</div>
-            {aux[l.key].map((item, idx) => (
+            {aux[l.key].map((item, idx) => {
+              const usage = countAuxOptionUsage(l.key as AuxUsageKind, item, usageSources);
+              const inUse = auxUsageTotal(usage) > 0;
+              return (
               <div key={`${l.key}-${idx}`} className="flex items-center gap-1">
                 <input aria-label={`${l.title} ${idx + 1}`} value={item} onChange={(e) => { const arr = [...aux[l.key]]; arr[idx] = e.target.value; persist({ ...aux, [l.key]: arr }); }} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white" />
-                <button type="button" onClick={() => persist({ ...aux, [l.key]: aux[l.key].filter((_, i) => i !== idx) })} className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold cursor-pointer">Excluir</button>
+                <button
+                  type="button"
+                  title={inUse ? 'Em uso' : 'Excluir'}
+                  aria-label={inUse ? 'Em uso' : `Excluir ${item}`}
+                  aria-disabled={inUse}
+                  onClick={() => {
+                    if (inUse) {
+                      setBlockModal({ text: formatAuxOptionUsageText(l.key as AuxUsageKind, usage) });
+                      return;
+                    }
+                    persist({ ...aux, [l.key]: aux[l.key].filter((_, i) => i !== idx) });
+                  }}
+                  className={`px-2 py-1 rounded border font-semibold ${inUse ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-rose-50 text-rose-700 border-rose-200 cursor-pointer'}`}
+                >Excluir</button>
               </div>
-            ))}
+              );
+            })}
             <div className="flex items-center gap-1">
               <input value={drafts[l.key] || ''} onChange={(e) => setDrafts((d) => ({ ...d, [l.key]: e.target.value }))} placeholder={`Novo item em ${l.title}`} className="flex-1 px-2 py-1 rounded border border-slate-300" />
               <button type="button" onClick={() => { const v = (drafts[l.key] || '').trim(); if (!v) return; persist({ ...aux, [l.key]: [...aux[l.key], v] }); setDrafts((d) => ({ ...d, [l.key]: '' })); onShowToast?.(`"${v}" cadastrado em ${l.title}.`); }} className="px-2 py-1 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">+ Cadastrar</button>
@@ -666,6 +701,17 @@ export function ContractAuxOptionsManager({ onShowToast }: { onShowToast?: (m: s
           </div>
         </div>
       </div>
+      {blockModal && (
+        <div data-testid="aux-cannot-delete-modal" className="fixed inset-0 z-[1000] bg-slate-900/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="aux-cannot-delete-title">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+            <h4 id="aux-cannot-delete-title" className="text-sm font-semibold text-slate-900">Não é possível excluir</h4>
+            <p className="text-xs text-slate-600 leading-relaxed">{blockModal.text}</p>
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setBlockModal(null)} className="px-4 py-2 rounded border border-slate-300 bg-white text-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

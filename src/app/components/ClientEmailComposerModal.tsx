@@ -1,8 +1,14 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { buildClientEmailGreeting } from '../lib/client-email-greeting';
 import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
+import { requestSignedInvoiceLink } from '../lib/invoice-link-client';
+import {
+  defaultSelectedInvoiceAttachments,
+  type InvoiceSendAttachmentAvailability,
+  type InvoiceSendAttachmentKind,
+} from '../../modules/erp/invoice-send-attachments';
 import {
   Mail,
   Send,
@@ -48,6 +54,12 @@ export interface ClientEmailInitialPayload {
   dealId?: string | null;
   ticketId?: string | null;
   proposalId?: string | null;
+  invoiceId?: string | null;
+  remessaNfeNumber?: string;
+  remessaAccessKey?: string;
+  invoiceAttachments?: InvoiceSendAttachmentAvailability;
+  receiptHtml?: string;
+  remessaXml?: string;
 }
 
 const DOC_TYPE_META: Record<
@@ -115,11 +127,12 @@ function buildDefaultBody(p: ClientEmailInitialPayload, docType: StiHubEmailDocT
   const comp = p.companyName || 'sua empresa';
   const code = p.documentCode || 'Seta-2026';
   const valStr = p.amountBrl !== undefined ? formatBRL(p.amountBrl) : 'conforme documento anexo';
-  const pdfLink =
-    p.publicPdfUrl ||
-    (typeof window !== 'undefined'
-      ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
-      : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`);
+  const pdfLink = p.invoiceId
+    ? (p.publicPdfUrl || '')
+    : (p.publicPdfUrl ||
+      (typeof window !== 'undefined'
+        ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
+        : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`));
   const greeting = buildClientEmailGreeting(p);
 
   if (docType === 'PROPOSAL') {
@@ -167,14 +180,23 @@ Encaminhamos os dados para liquidação financeira referente ao título Nº ${co
 • Documento: #${code}
 • Valor: ${valStr}
 • Vencimento: ${p.dueDate || '16/11/2026'}
-• Linha Digitável do Boleto (Banco Inter / Itaú):
+${p.invoiceId
+    ? (p.boletoLine ? `• Linha Digitável do Boleto:
+${p.boletoLine}
+` : '')
+    : `• Linha Digitável do Boleto (Banco Inter / Itaú):
 ${p.boletoLine || '34191.79001 01043.510047 91020.150008 7 98900000432000'}
-
-• Código PIX Copia e Cola (CNPJ Seta Telecom):
+`}
+${p.invoiceId
+    ? (p.pixCode ? `• Código PIX Copia e Cola:
+${p.pixCode}
+` : '')
+    : `• Código PIX Copia e Cola (CNPJ Seta Telecom):
 ${p.pixCode || '00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865802BR5917SETA TELECOM LTDA6009SAO PAULO'}
-
-Link para 2ª Via / Recibo em PDF:
-${pdfLink}
+`}
+${p.invoiceId ? (pdfLink ? `Link da fatura para o cliente:
+${pdfLink}` : 'Link da fatura para o cliente:') : `Link para 2ª Via / Recibo em PDF:
+${pdfLink}`}
 
 Atenciosamente,
 Departamento Financeiro • SETA TELECOM LTDA (SETA | IT)
@@ -191,10 +213,11 @@ Segue a Fatura / Recibo de Locação de Equipamentos Nº ${code} da SETA TELECOM
 • Valor Líquido da Locação: ${valStr}
 • Vencimento: ${p.dueDate || '10/11/2026'}
 • Amparo Legal Tributário: Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF (0% ISS).
-• Linha Digitável Boleto: ${p.boletoLine || '34191.79001 01043.510047 91020.150008 8 98650001200000'}
-
-Link Oficial da Fatura / Recibo de Locação para Impressão PDF:
-${pdfLink}
+${p.invoiceId ? '' : `• Linha Digitável Boleto: ${p.boletoLine || '34191.79001 01043.510047 91020.150008 8 98650001200000'}
+`}
+${p.invoiceId ? (pdfLink ? `Link da fatura / recibo para o cliente:
+${pdfLink}` : 'Link da fatura / recibo para o cliente:') : `Link Oficial da Fatura / Recibo de Locação para Impressão PDF:
+${pdfLink}`}
 
 Atenciosamente,
 Faturamento & Contratos • SETA TELECOM LTDA (SETA | IT)
@@ -210,8 +233,9 @@ Encaminhamos a Nota Fiscal Eletrônica Nº ${code} emitida pela SETA TELECOM LTD
 • Valor do Documento: ${valStr}
 • Enquadramento: NFS-e Serviço Técnico (LC 116/03 Item 01.07) / NF-e Remessa de Locação (CFOP 5.908 — Não incidência de ICMS/IPI).
 
-Link para Visualização e Impressão do DANFE / Espelho Fiscal em PDF:
-${pdfLink}
+${p.invoiceId ? (pdfLink ? `Link da fatura para o cliente:
+${pdfLink}` : 'Link da fatura para o cliente:') : `Link para Visualização e Impressão do DANFE / Espelho Fiscal em PDF:
+${pdfLink}`}
 
 Atenciosamente,
 Departamento Fiscal • SETA TELECOM LTDA (SETA | IT)
@@ -236,10 +260,18 @@ export default function ClientEmailComposerModal({
         .slice(0, 18)}.com.br`
   );
   const [ccEmail, setCcEmail] = useState<string>(DOC_TYPE_META[payload.docType].defaultCc);
+  const [bccEmail, setBccEmail] = useState<string>('');
   const [subject, setSubject] = useState<string>(() =>
     buildDefaultSubject(payload, payload.docType)
   );
   const [body, setBody] = useState<string>(() => buildDefaultBody(payload, payload.docType));
+  const invoiceAvail = payload.invoiceAttachments;
+  const isInvoiceSend = Boolean(payload.invoiceId && invoiceAvail);
+  const [selectedAttach, setSelectedAttach] = useState<Record<InvoiceSendAttachmentKind, boolean>>(() =>
+    invoiceAvail ? defaultSelectedInvoiceAttachments(invoiceAvail) : { receipt: true, remessa: false, boleto: false, pix: false }
+  );
+  const [signedInvoiceUrl, setSignedInvoiceUrl] = useState<string | null>(payload.publicPdfUrl || null);
+  const [pixQrSrc, setPixQrSrc] = useState<string>('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentProtocol, setSentProtocol] = useState<string | null>(null);
@@ -276,6 +308,49 @@ export default function ClientEmailComposerModal({
     };
   }, [payload, docType, alreadySigned, linkAttempt]);
 
+  useEffect(() => {
+    if (!payload.invoiceId) return;
+    let active = true;
+    requestSignedInvoiceLink(payload.invoiceId).then((r) => {
+      if (!active) return;
+      if (!r.ok) return;
+      setSignedInvoiceUrl(r.url);
+      setBody((prev) => {
+        if (prev.includes(r.url)) return prev;
+        if (prev.includes('Link da fatura / recibo para o cliente:')) {
+          return prev.replace('Link da fatura / recibo para o cliente:', `Link da fatura / recibo para o cliente:\n${r.url}`);
+        }
+        if (prev.includes('Link da fatura para o cliente:')) {
+          return prev.replace('Link da fatura para o cliente:', `Link da fatura para o cliente:\n${r.url}`);
+        }
+        return `${prev}\n\nLink da fatura para o cliente:\n${r.url}`;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [payload.invoiceId]);
+
+  const selectedPixCode = isInvoiceSend && selectedAttach.pix && invoiceAvail?.pix.available ? invoiceAvail.pix.code : '';
+  useEffect(() => {
+    if (!selectedPixCode) {
+      setPixQrSrc('');
+      return;
+    }
+    let active = true;
+    import('qrcode')
+      .then((QR) => QR.toDataURL(selectedPixCode, { margin: 1, width: 180 }))
+      .then((url) => {
+        if (active) setPixQrSrc(url);
+      })
+      .catch(() => {
+        if (active) setPixQrSrc('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPixCode]);
+
   const linkGate = proposalEmailLinkGate({
     isProposal: docType === 'PROPOSAL',
     state: signedLink,
@@ -293,6 +368,75 @@ export default function ClientEmailComposerModal({
     setBody(signedProposalUrl && unsigned && nextBody.includes(unsigned) ? nextBody.split(unsigned).join(signedProposalUrl) : nextBody);
   };
 
+  const outgoingText = useMemo(() => {
+    let text = body;
+    if (isInvoiceSend && invoiceAvail) {
+      if (selectedAttach.boleto && invoiceAvail.boleto.available && invoiceAvail.boleto.line && !text.includes(invoiceAvail.boleto.line)) {
+        text += `\n\nLinha digitável do boleto:\n${invoiceAvail.boleto.line}`;
+      }
+      if (selectedAttach.pix && invoiceAvail.pix.available && invoiceAvail.pix.code && !text.includes(invoiceAvail.pix.code)) {
+        text += `\n\nCódigo Pix (copia e cola):\n${invoiceAvail.pix.code}`;
+      }
+      if (selectedAttach.remessa && invoiceAvail.remessa.available) {
+        const bits = [
+          invoiceAvail.remessa.number ? `Número: ${invoiceAvail.remessa.number}` : '',
+          invoiceAvail.remessa.accessKey ? `Chave de acesso: ${invoiceAvail.remessa.accessKey}` : '',
+        ].filter(Boolean);
+        if (bits.length && !bits.some((b) => text.includes(b))) {
+          text += `\n\nNF-e de remessa:\n${bits.join('\n')}`;
+        }
+      }
+    }
+    return text;
+  }, [body, isInvoiceSend, invoiceAvail, selectedAttach]);
+
+  const outgoingHtml = useMemo(() => {
+    if (!isInvoiceSend) return undefined;
+    const escaped = outgoingText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const qr = selectedAttach.pix && pixQrSrc
+      ? `<p style="margin:16px 0 4px;font-family:sans-serif;font-size:13px;"><strong>QR Code Pix</strong></p><img alt="QR Code Pix" width="180" height="180" src="${pixQrSrc}" />`
+      : '';
+    return `<div style="font-family:sans-serif;font-size:13px;color:#0f172a;"><pre style="white-space:pre-wrap;font-family:sans-serif;font-size:13px;line-height:1.5;">${escaped}</pre>${qr}</div>`;
+  }, [isInvoiceSend, outgoingText, selectedAttach.pix, pixQrSrc]);
+
+  const outgoingAttachments = useMemo(() => {
+    if (!isInvoiceSend || !invoiceAvail) return undefined;
+    const list: Array<{ filename: string; content: string; contentType: string }> = [];
+    const toB64 = (value: string) => {
+      const bytes = new TextEncoder().encode(value);
+      let bin = '';
+      bytes.forEach((b) => {
+        bin += String.fromCharCode(b);
+      });
+      return btoa(bin);
+    };
+    if (selectedAttach.receipt && payload.receiptHtml) {
+      list.push({
+        filename: `recibo-${payload.documentCode || 'fatura'}.html`,
+        content: toB64(payload.receiptHtml),
+        contentType: 'text/html; charset=utf-8',
+      });
+    }
+    if (selectedAttach.remessa && payload.remessaXml) {
+      list.push({
+        filename: `nfe-remessa-${invoiceAvail.remessa.number || payload.documentCode || 'documento'}.xml`,
+        content: toB64(payload.remessaXml),
+        contentType: 'application/xml',
+      });
+    }
+    if (selectedAttach.pix && pixQrSrc.startsWith('data:image/png;base64,')) {
+      list.push({
+        filename: 'pix-qr.png',
+        content: pixQrSrc.slice('data:image/png;base64,'.length),
+        contentType: 'image/png',
+      });
+    }
+    return list.length ? list : undefined;
+  }, [isInvoiceSend, invoiceAvail, selectedAttach, payload.receiptHtml, payload.remessaXml, payload.documentCode, pixQrSrc]);
+
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!toEmail.trim()) return;
@@ -309,17 +453,24 @@ export default function ClientEmailComposerModal({
           docType,
           to: toEmail.trim(),
           cc: ccEmail.trim(),
+          bcc: bccEmail.trim() || undefined,
           subject: subject.trim(),
-          body,
+          body: outgoingText,
+          html: outgoingHtml,
+          attachments: outgoingAttachments,
           companyName: payload.companyName,
           documentCode: payload.documentCode,
           amountBrl: payload.amountBrl,
-          publicPdfUrl: signedProposalUrl || payload.publicPdfUrl,
+          publicPdfUrl: signedInvoiceUrl || signedProposalUrl || payload.publicPdfUrl,
           contactId: payload.contactId,
           companyId: payload.companyId,
           dealId: payload.dealId,
           ticketId: payload.ticketId,
           proposalId: payload.proposalId,
+          invoiceId: payload.invoiceId,
+          selectedAttachments: isInvoiceSend
+            ? (Object.keys(selectedAttach) as Array<keyof typeof selectedAttach>).filter((k) => selectedAttach[k])
+            : undefined,
         }),
       });
       if (!res.ok) {
@@ -342,7 +493,7 @@ export default function ClientEmailComposerModal({
         type: 'EMAIL',
         // A1: o historico local (journal) nunca guarda o token do link assinado.
         title: redactProposalLinkTokens(`E-mail enviado [${DOC_TYPE_META[docType].badge}]: ${subject}`),
-        body: `Para: ${toEmail} (CC: ${ccEmail}) • Protocolo: ${protocol}`,
+        body: `Para: ${toEmail} (CC: ${ccEmail}${bccEmail.trim() ? `; Cco: ${bccEmail}` : ''}) • Protocolo: ${protocol}`,
         metadata: { docType, toEmail, protocol },
         contactId: payload.contactId || null,
         companyId: payload.companyId || null,
@@ -361,7 +512,7 @@ export default function ClientEmailComposerModal({
 
   const mailtoHref = `mailto:${encodeURIComponent(toEmail)}?cc=${encodeURIComponent(
     ccEmail
-  )}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  )}${bccEmail.trim() ? `&bcc=${encodeURIComponent(bccEmail.trim())}` : ''}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(outgoingText)}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:hidden">
@@ -458,7 +609,7 @@ export default function ClientEmailComposerModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
                   Para (E-mail do Cliente / Destinatário) *
@@ -483,6 +634,15 @@ export default function ClientEmailComposerModal({
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Cco</label>
+                <input
+                  type="text"
+                  value={bccEmail}
+                  onChange={(e) => setBccEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded border border-slate-300"
+                />
+              </div>
             </div>
 
             <div>
@@ -496,7 +656,41 @@ export default function ClientEmailComposerModal({
               />
             </div>
 
-            {/* Automatic Attachment / Link Pill */}
+            {isInvoiceSend && invoiceAvail ? (
+              <div data-testid="invoice-send-attachments" className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">
+                <div className="flex items-center gap-2 text-slate-800 font-semibold">
+                  <Paperclip className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                  Anexos e dados da fatura
+                </div>
+                {([
+                  { kind: 'receipt' as const, label: 'Recibo (PDF)', available: invoiceAvail.receipt.available },
+                  { kind: 'remessa' as const, label: 'NF de remessa (DANFE/XML)', available: invoiceAvail.remessa.available },
+                  { kind: 'boleto' as const, label: 'Boleto (PDF e linha digitável)', available: invoiceAvail.boleto.available },
+                  { kind: 'pix' as const, label: 'Código Pix (copia e cola e QR)', available: invoiceAvail.pix.available },
+                ]).map((opt) => (
+                  <label
+                    key={opt.kind}
+                    className={`flex items-center gap-2 text-xs font-semibold ${opt.available ? 'text-slate-800 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      disabled={!opt.available}
+                      checked={opt.available && selectedAttach[opt.kind]}
+                      onChange={(e) => setSelectedAttach((prev) => ({ ...prev, [opt.kind]: e.target.checked }))}
+                    />
+                    <span>{opt.label}</span>
+                    {!opt.available && <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Indisponível</span>}
+                  </label>
+                ))}
+                {selectedAttach.pix && pixQrSrc && (
+                  <div className="pt-1 flex items-start gap-3">
+                    <img src={pixQrSrc} alt="QR Code Pix" width={120} height={120} className="border border-slate-200 rounded bg-white" />
+                    <p className="font-mono text-[10px] text-slate-700 break-all">{invoiceAvail.pix.code}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className="p-3 rounded-md bg-emerald-50/80 border border-emerald-200 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-emerald-950 font-semibold">
                 <Paperclip className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -510,6 +704,7 @@ export default function ClientEmailComposerModal({
                 LINK PDF A4 ATIVO
               </span>
             </div>
+            )}
 
             <div>
               <label className="block font-semibold text-slate-700 mb-1">

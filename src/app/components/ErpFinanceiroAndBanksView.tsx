@@ -25,6 +25,9 @@ import type {
   ErpFiscalInvoice,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { buildIssuedInvoiceEmailPayload } from '../lib/invoice-email-payload';
+import { copySignedInvoiceLink } from '../lib/invoice-link-client';
+import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
 
 export interface ErpFinanceiroAndBanksViewProps {
   activeSubId: string;
@@ -593,8 +596,9 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
                     <IconBtn title="Copiar PIX copia e cola" icon={QrCode} onClick={() => copy(inv.pixCopyPaste || '', 'PIX Copia e Cola')} />
                     <RowMenu
                       items={[
-                        { label: 'Imprimir boleto / fatura', icon: Printer, onClick: () => setSelectedInvoiceForPrint(inv) },
-                        { label: 'Enviar por e-mail', icon: Mail, onClick: () => setEmailModalPayload({ docType: 'BOLETO', companyName: inv.companyName, companyCnpj: inv.companyCnpj, documentCode: inv.documentNumber, amountBrl: inv.netAmount, dueDate: inv.dueDate, boletoLine: inv.boletoDigitableLine }) },
+                        { label: 'Visualizar', icon: Printer, onClick: () => setSelectedInvoiceForPrint(inv) },
+                        { label: 'Enviar por e-mail', icon: Mail, onClick: () => setEmailModalPayload(buildIssuedInvoiceEmailPayload(inv, { remessaDocs: invoices })) },
+                        ...(isIssuedInvoiceStatus(inv.status) ? [{ label: 'Gerar link', icon: Copy, onClick: async () => { const r = await copySignedInvoiceLink(inv.id); onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error); } }] : []),
                         ...(inv.status !== 'PAGA' && inv.status !== 'CANCELADA' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payInvoice(inv) }] : []),
                       ]}
                     />

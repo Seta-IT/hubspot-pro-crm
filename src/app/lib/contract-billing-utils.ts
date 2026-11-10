@@ -366,6 +366,8 @@ export interface StandaloneInvoiceHtmlOptions {
   embedded?: boolean;
   /** Endereço completo da emitente no cabeçalho (t142u/t143u). */
   issuerAddress?: string;
+  /** Folha publica do cliente: omite centro de custo, plano de contas e destinatarios internos. */
+  publicClient?: boolean;
 }
 
 /** Chave do metadado leve (localStorage) com o último modelo escolhido para o recibo. */
@@ -519,7 +521,7 @@ ${CCL_SHEET_CSS}
           <div><span class="ccl-label">Boletim de Medição (BM)</span><span class="ccl-value">${bmNum} (${bmPeriod})</span></div>
         </div>
         ${bmNotes ? `<p class="ccl-text" style="margin-top:3px;"><strong>Obs. Medição:</strong> ${bmNotes}</p>` : ''}
-        ${emails.length > 0 ? `<p class="ccl-text" style="margin-top:3px;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</p>` : ''}
+        ${!htmlOptions?.publicClient && emails.length > 0 ? `<p class="ccl-text" style="margin-top:3px;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</p>` : ''}
       </div>
 
       <div class="ccl-section">
@@ -530,8 +532,8 @@ ${CCL_SHEET_CSS}
           <div><span class="ccl-label">Nota Fiscal de Remessa</span><span class="ccl-value">${remNfe}</span></div>
           <div><span class="ccl-label">Prazo do Contrato</span><span class="ccl-value">${termLabel}</span></div>
           <div><span class="ccl-label">Vendedor</span><span class="ccl-value">${seller}</span></div>
-          <div><span class="ccl-label">Centro de Custo</span><span class="ccl-value">${costCenter}</span></div>
-          <div><span class="ccl-label">Plano de Contas</span><span class="ccl-value">${chartOfAccounts}</span></div>
+          ${htmlOptions?.publicClient ? '' : `<div><span class="ccl-label">Centro de Custo</span><span class="ccl-value">${costCenter}</span></div>
+          <div><span class="ccl-label">Plano de Contas</span><span class="ccl-value">${chartOfAccounts}</span></div>`}
           <div><span class="ccl-label">Forma de Pagamento</span><span class="ccl-value">${paymentMethod}</span></div>
           <div><span class="ccl-label">Cidade Entrega</span><span class="ccl-value">${deliveryCity}</span></div>
           <div><span class="ccl-label">Transportadora</span><span class="ccl-value">${deliveryCarrier}</span></div>

@@ -143,6 +143,17 @@ import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
 import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
+import { toPublicInvoiceDto } from '../app/lib/invoice-public-dto';
+import {
+  isInvoiceLinkConfigured,
+  signInvoiceLinkToken,
+  signInvoiceLinkClaims,
+  verifyInvoiceLinkToken,
+  hashInvoiceShortCode,
+  generateInvoiceShortCode,
+  buildShortInvoiceUrl,
+} from '../app/lib/invoice-link';
+import { isIssuedInvoiceStatus } from '../modules/erp/invoice-send-attachments';
 import { formatIssuerAddress } from '../app/lib/company-issuer-address';
 import {
   loadCompanyEmitterSettings,
@@ -2985,7 +2996,7 @@ export class CrmApiRouter {
     if (!PROPOSAL_SHORT_CODE_PATTERN.test(code)) return proposalNotFoundResponse();
     const codeHash = hashProposalShortCode(code);
     const rec = codeHash ? this.repo.findProposalShortLink(codeHash) : undefined;
-    if (!rec || rec.revokedAt) return proposalNotFoundResponse();
+    if (!rec || rec.revokedAt) return this.resolveInvoiceShortLink(code, query, codeHash);
     let token: string;
     try {
       token = signProposalLinkClaims({ v: 1, pid: rec.proposalId, ver: rec.version, iat: rec.iat, exp: rec.exp, jti: rec.jti });
@@ -2997,9 +3008,148 @@ export class CrmApiRouter {
     const found = this.findProposalExact(rec.proposalId);
     if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
     this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+
     return {
       status: 200,
-      body: { data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
+      body: { kind: 'proposal', data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
+    };
+  }
+
+  /** t200u: short link de fatura emitida no mesmo GET /api/p/:code (404 generico se nao houver). */
+  private resolveInvoiceShortLink(code: string, query: Record<string, string | undefined>, codeHash: string | null): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const rec = codeHash ? this.repo.findInvoiceShortLink(codeHash) : undefined;
+    if (!rec || rec.revokedAt) return proposalNotFoundResponse();
+    let token: string;
+    try {
+      token = signInvoiceLinkClaims({ v: 1, typ: 'invoice', iid: rec.invoiceId, iat: rec.iat, exp: rec.exp, jti: rec.jti });
+    } catch {
+      return proposalNotFoundResponse();
+    }
+    const v = verifyInvoiceLinkToken(token, { invoiceId: rec.invoiceId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.repo.getInvoiceByIdOrNumber(rec.invoiceId);
+    if (!found || !isIssuedInvoiceStatus(found.status)) return proposalNotFoundResponse();
+    const contract = found.rentalContractId || found.contractNumber
+      ? this.repo.listRentalContracts().find((c) => c.id === found.rentalContractId || c.contractNumber === found.contractNumber)
+      : undefined;
+    const remessaDocs = this.repo.listInvoices().filter((i) => i.documentType === 'NFE_REMESSA_LOCACAO');
+    const issuerAddress = formatIssuerAddress(this.companyEmitter);
+    this.invoiceLinkAudit('INVOICE_PUBLIC_VIEW', 'SUCCESS', ip, found.id, 'visualizacao pelo short link', undefined, v.claims.jti);
+    return {
+      status: 200,
+      body: {
+        kind: 'invoice',
+        data: toPublicInvoiceDto(found, { contract, remessaDocs, issuerAddress }),
+        invoiceId: found.id,
+        token,
+        issuerAddress,
+      },
+    };
+  }
+
+  private invoiceLinkAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    invoiceRef: string,
+    outcome: string,
+    actor?: { email?: string; name?: string; role?: string },
+    jti?: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor?.email || 'anonimo@link-fatura',
+        actorName: actor?.name || 'Cliente (link assinado de fatura)',
+        actorRole: actor?.role || 'INVOICE_PUBLIC_LINK',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/invoices/${String(invoiceRef || '').slice(0, 80)}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Link de fatura: ${outcome}.${jti ? ` jti=${String(jti).slice(0, 32)}.` : ''}`,
+      });
+    } catch {
+      /* auditoria nunca derruba a resposta */
+    }
+  }
+
+  /**
+   * POST /api/erp/invoices/:id/public-link (sessao MFA): gera o short link /p/<codigo>
+   * da fatura emitida para o cliente (somente leitura).
+   */
+  private issueInvoicePublicLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+      return {
+        status: 401,
+        body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+      };
+    }
+    const actor = { email: sess.user.email, name: sess.user.name, role: String(sess.user.roleId || '') };
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    if (!isInvoiceLinkConfigured()) {
+      this.invoiceLinkAudit('INVOICE_LINK_ISSUE', 'BLOCKED', ip, pathId, 'segredo de link ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: {
+          error: 'O link para o cliente está temporariamente indisponível (configuração de segurança pendente). Avise o administrador.',
+          code: 'INVOICE_LINK_SECRET_MISSING',
+        },
+      };
+    }
+    const found = this.repo.getInvoiceByIdOrNumber(pathId);
+    if (!found || !isIssuedInvoiceStatus(found.status)) {
+      return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
+    }
+    const signed = signInvoiceLinkToken({ invoiceId: found.id });
+    const origin = resolveProposalLinkOrigin(query._origin);
+    this.invoiceLinkAudit(
+      'INVOICE_LINK_ISSUE',
+      'SUCCESS',
+      ip,
+      found.id,
+      `link emitido (expira ${new Date(signed.claims.exp).toISOString()})`,
+      actor,
+      signed.claims.jti
+    );
+    let shortUrl: string | null = null;
+    try {
+      const code = generateInvoiceShortCode();
+      const codeHash = hashInvoiceShortCode(code);
+      if (codeHash) {
+        this.repo.addInvoiceShortLink({
+          codeHash,
+          invoiceId: signed.claims.iid,
+          iat: signed.claims.iat,
+          exp: signed.claims.exp,
+          jti: signed.claims.jti,
+          createdBy: String(sess.user.email || sess.user.id || ''),
+          revokedAt: null,
+        });
+        shortUrl = buildShortInvoiceUrl(origin, code);
+      }
+    } catch {
+      shortUrl = null;
+    }
+    const url = shortUrl || `${String(origin || '').replace(/\/+$/, '')}/p`;
+    return {
+      status: 200,
+      body: {
+        data: {
+          url,
+          shortUrl,
+          expiresAt: new Date(signed.claims.exp).toISOString(),
+        },
+      },
     };
   }
 
@@ -6196,6 +6346,10 @@ export class CrmApiRouter {
       if (proposalLinkIssueMatch && method === 'POST') {
         return this.issueProposalPublicLink(decodeURIComponent(proposalLinkIssueMatch[1]).trim(), query, ctx);
       }
+      const invoiceLinkIssueMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/public-link$/);
+      if (invoiceLinkIssueMatch && method === 'POST') {
+        return this.issueInvoicePublicLink(decodeURIComponent(invoiceLinkIssueMatch[1]).trim(), query, ctx);
+      }
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
@@ -7549,8 +7703,22 @@ export class CrmApiRouter {
                 cc: body.cc
                   ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
                   : undefined,
+                bcc: body.bcc
+                  ? String(body.bcc).split(',').map((x) => x.trim()).filter(Boolean)
+                  : undefined,
                 subject: rawSubject,
                 text: rawEmailBody,
+                html: typeof rawMail.html === 'string' && rawMail.html.trim() ? String(rawMail.html) : undefined,
+                attachments: Array.isArray(rawMail.attachments)
+                  ? (rawMail.attachments as Array<Record<string, unknown>>)
+                      .slice(0, 4)
+                      .map((a) => ({
+                        filename: String(a.filename || 'anexo').slice(0, 120),
+                        content: String(a.content || ''),
+                        content_type: String(a.contentType || a.content_type || 'text/html; charset=utf-8'),
+                      }))
+                      .filter((a) => a.content && a.content.length <= 1_800_000)
+                  : undefined,
               }),
             });
             if (res.ok) externalRelay = 'SENT_VIA_RESEND';
@@ -7641,6 +7809,25 @@ export class CrmApiRouter {
             dealId: body.dealId ? String(body.dealId) : null,
             createdByEmailSend: true,
           });
+        }
+
+        if (body.invoiceId) {
+          try {
+            this.repo.appendInvoiceEmailHistory(String(body.invoiceId), {
+              sentAt: nowIso,
+              to,
+              cc: body.cc ? String(body.cc) : null,
+              bcc: body.bcc ? String(body.bcc) : null,
+              subject: storedSubject,
+              protocol,
+              actor: this.sessionActorName(query),
+              attachments: Array.isArray(body.selectedAttachments)
+                ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 8)
+                : [],
+            });
+          } catch {
+            /* historico da fatura nao derruba o envio ja realizado */
+          }
         }
 
         return {
