@@ -18,6 +18,7 @@ import {
   isFollowupActiveStage,
   isFollowupTriggerStage,
   nextBusinessInstant,
+  OWNER_MAILBOX_UNAVAILABLE_DETAIL,
   pauseFollowup,
   processDueFollowups,
   renderFollowupTemplate,
@@ -347,9 +348,137 @@ describe('Sequência de follow-up da proposta enviada', () => {
     assert.equal(result.sent, 0);
     assert.equal(result.skippedByReason.MAILBOX_NOT_CONNECTED, 1);
     assert.equal(result.skipped, 1);
+    const paused = repo.getLatestProposalFollowup('deal-loggi-discovery')!;
+    assert.equal(paused.status, 'PAUSED');
+    assert.equal(paused.stopReason, 'OWNER_MAILBOX_UNAVAILABLE');
+    assert.equal(paused.stopDetail, OWNER_MAILBOX_UNAVAILABLE_DETAIL);
+    assert.equal(getFollowupStatus(repo, 'deal-loggi-discovery').stopLabel, OWNER_MAILBOX_UNAVAILABLE_DETAIL);
     assert.ok(!('messages' in result));
     const payload = JSON.stringify(result);
     assert.ok(!payload.includes('@'));
     assert.ok(!payload.includes('setatelecom.com.br'));
+  });
+
+  it('getFollowupStatus e as rotas de detalhe não devolvem o e-mail do destinatário', async () => {
+    setFlag(true);
+    const repo = createInMemoryRepository();
+    const { deal, contact } = createEnrollableDeal(repo);
+    const deps = mockSend();
+    const first = await processDueFollowups(repo, deps, new Date('2026-11-04T12:00:00.000Z'));
+    assert.equal(first.sent, 1);
+    assert.equal(deps.sent[0].to[0], contact.email);
+
+    const stored = repo.getLatestProposalFollowup(deal.id)!;
+    assert.equal(stored.sentSteps[0].to, contact.email);
+
+    const status = getFollowupStatus(repo, deal.id);
+    assert.ok(status.enrollment);
+    assert.equal(status.enrollment!.sentSteps.length, 1);
+    const step = status.enrollment!.sentSteps[0];
+    assert.equal('to' in step, false);
+    assert.equal(step.stepIndex, 0);
+    assert.ok(step.sentAt);
+    assert.equal(step.status, 'sent');
+    const statusJson = JSON.stringify(status);
+    assert.ok(!statusJson.includes(contact.email));
+    assert.ok(!/"to"\s*:/.test(statusJson));
+
+    const router = new CrmApiRouter(repo);
+    const getStatus = await router.dispatch({
+      method: 'GET',
+      path: `/api/deals/${deal.id}/proposal-followup`,
+      query: {},
+      body: {},
+      context: TRUSTED_INTERNAL_CONTEXT,
+    });
+    assert.equal(getStatus.status, 200);
+    const statusBody = JSON.stringify((getStatus.body as { data: unknown }).data);
+    assert.ok(!statusBody.includes(contact.email));
+    assert.ok(!/"to"\s*:/.test(statusBody));
+
+    const getDeal = await router.dispatch({
+      method: 'GET',
+      path: `/api/deals/${deal.id}`,
+      query: {},
+      body: {},
+      context: TRUSTED_INTERNAL_CONTEXT,
+    });
+    assert.equal(getDeal.status, 200);
+    const followup = (getDeal.body as { data: { proposalFollowup: { enrollment: { sentSteps: object[] } } } }).data.proposalFollowup;
+    assert.equal('to' in followup.enrollment.sentSteps[0], false);
+    assert.ok(!JSON.stringify(followup).includes(contact.email));
+
+    const paused = await router.dispatch({
+      method: 'POST',
+      path: `/api/deals/${deal.id}/proposal-followup`,
+      query: {},
+      body: { action: 'pause' },
+      context: TRUSTED_INTERNAL_CONTEXT,
+    });
+    assert.equal(paused.status, 200);
+    const pausedEnr = (paused.body as { enrollment: { sentSteps: object[] } }).enrollment;
+    assert.equal('to' in pausedEnr.sentSteps[0], false);
+    assert.ok(!JSON.stringify(pausedEnr).includes(contact.email));
+  });
+
+  it('retomar com a sequência desligada devolve 409 sem citar variável de ambiente', async () => {
+    setFlag(true);
+    const repo = createInMemoryRepository();
+    const { deal } = createEnrollableDeal(repo);
+    const router = new CrmApiRouter(repo);
+    await router.dispatch({
+      method: 'POST',
+      path: `/api/deals/${deal.id}/proposal-followup`,
+      query: {},
+      body: { action: 'pause' },
+      context: TRUSTED_INTERNAL_CONTEXT,
+    });
+    setFlag(false);
+    const resumed = await router.dispatch({
+      method: 'POST',
+      path: `/api/deals/${deal.id}/proposal-followup`,
+      query: {},
+      body: { action: 'resume' },
+      context: TRUSTED_INTERNAL_CONTEXT,
+    });
+    assert.equal(resumed.status, 409);
+    const body = JSON.stringify(resumed.body);
+    assert.match(body, /Sequência de follow-up indisponível/);
+    assert.ok(!body.includes(FLAG));
+    assert.ok(!body.includes('FOLLOWUP_SEQUENCE'));
+    assert.ok(!body.includes('process.env'));
+  });
+
+  it('casa o dono só por id ou e-mail exatos; nome aproximado pausa e registra skip, sem enviar', async () => {
+    setFlag(true);
+    const repo = createInMemoryRepository();
+
+    const byUserId = repo.resolveDealOwnerUser({ ownerId: 'usr-seta-01', ownerName: 'Outro Nome' });
+    assert.equal(byUserId?.email, 'marcelo.mira@setatelecom.com.br');
+
+    const byHubspotId = repo.resolveDealOwnerUser({ ownerId: 'owner-marcello' });
+    assert.equal(byHubspotId?.email, 'marcelo.mira@setatelecom.com.br');
+
+    const byEmail = repo.resolveDealOwnerUser({ ownerId: 'Marcelo.Mira@SetaTelecom.com.br' });
+    assert.equal(byEmail?.email, 'marcelo.mira@setatelecom.com.br');
+
+    const fuzzy = repo.resolveDealOwnerUser({ ownerId: 'desconhecido', ownerName: 'Marcelo' });
+    assert.equal(fuzzy, null);
+    const exactNameOnly = repo.resolveDealOwnerUser({ ownerId: '', ownerName: 'Marcelo Lopes Mira' });
+    assert.equal(exactNameOnly, null);
+
+    const { deal } = createEnrollableDeal(repo);
+    repo.updateDeal(deal.id, { ownerId: 'dono-inexistente', ownerName: 'Marcelo' });
+    const deps = mockSend();
+    const result = await processDueFollowups(repo, deps, new Date('2026-11-04T12:00:00.000Z'));
+    assert.equal(result.sent, 0);
+    assert.equal(deps.sent.length, 0);
+    assert.equal(result.skipped, 1);
+    assert.equal(result.skippedByReason.NO_OWNER_EMAIL, 1);
+    const enr = repo.getLatestProposalFollowup(deal.id)!;
+    assert.equal(enr.status, 'PAUSED');
+    assert.equal(enr.stopReason, 'OWNER_MAILBOX_UNAVAILABLE');
+    assert.equal(enr.stopDetail, OWNER_MAILBOX_UNAVAILABLE_DETAIL);
+    assert.equal(getFollowupStatus(repo, deal.id).stopLabel, OWNER_MAILBOX_UNAVAILABLE_DETAIL);
   });
 });

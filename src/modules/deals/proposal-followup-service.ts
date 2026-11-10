@@ -21,15 +21,51 @@ import {
 } from './proposal-followup-config';
 import { isFollowupContinueStage as isCanonicalFollowupContinueStage } from './sales-pipeline-stages';
 
+/** Passo enviado na resposta de status: sem destinatário nem outros dados pessoais. */
+export interface FollowupSentStepView {
+  stepIndex: number;
+  offsetDays: number;
+  templateId: string;
+  sentAt: string;
+  status: 'sent';
+}
+
+export type FollowupEnrollmentView = Omit<ProposalFollowupEnrollment, 'sentSteps'> & {
+  sentSteps: FollowupSentStepView[];
+};
+
 export interface FollowupStatusView {
   enabled: boolean;
-  enrollment: ProposalFollowupEnrollment | null;
+  enrollment: FollowupEnrollmentView | null;
   statusLabel: string;
   nextSendLabel: string | null;
   sentLabel: string;
   stopLabel: string | null;
   canPause: boolean;
   canResume: boolean;
+}
+
+export const OWNER_MAILBOX_UNAVAILABLE_DETAIL = 'Dono sem caixa conectada ou não identificado';
+
+export function toPublicSentStep(step: FollowupSentStep): FollowupSentStepView {
+  return {
+    stepIndex: step.stepIndex,
+    offsetDays: step.offsetDays,
+    templateId: step.templateId,
+    sentAt: step.sentAt,
+    status: 'sent',
+  };
+}
+
+export function toPublicEnrollment(enrollment: ProposalFollowupEnrollment): FollowupEnrollmentView {
+  return {
+    ...enrollment,
+    sentSteps: (enrollment.sentSteps || []).map(toPublicSentStep),
+  };
+}
+
+function publicEnrollmentOrNull(enrollment: ProposalFollowupEnrollment | null): FollowupEnrollmentView | null {
+  return enrollment ? toPublicEnrollment(enrollment) : null;
 }
 
 export interface FollowupTemplateVars {
@@ -226,6 +262,7 @@ export function renderFollowupTemplate(text: string, vars: FollowupTemplateVars)
 }
 
 export function formatFollowupStatus(enrollment: ProposalFollowupEnrollment | null, enabled: boolean): FollowupStatusView {
+  const publicEnrollment = publicEnrollmentOrNull(enrollment);
   if (!enabled && !enrollment) {
     return {
       enabled,
@@ -255,7 +292,7 @@ export function formatFollowupStatus(enrollment: ProposalFollowupEnrollment | nu
   if (enrollment.status === 'ACTIVE') {
     return {
       enabled,
-      enrollment,
+      enrollment: publicEnrollment,
       statusLabel: 'Ativa',
       nextSendLabel: enrollment.nextSendAt
         ? new Date(enrollment.nextSendAt).toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })
@@ -269,7 +306,7 @@ export function formatFollowupStatus(enrollment: ProposalFollowupEnrollment | nu
   if (enrollment.status === 'PAUSED') {
     return {
       enabled,
-      enrollment,
+      enrollment: publicEnrollment,
       statusLabel: 'Pausada',
       nextSendLabel: enrollment.nextSendAt
         ? new Date(enrollment.nextSendAt).toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })
@@ -283,7 +320,7 @@ export function formatFollowupStatus(enrollment: ProposalFollowupEnrollment | nu
   if (enrollment.status === 'COMPLETED') {
     return {
       enabled,
-      enrollment,
+      enrollment: publicEnrollment,
       statusLabel: 'Concluída',
       nextSendLabel: null,
       sentLabel,
@@ -294,7 +331,7 @@ export function formatFollowupStatus(enrollment: ProposalFollowupEnrollment | nu
   }
   return {
     enabled,
-    enrollment,
+    enrollment: publicEnrollment,
     statusLabel: 'Parada',
     nextSendLabel: null,
     sentLabel,
@@ -342,8 +379,8 @@ function resolveTemplate(repo: CrmRepository, stepIndex: number): { id: string; 
 
 export function resolveDealOwner(repo: CrmRepository, deal: Deal): { email: string; name: string } | null {
   const resolved = repo.resolveDealOwnerUser?.(deal);
-  if (resolved?.email) return resolved;
-  return deal.ownerName ? { email: '', name: deal.ownerName } : null;
+  if (resolved?.email?.trim()) return resolved;
+  return null;
 }
 
 function proposalLinkForDeal(repo: CrmRepository, deal: Deal): string {
@@ -449,11 +486,12 @@ export function stopFollowupForDeal(
   // Abertura (pixel) nunca para a sequência: quem chama com motivo inválido é ignorado.
   if ((reason as string) === 'EMAIL_OPEN') return enr;
   const nowIso = now.toISOString();
-  enr.status = reason === 'MANUAL_PAUSE' ? 'PAUSED' : 'STOPPED';
+  const pauseOnly = reason === 'MANUAL_PAUSE' || reason === 'OWNER_MAILBOX_UNAVAILABLE';
+  enr.status = pauseOnly ? 'PAUSED' : 'STOPPED';
   enr.stopReason = reason;
   enr.stopDetail = detail || FOLLOWUP_STOP_LABEL[reason];
   enr.stoppedAt = nowIso;
-  if (reason !== 'MANUAL_PAUSE') enr.nextSendAt = null;
+  if (!pauseOnly) enr.nextSendAt = null;
   enr.updatedAt = nowIso;
   repo.saveProposalFollowupEnrollment(enr);
   return enr;
@@ -628,21 +666,17 @@ export async function processDueFollowups(
     }
     const owner = resolveDealOwner(repo, deal);
     if (!owner?.email) {
-      fresh.lastError = 'Proprietário do negócio sem e-mail no IAM; envio adiado.';
-      fresh.updatedAt = now.toISOString();
-      repo.saveProposalFollowupEnrollment(fresh);
+      stopFollowupForDeal(repo, deal.id, 'OWNER_MAILBOX_UNAVAILABLE', OWNER_MAILBOX_UNAVAILABLE_DETAIL, now);
       bumpSkip(out, 'NO_OWNER_EMAIL');
-      logFollowup(deal.id, 'NO_OWNER_EMAIL', fresh.lastError);
+      logFollowup(deal.id, 'NO_OWNER_EMAIL', OWNER_MAILBOX_UNAVAILABLE_DETAIL);
       continue;
     }
     const accounts = (await deps.listAccounts(owner.email)).filter((a) => a.status === 'ATIVADO');
     const account = accounts[0];
     if (!account) {
-      fresh.lastError = 'Caixa Outlook 365 do proprietário não está conectada; envio adiado.';
-      fresh.updatedAt = now.toISOString();
-      repo.saveProposalFollowupEnrollment(fresh);
+      stopFollowupForDeal(repo, deal.id, 'OWNER_MAILBOX_UNAVAILABLE', OWNER_MAILBOX_UNAVAILABLE_DETAIL, now);
       bumpSkip(out, 'MAILBOX_NOT_CONNECTED');
-      logFollowup(deal.id, 'MAILBOX_NOT_CONNECTED', fresh.lastError);
+      logFollowup(deal.id, 'MAILBOX_NOT_CONNECTED', OWNER_MAILBOX_UNAVAILABLE_DETAIL);
       continue;
     }
     const company = deal.companyId ? repo.getCompanyById(deal.companyId) || null : null;

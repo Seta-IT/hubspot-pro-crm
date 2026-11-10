@@ -211,6 +211,7 @@ export type FollowupStopReason =
   | 'MANUAL_PAUSE'
   | 'UNSUBSCRIBED'
   | 'NO_VALID_EMAIL'
+  | 'OWNER_MAILBOX_UNAVAILABLE'
   | 'COMPLETED';
 
 export const FOLLOWUP_STOP_LABEL: Record<FollowupStopReason, string> = {
@@ -224,5 +225,6 @@ export const FOLLOWUP_STOP_LABEL: Record<FollowupStopReason, string> = {
   MANUAL_PAUSE: 'O vendedor pausou a sequência',
   UNSUBSCRIBED: 'O contato cancelou a inscrição ou o consentimento LGPD',
   NO_VALID_EMAIL: 'Contato sem e-mail válido',
+  OWNER_MAILBOX_UNAVAILABLE: 'Dono sem caixa conectada ou não identificado',
   COMPLETED: 'A sequência de 9 e-mails foi concluída',
 };

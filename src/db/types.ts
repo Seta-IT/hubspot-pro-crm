@@ -2191,6 +2191,7 @@ export type FollowupStopReason =
   | 'MANUAL_PAUSE'
   | 'UNSUBSCRIBED'
   | 'NO_VALID_EMAIL'
+  | 'OWNER_MAILBOX_UNAVAILABLE'
   | 'COMPLETED';
 
 export interface FollowupSentStep {

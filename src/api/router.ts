@@ -253,6 +253,7 @@ import {
   processDueFollowups,
   resumeFollowup,
   stopFollowupForProposal,
+  toPublicEnrollment,
 } from '../modules/deals/proposal-followup-service';
 import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
 
@@ -4479,14 +4480,14 @@ export class CrmApiRouter {
           const action = String((body as { action?: string })?.action || '').toLowerCase();
           if (action === 'pause') {
             const enr = pauseFollowup(this.repo, dealId);
-            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr } };
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr ? toPublicEnrollment(enr) : enr } };
           }
           if (action === 'resume') {
             if (!isProposalFollowupEnabled()) {
-              return { status: 409, body: { error: 'A sequência de follow-up está desligada (FOLLOWUP_SEQUENCE_ENABLED).', code: 'FOLLOWUP_DISABLED' } };
+              return { status: 409, body: { error: 'Sequência de follow-up indisponível', code: 'FOLLOWUP_DISABLED' } };
             }
             const enr = resumeFollowup(this.repo, dealId);
-            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr } };
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr ? toPublicEnrollment(enr) : enr } };
           }
           return { status: 400, body: { error: 'Informe action: "pause" ou "resume".', code: 'FOLLOWUP_ACTION_INVALID' } };
         }

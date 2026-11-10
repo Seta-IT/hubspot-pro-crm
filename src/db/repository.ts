@@ -2772,17 +2772,18 @@ export class CrmRepository {
     this.save();
   }
 
+  /** Casa o dono do negócio só por correspondência exata: id do usuário, depois e-mail. Nunca por nome. */
   resolveDealOwnerUser(deal: { ownerId?: string | null; ownerName?: string | null }): { email: string; name: string } | null {
     const users = this.ensureRbacState().users || [];
-    if (deal.ownerId) {
-      const byId = users.find((u) => u.hubspotOwnerId === deal.ownerId || u.id === deal.ownerId);
-      if (byId?.email) return { email: byId.email, name: byId.name };
-    }
-    if (deal.ownerName) {
-      const n = deal.ownerName.toLowerCase();
-      const byName = users.find((u) => u.name.toLowerCase() === n || u.name.toLowerCase().includes(n) || n.includes(u.name.toLowerCase()));
-      if (byName?.email) return { email: byName.email, name: byName.name };
-    }
+    const ownerKey = String(deal.ownerId || '').trim();
+    if (!ownerKey) return null;
+    const byUserId = users.find((u) => u.id === ownerKey);
+    if (byUserId?.email?.trim()) return { email: byUserId.email, name: byUserId.name };
+    const byHubspotId = users.find((u) => u.hubspotOwnerId && u.hubspotOwnerId === ownerKey);
+    if (byHubspotId?.email?.trim()) return { email: byHubspotId.email, name: byHubspotId.name };
+    const emailKey = ownerKey.toLowerCase();
+    const byEmail = users.find((u) => String(u.email || '').trim().toLowerCase() === emailKey);
+    if (byEmail?.email?.trim()) return { email: byEmail.email, name: byEmail.name };
     return null;
   }
 
