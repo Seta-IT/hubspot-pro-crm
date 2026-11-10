@@ -1386,7 +1386,7 @@ export default function HubSpotProCrmApp() {
         : activeModule === 'OVERVIEW_AI'
           ? 'Dashboard CRM'
           : activeModule === 'DEALS_KANBAN'
-            ? 'Negócios (Funil Kanban)'
+            ? 'Negócios'
             : activeModule === 'CONTACTS_COMPANIES'
               ? contactsInitialSubView === 'COMPANIES'
                 ? 'Empresas CRM'
@@ -2445,6 +2445,7 @@ export default function HubSpotProCrmApp() {
                     onRefreshAll={async () => {
                       await fetchAllCrmData();
                     }}
+                    currentOwnerName={activeRbacUser?.name || null}
                   />
                 )}
 
