@@ -3575,7 +3575,7 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
     assert.ok(erpTabSrc.includes("Por e-mail"));
     assert.ok(erpTabSrc.includes('data-testid="menu-share-email"'));
     assert.ok(erpTabSrc.includes("max-h-[70vh]"));
-    assert.ok(erpTabSrc.includes("createPortal"));
+    assert.ok(erpTabSrc.includes("createPortal") || erpTabSrc.includes("RowKebabMenu"));
     assert.ok(erpTabSrc.includes("Por WhatsApp"));
     assert.ok(erpTabSrc.includes("Por SMS"));
     assert.ok(erpTabSrc.includes("e-Assinatura"));

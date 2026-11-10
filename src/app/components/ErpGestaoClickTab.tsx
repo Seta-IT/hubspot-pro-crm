@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { RowKebabMenu } from './FixedPortalMenu';
 import {
   FileText,
   FileCheck2,
@@ -489,8 +489,6 @@ export default function ErpGestaoClickTab({
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
-  /** Posição fixed do menu ⋮ — evita clip por overflow-hidden/overflow-x-auto da tabela. */
-  const [proposalMenuCoords, setProposalMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const [expandedProposalSubmenu, setExpandedProposalSubmenu] = useState<"IMPRIMIR" | "COMPARTILHAR" | "GERAR" | null>(null);
   const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
   const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
@@ -1575,53 +1573,41 @@ export default function ErpGestaoClickTab({
           <Pencil className="w-3.5 h-3.5" />
         </button>
 
-        {/* 3. Botão Menu 3 Pontos Verticais GestãoClick */}
-        <button
-          type="button"
-          onClick={(e) => {
-            if (isMenuOpen) {
-              setOpenProposalMenuId(null);
-              setExpandedProposalSubmenu(null);
-              setProposalMenuCoords(null);
-            } else {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const menuWidth = 224; // w-56
-              const estHeight = 420;
-              const spaceBelow = window.innerHeight - rect.bottom;
-              const openUp = spaceBelow < Math.min(estHeight, window.innerHeight * 0.7);
-              const usable = openUp ? Math.max(120, rect.top - 8) : Math.max(120, spaceBelow - 8);
-              const height = Math.min(estHeight, usable, window.innerHeight * 0.7);
-              const top = openUp
-                ? Math.max(8, rect.top - height)
-                : rect.bottom + 4;
-              const left = Math.min(
-                Math.max(8, rect.right - menuWidth),
-                Math.max(8, window.innerWidth - menuWidth - 8)
-              );
-              setProposalMenuCoords({ top, left });
+        <RowKebabMenu
+          open={isMenuOpen}
+          onOpenChange={(next) => {
+            if (next) {
               setOpenProposalMenuId(prop.id);
+              setExpandedProposalSubmenu(null);
+            } else {
+              setOpenProposalMenuId(null);
               setExpandedProposalSubmenu(null);
             }
           }}
+          width={224}
+          estimatedHeight={420}
+          className="max-h-[70vh]"
+          testId="proposal-gestao-click-menu"
           title="Mais opções do orçamento (GestãoClick)"
-          className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
-            isMenuOpen
-              ? "bg-[#1b2559] text-white border-[#1b2559]"
-              : "border-slate-200 bg-white text-slate-700 hover:bg-[#1b2559] hover:text-white hover:border-[#1b2559]"
-          }`}
+          renderTrigger={({ ref, open, toggle }) => (
+            <button
+              ref={ref}
+              type="button"
+              onClick={toggle}
+              title="Mais opções do orçamento (GestãoClick)"
+              aria-label="Mais opções do orçamento (GestãoClick)"
+              aria-expanded={open}
+              aria-haspopup="menu"
+              className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
+                open
+                  ? "bg-[#1b2559] text-white border-[#1b2559]"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-[#1b2559] hover:text-white hover:border-[#1b2559]"
+              }`}
+            >
+              <span className="font-semibold text-sm leading-none select-none">&#8942;</span>
+            </button>
+          )}
         >
-          <span className="font-semibold text-sm leading-none select-none">&#8942;</span>
-        </button>
-
-        {isMenuOpen &&
-          proposalMenuCoords &&
-          typeof document !== "undefined" &&
-          createPortal(
-          <div
-            data-testid="proposal-gestao-click-menu"
-            className="fixed w-56 max-h-[70vh] overflow-y-auto bg-white rounded-md border border-slate-200 shadow-xl py-1.5 z-[100] text-left text-xs text-slate-700"
-            style={{ top: proposalMenuCoords.top, left: proposalMenuCoords.left }}
-          >
             {/* Ver proposta */}
             <a
               href={publicUrl}
@@ -1729,8 +1715,7 @@ export default function ErpGestaoClickTab({
                     onClick={async () => {
                       // Link assinado (29/10): o cliente so abre a proposta com o link gerado no servidor.
                       setOpenProposalMenuId(null);
-                      setProposalMenuCoords(null);
-                      const signed = await copySignedProposalLink(prop.id);
+                              const signed = await copySignedProposalLink(prop.id);
                       if (!signed.ok) {
                         onShowToast(signed.error);
                         return;
@@ -1868,17 +1853,14 @@ export default function ErpGestaoClickTab({
               type="button"
               onClick={() => {
                 setOpenProposalMenuId(null);
-                setProposalMenuCoords(null);
-                handleDeleteProposal(prop);
+                  handleDeleteProposal(prop);
               }}
               className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center gap-2.5 text-rose-600 font-semibold cursor-pointer text-left"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
               <span>Excluir</span>
             </button>
-          </div>,
-          document.body
-          )}
+        </RowKebabMenu>
       </div>
     );
   };
@@ -2081,6 +2063,8 @@ export default function ErpGestaoClickTab({
       contractNumber: `LOC-2026-${nextNum}`,
       title: prop.title || `Contrato de Locação — ${prop.companyName}`,
       modality: prop.modality === 'SERVICE' ? 'SERVICO' : prop.modality === 'HYBRID' ? 'HIBRIDO' : 'LOCACAO',
+      costCenter: prop.costCenter || '',
+      chartOfAccounts: prop.chartOfAccounts || '',
       companyId: prop.companyId || null,
       companyName: prop.companyName || '',
       companyCnpj: prop.companyCnpj || '',
@@ -2152,6 +2136,7 @@ export default function ErpGestaoClickTab({
       storeName: gestaoClickConfig.storeName || 'Matriz',
       salesChannel: '',
       costCenter: '',
+      chartOfAccounts: '',
       proposalDate: new Date().toISOString().slice(0, 10),
       deliveryLeadTime: '',
       deliveryForecast: '',
@@ -3623,7 +3608,7 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
         ) : (
-          <div className={`bg-white rounded-md border border-slate-200 shadow-xs ${contractRowMenuId ? "pb-72" : ""}`}>
+          <div className="bg-white rounded-md border border-slate-200 shadow-xs">
             <div className="overflow-x-auto overflow-y-visible max-w-full">
               <table className="w-full table-fixed text-left text-xs min-w-[960px]">
                 <colgroup>
@@ -3777,35 +3762,31 @@ export default function ErpGestaoClickTab({
                             >
                               + Faturar
                             </button>
-                            <div className="relative">
-                              <button
-                                type="button"
-                                title="Mais ações do contrato"
-                                aria-label="Mais ações do contrato"
-                                onClick={() => setContractRowMenuId((id) => (id === ctr.id ? null : ctr.id))}
-                                className="w-7 h-7 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center justify-center font-semibold transition cursor-pointer"
-                              >
-                                ⋮
-                              </button>
-                              {contractRowMenuId === ctr.id && (
-                                <div data-testid="contract-row-actions-menu" className="absolute right-0 top-9 z-50 w-60 bg-white border border-slate-200 rounded-md shadow-xl py-1.5 text-left">
-                                  {buildContractRowActions(ctr, modality).map((act) => {
-                                    const ActIcon = act.icon;
-                                    return (
-                                      <button
-                                        key={act.key}
-                                        type="button"
-                                        onClick={() => { setContractRowMenuId(null); void act.run(); }}
-                                        className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
-                                      >
-                                        <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
-                                        <span>{act.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
+                            <RowKebabMenu
+                              open={contractRowMenuId === ctr.id}
+                              onOpenChange={(next) => setContractRowMenuId(next ? ctr.id : null)}
+                              width={240}
+                              estimatedHeight={360}
+                              testId="contract-row-actions-menu"
+                              title="Mais ações do contrato"
+                              ariaLabel="Mais ações do contrato"
+                            >
+                              {buildContractRowActions(ctr, modality).map((act) => {
+                                const ActIcon = act.icon;
+                                return (
+                                  <button
+                                    key={act.key}
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => { setContractRowMenuId(null); void act.run(); }}
+                                    className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
+                                  >
+                                    <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
+                                    <span>{act.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </RowKebabMenu>
                           </div>
                         </td>
                       </tr>

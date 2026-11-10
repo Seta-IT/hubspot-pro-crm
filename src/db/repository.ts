@@ -4231,6 +4231,7 @@ export class CrmRepository {
       storeName: input.storeName || '',
       salesChannel: input.salesChannel || '',
       costCenter: input.costCenter || '',
+      chartOfAccounts: input.chartOfAccounts || '',
       proposalDate: input.proposalDate || now.slice(0, 10),
       deliveryLeadTime: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
       deliveryForecast: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),

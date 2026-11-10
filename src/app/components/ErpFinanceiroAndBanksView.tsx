@@ -17,6 +17,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { RowKebabMenu } from './FixedPortalMenu';
 import type {
   ErpBankAccount,
   ErpDashboardSummary,
@@ -729,41 +730,44 @@ function IconBtn({ title, icon: Icon, onClick }: { title: string; icon: LucideIc
 }
 
 function RowMenu({ items }: { items: RowMenuItem[] }) {
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [open, setOpen] = useState(false);
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Ações"
-        title="Ações"
-        onClick={(e) => {
-          const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-          setPos(pos ? null : { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
-        }}
-        className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#1e3a6e] cursor-pointer"
-      >
-        <MoreVertical size={14} />
-      </button>
-      {pos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
-          <div className="fixed z-50 min-w-[190px] bg-white border border-slate-200 rounded-md shadow-sm py-1 text-left" style={{ top: pos.top, right: pos.right }}>
-            {items.map((it) => {
-              const Icon = it.icon;
-              return (
-                <button
-                  key={it.label}
-                  type="button"
-                  onClick={() => { setPos(null); it.onClick(); }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-slate-50 ${it.danger ? 'text-rose-700' : 'text-slate-700'}`}
-                >
-                  {Icon && <Icon size={13} />} {it.label}
-                </button>
-              );
-            })}
-          </div>
-        </>
+    <RowKebabMenu
+      open={open}
+      onOpenChange={setOpen}
+      width={200}
+      estimatedHeight={280}
+      title="Ações"
+      ariaLabel="Ações"
+      renderTrigger={({ ref, open: isOpen, toggle }) => (
+        <button
+          ref={ref}
+          type="button"
+          aria-label="Ações"
+          title="Ações"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          onClick={toggle}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#1e3a6e] cursor-pointer"
+        >
+          <MoreVertical size={14} />
+        </button>
       )}
-    </>
+    >
+      {items.map((it) => {
+        const Icon = it.icon;
+        return (
+          <button
+            key={it.label}
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); it.onClick(); }}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-slate-50 ${it.danger ? 'text-rose-700' : 'text-slate-700'}`}
+          >
+            {Icon && <Icon size={13} />} {it.label}
+          </button>
+        );
+      })}
+    </RowKebabMenu>
   );
 }

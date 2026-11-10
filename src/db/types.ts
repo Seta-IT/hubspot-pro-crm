@@ -932,6 +932,7 @@ export interface ErpCommercialProposal {
   storeName?: string;
   salesChannel?: string;
   costCenter?: string;
+  chartOfAccounts?: string;
   proposalDate?: string;
   deliveryLeadTime?: string;
   deliveryForecast?: string;

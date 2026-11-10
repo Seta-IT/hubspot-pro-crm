@@ -224,6 +224,20 @@ describe('Pacote L (2): equipments com item nao-objeto', () => {
     assert.equal(r.status, 200, JSON.stringify(r.body));
   });
 
+  it('PATCH/POST com lista vazia de produtos => 400 Adicione pelo menos um produto.', async () => {
+    const E = mk();
+    const ct = E.repo.listRentalContracts()[0];
+    const before = JSON.stringify(ct.equipments);
+    const r = await E.router.dispatch({ method: 'PATCH', path: `/api/erp/rental-contracts/${ct.id}`, query: E.q(ADMIN), body: { equipments: [] } });
+    assert.equal(r.status, 400);
+    assert.equal(b(r).code, 'CONTRACT_FIELD_INVALID');
+    assert.equal(b(r).error, 'Adicione pelo menos um produto.');
+    assert.equal(JSON.stringify(E.repo.listRentalContracts().find((c) => c.id === ct.id)?.equipments), before);
+    const post = await E.router.dispatch({ method: 'POST', path: '/api/erp/rental-contracts', query: E.q(ADMIN), body: { title: 'Sem produto', companyName: 'Cliente', monthlyValue: 100, equipments: [] } });
+    assert.equal(post.status, 400);
+    assert.equal(b(post).error, 'Adicione pelo menos um produto.');
+  });
+
   it('journal (probe K): vendedor com equipments [null] nao derruba bootstrap/overview; item invalido descartado', async () => {
     const E = mk();
     const later = new Date(Date.now() + 60000).toISOString();

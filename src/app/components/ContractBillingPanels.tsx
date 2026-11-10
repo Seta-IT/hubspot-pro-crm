@@ -615,15 +615,15 @@ export function ContractAuxOptionsManager({ onShowToast }: { onShowToast?: (m: s
     <div data-testid="contract-aux-manager" className="bg-white rounded-md border border-slate-200 p-4 space-y-3 text-xs">
       <div>
         <h3 className="text-sm font-semibold text-slate-900">Gerenciador de Cadastros Auxiliares de Contratos &amp; Cobrança</h3>
-        <p className="text-[11px] text-slate-500">Itens cadastrados aqui aparecem imediatamente nos campos do Contrato e da Fatura.</p>
+        <p className="text-[11px] text-slate-500">Itens cadastrados aqui aparecem imediatamente nos campos do Contrato, da Proposta e da Fatura.</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {lists.map((l) => (
-          <div key={l.key} className="rounded border border-slate-200 p-3 space-y-1.5">
+          <div key={l.key} data-testid={`aux-list-${l.key}`} className="rounded border border-slate-200 p-3 space-y-1.5">
             <div className="font-semibold text-slate-800">{l.title} ({aux[l.key].length})</div>
             {aux[l.key].map((item, idx) => (
-              <div key={`${item}-${idx}`} className="flex items-center gap-1">
-                <input aria-label={`${l.title} ${idx + 1}`} value={item} onChange={(e) => { const arr = [...aux[l.key]]; arr[idx] = e.target.value; persist({ ...aux, [l.key]: arr }); }} className="flex-1 px-2 py-1 rounded border border-slate-200" />
+              <div key={`${l.key}-${idx}`} className="flex items-center gap-1">
+                <input aria-label={`${l.title} ${idx + 1}`} value={item} onChange={(e) => { const arr = [...aux[l.key]]; arr[idx] = e.target.value; persist({ ...aux, [l.key]: arr }); }} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white" />
                 <button type="button" onClick={() => persist({ ...aux, [l.key]: aux[l.key].filter((_, i) => i !== idx) })} className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold cursor-pointer">Excluir</button>
               </div>
             ))}

@@ -44,12 +44,13 @@ import { applyBudgetTypeToItems, ProposalItemsGrid } from './ProposalItemsGrid';
 import { formatProposalDisplayCode } from '../lib/proposal-number';
 import {
   ContractBillingHistoryPanel,
-  ContractGestaoClickDataPanel,
   ContractVersionHistoryPanel,
   InvoiceExtraFieldsPanel,
   ReceiptDraftPreviewButton,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
+import { CatalogProductCombobox, catalogRentalPrice } from './CatalogProductCombobox';
+import { countValidContractProducts, validateRentalContractForm, type ContractFieldError } from '../../modules/erp/contract-form-validation';
 import {
   formatBrPhoneMask,
   formatCnpjMask,
@@ -106,6 +107,7 @@ export function ProposalEditModal({
   const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
+  const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
 
   const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
     if (Array.isArray(draft.versionHistory) && draft.versionHistory.length > 0) {
@@ -962,9 +964,9 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ ou CPF | Prazo Contratual */}
+              {/* LINHA 3: Centro de custo | Plano de contas | Nome | CNPJ | Prazo */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Centro de custo
                   </label>
@@ -974,17 +976,37 @@ export function ProposalEditModal({
                     placeholder="Digite para buscar"
                     value={draft.costCenter || ''}
                     onChange={(e) => updateDraft({ costCenter: e.target.value })}
+                    data-testid="proposal-cost-center"
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                   <datalist id="gestaoclick-cost-centers">
-                    <option value="Comercial Telecom & TI" />
-                    <option value="Locação de Ativos" />
-                    <option value="Projetos & Engenharia NOC" />
-                    <option value="VENDAS" />
+                    {auxOptions.costCenters.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
                   </datalist>
                 </div>
 
-                <div className="sm:col-span-5">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Plano de contas
+                  </label>
+                  <input
+                    type="text"
+                    list="gestaoclick-chart-accounts"
+                    placeholder="Digite para buscar"
+                    value={draft.chartOfAccounts || ''}
+                    onChange={(e) => updateDraft({ chartOfAccounts: e.target.value })}
+                    data-testid="proposal-chart-of-accounts"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                  />
+                  <datalist id="gestaoclick-chart-accounts">
+                    {auxOptions.chartOfAccountsList.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="sm:col-span-4">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Nome da proposta <span className="text-rose-600">*</span>
                   </label>
@@ -2143,6 +2165,8 @@ export function ContractEditModal({
   const [autoSyncMonthly, setAutoSyncMonthly] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [contractFormError, setContractFormError] = useState<string | null>(null);
+  const [contractFieldErrors, setContractFieldErrors] = useState<ContractFieldError[]>([]);
+  const [productToDeleteIdx, setProductToDeleteIdx] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -2238,32 +2262,30 @@ export function ContractEditModal({
   };
   const renderContractDataBlock = (opts?: { includePoMeasurement?: boolean }) => {
     const includePoMeasurement = opts?.includePoMeasurement === true;
+    if (!includePoMeasurement) return null;
     return (
-    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid={includePoMeasurement ? 'contract-data-po-bm' : 'contract-data-core'}>
+    <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
       <span className="text-[11px] font-semibold text-[#1e3a6e] block">
-        {includePoMeasurement
-          ? 'Pedido e medição'
-          : 'Dados do contrato'}
+        Pedido e medição
       </span>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-        <div><label className={lblCls}>CNPJ</label><input type="text" value={draft.companyCnpj} onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })} className={`${inpCls} font-mono font-semibold`} /></div>
-        <div><label className={lblCls}>Contrato n.</label><input type="text" value={draft.contractNumber} onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })} className={`${inpCls} font-mono font-semibold`} /></div>
-        <div><label className={lblCls}>Nº Contrato Externo</label><input type="text" value={draft.externalContractNumber || ''} onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-        <div><label className={lblCls}>Proposta Vinculada</label><input type="text" value={draft.proposalNumber || ''} onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-        <div><label className={lblCls}>NF-e de Remessa / CFOP</label><div className="flex gap-1"><input type="text" value={draft.remessaNfeNumber || ''} onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })} className={`${inpCls} font-mono font-semibold`} /><input type="text" value={draft.remessaCfop || ''} onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value } as ErpRentalContract)} className={`${inpCls} font-mono font-semibold w-20`} /></div></div>
-        <div><label className={lblCls}>Prazo do Contrato</label><input type="text" value={draft.contractTermLabel || `${draft.contractMonths || ''} meses`} onChange={(e) => setDraft({ ...draft, contractTermLabel: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-        <div><label className={lblCls}>Vendedor</label><input type="text" value={draft.sellerName || ''} onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-        <div><label className={lblCls}>Centro de Custo</label><input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} className={`${inpCls} font-semibold`} /><datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        <div><label className={lblCls}>Plano de Contas</label><input list="ctr-chart-accounts" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} className={`${inpCls} font-semibold`} /><datalist id="ctr-chart-accounts">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        {includePoMeasurement ? (
-          <>
-            <div><label className={lblCls}>Nº Pedido do Cliente (PO)</label><input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono font-semibold`} /></div>
-            <div><label className={lblCls}>Nº Boletim de Medição (BM)</label><input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} placeholder="BM-11/2026-453" className={`${inpCls} font-mono font-semibold`} /></div>
-            <div><label className={lblCls}>Período de Medição (BM)</label><input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={`${inpCls} font-semibold`} /></div>
-            <div className="sm:col-span-4"><label className={lblCls}>Observações da Medição (BM)</label><textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={`${inpCls} font-semibold`} /></div>
-          </>
-        ) : null}
+        <div>
+          <label className={lblCls}>Nº Pedido do Cliente (PO)</label>
+          <input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono font-semibold`} />
+        </div>
+        <div>
+          <label className={lblCls}>Nº Boletim de Medição (BM)</label>
+          <input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} className={`${inpCls} font-mono font-semibold${fieldError('measurementNumber') ? ' border-rose-500' : ''}`} />
+        </div>
+        <div>
+          <label className={lblCls}>Período de Medição (BM)</label>
+          <input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={`${inpCls} font-semibold${fieldError('measurementPeriod') ? ' border-rose-500' : ''}`} />
+          {fieldError('measurementPeriod') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('measurementPeriod')}</span>}
+        </div>
+        <div className="sm:col-span-4">
+          <label className={lblCls}>Observações da Medição (BM)</label>
+          <textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={`${inpCls} font-semibold`} />
+        </div>
       </div>
     </div>
     );
@@ -2340,6 +2362,13 @@ export function ContractEditModal({
           : {}),
         updatedAt: new Date().toISOString(),
       };
+      const renewCheck = validateRentalContractForm(updatedContract);
+      if (!renewCheck.ok) {
+        setContractFieldErrors(renewCheck.errors);
+        setContractFormError(renewCheck.banner);
+        if (renewCheck.firstTab) setActiveTab(renewCheck.firstTab);
+        return;
+      }
       await onSave(updatedContract);
       onShowToast?.(
         `Vigência do contrato ${updatedContract.contractNumber} renovada até ${updatedContract.endDate} e dados confirmados!`
@@ -2382,18 +2411,28 @@ export function ContractEditModal({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const missingBilling: string[] = [];
-    if (!(draft.paymentMethod || '').trim()) missingBilling.push('Forma de pagamento');
-    if (!(draft.emailAutomationMode || '').trim()) missingBilling.push('Enviar a fatura por e-mail');
-    if (!(draft.nextBillingDate || draft.nextDueDate || '').trim()) missingBilling.push('Próximo vencimento');
-    if (missingBilling.length > 0) {
-      setContractFormError(`Preencha em Faturamento: ${missingBilling.join(', ')}.`);
-      setActiveTab('FATURAMENTO_RECIBOS');
-      return;
+  const applyContractValidation = (): boolean => {
+    const result = validateRentalContractForm(draft);
+    setContractFieldErrors(result.errors);
+    if (!result.ok) {
+      setContractFormError(result.banner);
+      if (result.firstTab) setActiveTab(result.firstTab === 'PRODUTOS' ? 'PRODUTOS' : result.firstTab);
+      return false;
     }
     setContractFormError(null);
+    return true;
+  };
+
+  const fieldError = (field: string): string | undefined =>
+    contractFieldErrors.find((e) => e.field === field)?.message;
+  const fieldErrCls = (field: string, base = 'w-full px-3 py-2 rounded border border-slate-300') =>
+    `${base}${fieldError(field) ? ' border-rose-500' : ''}`;
+  const tabHasError = (tab: ContractModalTabId) =>
+    contractFieldErrors.some((e) => e.tab === tab || (tab === 'PRODUTOS' && e.tab === 'PRODUTOS') || (tab === 'EQUIPAMENTOS_PATRIMONIO' && e.tab === 'PRODUTOS'));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!applyContractValidation()) return;
     setSaving(true);
     try {
       await onSave(draft);
@@ -2403,7 +2442,7 @@ export function ContractEditModal({
   };
 
   const CONTRACT_TABS: Array<{ id: ContractModalTabId; label: string }> = [
-    { id: 'DADOS_GERAIS', label: '1. Dados Gerais & Revisão' },
+    { id: 'DADOS_GERAIS', label: '1. Dados gerais' },
     { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
     { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
     { id: 'REAJUSTE_ADITIVOS', label: '4. Reajuste & Aditivos' },
@@ -2459,7 +2498,7 @@ export function ContractEditModal({
                   act
                     ? 'bg-[#1e3a6e] text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
-                }`}
+                } ${tabHasError(tab.id) && !act ? 'border-rose-400 text-rose-700 ring-1 ring-rose-200' : ''} ${tabHasError(tab.id) && act ? 'ring-2 ring-rose-300' : ''}`}
               >
                 {tab.label}
               </button>
@@ -2475,203 +2514,189 @@ export function ContractEditModal({
           )}
           {activeTab === 'DADOS_GERAIS' && (
             <fieldset disabled={isReadOnly} className="space-y-4">
-              {renderContractDataBlock({ includePoMeasurement: false })}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                  <input
-                    type="text"
-                    value={draft.contractNumber}
-                    onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Nome do contrato *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.title}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Modalidade Contratual</label>
-                  <select
-                    value={draft.modality || 'LOCACAO'}
-                    onChange={(e) =>
-                      setDraft({ ...draft, modality: e.target.value as ErpContractModality })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
-                  >
-                    <option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
-                    <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
-                    <option value="ASSINATURA">Assinatura / Telecom SCM</option>
-                    <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Cliente *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.companyName}
-                    onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                  <input
-                    type="text"
-                    value={draft.companyCnpj}
-                    onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status de Vigência</label>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="ATIVO">ATIVO</option>
-                    <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
-                    <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
-                    <option value="ENCERRADO">ENCERRADO</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Início da Vigência</label>
-                  <input
-                    type="date"
-                    value={(draft.startDate || '').slice(0, 10)}
-                    onChange={(e) => {
-                      const nextStart = e.target.value;
-                      const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
-                      setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prazo (meses)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.contractMonths}
-                    onChange={(e) => {
-                      const nextMonths = Math.max(1, Number(e.target.value) || 24);
-                      const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
-                      setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Fim da Vigência</label>
-                  <input
-                    type="date"
-                    value={(draft.endDate || '').slice(0, 10)}
-                    onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Dia Vencimento</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={draft.dueDay}
-                    onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste</label>
-                  <select
-                    value={draft.readjustmentIndex}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
-                      })
-                    }
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="IPCA">IPCA (IBGE)</option>
-                    <option value="IGP-M">IGP-M (FGV)</option>
-                    <option value="IST_ANATEL">IST Anatel</option>
-                    <option value="FIXO">FIXO / Negociado</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Valor mensal (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={draft.monthlyValue}
-                    onChange={(e) => {
-                      setAutoSyncMonthly(false);
-                      setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">NF-e remessa e CFOP</label>
-                  <div className="grid grid-cols-2 gap-2">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">Dados gerais</span>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">Nome do contrato <span className="text-rose-600">*</span></label>
                     <input
                       type="text"
-                      value={draft.remessaNfeNumber}
-                      onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
-                      placeholder="Nº NF-e Remessa"
-                      className="px-3 py-2 rounded border border-slate-300 font-mono"
+                      required
+                      value={draft.title}
+                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                      className={fieldErrCls('title', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
                     />
+                    {fieldError('title') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('title')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Contrato n.</label>
+                    <input
+                      type="text"
+                      value={draft.contractNumber}
+                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Nº contrato externo</label>
+                    <input
+                      type="text"
+                      value={draft.externalContractNumber || ''}
+                      onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">Cliente <span className="text-rose-600">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      value={draft.companyName}
+                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                      className={fieldErrCls('companyName', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
+                    />
+                    {fieldError('companyName') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('companyName')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">CNPJ</label>
+                    <input
+                      type="text"
+                      value={draft.companyCnpj}
+                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Vendedor</label>
+                    <input
+                      type="text"
+                      value={draft.sellerName || ''}
+                      onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Proposta</label>
+                    <input
+                      type="text"
+                      value={draft.proposalNumber || ''}
+                      onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Modalidade</label>
                     <select
-                      value={draft.remessaCfop}
-                      onChange={(e) =>
-                        setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })
-                      }
-                      className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-bold"
+                      value={draft.modality || 'LOCACAO'}
+                      onChange={(e) => setDraft({ ...draft, modality: e.target.value as ErpContractModality })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
                     >
-                      <option value="5.908">CFOP 5.908 (Estadual)</option>
-                      <option value="6.908">CFOP 6.908 (Interestadual)</option>
+                      <option value="LOCACAO">Locação de Equipamentos</option>
+                      <option value="SERVICO">Serviços Técnicos / NOC</option>
+                      <option value="ASSINATURA">Assinatura / Telecom SCM</option>
+                      <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Status de vigência</label>
+                    <select
+                      value={draft.status}
+                      onChange={(e) => setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    >
+                      <option value="ATIVO">ATIVO</option>
+                      <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
+                      <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
+                      <option value="ENCERRADO">ENCERRADO</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Centro de custo</label>
+                    <input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} data-testid="contract-cost-center" className="w-full px-3 py-2 rounded border border-slate-300 font-semibold" />
+                    <datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist>
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Amparo legal e observações fiscais</label>
-                  <input
-                    type="text"
-                    value={draft.legalBasisNote}
-                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Início da vigência</label>
+                    <input
+                      type="date"
+                      value={(draft.startDate || '').slice(0, 10)}
+                      onChange={(e) => {
+                        const nextStart = e.target.value;
+                        const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
+                        setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
+                      }}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Prazo (meses)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.contractMonths}
+                      onChange={(e) => {
+                        const nextMonths = Math.max(1, Number(e.target.value) || 24);
+                        const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
+                        setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd, contractTermLabel: `${nextMonths} meses` });
+                      }}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Fim da vigência</label>
+                    <input
+                      type="date"
+                      value={(draft.endDate || '').slice(0, 10)}
+                      onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+                      className={fieldErrCls('endDate', 'w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold')}
+                    />
+                    {fieldError('endDate') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('endDate')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Plano de contas</label>
+                    <input list="ctr-chart-accounts-geral" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} data-testid="contract-chart-of-accounts" className="w-full px-2.5 py-2 rounded border border-slate-300 font-semibold" />
+                    <datalist id="ctr-chart-accounts-geral">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">NF-e remessa e CFOP</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={draft.remessaNfeNumber}
+                        onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
+                        placeholder="Nº NF-e remessa"
+                        className="px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                      />
+                      <select
+                        value={draft.remessaCfop}
+                        onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })}
+                        className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                      >
+                        <option value="5.908">CFOP 5.908 (Estadual)</option>
+                        <option value="6.908">CFOP 6.908 (Interestadual)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1 flex flex-wrap items-center gap-2">
+                      <span>Observações internas</span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-semibold normal-case">Não aparece no contrato</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={draft.internalNotes || ''}
+                      onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
                 </div>
               </div>
-
-              <ContractGestaoClickDataPanel
-                draft={draft}
-                setDraft={setDraft}
-                catalog={catalog}
-                disabled={isReadOnly}
-              />
             </fieldset>
           )}
 
@@ -2827,60 +2852,23 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <div>
-                  <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                    PASSO 2 • REVISÃO E CONFIRMAÇÃO DE TODAS AS INFORMAÇÕES DO CONTRATO (EDITÁVEL SE NECESSÁRIO)
-                  </span>
-                  <h4 className="text-sm font-semibold text-slate-900">
-                    Confirme ou edite qualquer cláusula, cliente, valor mensal, reajuste ou SLA antes de efetivar a renovação:
-                  </h4>
-                </div>
-
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">Confirmação da renovação</span>
+                <p className="text-xs font-semibold text-slate-700">
+                  {draft.contractNumber} — {draft.companyName}{draft.companyCnpj ? ` (${draft.companyCnpj})` : ''}. Vigência: {draft.startDate} a {draft.endDate} ({draft.contractMonths} meses).
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                    <input
-                      type="text"
-                      value={draft.contractNumber}
-                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Cliente</label>
-                    <input
-                      type="text"
-                      value={draft.companyName}
-                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                    <input
-                      type="text"
-                      value={draft.companyCnpj}
-                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor Mensal Atual / Renovado (R$)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Valor mensal (R$)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={draft.monthlyValue}
-                      onChange={(e) =>
-                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
-                      }
+                      onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Índice de Reajuste</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Índice de reajuste</label>
                     <select
                       value={draft.readjustmentIndex}
                       onChange={(e) =>
@@ -2889,7 +2877,7 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                     >
                       <option value="IPCA">IPCA (IBGE)</option>
                       <option value="IGP-M">IGP-M (FGV)</option>
@@ -2898,49 +2886,25 @@ export function ContractEditModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">% Reajuste na Renovação (Opcional)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Reajuste na renovação (%)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={renewalReadjustmentPercent}
                       onChange={(e) => setRenewalReadjustmentPercent(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Dia de Vencimento</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={draft.dueDay}
-                      onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nome do contrato</label>
-                    <input
-                      type="text"
-                      value={draft.title}
-                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">SLA &amp; Condições Comerciais</label>
+                    <label className="block font-semibold text-slate-700 mb-1">SLA</label>
                     <input
                       type="text"
                       value={renewalSlaText}
                       onChange={(e) => setRenewalSlaText(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                     />
                   </div>
                 </div>
-
                 <div className="flex justify-end pt-2">
                   <button
                     type="button"
@@ -3069,13 +3033,19 @@ export function ContractEditModal({
                   </div>
                   <div>
                     <label className={lblCls}>Forma de pagamento *</label>
-                    <input required list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={inpCls} />
+                    <input required list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={`${inpCls}${fieldError('paymentMethod') ? ' border-rose-500' : ''}`} />{fieldError('paymentMethod') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('paymentMethod')}</span>}
                     <datalist id="ctr-payment-methods">{auxOptions.paymentMethods.map((p) => (<option key={p} value={p} />))}</datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className={lblCls}>Próximo vencimento *</label>
-                      <input type="date" required value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={inpCls} />
+                      <input type="date" required value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={`${inpCls}${fieldError('nextBillingDate') ? ' border-rose-500' : ''}`} />
+                      {fieldError('nextBillingDate') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('nextBillingDate')}</span>}
+                    </div>
+                    <div>
+                      <label className={lblCls}>Dia de vencimento</label>
+                      <input type="number" min={1} max={31} value={draft.dueDay} onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })} className={`${inpCls}${fieldError('dueDay') ? ' border-rose-500' : ''}`} />
+                      {fieldError('dueDay') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('dueDay')}</span>}
                     </div>
                     <div>
                       <label className={lblCls}>Gerar a fatura *</label>
@@ -3153,8 +3123,7 @@ export function ContractEditModal({
                   <div><label className={lblCls}>Data de Entrega</label><input type="date" value={(draft.deliveryDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, deliveryDate: e.target.value })} className={inpCls} /></div>
                   <div><label className={lblCls}>Data de Retirada</label><input type="date" value={(draft.pickupDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, pickupDate: e.target.value })} className={inpCls} /></div>
                   <div className="sm:col-span-3"><label className={lblCls}>Observações de Entrega</label><textarea rows={2} value={draft.deliveryNotes || ''} onChange={(e) => setDraft({ ...draft, deliveryNotes: e.target.value })} className={inpCls} /></div>
-                  <div className="sm:col-span-3"><label className={lblCls}>Observações Impressas na Fatura / Contrato</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => setDraft({ ...draft, contractNotes: e.target.value })} className={inpCls} /></div>
-                  <div className="sm:col-span-3"><label className={lblCls}>Observações Internas</label><textarea rows={2} value={draft.internalNotes || ''} onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-3"><label className={lblCls}>Observações impressas na fatura</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => setDraft({ ...draft, contractNotes: e.target.value })} className={inpCls} /></div>
                 </div>
               </div>
 
@@ -3334,14 +3303,16 @@ export function ContractEditModal({
           )}
 
           {(activeTab === 'PRODUTOS' || activeTab === 'EQUIPAMENTOS_PATRIMONIO') && (
-            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+            <div
+              className={`border rounded-lg p-4 bg-slate-50 space-y-3 ${
+                tabHasError('PRODUTOS') ? 'border-rose-400 ring-2 ring-rose-200' : 'border-slate-200'
+              }`}
+              data-testid="contract-products-tab"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="font-semibold text-slate-800 text-sm block">
-                    Produtos do contrato ({draft.equipments.length})
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    Itens locados neste contrato.
+                    Produtos ({draft.equipments.length})
                   </span>
                 </div>
                 <button
@@ -3361,49 +3332,56 @@ export function ContractEditModal({
                       remessaCfop: draft.remessaCfop || '5.908',
                       remessaNfeKey: '',
                     };
-                    updateEquipments([...draft.equipments, eq]);
+                    updateEquipments([...(draft.equipments || []), eq]);
                   }}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-semibold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
                 >
                   Adicionar produto
                 </button>
               </div>
+              {fieldError('equipments') && (
+                <div data-testid="contract-products-error" className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-800">
+                  {fieldError('equipments')}
+                </div>
+              )}
 
               <div className="space-y-2">
-                {draft.equipments.map((eq, idx) => (
+                {(draft.equipments || []).map((eq, idx) => (
                   <div
                     key={eq.id || idx}
                     className="bg-white p-3 rounded border border-slate-200 space-y-2"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                      <div className="sm:col-span-5">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Produto</label>
+                        <CatalogProductCombobox
+                          catalog={catalog}
+                          value={eq.skuGestaoClick ? `${eq.skuGestaoClick} - ${eq.description}` : (eq.description || '')}
+                          placeholder="Digite para buscar"
+                          invalid={Boolean(fieldError('equipments') && !(eq.skuGestaoClick || eq.description))}
+                          onChangeText={(text) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], description: text, skuGestaoClick: copy[idx].skuGestaoClick && text.includes(copy[idx].skuGestaoClick) ? copy[idx].skuGestaoClick : '' };
+                            updateEquipments(copy);
+                          }}
+                          onSelect={(item) => {
+                            const copy = [...draft.equipments];
+                            const ncmMatch = String(item.ncmOrLc116 || '').match(/\d{4}\.\d{2}\.\d{2}/);
+                            copy[idx] = {
+                              ...copy[idx],
+                              skuGestaoClick: item.gestaoClickCode,
+                              description: item.name,
+                              unitMonthlyRent: catalogRentalPrice(item),
+                              ncm: ncmMatch ? ncmMatch[0] : copy[idx].ncm,
+                              stockAvailable: item.stockAvailable,
+                              variationDetails: copy[idx].variationDetails || item.unitOfMeasure || '',
+                            };
+                            updateEquipments(copy);
+                          }}
+                        />
+                      </div>
                       <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">SKU</label>
-                        <input
-                          type="text"
-                          value={eq.skuGestaoClick}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], skuGestaoClick: e.target.value };
-                            updateEquipments(copy);
-                          }}
-                          className="w-full px-2 py-1 rounded border font-mono text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-[10px] text-slate-400 block">Descrição do Ativo</label>
-                        <input
-                          type="text"
-                          value={eq.description}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], description: e.target.value };
-                            updateEquipments(copy);
-                          }}
-                          className="w-full px-2 py-1 rounded border font-semibold text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">S/N</label>
                         <input
                           type="text"
                           value={eq.serialNumber}
@@ -3412,28 +3390,46 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], serialNumber: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-mono font-bold text-slate-800 text-xs"
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 font-mono font-semibold text-xs"
                         />
                       </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
+                      <div className="sm:col-span-1">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Qtd. <span className="text-rose-600">*</span></label>
                         <input
                           type="number"
+                          min={1}
+                          step="1"
+                          value={eq.quantity}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], quantity: Number(e.target.value) };
+                            updateEquipments(copy);
+                          }}
+                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : 'border-slate-300'}`}
+                        />
+                        {fieldError(`equipments.${idx}.quantity`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.quantity`)}</span>}
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Valor mensal (R$)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
                           value={eq.unitMonthlyRent}
                           onChange={(e) => {
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-bold text-slate-800 text-xs"
+                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.unitMonthlyRent`) ? 'border-rose-500' : 'border-slate-300'}`}
                         />
+                        {fieldError(`equipments.${idx}.unitMonthlyRent`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.unitMonthlyRent`)}</span>}
                       </div>
-                      <div className="sm:col-span-1 flex items-end justify-end pt-3">
+                      <div className="sm:col-span-1 flex items-center justify-end">
                         <button
                           type="button"
-                          onClick={() =>
-                            updateEquipments(draft.equipments.filter((_, i) => i !== idx))
-                          }
+                          aria-label="Excluir produto"
+                          onClick={() => setProductToDeleteIdx(idx)}
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -3455,9 +3451,16 @@ export function ContractEditModal({
                 <p className="text-xs text-slate-600">
                   Contrato <strong>{draft.contractNumber}</strong> firmado com <strong>{draft.companyName}</strong> ({draft.companyCnpj}), vigência de <strong>{draft.startDate}</strong> a <strong>{draft.endDate}</strong> ({draft.contractMonths} meses), valor mensal de <strong>{formatBRL(draft.monthlyValue)}</strong>.
                 </p>
-                <p className="text-xs text-slate-800 font-semibold">
-                  Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
-                </p>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Amparo legal e observações fiscais</label>
+                  <textarea
+                    rows={2}
+                    value={draft.legalBasisNote || ''}
+                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
+                    placeholder="Locação de bens móveis (não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF)."
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-xs"
+                  />
+                </div>
               </div>
 
               <ContractVersionHistoryPanel
@@ -3482,6 +3485,40 @@ export function ContractEditModal({
                 onEmail={onEmailInvoice}
                 compact
               />
+            </div>
+          )}
+
+          {productToDeleteIdx !== null && (
+            <div className="fixed inset-0 z-[80] bg-slate-900/50 flex items-center justify-center p-4" data-testid="confirm-delete-product">
+              <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-900">Excluir produto?</h4>
+                {countValidContractProducts(
+                  (draft.equipments || []).filter((_, i) => i !== productToDeleteIdx)
+                ) < 1 && (
+                  <p className="text-xs font-semibold text-slate-600">O contrato precisa de pelo menos um produto.</p>
+                )}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setProductToDeleteIdx(null)}
+                    className="px-3.5 py-2 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const idx = productToDeleteIdx;
+                      setProductToDeleteIdx(null);
+                      if (idx === null) return;
+                      updateEquipments((draft.equipments || []).filter((_, i) => i !== idx));
+                    }}
+                    className="px-3.5 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -25,6 +25,7 @@ import {
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
 import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
+import { countValidContractProducts } from '../modules/erp/contract-form-validation';
 // ============================================================================
 // HubSpot Pro CRM - Unified REST API Router & Controller
 // ============================================================================
@@ -1633,6 +1634,16 @@ export class CrmApiRouter {
         },
       };
     }
+    if (countValidContractProducts(eq) < 1) {
+      return {
+        status: 400,
+        body: {
+          error: 'Adicione pelo menos um produto.',
+          code: 'CONTRACT_FIELD_INVALID',
+          fields: ['equipments'],
+        },
+      };
+    }
     return null;
   }
 
@@ -2756,7 +2767,7 @@ export class CrmApiRouter {
    * servidor acima) e descartado em chamadas de sessao. Contexto interno confiavel nao passa aqui.
    */
   private static readonly CLIENT_EDITABLE_PROPOSAL_FIELDS: ReadonlySet<string> = new Set([
-    'code', 'title', 'serviceType', 'budgetType', 'storeName', 'salesChannel', 'costCenter',
+    'code', 'title', 'serviceType', 'budgetType', 'storeName', 'salesChannel', 'costCenter', 'chartOfAccounts',
     'proposalDate', 'deliveryLeadTime', 'deliveryForecast', 'careOf', 'introductionText', 'internalNotes',
     'shippingCost', 'shippingCarrier', 'deliveryAddress', 'discountPercentGlobal', 'productsSubtotal',
     'servicesSubtotal', 'installments', 'companyId', 'companyName', 'companyCnpj', 'contactId',
