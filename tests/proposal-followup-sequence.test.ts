@@ -15,6 +15,7 @@ import {
   civilDateInTimezone,
   formatFollowupStatus,
   getFollowupStatus,
+  isFollowupActiveStage,
   isFollowupTriggerStage,
   nextBusinessInstant,
   pauseFollowup,
@@ -115,7 +116,13 @@ describe('Sequência de follow-up da proposta enviada', () => {
     assert.equal(isFollowupTriggerStage('pipeline-locacao-equipamentos', 'stage-loc-simulacao'), true);
     assert.equal(isFollowupTriggerStage('pipeline-expansao-renovacao', 'stage-exp-proposta'), true);
     assert.equal(isFollowupTriggerStage('pipeline-cotacoes-compras', 'stage-cot-rfq'), false);
+    assert.equal(isFollowupTriggerStage('pipe-enterprise-b2b', 'stage-fup'), false);
+    assert.equal(isFollowupActiveStage('pipe-enterprise-b2b', 'stage-proposal'), true);
+    assert.equal(isFollowupActiveStage('pipe-enterprise-b2b', 'stage-fup'), true);
+    assert.equal(isFollowupActiveStage('pipe-enterprise-b2b', 'stage-final-fup'), true);
+    assert.equal(isFollowupActiveStage('pipe-enterprise-b2b', 'stage-negotiation'), false);
     assert.equal(FOLLOWUP_TRIGGER_STAGES.filter((s) => s.match === 'equivalent').map((s) => s.stageId).sort().join(','), 'stage-exp-proposta,stage-loc-simulacao');
+    assert.equal(FOLLOWUP_TRIGGER_STAGES.find((s) => s.stageId === 'stage-proposal')?.stageName, 'Proposta Enviada');
   });
 
   it('agenda D2 num sábado para a segunda-feira seguinte, às 08:30 em São Paulo', () => {
@@ -231,6 +238,30 @@ describe('Sequência de follow-up da proposta enviada', () => {
     stopFollowupForDeal(repo, g.deal.id, 'EMAIL_OPEN' as 'EMAIL_CLICK');
     assert.equal(repo.getLatestProposalFollowup(g.deal.id)!.status, 'ACTIVE');
     assert.equal(repo.getLatestProposalFollowup(g.deal.id)!.stopReason, null);
+  });
+
+  it('continua inscrito ao ir para FUP ou Final FuP e só para ao ir para Negociação', async () => {
+    setFlag(true);
+    const repo = createInMemoryRepository();
+    const deal = repo.listDeals().find((d) => d.id === 'deal-loggi-discovery')!;
+    const entered = new Date('2026-11-02T12:00:00.000Z');
+    const enr = enrollDeal(repo, deal.id, entered);
+    assert.ok(enr);
+    assert.equal(enr!.status, 'ACTIVE');
+
+    repo.updateDeal(deal.id, { stageId: 'stage-fup' });
+    assert.equal(repo.getActiveProposalFollowup(deal.id)?.status, 'ACTIVE');
+    const deps = mockSend();
+    const duringFup = await processDueFollowups(repo, deps, new Date('2026-11-04T12:00:00.000Z'));
+    assert.equal(duringFup.sent, 1);
+    assert.equal(repo.getLatestProposalFollowup(deal.id)!.stopReason, null);
+
+    repo.updateDeal(deal.id, { stageId: 'stage-final-fup' });
+    assert.equal(repo.getActiveProposalFollowup(deal.id)?.status, 'ACTIVE');
+
+    repo.updateDeal(deal.id, { stageId: 'stage-negotiation' });
+    assert.equal(repo.getLatestProposalFollowup(deal.id)!.status, 'STOPPED');
+    assert.equal(repo.getLatestProposalFollowup(deal.id)!.stopReason, 'STAGE_CHANGED');
   });
 
   it('não envia para contato sem e-mail válido nem para quem cancelou a inscrição ou o consentimento LGPD', () => {

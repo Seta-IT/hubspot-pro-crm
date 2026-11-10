@@ -44,16 +44,17 @@ export interface FollowupTriggerStage {
 }
 
 /**
- * Pipeline 2 tem "Proposta Comercial Enviada" (id stage-proposal).
+ * Pipeline 2 tem "Proposta Enviada" (id stage-proposal).
  * Pipelines 1 e 3 não têm esse nome: usamos a etapa equivalente de proposta.
  * Pipeline 4 (Cotações & Compras / fornecedores) não tem etapa de proposta ao cliente — fora da sequência.
+ * FUP e Final FuP não inscrevem: só mantêm a sequência já iniciada em Proposta Enviada.
  */
 export const FOLLOWUP_TRIGGER_STAGES: readonly FollowupTriggerStage[] = [
   {
     pipelineId: 'pipe-enterprise-b2b',
     pipelineName: 'Pipeline 2: Venda de Equipamentos',
     stageId: 'stage-proposal',
-    stageName: 'Proposta Comercial Enviada',
+    stageName: 'Proposta Enviada',
     match: 'exact',
   },
   {

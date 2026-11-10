@@ -19,6 +19,7 @@ import {
   FOLLOWUP_TRIGGER_STAGES,
   isProposalFollowupEnabled,
 } from './proposal-followup-config';
+import { isFollowupContinueStage as isCanonicalFollowupContinueStage } from './sales-pipeline-stages';
 
 export interface FollowupStatusView {
   enabled: boolean;
@@ -180,6 +181,27 @@ export function isFollowupTriggerStage(
   // Funis customizados: etapa cujo nome evoca proposta enviada / de aditivo, nunca funil de compras.
   if (pipe?.name.toLowerCase().includes('fornecedor') || pipe?.name.toLowerCase().includes('compra')) return false;
   return name.includes('proposta') && (name.includes('enviad') || name.includes('aditivo') || name.includes('simulacao'));
+}
+
+/**
+ * Etapas em que uma inscrição JÁ ATIVA continua (não para por STAGE_CHANGED):
+ * a etapa-gatilho + FUP + Final FuP no funil de venda.
+ * A inscrição em si só acontece em isFollowupTriggerStage (Proposta Enviada).
+ */
+export function isFollowupActiveStage(
+  pipelineId: string | null | undefined,
+  stageId: string | null | undefined,
+  pipelines?: readonly Pipeline[]
+): boolean {
+  if (isFollowupTriggerStage(pipelineId, stageId, pipelines)) return true;
+  if (isCanonicalFollowupContinueStage(pipelineId, stageId)) return true;
+  if (!stageId || !pipelines) return false;
+  const pipe = pipelines.find((p) => p.id === pipelineId) || pipelines.find((p) => p.stages.some((s) => s.id === stageId));
+  const st = pipe?.stages.find((s) => s.id === stageId);
+  if (!st || st.isClosed || st.isWon) return false;
+  if (pipe?.name.toLowerCase().includes('fornecedor') || pipe?.name.toLowerCase().includes('compra')) return false;
+  const name = st.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  return name === 'fup' || name === 'final fup' || name.replace(/\s+/g, '') === 'finalfup';
 }
 
 /** Substitui {var} e {{var}} (e aliases no estilo do painel de modelos). */
@@ -366,15 +388,17 @@ export function isContactEligibleForFollowup(repo: CrmRepository, contact: Conta
 
 export function syncProposalFollowupOnDealChange(repo: CrmRepository, previous: Deal, updated: Deal, now = new Date()): void {
   const nowIso = now.toISOString();
-  const enteredTrigger = isFollowupTriggerStage(updated.pipelineId, updated.stageId, repo.listPipelines?.() || []);
-  const leftTrigger =
+  const pipelines = repo.listPipelines?.() || [];
+  const enteredTrigger = isFollowupTriggerStage(updated.pipelineId, updated.stageId, pipelines);
+  const stillActive = isFollowupActiveStage(updated.pipelineId, updated.stageId, pipelines);
+  const leftActive =
     previous.stageId !== updated.stageId &&
-    isFollowupTriggerStage(previous.pipelineId, previous.stageId, repo.listPipelines?.() || []) &&
-    !enteredTrigger;
+    isFollowupActiveStage(previous.pipelineId, previous.stageId, pipelines) &&
+    !stillActive;
   const won = updated.status === 'WON' && previous.status !== 'WON';
   const lost = updated.status === 'LOST' && previous.status !== 'LOST';
 
-  if (leftTrigger || won || lost) {
+  if (leftActive || won || lost) {
     const reason: FollowupStopReason = won ? 'DEAL_WON' : lost ? 'DEAL_LOST' : 'STAGE_CHANGED';
     stopFollowupForDeal(repo, updated.id, reason, undefined, now);
   }
@@ -462,7 +486,7 @@ export function resumeFollowup(repo: CrmRepository, dealId: string, now = new Da
   const enr = repo.getLatestProposalFollowup?.(dealId);
   if (!enr || enr.status !== 'PAUSED') return enr || null;
   const deal = repo.getDealById(dealId);
-  if (!deal || !isFollowupTriggerStage(deal.pipelineId, deal.stageId, repo.listPipelines?.() || [])) return enr;
+  if (!deal || !isFollowupActiveStage(deal.pipelineId, deal.stageId, repo.listPipelines?.() || [])) return enr;
   const contact = deal.contactId ? repo.getContactById(deal.contactId) || null : null;
   const eligibility = isContactEligibleForFollowup(repo, contact);
   if (!eligibility.ok) {
@@ -590,7 +614,7 @@ export async function processDueFollowups(
       out.stopped += 1;
       continue;
     }
-    if (deal.status === 'WON' || deal.status === 'LOST' || !isFollowupTriggerStage(deal.pipelineId, deal.stageId, repo.listPipelines?.() || [])) {
+    if (deal.status === 'WON' || deal.status === 'LOST' || !isFollowupActiveStage(deal.pipelineId, deal.stageId, repo.listPipelines?.() || [])) {
       stopFollowupForDeal(repo, deal.id, deal.status === 'WON' ? 'DEAL_WON' : deal.status === 'LOST' ? 'DEAL_LOST' : 'STAGE_CHANGED', undefined, now);
       out.stopped += 1;
       continue;
