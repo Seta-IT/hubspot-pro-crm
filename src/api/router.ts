@@ -4458,7 +4458,7 @@ export class CrmApiRouter {
       if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
         const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
         if (!ctx.trustedInternal && !cronOk) {
-          return { status: query._sessionToken ? 403 : 401, body: { error: 'A execução da sequência de follow-up exige o cron (CRON_SECRET) ou contexto interno.', code: 'FOLLOWUP_CRON_FORBIDDEN' } };
+          return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
         }
         const result = await processDueFollowups(
           this.repo,

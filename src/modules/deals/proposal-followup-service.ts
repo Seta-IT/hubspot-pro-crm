@@ -507,14 +507,34 @@ async function detectMailboxStops(repo: CrmRepository, deps: FollowupSendDeps, e
   return false;
 }
 
+export type FollowupSkipReason =
+  | 'NO_OWNER_EMAIL'
+  | 'MAILBOX_NOT_CONNECTED'
+  | 'ALREADY_SENT'
+  | 'RUN_LIMIT';
+
 export interface FollowupRunResult {
   enabled: boolean;
   scanned: number;
   sent: number;
   skipped: number;
+  skippedByReason: Partial<Record<FollowupSkipReason, number>>;
   stopped: number;
   errors: number;
-  messages: string[];
+}
+
+function redactEmails(text: string): string {
+  return String(text || '').replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted]');
+}
+
+function logFollowup(dealId: string, reason: string, detail?: string): void {
+  const clean = detail ? redactEmails(detail) : '';
+  console.info(`[STI-hub follow-up] deal=${dealId} ${reason}${clean ? `: ${clean}` : ''}`);
+}
+
+function bumpSkip(out: FollowupRunResult, reason: FollowupSkipReason): void {
+  out.skipped += 1;
+  out.skippedByReason[reason] = (out.skippedByReason[reason] || 0) + 1;
 }
 
 export async function processDueFollowups(
@@ -523,7 +543,7 @@ export async function processDueFollowups(
   now = new Date(),
   maxSends = FOLLOWUP_MAX_SENDS_PER_RUN
 ): Promise<FollowupRunResult> {
-  const out: FollowupRunResult = { enabled: isProposalFollowupEnabled(), scanned: 0, sent: 0, skipped: 0, stopped: 0, errors: 0, messages: [] };
+  const out: FollowupRunResult = { enabled: isProposalFollowupEnabled(), scanned: 0, sent: 0, skipped: 0, skippedByReason: {}, stopped: 0, errors: 0 };
   if (!out.enabled) return out;
   ensureFollowupTemplates(repo, now.toISOString());
   const active = (repo.listProposalFollowupEnrollments?.() || []).filter((e) => e.status === 'ACTIVE');
@@ -534,7 +554,11 @@ export async function processDueFollowups(
   const due = (repo.listProposalFollowupEnrollments?.() || []).filter((e) => e.status === 'ACTIVE' && e.nextSendAt && Date.parse(e.nextSendAt) <= now.getTime());
   out.scanned = due.length;
   for (const enr of due) {
-    if (out.sent >= maxSends) break;
+    if (out.sent >= maxSends) {
+      bumpSkip(out, 'RUN_LIMIT');
+      logFollowup(enr.dealId, 'RUN_LIMIT', 'envio adiado para a próxima execução');
+      continue;
+    }
     const fresh = repo.getLatestProposalFollowup?.(enr.dealId);
     if (!fresh || fresh.status !== 'ACTIVE') continue;
     if (fresh.sentSteps.some((s) => s.stepIndex === fresh.nextStepIndex)) {
@@ -552,7 +576,8 @@ export async function processDueFollowups(
       }
       fresh.updatedAt = now.toISOString();
       repo.saveProposalFollowupEnrollment(fresh);
-      out.skipped += 1;
+      bumpSkip(out, 'ALREADY_SENT');
+      logFollowup(fresh.dealId, 'ALREADY_SENT', 'etapa já enviada; ponteiro avançado');
       continue;
     }
     if (await detectMailboxStops(repo, deps, fresh, now)) {
@@ -582,18 +607,18 @@ export async function processDueFollowups(
       fresh.lastError = 'Proprietário do negócio sem e-mail no IAM; envio adiado.';
       fresh.updatedAt = now.toISOString();
       repo.saveProposalFollowupEnrollment(fresh);
-      out.skipped += 1;
-      out.messages.push(fresh.lastError);
+      bumpSkip(out, 'NO_OWNER_EMAIL');
+      logFollowup(deal.id, 'NO_OWNER_EMAIL', fresh.lastError);
       continue;
     }
     const accounts = (await deps.listAccounts(owner.email)).filter((a) => a.status === 'ATIVADO');
     const account = accounts[0];
     if (!account) {
-      fresh.lastError = `Caixa Outlook 365 do proprietário (${owner.email}) não está conectada; envio adiado.`;
+      fresh.lastError = 'Caixa Outlook 365 do proprietário não está conectada; envio adiado.';
       fresh.updatedAt = now.toISOString();
       repo.saveProposalFollowupEnrollment(fresh);
-      out.skipped += 1;
-      out.messages.push(fresh.lastError);
+      bumpSkip(out, 'MAILBOX_NOT_CONNECTED');
+      logFollowup(deal.id, 'MAILBOX_NOT_CONNECTED', fresh.lastError);
       continue;
     }
     const company = deal.companyId ? repo.getCompanyById(deal.companyId) || null : null;
@@ -657,11 +682,12 @@ export async function processDueFollowups(
       } catch { /* uso do modelo é informativo */ }
       out.sent += 1;
     } catch (err) {
-      fresh.lastError = err instanceof Error ? err.message : 'Falha no envio pela caixa Outlook.';
+      const raw = err instanceof Error ? err.message : 'Falha no envio pela caixa Outlook.';
+      fresh.lastError = redactEmails(raw) || 'Falha no envio pela caixa Outlook.';
       fresh.updatedAt = now.toISOString();
       repo.saveProposalFollowupEnrollment(fresh);
       out.errors += 1;
-      out.messages.push(fresh.lastError);
+      logFollowup(deal.id, 'SEND_FAILED', fresh.lastError);
     }
   }
   return out;

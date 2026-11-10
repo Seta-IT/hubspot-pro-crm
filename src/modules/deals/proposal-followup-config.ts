@@ -13,7 +13,8 @@ export const FOLLOWUP_TIMEZONE = 'America/Sao_Paulo';
 export const FOLLOWUP_BUSINESS_START = '08:30';
 export const FOLLOWUP_BUSINESS_END = '18:00';
 /** Máximo de envios por execução do cron (idempotente: nunca 2 da mesma etapa). */
-export const FOLLOWUP_MAX_SENDS_PER_RUN = 25;
+/** Teto por execução diária (cron 09:00 Brasília, seg–sex). Um envio por inscrição/dia; 50 cobre o lote de segunda e atrasos. */
+export const FOLLOWUP_MAX_SENDS_PER_RUN = 50;
 
 /**
  * Dias após a entrada na etapa-gatilho. 9 e-mails em 7 semanas, com o intervalo

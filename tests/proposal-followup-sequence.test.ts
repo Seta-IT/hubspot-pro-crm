@@ -6,6 +6,7 @@ import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
 import {
   FOLLOWUP_DEFAULT_TEMPLATES,
+  FOLLOWUP_MAX_SENDS_PER_RUN,
   FOLLOWUP_SCHEDULE_OFFSET_DAYS,
   FOLLOWUP_TRIGGER_STAGES,
   isProposalFollowupEnabled,
@@ -177,6 +178,9 @@ describe('Sequência de follow-up da proposta enviada', () => {
     // restante da agenda não vence ainda; limite 0 não envia o próximo mesmo se vencido
     const limited = await processDueFollowups(repo, deps, new Date('2026-12-31T12:00:00.000Z'), 0);
     assert.equal(limited.sent, 0);
+    assert.equal(limited.skippedByReason.RUN_LIMIT, 1);
+    assert.ok(!('messages' in first));
+    assert.ok(!JSON.stringify(first).includes('@'));
   });
 
   it('para na resposta, no clique, na visualização/aceite da proposta, na mudança de etapa, no ganho/perda e na pausa manual — e o pixel de abertura não para', async () => {
@@ -277,5 +281,44 @@ describe('Sequência de follow-up da proposta enviada', () => {
     assert.ok(src.includes('Pausar'));
     const vw = readFileSync(join(process.cwd(), 'vercel.json'), 'utf8');
     assert.ok(vw.includes('/api/crm/proposal-followup'));
+    assert.match(vw, /"schedule"\s*:\s*"0 12 \* \* 1-5"/);
+    assert.ok(!vw.includes('11-21'));
+    assert.equal(FOLLOWUP_MAX_SENDS_PER_RUN, 50);
+    assert.ok(!('messages' in (cron.body as { data: object }).data));
+    assert.ok(!JSON.stringify(cron.body).includes('@'));
+
+    const denied = await router.dispatch({
+      method: 'GET',
+      path: '/api/crm/proposal-followup',
+      query: {},
+      body: {},
+    });
+    assert.ok([401, 403].includes(denied.status));
+    assert.ok(!JSON.stringify(denied.body).includes('CRON_SECRET'));
+    assert.ok(!JSON.stringify(denied.body).includes('FOLLOWUP_CRON_FORBIDDEN'));
+
+    const routerSrc = readFileSync(join(process.cwd(), 'src/api/router.ts'), 'utf8');
+    const start = routerSrc.indexOf("cleanPath === '/api/crm/proposal-followup'");
+    const end = routerSrc.indexOf('followupMatch', start);
+    const block = routerSrc.slice(start, end);
+    assert.ok(block.includes("error: 'Forbidden'"));
+    assert.ok(!block.includes('CRON_SECRET'));
+    assert.ok(!block.includes('FOLLOWUP_CRON_FORBIDDEN'));
+  });
+
+  it('a resposta do cron traz só contagens e o pulo por caixa desconectada não inclui e-mail', async () => {
+    setFlag(true);
+    const repo = createInMemoryRepository();
+    enrollDeal(repo, 'deal-loggi-discovery');
+    const deps = mockSend();
+    deps.listAccounts = async () => [];
+    const result = await processDueFollowups(repo, deps, new Date('2026-11-04T12:00:00.000Z'));
+    assert.equal(result.sent, 0);
+    assert.equal(result.skippedByReason.MAILBOX_NOT_CONNECTED, 1);
+    assert.equal(result.skipped, 1);
+    assert.ok(!('messages' in result));
+    const payload = JSON.stringify(result);
+    assert.ok(!payload.includes('@'));
+    assert.ok(!payload.includes('setatelecom.com.br'));
   });
 });
