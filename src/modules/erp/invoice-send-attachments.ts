@@ -125,3 +125,9 @@ export function defaultSelectedInvoiceAttachments(
     pix: avail.pix.available,
   };
 }
+
+
+export {
+  normalizeInvoiceAttachmentKinds,
+  type InvoiceAttachmentKind,
+} from './send-email-guards';

@@ -390,53 +390,6 @@ export default function ClientEmailComposerModal({
     return text;
   }, [body, isInvoiceSend, invoiceAvail, selectedAttach]);
 
-  const outgoingHtml = useMemo(() => {
-    if (!isInvoiceSend) return undefined;
-    const escaped = outgoingText
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    const qr = selectedAttach.pix && pixQrSrc
-      ? `<p style="margin:16px 0 4px;font-family:sans-serif;font-size:13px;"><strong>QR Code Pix</strong></p><img alt="QR Code Pix" width="180" height="180" src="${pixQrSrc}" />`
-      : '';
-    return `<div style="font-family:sans-serif;font-size:13px;color:#0f172a;"><pre style="white-space:pre-wrap;font-family:sans-serif;font-size:13px;line-height:1.5;">${escaped}</pre>${qr}</div>`;
-  }, [isInvoiceSend, outgoingText, selectedAttach.pix, pixQrSrc]);
-
-  const outgoingAttachments = useMemo(() => {
-    if (!isInvoiceSend || !invoiceAvail) return undefined;
-    const list: Array<{ filename: string; content: string; contentType: string }> = [];
-    const toB64 = (value: string) => {
-      const bytes = new TextEncoder().encode(value);
-      let bin = '';
-      bytes.forEach((b) => {
-        bin += String.fromCharCode(b);
-      });
-      return btoa(bin);
-    };
-    if (selectedAttach.receipt && payload.receiptHtml) {
-      list.push({
-        filename: `recibo-${payload.documentCode || 'fatura'}.html`,
-        content: toB64(payload.receiptHtml),
-        contentType: 'text/html; charset=utf-8',
-      });
-    }
-    if (selectedAttach.remessa && payload.remessaXml) {
-      list.push({
-        filename: `nfe-remessa-${invoiceAvail.remessa.number || payload.documentCode || 'documento'}.xml`,
-        content: toB64(payload.remessaXml),
-        contentType: 'application/xml',
-      });
-    }
-    if (selectedAttach.pix && pixQrSrc.startsWith('data:image/png;base64,')) {
-      list.push({
-        filename: 'pix-qr.png',
-        content: pixQrSrc.slice('data:image/png;base64,'.length),
-        contentType: 'image/png',
-      });
-    }
-    return list.length ? list : undefined;
-  }, [isInvoiceSend, invoiceAvail, selectedAttach, payload.receiptHtml, payload.remessaXml, payload.documentCode, pixQrSrc]);
-
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!toEmail.trim()) return;
@@ -456,8 +409,6 @@ export default function ClientEmailComposerModal({
           bcc: bccEmail.trim() || undefined,
           subject: subject.trim(),
           body: outgoingText,
-          html: outgoingHtml,
-          attachments: outgoingAttachments,
           companyName: payload.companyName,
           documentCode: payload.documentCode,
           amountBrl: payload.amountBrl,

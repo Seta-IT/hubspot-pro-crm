@@ -155,6 +155,12 @@ import {
 } from '../app/lib/invoice-link';
 import { isIssuedInvoiceStatus } from '../modules/erp/invoice-send-attachments';
 import {
+  buildEmailHtmlFromText,
+  clientProvidedAttachmentPayload,
+  collectEmailRecipients,
+} from '../modules/erp/send-email-guards';
+import { buildServerInvoiceEmailAttachments } from '../app/lib/invoice-email-server';
+import {
   countRecordUsage,
   recordInUseBody,
   recordUsageTotal,
@@ -3071,8 +3077,6 @@ export class CrmApiRouter {
       body: {
         kind: 'invoice',
         data: toPublicInvoiceDto(found, { contract, remessaDocs, issuerAddress }),
-        invoiceId: found.id,
-        token,
         issuerAddress,
       },
     };
@@ -3105,6 +3109,51 @@ export class CrmApiRouter {
   }
 
   /**
+   * Visibilidade da fatura no escopo PROPRIOS/EQUIPE: proposta ou negócio do usuário
+   * (sellerUserId / sellerEmail / ownerId; nunca o nome). Admin e escopo TODOS veem todas.
+   * Sem vínculo identificável, o escopo restrito é fail-closed.
+   */
+  private isInvoiceVisibleToSession(
+    invoice: { proposalId?: string | null; proposalNumber?: string | null; rentalContractId?: string | null; contractNumber?: string | null; dealId?: string | null },
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal) return true;
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token ? this.repo.resolveSessionFromToken(token) : null;
+    if (!sess || !sess.authenticated) return false;
+    if (sess.effectiveActionGuards?.canManageUsersRbac) return true;
+    const scope = String(sess.user.scope || 'PROPRIOS');
+    if (!CrmApiRouter.isRestrictedProposalScope(scope)) return true;
+    const user = { id: String(sess.user.id || ''), email: String(sess.user.email || '') };
+    const proposals = this.repo.listProposals();
+    const matchProposal = (id?: string | null, number?: string | null) =>
+      proposals.find(
+        (p) =>
+          (id && p.id === id) ||
+          (number && String(p.code || '').toLowerCase() === String(number).toLowerCase()) ||
+          (number && String((p as { proposalNumber?: string }).proposalNumber || '').toLowerCase() === String(number).toLowerCase())
+      );
+    const fromInvoice = matchProposal(invoice.proposalId, invoice.proposalNumber);
+    if (fromInvoice && CrmApiRouter.isProposalOwnedBy(fromInvoice, user)) return true;
+    const contract =
+      invoice.rentalContractId || invoice.contractNumber
+        ? this.repo
+            .listRentalContracts()
+            .find((c) => c.id === invoice.rentalContractId || (invoice.contractNumber && c.contractNumber === invoice.contractNumber))
+        : undefined;
+    if (contract) {
+      const fromContract = matchProposal(contract.proposalId, contract.proposalNumber);
+      if (fromContract && CrmApiRouter.isProposalOwnedBy(fromContract, user)) return true;
+    }
+    if (invoice.dealId) {
+      const deal = this.repo.getDealById(invoice.dealId);
+      if (deal?.ownerId && String(deal.ownerId) === user.id) return true;
+    }
+    return false;
+  }
+
+  /**
    * POST /api/erp/invoices/:id/public-link (sessao MFA): gera o short link /p/<codigo>
    * da fatura emitida para o cliente (somente leitura).
    */
@@ -3123,6 +3172,24 @@ export class CrmApiRouter {
       };
     }
     const actor = { email: sess.user.email, name: sess.user.name, role: String(sess.user.roleId || '') };
+    const finPriv = this.financePaymentPrivilege(query, ctx);
+    if (!finPriv.allowed) {
+      this.invoiceLinkAudit(
+        'INVOICE_LINK_ISSUE',
+        'BLOCKED',
+        ip,
+        pathId,
+        'sem alcada financeira (Financeiro/Bancos EDIT ou FULL, ou administrador)',
+        actor
+      );
+      return {
+        status: 403,
+        body: {
+          error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para gerar o link desta fatura.',
+          code: 'INVOICE_LINK_FORBIDDEN',
+        },
+      };
+    }
     if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
       return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
@@ -3137,7 +3204,7 @@ export class CrmApiRouter {
       };
     }
     const found = this.repo.getInvoiceByIdOrNumber(pathId);
-    if (!found || !isIssuedInvoiceStatus(found.status)) {
+    if (!found || !isIssuedInvoiceStatus(found.status) || !this.isInvoiceVisibleToSession(found, query, ctx)) {
       return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
     }
     const signed = signInvoiceLinkToken({ invoiceId: found.id });
@@ -3863,7 +3930,8 @@ export class CrmApiRouter {
             cleanPath.startsWith("/api/contacts/") ||
             cleanPath.startsWith("/api/companies/") ||
             cleanPath.startsWith("/api/deals/") ||
-            cleanPath.startsWith("/api/tickets/")
+            cleanPath.startsWith("/api/tickets/") ||
+            cleanPath.startsWith("/api/pipelines/")
           ) {
             if (
               !resolvedSession.crmPermissions.canDeleteCrmRecords &&
@@ -7758,24 +7826,82 @@ export class CrmApiRouter {
       // STI-HUB UNIFIED CLIENT EMAIL DISPATCHER (/api/communications/send-email)
       // ======================================================================
       if (cleanPath === '/api/communications/send-email' && method === 'POST') {
-        const to = String(body.to || '').trim();
         // Item 2: `body` ja chega redigido do dispatch; o texto com o link completo (rawMail) e
         // usado SO no payload do Resend e para extrair jti/exp. Nada de rawMail e gravado.
-        const rawMail = ctx.mailerRawBody || body;
+        const rawMail = (ctx.mailerRawBody || body) as Record<string, unknown>;
         const rawSubject = String(rawMail.subject || '').trim();
         const rawEmailBody = String(rawMail.body || '').trim();
         const subject = String(body.subject || '').trim();
         const emailBody = String(body.body || '').trim();
         const docType = String(body.docType || 'PROPOSAL').trim();
-        if (!to || !subject) {
+        if (!subject) {
           return {
             status: 400,
             body: { error: 'Os campos "to" (destinatário) e "subject" (assunto) são obrigatórios.' },
           };
         }
+        const recipients = collectEmailRecipients({
+          to: rawMail.to ?? body.to,
+          cc: rawMail.cc ?? body.cc,
+          bcc: rawMail.bcc ?? body.bcc,
+        });
+        if (!recipients.ok) {
+          return { status: 400, body: { error: recipients.error, code: recipients.code } };
+        }
+        const to = recipients.to.join(', ');
+        const ccJoined = recipients.cc.length ? recipients.cc.join(', ') : '';
+        const invoiceId = body.invoiceId ? String(body.invoiceId).trim() : '';
+        let serverInvoiceAttachments: Array<{ filename: string; content: string; content_type: string }> = [];
+        if (invoiceId) {
+          if (clientProvidedAttachmentPayload(rawMail) || clientProvidedAttachmentPayload(body)) {
+            return {
+              status: 400,
+              body: {
+                error: 'Os anexos da fatura são montados no servidor. Não envie content, URL ou path.',
+                code: 'INVOICE_ATTACHMENT_CLIENT_FORBIDDEN',
+              },
+            };
+          }
+          const finPriv = this.financePaymentPrivilege(query, ctx);
+          const actor = { email: finPriv.email, name: finPriv.name, role: finPriv.roleId };
+          if (!finPriv.allowed) {
+            this.invoiceLinkAudit(
+              'INVOICE_EMAIL_DENIED',
+              'BLOCKED',
+              String(query._clientIp || 'sem-ip').slice(0, 64),
+              invoiceId,
+              'sem alcada financeira para enviar a fatura',
+              actor
+            );
+            return {
+              status: 403,
+              body: {
+                error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para enviar esta fatura.',
+                code: 'INVOICE_EMAIL_FORBIDDEN',
+              },
+            };
+          }
+          const invoice = this.repo.getInvoiceByIdOrNumber(invoiceId);
+          if (!invoice || !isIssuedInvoiceStatus(invoice.status) || !this.isInvoiceVisibleToSession(invoice, query, ctx)) {
+            return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
+          }
+          const contract =
+            invoice.rentalContractId || invoice.contractNumber
+              ? this.repo
+                  .listRentalContracts()
+                  .find((c) => c.id === invoice.rentalContractId || c.contractNumber === invoice.contractNumber)
+              : undefined;
+          const remessaDocs = this.repo.listInvoices().filter((i) => i.documentType === 'NFE_REMESSA_LOCACAO');
+          serverInvoiceAttachments = buildServerInvoiceEmailAttachments(invoice, {
+            contract,
+            remessaDocs,
+            kinds: body.selectedAttachments,
+          });
+        }
 
         const protocol = `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
         const nowIso = new Date().toISOString();
+        const serverHtml = buildEmailHtmlFromText(rawEmailBody);
 
         // Parecer CISO 04/11: remetente = o mesmo dos convites (RESEND_FROM_EMAIL, dominio
         // notificacoes.setatelecom.com.br com DKIM); envio que falha devolve erro (nada e gravado
@@ -7801,23 +7927,19 @@ export class CrmApiRouter {
               },
               body: JSON.stringify({
                 from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail),
-                to: to.split(',').map((x) => x.trim()).filter(Boolean),
-                cc: body.cc
-                  ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
-                  : undefined,
-                bcc: body.bcc
-                  ? String(body.bcc).split(',').map((x) => x.trim()).filter(Boolean)
-                  : undefined,
+                to: recipients.to,
+                cc: recipients.cc.length ? recipients.cc : undefined,
+                bcc: recipients.bcc.length ? recipients.bcc : undefined,
                 subject: rawSubject,
                 text: rawEmailBody,
-                html: typeof rawMail.html === 'string' && rawMail.html.trim() ? String(rawMail.html) : undefined,
-                attachments: Array.isArray(rawMail.attachments)
-                  ? (rawMail.attachments as Array<Record<string, unknown>>)
+                html: serverHtml,
+                attachments: serverInvoiceAttachments.length
+                  ? serverInvoiceAttachments
                       .slice(0, 4)
                       .map((a) => ({
                         filename: String(a.filename || 'anexo').slice(0, 120),
                         content: String(a.content || ''),
-                        content_type: String(a.contentType || a.content_type || 'text/html; charset=utf-8'),
+                        content_type: String(a.content_type || 'text/html; charset=utf-8'),
                       }))
                       .filter((a) => a.content && a.content.length <= 1_800_000)
                   : undefined,
@@ -7852,7 +7974,7 @@ export class CrmApiRouter {
         const evt = this.repo.createTimelineEvent({
           type: 'EMAIL',
           title: `[${docType}] ${storedSubject}`,
-          body: `Para: ${to}${body.cc ? ` | CC: ${String(body.cc)}` : ''} • Protocolo: ${protocol}\n\n${storedEmailBody.slice(0, 600)}`,
+          body: `Para: ${to}${ccJoined ? ` | CC: ${ccJoined}` : ''} • Protocolo: ${protocol}\n\n${storedEmailBody.slice(0, 600)}`,
           contactId: body.contactId ? String(body.contactId) : null,
           companyId: body.companyId ? String(body.companyId) : null,
           dealId: body.dealId ? String(body.dealId) : null,
@@ -7861,7 +7983,7 @@ export class CrmApiRouter {
             protocol,
             docType,
             to,
-            cc: body.cc || null,
+            cc: ccJoined || null,
             documentCode: body.documentCode || null,
             publicPdfUrl: storedPublicPdfUrl,
             proposalLink: linkInfo ? { jti: linkInfo.jti, exp: linkInfo.exp } : null,
@@ -7918,13 +8040,12 @@ export class CrmApiRouter {
             this.repo.appendInvoiceEmailHistory(String(body.invoiceId), {
               sentAt: nowIso,
               to,
-              cc: body.cc ? String(body.cc) : null,
-              bcc: body.bcc ? String(body.bcc) : null,
+              cc: ccJoined || null,
               subject: storedSubject,
               protocol,
               actor: this.sessionActorName(query),
               attachments: Array.isArray(body.selectedAttachments)
-                ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 8)
+                ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 4)
                 : [],
             });
           } catch {
@@ -7940,7 +8061,7 @@ export class CrmApiRouter {
               protocol,
               sentAt: nowIso,
               to,
-              cc: body.cc || null,
+              cc: ccJoined || null,
               subject: storedSubject,
               docType,
               externalRelay,
