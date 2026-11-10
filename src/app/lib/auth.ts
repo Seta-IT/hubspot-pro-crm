@@ -1045,17 +1045,116 @@ export const ACTIVE_SESSION_TOP_KEYS = [
   'issuedAt',
 ] as const;
 
-/** Copia do registro de sessao ativa pronta para o localStorage (allowlist no topo e em user). */
+/**
+ * Pacote I (item 8): chaves sensiveis removidas em QUALQUER nivel da sessao guardada no navegador
+ * (comparacao sem caixa, sem '_'/'-'). Tambem cai qualquer chave terminada em password/passwordhash/
+ * secret/token/seal/otp, alem de __proto__/constructor/prototype.
+ */
+const SESSION_SENSITIVE_EXACT = new Set([
+  'password', 'passwordhash', 'currentpassword', 'newpassword', 'secret', 'totpsecret',
+  'totpsecretformatted', 'lastusedtotptimestep', 'iamseal', 'sessiontoken', 'token', 'accesstoken',
+  'secretaccesstoken', 'refreshtoken', 'apikey', 'challengeid', 'otp', 'otpcode', 'demototpcode',
+  'devotppreview', 'totppairing', 'otpauthuri', 'qrcodesvgdataurl',
+]);
+// Pacote J (D-I6): tambem key/hash/credential(s)/pin/passwd/pwd/private/sealed (mapas da allowlist).
+const SESSION_SENSITIVE_SUFFIX = /(password|passwordhash|passwd|pwd|secret|token|seal|sealed|otp|key|hash|credential|credentials|pin)$|^private/;
+const SESSION_FORBIDDEN_PROTO = new Set(['__proto__', 'constructor', 'prototype']);
+const SESSION_MAX_DEPTH = 8;
+
+export function isSensitiveSessionKey(key: string): boolean {
+  const n = String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SESSION_SENSITIVE_EXACT.has(n) || SESSION_SENSITIVE_SUFFIX.test(n);
+}
+
+/** Copia profunda sem chaves sensiveis (objetos e arrays; alem da profundidade maxima => descartado). */
+export function deepScrubSessionValue(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value !== 'object') return typeof value === 'function' ? undefined : value;
+  if (depth >= SESSION_MAX_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((v) => deepScrubSessionValue(v, depth + 1)).filter((v) => v !== undefined);
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value as Record<string, unknown>)) {
+    if (SESSION_FORBIDDEN_PROTO.has(k) || isSensitiveSessionKey(k)) continue;
+    const v = deepScrubSessionValue((value as Record<string, unknown>)[k], depth + 1);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Pacote J (D-I6): ALLOWLIST por nivel da sessao guardada no navegador. Cada chave do topo tem um
+ * formato conhecido (tipos StiHubRoleDefinition, StiHubActionGuards, StiHubCrm/ErpPermissions,
+ * modulos); qualquer outra chave, em qualquer nivel, nao e gravada. Nao ha corte por profundidade:
+ * o formato e fixo, entao os dados legitimos chegam inteiros. Mapas (permissoes por item/modulo)
+ * aceitam qualquer nome de item, com valores do formato do mapa e sem chaves sensiveis.
+ */
+type SessionShape = 'prim' | 'primArray' | { readonly [k: string]: SessionShape } | { readonly '*map': SessionShape };
+const SESSION_MODULE_ACCESS_SHAPE: SessionShape = { crm: 'prim', erp: 'prim', chamados: 'prim' };
+const SESSION_ACTION_GUARDS_SHAPE: SessionShape = {
+  canViewFinancialBalances: 'prim', canIssueFiscalDocuments: 'prim', canApproveProposals: 'prim',
+  canMergeRecords: 'prim', canDeleteRecords: 'prim', canExportData: 'prim', canManageUsersRbac: 'prim',
+};
+const SESSION_CRM_PERMS_SHAPE: SessionShape = {
+  crmRole: 'prim', portfolioScope: 'prim', contactsAccess: 'prim', companiesAccess: 'prim',
+  dealsFunnelAccess: 'prim', ticketsServiceDeskAccess: 'prim', marketingAutomationAccess: 'prim',
+  canExportCrmData: 'prim', canMergeCrmRecords: 'prim', canDeleteCrmRecords: 'prim',
+};
+const SESSION_ERP_PERMS_SHAPE: SessionShape = {
+  erpRole: 'prim', financeBanksAccess: 'prim', fiscalIssuanceAccess: 'prim', proposalsQuotesAccess: 'prim',
+  stockOsSalesAccess: 'prim', rentalContractsAccess: 'prim', maxDiscountPercent: 'prim',
+  canViewBankBalances: 'prim', canIssueFiscalDocuments: 'prim', canApproveProposals: 'prim', canDeleteErpRecords: 'prim',
+};
+const SESSION_ITEM_PERMS_SHAPE: SessionShape = { '*map': { view: 'prim', edit: 'prim', delete: 'prim' } };
+const SESSION_ROLE_SHAPE: SessionShape = {
+  id: 'prim', name: 'prim', description: 'prim', hubCategory: 'prim', defaultScope: 'prim',
+  enabledModules: 'primArray', moduleAccess: SESSION_MODULE_ACCESS_SHAPE, crmRole: 'prim', erpRole: 'prim',
+  crmPermissions: SESSION_CRM_PERMS_SHAPE, erpPermissions: SESSION_ERP_PERMS_SHAPE,
+  crmItemPermissions: SESSION_ITEM_PERMS_SHAPE, erpItemPermissions: SESSION_ITEM_PERMS_SHAPE,
+  itemPermissions: SESSION_ITEM_PERMS_SHAPE, modulePermissions: { '*map': 'prim' },
+  actionGuards: SESSION_ACTION_GUARDS_SHAPE, updatedAt: 'prim',
+};
+export const ACTIVE_SESSION_SHAPES: Readonly<Record<Exclude<(typeof ACTIVE_SESSION_TOP_KEYS)[number], 'user'>, SessionShape>> = {
+  authenticated: 'prim', mfaVerified: 'prim', mfaMethod: 'prim', verifiedVia: 'prim',
+  role: SESSION_ROLE_SHAPE, effectiveActionGuards: SESSION_ACTION_GUARDS_SHAPE, enabledModules: 'primArray',
+  moduleAccess: SESSION_MODULE_ACCESS_SHAPE, crmPermissions: SESSION_CRM_PERMS_SHAPE, erpPermissions: SESSION_ERP_PERMS_SHAPE,
+  loggedAt: 'prim', userId: 'prim', name: 'prim', email: 'prim', department: 'prim', issuedAt: 'prim',
+};
+const SESSION_MAP_KEY_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
+const isSessionPrim = (v: unknown) => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+const hasOwn = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+
+function pickSessionShape(value: unknown, shape: SessionShape): unknown {
+  if (shape === 'prim') return isSessionPrim(value) ? value : undefined;
+  if (shape === 'primArray') return Array.isArray(value) ? value.filter((v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') : undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const src = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (hasOwn(shape, '*map')) {
+    const inner = (shape as { '*map': SessionShape })['*map'];
+    for (const k of Object.keys(src)) {
+      if (SESSION_FORBIDDEN_PROTO.has(k) || isSensitiveSessionKey(k) || !SESSION_MAP_KEY_RE.test(k)) continue;
+      const v = pickSessionShape(src[k], inner);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  for (const k of Object.keys(shape)) {
+    if (!hasOwn(src, k)) continue;
+    const v = pickSessionShape(src[k], (shape as Record<string, SessionShape>)[k]);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/** Copia do registro de sessao ativa pronta para o localStorage (allowlist por nivel; user so exibicao). */
 export function sanitizeActiveSessionForStorage<T extends Record<string, unknown>>(session: T): T {
   const src = scrubClientIamCredentialFields(session as Record<string, unknown>).clean as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const k of ACTIVE_SESSION_TOP_KEYS) {
-    if (src[k] === undefined) continue;
-    out[k] = k === 'user' ? toActiveSessionDisplayUser(src[k]) : src[k];
-  }
-  // role pode ser objeto (definicao do papel): sem credenciais.
-  if (out.role && typeof out.role === 'object' && !Array.isArray(out.role)) {
-    out.role = scrubClientIamCredentialFields(out.role as Record<string, unknown>).clean;
+    if (!hasOwn(src, k) || src[k] === undefined) continue;
+    const v = k === 'user' ? toActiveSessionDisplayUser(src[k]) : pickSessionShape(src[k], ACTIVE_SESSION_SHAPES[k]);
+    if (v !== undefined) out[k] = v;
   }
   return out as T;
 }

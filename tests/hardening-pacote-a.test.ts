@@ -123,7 +123,8 @@ describe('Pacote A1: checagem IAM central para toda chamada + chaves internas na
 
   it('servidor standalone (npm start) remove chaves _* e marca a origem HTTP', () => {
     const s = src('src/api/server.ts');
-    assert.ok(s.includes("if (!k.startsWith('_')) query[k] = v;"));
+    // Pacote N (R4): alem de _*, as chaves de BRIDGE_RESERVED_KEYS (ex.: proposalLinkToken) saem da URL.
+    assert.ok(s.includes("if (!k.startsWith('_') && !(BRIDGE_RESERVED_KEYS as readonly string[]).includes(k)) query[k] = v;"));
     assert.ok(s.includes("query._fromHttpBridge = '1';"));
     assert.ok(s.includes('BRIDGE_RESERVED_KEYS'));
   });

@@ -122,10 +122,10 @@ export default function OverviewAiCopilotTab({
   const weightedForecast = report?.revenueForecast.weightedPipelineValue ?? 1194550;
   const wonRevenue = report?.revenueForecast.closedWonValue ?? 420000;
   const stages = report?.funnelBottlenecks ?? [
-    { stageId: '1', stageName: 'Prospecção & Descoberta', totalValue: 115000, dealCount: 1 },
-    { stageId: '2', stageName: 'Qualificação Executiva (SQL)', totalValue: 280000, dealCount: 3 },
-    { stageId: '3', stageName: 'Demonstração & Diagnóstico', totalValue: 520000, dealCount: 4 },
-    { stageId: '4', stageName: 'Negociação & Fechamento', totalValue: 797600, dealCount: 5 },
+    { stageId: '1', stageName: 'Lead Gerado', totalValue: 115000, dealCount: 1 },
+    { stageId: '2', stageName: 'Reunião Agendada', totalValue: 280000, dealCount: 3 },
+    { stageId: '3', stageName: 'Aguardando Proposta', totalValue: 520000, dealCount: 4 },
+    { stageId: '4', stageName: 'Negociação', totalValue: 797600, dealCount: 5 },
   ];
 
   const crmMonthlyTrend = [
@@ -152,7 +152,7 @@ export default function OverviewAiCopilotTab({
                 <span className="font-semibold text-slate-700 truncate">{st.stageName}</span>
                 <span className="font-semibold text-slate-900">
                   {formatBRL(st.totalValue)}{' '}
-                  <span className="text-slate-400 font-semibold">({st.dealCount} deals)</span>
+                  <span className="text-slate-400 font-semibold">({st.dealCount} negócios)</span>
                 </span>
               </div>
               <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">
@@ -219,7 +219,7 @@ export default function OverviewAiCopilotTab({
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-800 truncate">{p.name}</span>
               <span className="font-semibold text-slate-900">
-                {formatBRL(p.value)} <span className="text-slate-400 font-semibold">({p.deals} deals)</span>
+                {formatBRL(p.value)} <span className="text-slate-400 font-semibold">({p.deals} negócios)</span>
               </span>
             </div>
             <div className="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden">

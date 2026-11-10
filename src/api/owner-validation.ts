@@ -5,8 +5,7 @@
 // registro), ele precisa ser um responsavel conhecido:
 //   - usuario do IAM (nome ou e-mail);
 //   - lista oficial SETA_OWNER_OPTIONS (seletores do front);
-//   - responsavel ja presente nos dados (legado HubSpot/GestaoClick), para nao quebrar registros
-//     existentes nem reatribuicoes entre responsaveis reais.
+//   - (ate o Pacote H) responsavel ja presente nos dados; Pacote I: nao mais (ver abaixo).
 // Valor igual ao atual passa (formularios reenviam o registro inteiro). Desconhecido => 400.
 // Pacote H: string vazia => 400 (limpar = null explicito, so admin); usuario inativo => 400;
 // o valor gravado e normalizado (trim + espacos colapsados).
@@ -35,12 +34,14 @@ export interface OwnerUniverse {
 }
 
 /**
- * Responsaveis ATIVOS conhecidos. Pacote H: usuario IAM inativo, opcao "(Inativo)" da lista
- * oficial e nomes legados que batem com usuario inativo NAO entram (nao podem ser atribuidos
- * de novo; o valor atual de um registro continua aceito sem mudanca).
+ * Pacote I: responsaveis atribuiveis = usuarios ATIVOS do RBAC (nome ou e-mail) + a lista oficial
+ * SETA_OWNER_OPTIONS (o que os seletores do front oferecem), sem "(Inativo)". Nomes que existem
+ * SO nos dados (legado HubSpot/GestaoClick) NAO entram mais (o valor atual de um registro continua
+ * aceito sem mudanca). Chave = forma normalizada (sem caixa/acentos/espacos extras); valor = nome
+ * CANONICO a gravar (nome do usuario no RBAC; ou a opcao oficial).
  */
-export function buildKnownOwnerSet(u: OwnerUniverse): Set<string> {
-  const set = new Set<string>();
+export function buildOwnerCanonicalMap(u: Pick<OwnerUniverse, 'users'>): Map<string, string> {
+  const map = new Map<string, string>();
   const inactive = new Set<string>();
   for (const x of u.users || []) {
     if (x?.active === false) {
@@ -48,19 +49,23 @@ export function buildKnownOwnerSet(u: OwnerUniverse): Set<string> {
       if (x.email) inactive.add(normalizeOwnerName(x.email));
     }
   }
-  const add = (n: string | null | undefined) => {
-    if (!n || isInactiveLabel(n)) return;
-    const k = normalizeOwnerName(n);
-    if (k && !inactive.has(k)) set.add(k);
-  };
-  for (const n of SETA_OWNER_OPTIONS) add(n);
   for (const x of u.users || []) {
-    if (x?.active === false) continue;
-    add(x?.name);
-    add(x?.email);
+    if (!x || x.active === false || !x.name || isInactiveLabel(x.name)) continue;
+    const canonical = cleanOwnerName(x.name);
+    map.set(normalizeOwnerName(x.name), canonical);
+    if (x.email) map.set(normalizeOwnerName(x.email), canonical);
   }
-  for (const n of u.existingOwnerNames || []) add(n);
-  return set;
+  for (const n of SETA_OWNER_OPTIONS) {
+    if (isInactiveLabel(n)) continue;
+    const k = normalizeOwnerName(n);
+    if (k && !inactive.has(k) && !map.has(k)) map.set(k, n);
+  }
+  return map;
+}
+
+/** Compatibilidade: conjunto das chaves normalizadas atribuiveis (existingOwnerNames e ignorado). */
+export function buildKnownOwnerSet(u: OwnerUniverse): Set<string> {
+  return new Set(buildOwnerCanonicalMap(u).keys());
 }
 
 /** Valor nao vazio (ja limpo) igual ao atual ou conhecido e ativo => ok. */
@@ -70,4 +75,19 @@ export function isAssignableOwnerName(value: unknown, current: string | null | u
   if (!n) return false;
   if (current && normalizeOwnerName(current) === n) return true;
   return known.has(n);
+}
+
+/**
+ * Pacote I: nome a gravar. Igual ao atual (sem diferenciar caixa/acentos) => o atual, exatamente;
+ * responsavel atribuivel => o nome canonico; senao null (400).
+ */
+export function resolveOwnerNameToStore(
+  value: string,
+  current: string | null | undefined,
+  canonical: Map<string, string>
+): string | null {
+  const n = normalizeOwnerName(value);
+  if (!n) return null;
+  if (current && normalizeOwnerName(current) === n) return current;
+  return canonical.get(n) ?? null;
 }

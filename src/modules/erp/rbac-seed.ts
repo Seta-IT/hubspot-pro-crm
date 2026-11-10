@@ -1217,7 +1217,7 @@ export function createSeedRbacState(): StiHubRbacState {
       id: 'prop-hs-deal-mrr',
       objectType: 'DEAL',
       internalName: 'hs_mrr_brl',
-      label: 'Receita Mensal Recorrente (MRR R$)',
+      label: 'Valor mensal',
       fieldType: 'NUMBER',
       hubspotGroup: 'deal_revenue',
       description: 'Valor mensal recorrente calculado automaticamente na Proposta #4695 e no Contrato de Locação.',

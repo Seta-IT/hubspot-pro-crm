@@ -127,19 +127,19 @@ export const PROPOSAL_TEMPLATE_STYLE_OPTIONS: ProposalTemplateOptionSpec[] = [
 ];
 
 export const SETA_TELECOM_INSTITUTIONAL_SUMMARY = {
-  eyebrow: 'Apresentação Institucional — Seta Telecom (setatelecom.com.br)',
+  eyebrow: 'Apresentação Institucional',
   headline:
     'Seta Telecom & Seta | IT — Infraestrutura de TI, Redes, Segurança & Locação Corporativa (HaaS)',
   marketTimeLabel: 'Tempo de mercado',
   marketTime: 'Mais de 18 anos de atuação no mercado corporativo brasileiro;',
-  locationLabel: 'Localização',
+  locationLabel: 'Estoque próprio:',
   location:
-    'Sede em Alphaville, Campinas/SP (Rua Guapuruvu, 242 — 3º andar, CEP 13098-323), com estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
+    'Estoque próprio de Spare Parts (+500 SKUs) em São Paulo e atendimento em todo o Brasil;',
   partnersLabel: 'Parceiros estratégicos (Multi-Vendor)',
   partners:
     'Cisco, Dell, HPE, Fortinet, Aruba, Palo Alto, SonicWall, Juniper, NetApp, Acronis, Lenovo e Meraki;',
   servicesTitle:
-    'Serviços e Soluções — Portfólio Oficial Seta Telecom (setatelecom.com.br)',
+    'Serviços e Soluções — Portfólio Seta Telecom',
 } as const;
 
 export const SETA_TELECOM_OFFICIAL_SERVICES_TOPICS: readonly string[] = [
@@ -420,16 +420,36 @@ export interface ProposalSellerContactInfo {
   phone: string;
 }
 
+/** Telefone e WhatsApp oficiais da Seta Telecom (folha da proposta / PDF). */
+export const SETA_TELECOM_PHONE = '(11) 3958-4929';
+/** Numeros ficticios antigos gravados como sellerPhone padrao: exibem o telefone oficial. */
+const PLACEHOLDER_SELLER_PHONES = new Set(['(11) 99999-4929']);
+
+/** "(11) 3958-4929" => "551139584929" (DDI 55 quando vier so DDD + numero). */
+export function proposalPhoneDigits(phone: string | undefined): string {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (!d) return '';
+  return d.length === 10 || d.length === 11 ? `55${d}` : d;
+}
+export function proposalWhatsAppUrl(phone: string | undefined): string {
+  const d = proposalPhoneDigits(phone);
+  return d ? `https://wa.me/${d}` : '';
+}
+export function proposalTelUrl(phone: string | undefined): string {
+  const d = proposalPhoneDigits(phone);
+  return d ? `tel:+${d}` : '';
+}
+
 export const PROPOSAL_SELLER_DIRECTORY: ProposalSellerContactInfo[] = [
   {
     name: 'Marcelo Lopes Mira',
     email: 'marcelo.mira@setatelecom.com.br',
-    phone: '(11) 99999-4929',
+    phone: SETA_TELECOM_PHONE,
   },
   {
     name: 'Marcelo Mira',
     email: 'marcelo.mira@setatelecom.com.br',
-    phone: '(11) 99999-4929',
+    phone: SETA_TELECOM_PHONE,
   },
   {
     name: 'Evelyn Olivia de Rosa Ternero',
@@ -489,7 +509,7 @@ export function resolveProposalSellerContact(
 
   const rawPhone = String(prop.sellerPhone || '').trim();
   const phone =
-    rawPhone && rawPhone !== '(11) 3958-4929'
+    rawPhone && rawPhone !== SETA_TELECOM_PHONE && !PLACEHOLDER_SELLER_PHONES.has(rawPhone)
       ? rawPhone
       : matched.phone;
 
@@ -984,19 +1004,30 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
   }
 }
 
-export function buildPublicProposalUrl(
-  prop: ErpCommercialProposal,
+/**
+ * URL INTERNA de visualizacao/impressao da proposta (`/proposta/<id>[?print=1]`), para usuario
+ * logado no STI-hub. Checagem final da v4 (01/11/2026): NAO carrega mais a proposta inteira em
+ * `?d=` (dados do cliente/valores legiveis por quem tiver a URL e sem revogacao) e NAO e link
+ * para o cliente: sem sessao a pagina mostra "link invalido". Para o cliente use o link
+ * ASSINADO (requestSignedProposalLink / copySignedProposalLink em proposal-link-client.ts).
+ */
+export function buildInternalProposalUrl(
+  prop: Pick<ErpCommercialProposal, 'id'>,
   options?: { autoPrint?: boolean; origin?: string }
 ): string {
   const baseOrigin =
     options?.origin ||
     (typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app');
-  const encoded = encodeProposalToQueryParam(prop);
-  const params = new URLSearchParams();
-  if (encoded) params.set('d', encoded);
-  if (options?.autoPrint) params.set('print', '1');
-  const qs = params.toString();
-  return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs ? `?${qs}` : ''}`;
+  const qs = options?.autoPrint ? '?print=1' : '';
+  return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs}`;
+}
+
+/** @deprecated nome legado: devolve a URL INTERNA (sem `?d=`); nao e link publico. */
+export function buildPublicProposalUrl(
+  prop: Pick<ErpCommercialProposal, 'id'>,
+  options?: { autoPrint?: boolean; origin?: string }
+): string {
+  return buildInternalProposalUrl(prop, options);
 }
 
 export const normalizeProposalTemplateStyle = resolveProposalLayoutKind;
@@ -1100,24 +1131,6 @@ export function proposalFromVersionSnapshot(
     items: Array.isArray(s.items) ? structuredClone(s.items) : [],
   });
 }
-
-export function buildProposalVersionUrl(
-  baseProposal: ErpCommercialProposal,
-  entry: ErpProposalVersionEntry,
-  options?: { autoPrint?: boolean; origin?: string }
-): string {
-  const baseOrigin =
-    options?.origin ||
-    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
-  const snapProposal = proposalFromVersionSnapshot(baseProposal, entry);
-  const encoded = encodeProposalToQueryParam(snapProposal);
-  const params = new URLSearchParams();
-  if (encoded) params.set("d", encoded);
-  params.set("v", String(entry.version));
-  if (options?.autoPrint) params.set("print", "1");
-  return `${baseOrigin}/proposta/${encodeURIComponent(baseProposal.id)}?${params.toString()}`;
-}
-
 
 export function appendClientProposalVersion(
   prev: ErpCommercialProposal,

@@ -1,6 +1,8 @@
 'use client';
 
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useContext, useEffect, useRef, useState } from 'react';
+import { PROPOSAL_SHEET_TW } from '../../lib/proposal-sheet-theme';
+import { ProposalTemplateSelect } from '../../components/ProposalTemplateSelect';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Printer,
@@ -25,21 +27,23 @@ import {
   X,
 } from 'lucide-react';
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
-import { formatBRL } from '../../components/ui-helpers';
+import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
+import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
   appendClientProposalVersion,
-  buildPublicProposalUrl,
   buildProposalVersionShortUrl,
   buildSnapshotFromProposal,
   proposalFromVersionSnapshot,
   computeProposalTotals,
   decodeProposalFromQueryParam,
-  encodeProposalToQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
+  proposalWhatsAppUrl,
+  proposalTelUrl,
   resolveProposalSlaOption,
   PROPOSAL_TEMPLATE_STYLE_OPTIONS,
   SETA_TELECOM_INSTITUTIONAL_SUMMARY,
@@ -52,27 +56,55 @@ import {
   resolveProposalDocumentHeadings,
   resolveProposalLayoutKind,
 } from '../../lib/proposal-share';
-import { loadDurableJournal, recordUpsertedContract, recordUpsertedInvoice, recordUpsertedProposal } from '../../lib/durable-storage';
+import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
+import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
+import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
+import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
+
+/**
+ * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
+ * nem ao Referer. B5 (CISO 30/10): ?t= na query NAO e aceito. O token so e enviado no header
+ * X-Proposal-Token (nunca na URL da API).
+ */
+function readProposalLinkTokenFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const fromHash = new URLSearchParams(hash).get('t');
+    if (fromHash && fromHash.trim()) return fromHash.trim();
+  } catch {
+    // sem token
+  }
+  return null;
+}
 
 function PublicProposalPrintContent() {
   const params = useParams<{ id: string; n?: string }>();
   const searchParams = useSearchParams();
-  const rawId = decodeURIComponent(String(params?.id || ''));
+  // t33u: short link /p/<codigo> injeta o id e o token resolvidos no servidor.
+  const linkOverride = useContext(ProposalLinkOverrideContext);
+  const rawId = linkOverride?.proposalId || decodeURIComponent(String(params?.id || ''));
   const encodedData = searchParams?.get("d");
   // Short link /proposta/<id>/v/<n> usa o segmento [n]; o formato antigo usa ?v=<n>.
   const versionParam = searchParams?.get("v") || (params?.n ? String(params.n) : null);
   const autoPrint = searchParams?.get("print") === "1";
 
-  const [proposal, setProposal] = useState<ErpCommercialProposal | null>(() =>
-    decodeProposalFromQueryParam(encodedData)
-  );
+  // Link assinado (29/10): o payload ?d= so vale para usuario interno logado; o cliente ve
+  // somente o DTO publico do servidor, obtido com o token do link.
+  const [proposal, setProposal] = useState<ErpCommercialProposal | null>(null);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkChecked, setLinkChecked] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [publicLinkInvalid, setPublicLinkInvalid] = useState(false);
+  const approveIdempotencyKeyRef = useRef<string | null>(null);
+  const isPublicLinkMode = Boolean(linkToken);
   const [viewingVersionNum, setViewingVersionNum] = useState<number | null>(() =>
     versionParam ? Number(versionParam) || null : null
   );
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const [restoredBannerMsg, setRestoredBannerMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(!proposal);
+  const [loading, setLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState(false);
 
   // Full In-Page Editor State
@@ -100,8 +132,56 @@ function PublicProposalPrintContent() {
   >("ICP_BRASIL_A1");
 
   useEffect(() => {
+    setLinkToken(linkOverride?.token || readProposalLinkTokenFromLocation());
+    setLinkChecked(true);
+  }, []);
+
+  useEffect(() => {
+    if (!linkChecked || !sessionChecked) return;
     const requestedVer = versionParam ? Number(versionParam) || null : null;
     setViewingVersionNum(requestedVer);
+
+    if (linkToken) {
+      // Cliente com link assinado: so o DTO publico (sem ?d=, sem armazenamento local).
+      let activePublic = true;
+      setLoading(true);
+      fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`, {
+        cache: 'no-store',
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+        headers: { 'X-Proposal-Token': linkToken },
+      })
+        .then(async (r) => ({ ok: r.ok, json: await r.json().catch(() => null) }))
+        .then(({ ok, json }) => {
+          if (!activePublic) return;
+          const dto = ok && json?.data && !Array.isArray(json.data) ? (json.data as PublicProposalDto) : null;
+          if (dto) {
+            setProposal(publicDtoToRenderableProposal(dto, rawId));
+            setPublicLinkInvalid(false);
+          } else {
+            setProposal(null);
+            setPublicLinkInvalid(true);
+          }
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!activePublic) return;
+          setProposal(null);
+          setPublicLinkInvalid(true);
+          setLoading(false);
+        });
+      return () => {
+        activePublic = false;
+      };
+    }
+
+    if (!isInternalUser) {
+      // Sem link assinado e sem sessao: links antigos (?d= ou /proposta/<id>) nao abrem mais.
+      setProposal(null);
+      setPublicLinkInvalid(true);
+      setLoading(false);
+      return;
+    }
 
     const journal = loadDurableJournal();
     const localFound = (journal.upsertedProposals || []).find(
@@ -227,7 +307,7 @@ function PublicProposalPrintContent() {
     return () => {
       active = false;
     };
-  }, [rawId, encodedData, versionParam]);
+  }, [rawId, encodedData, versionParam, linkChecked, sessionChecked, linkToken, isInternalUser]);
 
   useEffect(() => {
     let active = true;
@@ -238,13 +318,17 @@ function PublicProposalPrintContent() {
         const data = json?.data;
         const ok = Boolean(data && data.authenticated === true && data.mfaVerified === true);
         setIsInternalUser(ok);
+        setSessionChecked(true);
         if (!ok) {
           setIsEditing(false);
           setShowInternalVersionsModal(false);
         }
       })
       .catch(() => {
-        if (active) setIsInternalUser(false);
+        if (active) {
+          setIsInternalUser(false);
+          setSessionChecked(true);
+        }
       });
     return () => {
       active = false;
@@ -271,6 +355,31 @@ function PublicProposalPrintContent() {
     }
     return false;
   };
+
+  // Numeracao GestaoClick: titulo/nome do PDF = "Orcamento <numero>"; codigo legado do navegador
+  // (PROP-AAAA-NNN) e trocado pelo numero que o servidor atribuiu.
+  const proposalCodeForTitle = proposal ? formatProposalDisplayCode(proposal.code) : '';
+  useEffect(() => {
+    if (!proposalCodeForTitle || typeof document === 'undefined') return;
+    document.title = `Orçamento ${proposalCodeForTitle} - Seta Telecom`;
+  }, [proposalCodeForTitle]);
+  const legacyCodeProposalId = proposal && isLegacyProposalCode(proposalCodeForTitle) ? proposal.id : null;
+  useEffect(() => {
+    if (!legacyCodeProposalId) return;
+    let active = true;
+    fetch(`/api/erp/proposals/${encodeURIComponent(legacyCodeProposalId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const apiCode = json?.data && !Array.isArray(json.data) ? String(json.data.code || '') : '';
+        if (active && apiCode && !isLegacyProposalCode(apiCode)) {
+          setProposal((prev) => (prev ? { ...prev, code: apiCode } : prev));
+        }
+      })
+      .catch(() => null);
+    return () => {
+      active = false;
+    };
+  }, [legacyCodeProposalId]);
 
   useEffect(() => {
     if (proposal && autoPrint && !isEditing) {
@@ -316,9 +425,9 @@ function PublicProposalPrintContent() {
     setIsEditing(false);
 
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(finalProposal);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       url.searchParams.delete("v");
       window.history.replaceState({}, "", url.toString());
     }
@@ -388,9 +497,9 @@ function PublicProposalPrintContent() {
       setShowInternalVersionsModal(false);
 
       if (typeof window !== "undefined") {
-        const newEncoded = encodeProposalToQueryParam(restoredProposal);
+        // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
         const url = new URL(window.location.href);
-        if (newEncoded) url.searchParams.set("d", newEncoded);
+        url.searchParams.delete("d");
         url.searchParams.delete("v");
         window.history.replaceState({}, "", url.toString());
       }
@@ -417,9 +526,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
@@ -458,9 +567,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
@@ -483,9 +592,9 @@ function PublicProposalPrintContent() {
     recordUpsertedProposal(updated);
     setProposal(updated);
     if (typeof window !== "undefined") {
-      const newEncoded = encodeProposalToQueryParam(updated);
+      // Pacote N (R2): o editor interno nao grava mais ?d= (dados da proposta) na barra de endereco.
       const url = new URL(window.location.href);
-      if (newEncoded) url.searchParams.set("d", newEncoded);
+      url.searchParams.delete("d");
       window.history.replaceState({}, "", url.toString());
     }
     setSavedNotice(true);
@@ -512,17 +621,31 @@ function PublicProposalPrintContent() {
     try {
       // Aceite do cliente sem login: todos os dados da assinatura seguem no proprio POST /approve.
       // Nenhuma edicao (PATCH) da proposta e feita pelo cliente.
+      // Link assinado: o token do link vai no header X-Proposal-Token (nunca na URL) e uma
+      // Idempotency-Key estavel por pagina evita aceite duplicado em reenvio/clique duplo.
+      if (!approveIdempotencyKeyRef.current) {
+        approveIdempotencyKeyRef.current =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `idem-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      const approveHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': approveIdempotencyKeyRef.current,
+      };
+      if (linkToken) approveHeaders['X-Proposal-Token'] = linkToken;
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: approveHeaders,
+        credentials: linkToken ? 'omit' : 'same-origin',
+        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           signerName: signerName.trim(),
           signerCpf: signerCpf.trim(),
           signerRole: signerRole.trim(),
-          signerEmail: proposal.contactEmail || undefined,
+          ...(proposal.contactEmail ? { signerEmail: proposal.contactEmail } : {}),
           modality: signatureModality,
           acceptedTerms: true,
-          proposal,
         }),
       }).catch(() => null);
       if (!res) {
@@ -536,7 +659,9 @@ function PublicProposalPrintContent() {
             "Não foi possível registrar o aceite neste momento. Atualize a página e tente novamente; se o problema continuar, fale com o seu consultor Seta Telecom."
           );
         } else if (res.status === 404) {
-          setApprovalError("Proposta não localizada. Solicite um novo link ao seu consultor Seta Telecom.");
+          setApprovalError("Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom.");
+        } else if (res.status === 429) {
+          setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
         } else {
           setApprovalError(
             (typeof errJson?.error === "string" && errJson.error) ||
@@ -547,28 +672,16 @@ function PublicProposalPrintContent() {
       }
       if (res.ok) {
         const json = await res.json();
-        const sig: ErpProposalDigitalSignature | undefined =
-          json?.data?.digitalSignature || json?.data?.proposal?.digitalSignature;
-        const nextProp: ErpCommercialProposal = json?.data?.proposal || {
-          ...proposal,
-          status: 'CONVERTIDA_CONTRATO',
-          convertedContractId: json?.data?.contract?.id || `ctr-${Date.now()}`,
-          digitalSignature: sig || null,
-        };
-        if (json?.data?.proposal) recordUpsertedProposal(json.data.proposal);
-        if (json?.data?.contract) recordUpsertedContract(json.data.contract);
-        if (json?.data?.invoice) recordUpsertedInvoice(json.data.invoice);
+        // Resposta publica: { proposal: DTO publico, contractNumber, invoiceNumber } (sem ids internos).
+        const dto = json?.data?.proposal as PublicProposalDto | undefined;
+        const nextProp: ErpCommercialProposal = dto
+          ? publicDtoToRenderableProposal(dto, proposal.id)
+          : { ...proposal, status: 'CONVERTIDA_CONTRATO' };
+        const sig: ErpProposalDigitalSignature | undefined = nextProp.digitalSignature || undefined;
         setProposal(nextProp);
-        if (typeof window !== "undefined") {
-          const newEncoded = encodeProposalToQueryParam(nextProp);
-          const url = new URL(window.location.href);
-          if (newEncoded) url.searchParams.set("d", newEncoded);
-          window.history.replaceState({}, "", url.toString());
-        }
         setConvertedContractInfo({
-          contractNumber:
-            json?.data?.contract?.contractNumber || nextProp.convertedContractId || 'LOC-2026',
-          invoiceNumber: json?.data?.invoice?.documentNumber || 'FAT-LOC-2026',
+          contractNumber: json?.data?.contractNumber || 'LOC-2026',
+          invoiceNumber: json?.data?.invoiceNumber || 'FAT-LOC-2026',
         });
         setSignatureVerifiedBanner(
           `Assinatura Digital (${sig?.modality || signatureModality}) validada com sucesso! Protocolo ${sig?.timestampToken || "ACT-ITI"} • Hash SHA-256 registrado.`
@@ -580,39 +693,58 @@ function PublicProposalPrintContent() {
     }
   };
 
+  const [copyLinkBusy, setCopyLinkBusy] = useState(false);
+  /**
+   * "Copiar link para o cliente": pede ao servidor (sessao MFA) o link ASSINADO da versao atual
+   * (POST /api/erp/proposals/:id/public-link). Links antigos (?d= ou /proposta/<id>) nao abrem
+   * mais para o cliente. Se a proposta ainda nao estiver no servidor, sincroniza (PATCH) antes.
+   */
   const handleCopyPublicLink = async () => {
-    if (!proposal) return;
-    const fullUrl = buildPublicProposalUrl(proposal);
-    const currentVer = Number(viewingVersionNum || proposal.version || 1);
-    let url = fullUrl;
-    // Short link quando o servidor ja tem a versao; senao sincroniza (PATCH) e confere de novo.
-    const serverHasVersion = async (): Promise<boolean> => {
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, { cache: "no-store" }).catch(() => null);
-      if (!res || !res.ok) return false;
-      const json = await res.json().catch(() => null);
-      const apiProp = json?.data && !Array.isArray(json.data) ? (json.data as ErpCommercialProposal) : null;
-      return Boolean(
-        apiProp && Array.isArray(apiProp.versionHistory) && apiProp.versionHistory.some((v) => Number(v.version) === currentVer)
-      );
-    };
+    if (!proposal || !isInternalUser || copyLinkBusy) return;
+    setCopyLinkBusy(true);
     try {
-      let ok = await serverHasVersion();
-      if (!ok && isInternalUser && !viewingVersionNum) {
+      const issue = () =>
+        fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/public-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: "{}",
+        }).catch(() => null);
+      let res = await issue();
+      if (res && res.status === 404 && !viewingVersionNum) {
         await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify(proposal),
         }).catch(() => null);
-        ok = await serverHasVersion();
+        res = await issue();
       }
-      if (ok) url = buildProposalVersionShortUrl(proposal.id, currentVer);
-    } catch {
-      url = fullUrl;
+      const json = res ? await res.json().catch(() => null) : null;
+      // t33u: o cliente recebe o short link opaco /p/<codigo> (o #t= longo fica de reserva).
+      const url =
+        res && res.ok && typeof json?.data?.shortUrl === "string" && json.data.shortUrl
+          ? (json.data.shortUrl as string)
+          : res && res.ok && typeof json?.data?.url === "string"
+            ? (json.data.url as string)
+            : null;
+      if (!url) {
+        if (!reportProtectedFailure(res)) {
+          setAuthNotice(
+            (typeof json?.error === "string" && json.error) ||
+              "Não foi possível gerar o link para o cliente. Tente novamente em instantes."
+          );
+          setTimeout(() => setAuthNotice(null), 7000);
+        }
+        return;
+      }
+      await navigator.clipboard?.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } finally {
+      setCopyLinkBusy(false);
     }
-    navigator.clipboard?.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
   };
 
   if (loading) {
@@ -637,8 +769,15 @@ function PublicProposalPrintContent() {
             Proposta Comercial #{rawId || 'Não identificada'} não localizada
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong> e nenhum payload compartilhado (<code>?d=</code>) foi informado na URL. Volte ao painel da Seta Telecom para abrir ou gerar o link público da proposta desejada.
+            {publicLinkInvalid
+              ? "Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom."
+              : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
+          {!linkToken && !isInternalUser && (
+            <p data-testid="login-to-generate-link" className="text-xs text-[#1e3a6e] bg-[#eef2fa] border border-[#c7d2e8] rounded-md px-3 py-2">
+              Entre no STI-hub para gerar o link do cliente. Depois, use o botão “Copiar link do cliente” na barra da proposta.
+            </p>
+          )}
           <a
             href="/"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-[#1e3a6e] text-white text-xs font-bold hover:bg-[#162b54] transition"
@@ -698,13 +837,13 @@ function PublicProposalPrintContent() {
   const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
   const shippingCost = Number(proposal.shippingCost || 0);
   const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
-  const hasSetupSelected = isolatedSetupTotal > 0;
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeLayout = resolveProposalLayoutKind(proposal.templateStyle);
   const activeTemplate = activeLayout;
   const deliveryLeadTime = resolveProposalDeliveryLeadTime(proposal);
   const activeLayoutSpec = PROPOSAL_TEMPLATE_STYLE_OPTIONS.find((o) => o.id === activeLayout);
   const docHeadings = resolveProposalDocumentHeadings(proposal);
+  const displayCode = formatProposalDisplayCode(proposal.code);
   // Versao exibida no topo (tela e PDF): a versao aberta pelo short link ou a atual.
   const displayedVersionNum = Math.max(
     1,
@@ -723,6 +862,24 @@ function PublicProposalPrintContent() {
     isRental,
     isServices,
   } = docHeadings;
+  // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
+  // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
+  // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
+  // SERVICOS com todos os itens de cobranca unica (isRecurring=false): sem "/mes", sem vigencia e sem
+  // Setup duplicado; exibe Valor Total = itens + setupFee explicito + frete (totalContractValue).
+  const isOneTimeServices =
+    isServices &&
+    !isRental &&
+    proposal.items.length > 0 &&
+    proposal.items.every((i) => i.isRecurring === false);
+  const oneTimeServicesSetupFee = Math.max(0, Number(proposal.setupFee || 0));
+  const hasSetupSelected = isOneTimeServices
+    ? oneTimeServicesSetupFee > 0
+    : !isProductsOnly && isolatedSetupTotal > 0;
+  const formatBRL = (value: number | null | undefined): string =>
+    isProductsOnly
+      ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
+      : formatBRLWhole(value);
   const resolvedSla = resolveProposalSlaOption(proposal);
   const hasSelectedSla =
     !isProductsOnly && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
@@ -732,113 +889,34 @@ function PublicProposalPrintContent() {
   const displayPaymentCondition =
     cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
   const commercialTotalAmount = isProductsOnly
-    ? Math.round((productsSubtotal + servicesSubtotal - totalDiscounts + shippingCost + isolatedSetupTotal) * 100) / 100
-    : proposal.monthlyRecurringTotal || proposal.totalContractValue;
+    ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
+      Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
+    : isOneTimeServices
+      ? Number(proposal.totalContractValue || 0)
+      : proposal.monthlyRecurringTotal || proposal.totalContractValue;
+  const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
+  const showTotalInsteadOfMonthly = isProductsOnly || isOneTimeServices;
 
-  const isOption2Swiss = activeLayout === "MINIMAL_SWISS_PAPER";
-  const isOption3Indigo = activeLayout === "EXECUTIVE_SOFT_INDIGO";
 
-  const pageOuterBgClass = isOption2Swiss
-    ? "bg-[#f3f4f6]"
-    : isOption3Indigo
-      ? "bg-[#eef2ff]"
-      : "bg-[#f1f5f9]";
-
-  const sheetBorderClass = isOption2Swiss
-    ? "border-slate-300 rounded-md"
-    : isOption3Indigo
-      ? "border-indigo-200 rounded-xl"
-      : "border-slate-300 rounded-lg";
-
-  const headerBgClass = isOption2Swiss
-    ? "bg-white text-slate-900 border-t-3 border-t-slate-900 border-b border-b-slate-200"
-    : isOption3Indigo
-      ? "bg-gradient-to-br from-[#f5f7ff] to-[#eef2ff] text-indigo-950 border-t-4 border-t-indigo-600 border-b border-b-indigo-200"
-      : "bg-gradient-to-b from-[#f0f6ff] to-white text-[#0d2b4e] border-t-4 border-t-[#1e3a6e] border-b border-b-blue-100";
-
-  const headerBadgeClass = isOption2Swiss
-    ? "bg-slate-50 text-slate-700 border border-slate-300"
-    : isOption3Indigo
-      ? "bg-white text-indigo-700 border border-indigo-200"
-      : "bg-blue-50 text-[#1e3a6e] border border-blue-200";
-
-  const metaBoxClass = isOption2Swiss
-    ? "bg-white border border-slate-200"
-    : isOption3Indigo
-      ? "bg-white border border-indigo-200"
-      : "bg-slate-50/90 border border-blue-100";
-
-  const instCardClass = isOption2Swiss
-    ? "bg-white border border-slate-200 border-l-3 border-l-emerald-500"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100 border-l-4 border-l-indigo-600"
-      : "bg-slate-50/90 border border-slate-200 border-l-4 border-l-[#f26522]";
-
-  const instEyebrowColorClass = isOption2Swiss
-    ? "text-emerald-600"
-    : isOption3Indigo
-      ? "text-indigo-600"
-      : "text-[#f26522]";
-
-  const bulletColorClass = isOption2Swiss
-    ? "text-emerald-500"
-    : isOption3Indigo
-      ? "text-indigo-600"
-      : "text-[#f26522]";
-
-  const softBoxClass = isOption2Swiss
-    ? "bg-[#fafafa] border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100"
-      : "bg-slate-50/90 border border-slate-200";
-
-  const stripBoxClass = isOption2Swiss
-    ? "bg-white border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#f5f7ff] border border-indigo-100"
-      : "bg-[#f0f7ff] border border-blue-100";
-
-  const scopeBorderClass = isOption2Swiss
-    ? "border-emerald-500"
-    : isOption3Indigo
-      ? "border-indigo-600"
-      : "border-[#1e3a6e]";
-
-  const tableCardBorderClass = isOption2Swiss
-    ? "border-slate-200"
-    : isOption3Indigo
-      ? "border-indigo-100"
-      : "border-slate-300";
-
-  const tableHeaderBgClass = isOption2Swiss
-    ? "bg-slate-50 text-slate-900 border-b border-slate-200"
-    : isOption3Indigo
-      ? "bg-indigo-50/90 text-indigo-950 border-b border-indigo-100"
-      : "bg-slate-100 text-[#1e3a6e] border-b border-slate-200";
-
-  const tableColHeadClass = isOption2Swiss
-    ? "bg-white text-slate-600 border-b border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] text-indigo-900/80 border-b border-indigo-100"
-      : "bg-slate-50 text-slate-600 border-b border-slate-200";
-
-  const totalBoxBgClass = isOption2Swiss
-    ? "bg-white text-slate-900 border border-slate-300"
-    : isOption3Indigo
-      ? "bg-[#f5f7ff] text-slate-900 border border-indigo-200"
-      : "bg-slate-50 text-slate-900 border border-slate-300";
-
-  const flowBoxClass = isOption2Swiss
-    ? "bg-[#fafafa] border border-slate-200"
-    : isOption3Indigo
-      ? "bg-[#fafbff] border border-indigo-100"
-      : "bg-slate-50/90 border border-blue-100";
-
-  const stepBadgeClass = isOption2Swiss
-    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-    : isOption3Indigo
-      ? "bg-indigo-50 text-indigo-800 border border-indigo-200"
-      : "bg-blue-50 text-[#1e3a6e] border border-blue-200";
+  // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
+  const sheetTw = PROPOSAL_SHEET_TW[activeLayout];
+  const pageOuterBgClass = sheetTw.pageOuterBg;
+  const sheetBorderClass = sheetTw.sheetBorder;
+  const headerBgClass = sheetTw.headerBg;
+  const headerBadgeClass = sheetTw.headerBadge;
+  const metaBoxClass = sheetTw.metaBox;
+  const instCardClass = sheetTw.instCard;
+  const instEyebrowColorClass = sheetTw.instEyebrowColor;
+  const bulletColorClass = sheetTw.bulletColor;
+  const softBoxClass = sheetTw.softBox;
+  const stripBoxClass = sheetTw.stripBox;
+  const scopeBorderClass = sheetTw.scopeBorder;
+  const tableCardBorderClass = sheetTw.tableCardBorder;
+  const tableHeaderBgClass = sheetTw.tableHeaderBg;
+  const tableColHeadClass = sheetTw.tableColHead;
+  const totalBoxBgClass = sheetTw.totalBoxBg;
+  const flowBoxClass = sheetTw.flowBox;
+  const stepBadgeClass = sheetTw.stepBadge;
 
   const locacaoTotal = proposal.items
     .filter((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS')
@@ -851,46 +929,36 @@ function PublicProposalPrintContent() {
   return (
     <div className={`min-h-screen ${pageOuterBgClass} py-6 px-3 sm:px-6 print:bg-white print:p-0`}>
       {/* TOP ACTION BAR (HIDDEN ON PRINT) */}
-      <div className="max-w-4xl mx-auto mb-5 bg-[#1e3a6e] text-white rounded-lg px-4 py-3.5 shadow-lg flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div className="flex items-center gap-3">
+      <div className="max-w-4xl mx-auto mb-5 bg-white text-slate-700 rounded-lg border border-slate-200 px-4 py-2.5 flex flex-col gap-2.5 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <a
             href="/"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-xs font-bold transition"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Painel Seta Telecom
+            Voltar
           </a>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
-                Portal do Cliente • Documento Oficial A4
-              </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/15">
-                {proposal.code}
-              </span>
-              <span data-testid="proposal-version-topbar" className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/90 text-slate-950 whitespace-nowrap">
-                Versão {displayedVersionNum}
-              </span>
-              {savedNotice && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500 text-slate-950">
-                  Proposta Atualizada!
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-200">
-              {isInternalUser ? (
-                <>
-                  Você pode <strong>Editar a Proposta</strong> antes de gerar o PDF ou clicar em{' '}
-                  <strong>Imprimir / Salvar em PDF</strong>.
-                </>
-              ) : (
-                <>
-                  Revise a proposta, clique em <strong>Imprimir / Salvar em PDF</strong> ou{' '}
-                  <strong>assine e aprove</strong> eletronicamente.
-                </>
-              )}
-            </p>
-          </div>
+          <span className="h-4 w-px bg-slate-200" aria-hidden="true" />
+          <span className="text-xs font-semibold text-slate-900">{displayCode}</span>
+          <span data-testid="proposal-version-topbar" className="text-xs text-slate-500 whitespace-nowrap">
+            Versão {displayedVersionNum}
+          </span>
+          {savedNotice && (
+            <span className="text-[11px] text-emerald-700">
+              Proposta atualizada
+            </span>
+          )}
+        </div>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold transition cursor-pointer"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Imprimir / Salvar em PDF
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -899,26 +967,28 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
           >
-            <Edit3 className="w-4 h-4" />
-            Editar Proposta antes de Imprimir
+            <Edit3 className="w-3.5 h-3.5" />
+            Editar
           </button>
 
           <button
             type="button"
             onClick={handleCopyPublicLink}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition cursor-pointer"
+            data-testid="copy-client-link"
+            title="Gera o link curto assinado da versão atual e copia para enviar ao cliente"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-[#eef2fa] hover:bg-[#e0e7f5] text-[#1e3a6e] text-xs font-semibold transition cursor-pointer"
           >
             {copied ? (
               <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                Link Atualizado Copiado!
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Link copiado
               </>
             ) : (
               <>
-                <Copy className="w-4 h-4" />
-                Copiar Link p/ Cliente
+                <Copy className="w-3.5 h-3.5" />
+                {copyLinkBusy ? "Gerando link..." : "Copiar link do cliente"}
               </>
             )}
           </button>
@@ -927,31 +997,21 @@ function PublicProposalPrintContent() {
             type="button"
             onClick={() => setShowInternalVersionsModal(true)}
             title="Consultas Internas / Versões"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-extrabold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
           >
-            <History className="w-4 h-4 text-amber-300" />
+            <History className="w-3.5 h-3.5" />
             <span>
               Versões ({(proposal.versionHistory || []).length || 1})
             </span>
             <span className="sr-only">Consultas Internas / Versões</span>
           </button>
 
-          <select
+          <ProposalTemplateSelect
             value={activeLayout}
-            onChange={(e) =>
-              handleTemplateStyleChange(
-                e.target.value as NonNullable<ErpCommercialProposal["templateStyle"]>
-              )
+            onChange={(id) =>
+              handleTemplateStyleChange(id as NonNullable<ErpCommercialProposal["templateStyle"]>)
             }
-            className="px-2.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-extrabold border border-emerald-300 cursor-pointer"
-            title="Escolher Template / Layout do Documento A4"
-          >
-            {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id} className="text-slate-900">
-                Template: {opt.shortLabel}
-              </option>
-            ))}
-          </select>
+          />
             </>
           )}
 
@@ -965,29 +1025,21 @@ function PublicProposalPrintContent() {
                 }
                 setShowIcpSignatureModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-black shadow-md transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer disabled:opacity-50"
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-3.5 h-3.5" />
               {approvingContract ? "Assinando..." : "Assinar ICP-Brasil / Gov.br & Aprovar"}
             </button>
           ) : (
             <a
               href="/"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-400 text-slate-950 text-xs font-black"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
               Contrato Gerado ({convertedContractInfo?.contractNumber || proposal.convertedContractId})
             </a>
           )}
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-md transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir / Salvar em PDF
-          </button>
         </div>
       </div>
 
@@ -1031,8 +1083,14 @@ function PublicProposalPrintContent() {
                     : ""}
                 </div>
                 <div className="text-[11px] text-amber-800">
-                  Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
-                  <strong>{proposal.contractMonths} meses</strong> •{" "}
+                  {isOneTimeServices ? (
+                    <>Valor nesta versão: <strong>{formatBRL(commercialTotalAmount)}</strong> (pagamento único) •{" "}</>
+                  ) : (
+                    <>
+                      Valor nesta versão: <strong>{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> •{" "}
+                      <strong>{proposal.contractMonths} meses</strong> •{" "}
+                    </>
+                  )}
                   <strong>{(proposal.items || []).length} item(ns)</strong>
                 </div>
               </div>
@@ -1044,17 +1102,17 @@ function PublicProposalPrintContent() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-bold cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-[#ff7a59]" />
-                Baixar / Imprimir PDF desta Versão
+                Baixar PDF
               </button>
               {currentViewedEntry && isInternalUser && (
                 <button
                   type="button"
                   disabled={restoringVersion === currentViewedEntry.version}
                   onClick={() => handleRestoreVersionInPage(currentViewedEntry)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-emerald-300" />
-                  Restaurar esta versão
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restaurar
                 </button>
               )}
               {latestEntry && (
@@ -1063,7 +1121,7 @@ function PublicProposalPrintContent() {
                   onClick={() => handleOpenVersionInPage(latestEntry, latestVerNum)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 font-bold cursor-pointer"
                 >
-                  Voltar p/ Versão Atual (Versão {latestVerNum})
+                  Versão atual
                 </button>
               )}
             </div>
@@ -1126,7 +1184,7 @@ function PublicProposalPrintContent() {
                 <History className="w-5 h-5 text-emerald-300" />
                 <div>
                   <h3 className="text-base font-extrabold">
-                    Versões da Proposta ({proposal.code})
+                    Versões da Proposta ({displayCode})
                   </h3>
                   <p className="text-[11px] text-slate-200">
                     Escolha qualquer versão abaixo para abrir na tela, baixar o PDF A4 ou restaurar em 1 clique.
@@ -1273,9 +1331,31 @@ function PublicProposalPrintContent() {
                                       </span>
                                     </button>
                                   ) : (
-                                    <span className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                      Ativa
-                                    </span>
+                                    <>
+                                      {isInternalUser && (
+                                        <button
+                                          type="button"
+                                          data-testid="version-signed-link"
+                                          title="Copia o short link assinado desta versão para o cliente (abre sem login)"
+                                          onClick={async () => {
+                                            const r = await copySignedProposalVersionLink(proposal.id, ver.version);
+                                            if (r.ok) {
+                                              setCopied(true);
+                                              setTimeout(() => setCopied(false), 3000);
+                                            } else {
+                                              setAuthNotice(r.error);
+                                              setTimeout(() => setAuthNotice(null), 7000);
+                                            }
+                                          }}
+                                          className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 whitespace-nowrap border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 cursor-pointer"
+                                        >
+                                          <span>Link cliente</span>
+                                        </button>
+                                      )}
+                                      <span className="px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center whitespace-nowrap bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                        Ativa
+                                      </span>
+                                    </>
                                   )}
                                 </div>
                               </td>
@@ -1316,7 +1396,7 @@ function PublicProposalPrintContent() {
                     Validade Jurídica MP 2.200-2/2001 &amp; Lei 14.063/2020
                   </span>
                   <h3 className="text-sm font-extrabold">
-                    Assinatura Eletrônica ICP-Brasil / Gov.br ({proposal.code})
+                    Assinatura Eletrônica ICP-Brasil / Gov.br ({displayCode})
                   </h3>
                 </div>
               </div>
@@ -1333,9 +1413,19 @@ function PublicProposalPrintContent() {
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
-                  CNPJ: <strong>{proposal.companyCnpj}</strong> • Valor Mensal:{" "}
-                  <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
-                  <strong>{proposal.contractMonths} meses</strong>
+                  {proposal.companyCnpj ? <>CNPJ: <strong>{proposal.companyCnpj}</strong> • </> : null}
+                  {isOneTimeServices ? (
+                    <>
+                      Valor Total (Pagamento Único):{" "}
+                      <strong className="text-emerald-700">{formatBRL(commercialTotalAmount)}</strong>
+                    </>
+                  ) : (
+                    <>
+                      Valor Mensal:{" "}
+                      <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
+                      <strong>{proposal.contractMonths} meses</strong>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1410,7 +1500,7 @@ function PublicProposalPrintContent() {
                   className="mt-0.5"
                 />
                 <span className="font-semibold text-slate-700">
-                  Declaro que li e aceito integralmente os termos, valores e condições desta proposta comercial ({proposal.code}).
+                  Declaro que li e aceito integralmente os termos, valores e condições desta proposta comercial ({displayCode}).
                 </span>
               </label>
 
@@ -1468,19 +1558,19 @@ function PublicProposalPrintContent() {
                 <p className="text-[11px] font-semibold text-slate-600">
                   Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  Alphaville, Campinas/SP • Estoque Próprio de Spare Parts (+500 SKUs) • Atendimento Brasil
+                <p data-testid="proposal-issuer-address" className="text-[11px] text-slate-500">
+                  {SETA_PROPOSAL_HEADER_ADDRESS}
                 </p>
               </div>
             </div>
 
             <div className={`${metaBoxClass} rounded-lg px-4 py-2.5 print:px-3.5 print:py-2 sm:text-right print:text-right shrink-0`}>
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
-                PROPOSTA COMERCIAL / ORÇAMENTO
+                PROPOSTA COMERCIAL
               </div>
               <div className="flex items-baseline gap-2 sm:justify-end print:justify-end mt-0.5">
                 <span className="text-lg sm:text-xl font-black text-[#0d2b4e] leading-tight">
-                  {proposal.code}
+                  {displayCode}
                 </span>
                 <span
                   data-testid="proposal-version-header"
@@ -1498,12 +1588,17 @@ function PublicProposalPrintContent() {
           <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-2.5 text-[11px]">
             <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-slate-700">
               <span>
-                Vendedor / Responsável: <strong className="text-slate-900">{sellerContact.name}</strong>
+                Vendedor: <strong className="text-slate-900">{sellerContact.name}</strong>
               </span>
               {sellerContact.phone && (
                 <span className="inline-flex items-center gap-1">
                   <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span>WhatsApp: <strong className="text-slate-800">{sellerContact.phone}</strong></span>
+                  <span>
+                    WhatsApp:{" "}
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-bold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    {" "}• Tel:{" "}
+                    <a href={proposalTelUrl(sellerContact.phone)} className="font-bold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                  </span>
                 </span>
               )}
               {sellerContact.email && (
@@ -1545,8 +1640,8 @@ function PublicProposalPrintContent() {
         {/* DOCUMENT BODY */}
         <div className="p-7 print:px-3.5 print:py-2 space-y-4 print:space-y-2 text-slate-800 print:block">
           {/* BLOCO 2: APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
-          <div className={`print-avoid-break rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
-            <div>
+          <div className={`rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
+            <div className="print-keep-with-next">
               <div className={`text-[10px] font-extrabold uppercase tracking-wider ${instEyebrowColorClass}`}>
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.eyebrow}
               </div>
@@ -1555,7 +1650,7 @@ function PublicProposalPrintContent() {
               </h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
+            <div className="print-avoid-break grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2 text-[11px] print:text-[10.5px] text-slate-700">
               <div className="bg-white rounded-md border border-slate-200 p-2.5 print:p-1.5 leading-relaxed print:leading-tight">
                 <strong className="block text-[10px] uppercase tracking-wider text-[#1e3a6e] mb-0.5">
                   {SETA_TELECOM_INSTITUTIONAL_SUMMARY.marketTimeLabel}
@@ -1576,7 +1671,7 @@ function PublicProposalPrintContent() {
               </div>
             </div>
 
-            <div className="bg-white rounded-md border border-slate-200 p-3 print:p-2">
+            <div className="print-avoid-break bg-white rounded-md border border-slate-200 p-3 print:p-2">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 mb-2 print:mb-1.5">
                 {SETA_TELECOM_INSTITUTIONAL_SUMMARY.servicesTitle}
               </div>
@@ -1590,13 +1685,14 @@ function PublicProposalPrintContent() {
               </ul>
             </div>
 
-            <details className="group text-[11px] text-slate-600 print:hidden">
-              <summary className="cursor-pointer font-bold text-[#1e3a6e] select-none">
-                Ver Pilares de Soluções &amp; Arquitetura Seta Telecom ({SETA_TELECOM_PORTFOLIO_PILLARS.length} áreas)
-              </summary>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2">
+            {/* Pilares sempre visiveis (tela e PDF), sem toggle */}
+            <section data-testid="proposal-pillars" className="text-[11px] text-slate-600">
+              <div className="print-keep-with-next text-[10px] font-extrabold uppercase tracking-wider text-[#1e3a6e]">
+                Pilares de Soluções &amp; Arquitetura
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-2.5 print:gap-1.5 mt-2 print:mt-1">
                 {SETA_TELECOM_PORTFOLIO_PILLARS.map((pillar) => (
-                  <div key={pillar.code} className="rounded-md border border-slate-200 p-2.5 bg-white">
+                  <div key={pillar.code} className="print-avoid-break rounded-md border border-slate-200 p-2.5 print:p-1.5 bg-white">
                     <div className="text-[11px] font-extrabold text-slate-900">{pillar.title}</div>
                     <div className="text-[10px] font-semibold text-[#1e3a6e] mb-1">{pillar.subtitle}</div>
                     <ul className="list-disc pl-4 text-[10px] text-slate-600 space-y-0.5">
@@ -1607,7 +1703,7 @@ function PublicProposalPrintContent() {
                   </div>
                 ))}
               </div>
-            </details>
+            </section>
           </div>
 
           <div className="print-avoid-break print-keep-with-next flex items-center gap-3 py-0.5">
@@ -1626,13 +1722,17 @@ function PublicProposalPrintContent() {
                 DADOS DA EMPRESA:
               </div>
               <div className="text-sm sm:text-base font-semibold text-slate-900">{proposal.companyName}</div>
-              <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">CNPJ / CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
-              </div>
-              <div className="text-xs text-slate-600">
-                <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
-                {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
-              </div>
+              {!isPublicLinkMode && (
+                <div className="text-xs text-slate-600">
+                  <strong className="text-slate-800">CNPJ ou CPF:</strong> {proposal.companyCnpj || "Sob consulta"}
+                </div>
+              )}
+              {(proposal.careOf || proposal.contactName) && (
+                <div className="text-xs text-slate-600">
+                  <strong className="text-slate-800">Aos cuidados de:</strong> {proposal.careOf || proposal.contactName}
+                  {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
+                </div>
+              )}
               {proposal.deliveryAddress && (
                 <div className="text-xs text-slate-600">
                   <strong className="text-slate-800">Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
@@ -1658,7 +1758,11 @@ function PublicProposalPrintContent() {
                 {sellerContact.phone && (
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <strong className="text-slate-800">WhatsApp:</strong> {sellerContact.phone}
+                    <strong className="text-slate-800">WhatsApp:</strong>{" "}
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                    <span className="text-slate-400">•</span>
+                    <strong className="text-slate-800">Tel:</strong>{" "}
+                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{sellerContact.phone}</a>
                   </span>
                 )}
               </div>
@@ -1700,7 +1804,7 @@ function PublicProposalPrintContent() {
                   Valor Total dos Produtos
                 </span>
                 <span className="font-semibold text-emerald-700 text-sm">
-                  {formatBRL(productsSubtotal - totalDiscounts)}
+                  {formatBRL(Math.round((productsSubtotal - globalDiscountVal) * 100) / 100)}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
@@ -1732,10 +1836,12 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  Valor Mensal
+                  {isOneTimeServices ? "Valor Total (Pagamento Único)" : "Valor Mensal"}
                 </span>
                 <span className="font-semibold text-emerald-700 text-sm">
-                  {formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês
+                  {isOneTimeServices
+                    ? formatBRL(commercialTotalAmount)
+                    : `${formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês`}
                 </span>
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
@@ -1750,7 +1856,7 @@ function PublicProposalPrintContent() {
               </div>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  {hasSelectedSla ? "SLA Contratado" : "Condição de Pagamento"}
+                  {hasSelectedSla ? "SLA contratado" : "Condição de Pagamento"}
                 </span>
                 <span className="font-semibold text-slate-800">
                   {hasSelectedSla ? resolvedSla.shortLabel : displayPaymentCondition}
@@ -1762,7 +1868,7 @@ function PublicProposalPrintContent() {
                     Setup / Ativação
                   </span>
                   <span className="font-semibold text-amber-900">
-                    {formatBRL(isolatedSetupTotal)}
+                    {formatBRL(displaySetupAmount)}
                   </span>
                 </div>
               )}
@@ -1791,16 +1897,16 @@ function PublicProposalPrintContent() {
 
           <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
             <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-extrabold tracking-wide`}>
-              <span>ESPECIFICAÇÃO DOS PRODUTOS, EQUIPAMENTOS &amp; SERVIÇOS</span>
+              <span className="uppercase">Descrição</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
             <table className="w-full text-left text-xs border-collapse">
               <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                 <tr className="print-avoid-break">
-                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código / SKU</th>
+                  <th className="py-2 print:py-1.5 px-2.5 w-24 font-extrabold">Código</th>
                   <th className="py-2 print:py-1.5 px-2.5 font-extrabold">Descrição do Item / Escopo</th>
                   <th className="py-2 print:py-1.5 px-2 text-center w-20 font-extrabold">Quantidade</th>
-                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Vlr. Unitário</th>
+                  <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Unitário</th>
                   <th className="py-2 print:py-1.5 px-2 text-right w-20 font-extrabold">Desconto</th>
                   <th className="py-2 print:py-1.5 px-2.5 text-right w-24 font-extrabold">Subtotal</th>
                 </tr>
@@ -1821,7 +1927,7 @@ function PublicProposalPrintContent() {
                       <td className="py-2.5 print:py-1.5 px-2.5 text-right text-slate-700 whitespace-nowrap">
                         {formatBRL(item.unitPrice)}
                       </td>
-                      <td className="py-2.5 print:py-1.5 px-2 text-right text-rose-600 font-semibold whitespace-nowrap">
+                      <td className="py-2.5 print:py-1.5 px-2 text-right text-slate-700 whitespace-nowrap">
                         {hasDisc ? (
                           <>
                             {(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ""}
@@ -1863,9 +1969,9 @@ function PublicProposalPrintContent() {
             </div>
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                Descontos Aplicados
+                Descontos
               </span>
-              <strong className="text-sm font-semibold text-rose-600">
+              <strong className="text-sm font-semibold text-slate-900">
                 {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
               </strong>
             </div>
@@ -1875,9 +1981,9 @@ function PublicProposalPrintContent() {
                   Setup / Ativação
                 </span>
                 <strong className="text-sm font-semibold text-amber-900">
-                  {formatBRL(isolatedSetupTotal)}
+                  {formatBRL(displaySetupAmount)}
                 </strong>
-                <span className="block text-[10px] text-slate-500">Taxa única isolada</span>
+                <span className="block text-[10px] text-slate-500">Taxa única</span>
               </div>
             )}
             <div>
@@ -1895,10 +2001,10 @@ function PublicProposalPrintContent() {
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                {isProductsOnly ? "Valor Total da Proposta" : "Valor Mensal"}
+                {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
               </span>
               <span className="text-sm font-semibold text-emerald-700">
-                {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
+                {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
               </span>
             </div>
           </div>
@@ -1923,11 +2029,11 @@ function PublicProposalPrintContent() {
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
-                    {isProductsOnly ? "Valor Total da Proposta Comercial" : "Valor Mensal"}
+                    {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
                   </span>
                   <div className="text-2xl print:text-xl font-semibold text-emerald-700 mt-0.5">
-                    {formatBRL(isProductsOnly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
-                    {!isProductsOnly && (
+                    {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
+                    {!showTotalInsteadOfMonthly && (
                       <span className="text-xs font-semibold text-slate-500">/mês</span>
                     )}
                   </div>
@@ -1936,7 +2042,7 @@ function PublicProposalPrintContent() {
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
                       <span>Taxa de Setup (Isolada):</span>
-                      <strong className="text-slate-900">{formatBRL(isolatedSetupTotal)}</strong>
+                      <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
@@ -2063,7 +2169,7 @@ function PublicProposalPrintContent() {
               {/* TERMO DE ACEITE E ASSINATURAS */}
               <div className="p-4 print:p-3.5 rounded-lg bg-white border border-slate-200">
                 <div className="text-xs font-semibold uppercase text-slate-800 mb-2 print:mb-1.5">
-                  Termo de Aceite e Aprovação — {headerDocLabel} ({proposal.code})
+                  Termo de Aceite e Aprovação — {headerDocLabel} ({displayCode})
                 </div>
                 <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
                   {isProductsOnly
@@ -2078,14 +2184,19 @@ function PublicProposalPrintContent() {
                     <div className="text-xs font-semibold text-slate-900">SETA TELECOM LTDA</div>
                     <div className="text-[11px] text-slate-500">
                       {sellerContact.name} • {sellerContact.email}
-                      {sellerContact.phone ? ` • WhatsApp: ${sellerContact.phone}` : ""}
+                      {sellerContact.phone ? (
+                        <>
+                          {" • WhatsApp: "}
+                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                        </>
+                      ) : null}
                     </div>
                   </div>
 
                   <div className="border-t border-slate-300 pt-2 text-center">
                     <div className="text-xs font-semibold text-slate-900">{proposal.companyName}</div>
                     <div className="text-[11px] text-slate-500">
-                      CNPJ {proposal.companyCnpj} •{" "}
+                      {proposal.companyCnpj ? <>CNPJ {proposal.companyCnpj} •{" "}</> : null}
                       {proposal.digitalSignature?.signerName || proposal.careOf || proposal.contactName}{" "}
                       ({proposal.digitalSignature?.signerRole || "Assinatura / Carimbo"})
                     </div>

@@ -12,8 +12,6 @@ import {
   Landmark,
   Calendar,
   Plus,
-  Settings,
-  Sparkles,
   RefreshCw,
   ArrowRight,
 } from 'lucide-react';
@@ -63,28 +61,10 @@ export const SETA_BANK_BASELINE: ErpBankAccount[] = [
   { id: '710407', name: 'Conta Integrada', lastMovedAt: 'Sem movimentação', balance: 0, status: 'ZERO' },
 ];
 
-const GC_APPS: Array<{
-  name: string;
-  desc: string;
-  color: string;
-  badge?: string;
-  tag?: string;
-  targetSection: string;
-  targetSubId?: string;
-}> = [
-  { name: 'Área do Cliente', desc: 'Ofereça um canal inteligente para organizar e gerenciar atendimentos', color: 'bg-sky-600', targetSection: 'ATENDIMENTOS', targetSubId: 'ATENDIMENTOS' },
-  { name: 'Banco Inter', desc: 'Conta PJ com emissão gratuita de boletos', color: 'bg-orange-500', tag: 'inter', targetSection: 'FINANCEIRO', targetSubId: 'FIN_BOLETOS' },
-  { name: 'API (ERP-GROK)', desc: 'Integração com seu app ou site, acessível de qualquer lugar', color: 'bg-rose-600', tag: 'API', badge: 'CONECTADO', targetSection: 'CONFIGURACOES', targetSubId: 'CFG_GERAIS' },
-  { name: 'Cobranças', desc: 'Envie alertas automáticos de cobrança por e-mail antes e após o vencimento', color: 'bg-cyan-500', targetSection: 'FINANCEIRO', targetSubId: 'FIN_RECEBER' },
-  { name: 'Controle de Bens', desc: 'Gerencie patrimônio, depreciação e movimentação facilmente', color: 'bg-rose-500', targetSection: 'ESTOQUE', targetSubId: 'EST_MOVIMENTACOES' },
-  { name: 'C6 Bank', desc: 'Boletos, Pix e Extrato integrados ao erp em 100% API', color: 'bg-slate-900', badge: 'Novo', targetSection: 'FINANCEIRO', targetSubId: 'FIN_BOLETOS' },
-  { name: 'Melhor Envio', desc: 'Integre o Melhor Envio ao ERP e automatize envios, etiquetas e rastreamento', color: 'bg-blue-600', badge: 'Novo', targetSection: 'VENDAS', targetSubId: 'VENDAS_PRODUTOS' },
-  { name: 'Criador de site', desc: 'Desenvolva e gerencie o site da sua empresa pelo erp, com total controle', color: 'bg-sky-700', badge: 'Novo', targetSection: 'ORCAMENTOS', targetSubId: 'ORC_PRODUTOS' },
-  { name: 'Asaas', desc: 'Soluções de pagamento, cobrança e antecipação para sua empresa vender com segurança', color: 'bg-blue-800', badge: 'Novo', targetSection: 'FINANCEIRO', targetSubId: 'FIN_RECEBER' },
-  { name: 'Conta Integrada', desc: 'Receba e envie pagamentos diretamente pelo ERP com Boletos e Pix integrados', color: 'bg-indigo-700', badge: 'Novo', targetSection: 'FINANCEIRO', targetSubId: 'FIN_FLUXO' },
-  { name: 'Recursos Humanos', desc: 'Gerencie o ciclo completo de colaboradores, do recrutamento ao desligamento', color: 'bg-red-600', targetSection: 'CADASTROS', targetSubId: 'CAD_FUNCIONARIOS' },
-  { name: 'Assinatura Digital', desc: 'Assine documentos digitalmente e com segurança jurídica pelo sistema', color: 'bg-amber-500', badge: 'Novo', targetSection: 'CONTRATOS', targetSubId: 'CTR_ASSINATURAS' },
-];
+/** Mês corrente por extenso (pt-BR), para os rótulos 'Recebido/Pago em ...'. */
+function currentMonthLabel(): string {
+  return new Date().toLocaleDateString('pt-BR', { month: 'long' });
+}
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -222,7 +202,8 @@ interface Props {
   onToggleHide: () => void;
   onOpenSection: (section: string, subId?: string) => void;
   onNewProposal: () => void;
-  onSync: () => void;
+  /** Ausente = sem permissão (2FA + admin ou ERP FULL): o botão de sincronizar não aparece. */
+  onSync?: () => void;
   syncing: boolean;
   config: GestaoClickConfig;
   serviceOrdersUpcoming: Array<{ code: string; companyName: string; entryDate: string; status: string }>;
@@ -256,18 +237,16 @@ export default function GestaoClickDashboard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">{greeting()}, {(userName || "Colaborador").trim().split(/\s+/)[0]}</h1>
-          <p className="text-[11px] text-slate-500">
-            Clique em qualquer card, gráfico, conta bancária ou aplicativo abaixo para abrir a tela completa correspondente.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onNewProposal}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Nova Proposta / Orçamento
           </button>
+          {onSync && (
           <button
             type="button"
             onClick={onSync}
@@ -277,6 +256,7 @@ export default function GestaoClickDashboard({
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar GestãoClick'}
           </button>
+          )}
           <span className="text-xs text-slate-500">Início</span>
         </div>
       </div>
@@ -360,7 +340,7 @@ export default function GestaoClickDashboard({
           </div>
         </div>
 
-        {/* Card 4: Recebido em outubro */}
+        {/* Card 4: Recebido no mês corrente */}
         <div
           onClick={() => onOpenSection('FINANCEIRO', 'FIN_RECEBER')}
           className={`${clickableCard} p-3.5 flex flex-col justify-between`}
@@ -369,7 +349,7 @@ export default function GestaoClickDashboard({
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
                 
-                Recebido em outubro
+                Recebido em {currentMonthLabel()}
               </div>
               <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-emerald-700">
                 {money(s.receivedMonth)}
@@ -386,7 +366,7 @@ export default function GestaoClickDashboard({
           </div>
         </div>
 
-        {/* Card 5: Pago em outubro */}
+        {/* Card 5: Pago no mês corrente */}
         <div
           onClick={() => onOpenSection('FINANCEIRO', 'FIN_PAGAR')}
           className={`${clickableCard} p-3.5 flex flex-col justify-between`}
@@ -395,7 +375,7 @@ export default function GestaoClickDashboard({
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold">
                 
-                Pago em outubro
+                Pago em {currentMonthLabel()}
               </div>
               <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-rose-700">
                 {money(s.paidMonth)}
@@ -422,10 +402,10 @@ export default function GestaoClickDashboard({
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-800 group-hover:text-[#1e3a6e]">
-                Acompanhe o <span className="text-blue-700 underline">fluxo de caixa</span> →
+                Acompanhe o <span className="text-[#1e3a6e] underline">fluxo de caixa</span> →
               </h3>
               <p className="text-[11px] text-slate-500">
-                Recebimentos e pagamentos de cada mês, com o saldo do período (Clique para abrir Fluxo de Caixa / DRE)
+                Recebimentos e pagamentos de cada mês, com o saldo do período
               </p>
             </div>
             <span className="text-[11px] font-semibold text-[#1e3a6e] inline-flex items-center gap-1">
@@ -470,10 +450,10 @@ export default function GestaoClickDashboard({
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-800 group-hover:text-[#1e3a6e]">
-                Veja suas <span className="text-blue-700 underline">vendas</span> →
+                Veja suas <span className="text-[#1e3a6e] underline">vendas</span> →
               </h3>
               <p className="text-[11px] text-slate-500">
-                Total vendido por mês nos últimos seis meses (Clique para abrir os {totals?.vendas ?? 295} pedidos de venda)
+                Total vendido por mês nos últimos seis meses
               </p>
             </div>
             <span className="text-[11px] font-semibold text-[#1e3a6e] inline-flex items-center gap-1">
@@ -516,11 +496,8 @@ export default function GestaoClickDashboard({
             <div>
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                 Saldo das{' '}
-                <span className="text-blue-700">contas bancárias</span>
+                <span className="text-[#1e3a6e]">contas bancárias</span>
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Clique em qualquer conta abaixo para abrir ou editar o saldo e movimentações
-              </p>
             </div>
             <button
               type="button"
@@ -575,11 +552,8 @@ export default function GestaoClickDashboard({
             <div>
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                 Sua{' '}
-                <span className="text-blue-700">agenda &amp; O.S.</span>
+                <span className="text-[#1e3a6e]">agenda &amp; O.S.</span>
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Clique em qualquer Ordem de Serviço para abrir e editar o atendimento
-              </p>
             </div>
             <button
               type="button"
@@ -630,126 +604,6 @@ export default function GestaoClickDashboard({
               ))}
             </div>
           )}
-        </div>
-      </div>
-
-      {/* LINHA 4: APLICATIVOS CLICÁVEIS + INDICADORES GESTÃOCLICK CLICÁVEIS */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="bg-white rounded-md border border-slate-200 shadow-xs p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">
-                Seus <span className="text-blue-700">aplicativos</span> (Clicáveis)
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                Clique em qualquer módulo contratado para abrir sua tela completa
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
-            {GC_APPS.map((app) => (
-              <button
-                key={app.name}
-                type="button"
-                onClick={() => onOpenSection(app.targetSection, app.targetSubId)}
-                className="text-left p-2 rounded-md border border-transparent hover:border-[#1e3a6e]/40 hover:bg-blue-50/40 flex items-start gap-2.5 transition cursor-pointer"
-              >
-                <span
-                  className={`w-8 h-8 rounded ${app.color} text-white text-[10px] font-semibold flex items-center justify-center shrink-0`}
-                >
-                  {app.tag || app.name.slice(0, 2).toUpperCase()}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-[#1e3a6e] flex items-center justify-between gap-1">
-                    <span className="truncate">{app.name}</span>
-                    {app.badge && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 ${
-                          app.badge === 'CONECTADO'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {app.badge}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-500 leading-snug line-clamp-2">
-                    {app.desc}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-end mt-3">
-            <button
-              type="button"
-              onClick={() => onOpenSection('CONFIGURACOES', 'CFG_GERAIS')}
-              className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-            >
-              Ver todos os aplicativos
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-md border border-slate-200 shadow-xs p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-                Base Real Sincronizada &amp;{' '}
-                <span className="text-blue-700">Novidades</span>
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                Clique em qualquer indicador da Seta Telecom para abrir os registros completos
-              </p>
-            </div>
-          </div>
-
-          {/* CLICKABLE MINI FLASHCARDS FOR ALL GESTÃOCLICK TOTALS */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            {[
-              { label: 'Clientes', val: totals?.clientes ?? 1184, sec: 'CADASTROS', sub: 'CAD_CLIENTES' },
-              { label: 'Produtos', val: totals?.produtos ?? 786, sec: 'ITENS', sub: 'ITENS_PRODUTOS' },
-              { label: 'Serviços', val: totals?.servicos ?? 39, sec: 'ITENS', sub: 'ITENS_SERVICOS' },
-              { label: 'Orçamentos', val: totals?.orcamentos ?? 2077, sec: 'ORCAMENTOS', sub: 'ORC_PRODUTOS' },
-              { label: 'Vendas', val: totals?.vendas ?? 295, sec: 'VENDAS', sub: 'VENDAS_PRODUTOS' },
-              { label: 'Contratos Loc.', val: totals?.contratos ?? 344, sec: 'CONTRATOS', sub: 'CTR_LOCACOES' },
-              { label: 'Ordens Serv.', val: totals?.ordensServicos ?? 1378, sec: 'ORDENS_SERVICOS', sub: 'OS_GERENCIAR' },
-              { label: 'Fornecedores', val: totals?.fornecedores ?? 101, sec: 'CADASTROS', sub: 'CAD_FORNECEDORES' },
-            ].map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => onOpenSection(item.sec, item.sub)}
-                className="p-2.5 rounded border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-[#1e3a6e] text-left transition cursor-pointer"
-              >
-                <span className="text-[10px] text-slate-500 block">{item.label}</span>
-                <div className="flex items-center justify-between mt-0.5">
-                  <strong className="text-sm font-semibold text-[#1e3a6e]">{item.val}</strong>
-                  <ArrowRight className="w-3 h-3 text-[#1e3a6e]" />
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div className="space-y-2 pt-1">
-            {[
-              { t: 'Propostas Comerciais: Edição completa + Link público PDF A4 para o cliente', d: '26/10/2026', sec: 'ORCAMENTOS' },
-              { t: 'Vender fora: crédito do cliente para usar em compras futuras', d: '22/10/2026', sec: 'VENDAS' },
-              { t: 'Estoque: Localização de item e controle por Número de Série (S/N)', d: '15/10/2026', sec: 'ESTOQUE' },
-              { t: 'Fiscal: Segregação automática Fatura de Locação 0% ISS (SV 31 STF)', d: '09/10/2026', sec: 'FISCAL' },
-            ].map((item) => (
-              <button
-                key={item.t}
-                type="button"
-                onClick={() => onOpenSection(item.sec)}
-                className="w-full flex items-start justify-between gap-2 text-xs border-b border-slate-100 pb-2 hover:text-[#1e3a6e] text-left cursor-pointer"
-              >
-                <span className="text-slate-700 font-semibold hover:underline">{item.t}</span>
-                <span className="text-[10px] text-slate-400 shrink-0">{item.d}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>

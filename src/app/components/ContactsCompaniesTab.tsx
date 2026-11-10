@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useState, useEffect } from 'react';
 import {
   Users,
@@ -24,6 +26,7 @@ import { formatDocumentByPersonType, validateDocumentByPersonType } from '../../
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './GestaoClickCompanyModal';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
 import {
   BUYING_ROLE_OPTIONS,
@@ -61,6 +64,8 @@ interface ContactsCompaniesTabProps {
   onDeleteContact: (contactId: string) => Promise<void>;
   onUpdateCompany: (companyId: string, patch: Record<string, unknown>) => Promise<void>;
   onDeleteCompany: (companyId: string) => Promise<void>;
+  companyUsage?: (company: { id: string; name?: string; cnpj?: string }) => { inUse: boolean; usageText: string };
+  contactUsage?: (contact: { id: string }) => { inUse: boolean; usageText: string };
   contacts: EnrichedContactItem[];
   companies: EnrichedCompanyItem[];
   initialSelectedContactId?: string | null;
@@ -131,12 +136,15 @@ export default function ContactsCompaniesTab({
   onCreateCompany,
   onUpdateCompany,
   onDeleteCompany,
+  companyUsage,
+  contactUsage,
   onEnrichContact,
   onEnrichCompany,
   onBatchEnrichAll,
   onAddContactActivity,
 }: ContactsCompaniesTabProps) {
   const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>(initialSubView || 'CONTACTS');
+  const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
   useEffect(() => {
     if (initialSubView) setSubView(initialSubView);
   }, [initialSubView, navigationTrigger]);
@@ -997,7 +1005,7 @@ export default function ContactsCompaniesTab({
                             title="Consultar / Visualizar Cadastro"
                             aria-label="Consultar Cadastro"
                             onClick={() => handleSelectContact(contact.id, false)}
-                            className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-accent border border-slate-300 transition cursor-pointer"
                           >
                             <Search className="w-3.5 h-3.5" />
                           </button>
@@ -1006,7 +1014,7 @@ export default function ContactsCompaniesTab({
                             title="Editar Cadastro"
                             aria-label="Editar Cadastro"
                             onClick={() => handleSelectContact(contact.id, true)}
-                            className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
                           </button>
@@ -1120,7 +1128,7 @@ export default function ContactsCompaniesTab({
                       setGestaoClickModalMode('VIEW');
                       setGestaoClickModalCompany(company);
                     }}
-                    className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-accent border border-slate-300 transition cursor-pointer"
                   >
                     <Search className="w-3.5 h-3.5" />
                   </button>
@@ -1132,7 +1140,7 @@ export default function ContactsCompaniesTab({
                       setGestaoClickModalMode('EDIT');
                       setGestaoClickModalCompany(company);
                     }}
-                    className="inline-flex items-center justify-center p-2 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                    className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                   >
                     <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
                   </button>
@@ -1194,6 +1202,8 @@ export default function ContactsCompaniesTab({
             await onUpdateContact(contactId, patch);
             await fetchContactDetail(contactId);
           }}
+          deleteInUse={Boolean(contactDetail && contactUsage?.(contactDetail).inUse)}
+          deleteUsageText={contactDetail && contactUsage ? contactUsage(contactDetail).usageText : undefined}
           onDeleteContact={async (contactId) => {
             await onDeleteContact(contactId);
             setSelectedContactId(null);
@@ -1464,7 +1474,18 @@ export default function ContactsCompaniesTab({
                     </div>
 
                     <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
-                      {!confirmCompanyDelete ? (
+                      {companyUsage && companyDetail && companyUsage({ id: companyDetail.id, name: companyDetail.name, cnpj: companyDetail.cnpj || undefined }).inUse ? (
+                        <button
+                          type="button"
+                          title="Em uso"
+                          aria-disabled
+                          onClick={() => setCannotDeleteText(companyUsage({ id: companyDetail.id, name: companyDetail.name, cnpj: companyDetail.cnpj || undefined }).usageText)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-400 cursor-not-allowed text-xs font-semibold"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Excluir Empresa
+                        </button>
+                      ) : !confirmCompanyDelete ? (
                         <button
                           type="button"
                           onClick={() => setConfirmCompanyDelete(true)}
@@ -1526,6 +1547,17 @@ export default function ContactsCompaniesTab({
                     onSent={() => {
                       if (selectedCompanyId) fetchCompanyDetail(selectedCompanyId);
                     }}
+                  />
+
+                  {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO PARA ESTA EMPRESA */}
+                  <CrmRecordEmailSection
+                    record={{
+                      companyId: companyDetail.id,
+                      contactId: companyDetail.contacts?.[0]?.id || null,
+                    }}
+                    defaultTo={companyDetail.contacts?.[0]?.email || ''}
+                    recordLabel={companyDetail.name}
+                    suggestions={(companyDetail.contacts || []).map((c) => c.email)}
                   />
 
                   {/* HUBSPOT TASKS & FOLLOW-UPS FOR THIS COMPANY */}
@@ -1851,6 +1883,8 @@ export default function ContactsCompaniesTab({
               });
             }
           }}
+          deleteInUse={Boolean(gestaoClickModalCompany && companyUsage?.({ id: gestaoClickModalCompany.id, name: gestaoClickModalCompany.name, cnpj: gestaoClickModalCompany.cnpj || undefined }).inUse)}
+          deleteUsageText={gestaoClickModalCompany && companyUsage ? companyUsage({ id: gestaoClickModalCompany.id, name: gestaoClickModalCompany.name, cnpj: gestaoClickModalCompany.cnpj || undefined }).usageText : undefined}
           onDelete={
             gestaoClickModalCompany
               ? async (companyId: string) => {
@@ -1863,6 +1897,9 @@ export default function ContactsCompaniesTab({
               : undefined
           }
         />
+      )}
+      {cannotDeleteText && (
+        <CannotDeleteModal text={cannotDeleteText} onClose={() => setCannotDeleteText(null)} />
       )}
     </div>
   );

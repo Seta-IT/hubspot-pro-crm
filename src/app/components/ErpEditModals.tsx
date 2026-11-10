@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useState } from 'react';
 import {
   Plus,
@@ -41,14 +43,16 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import { applyBudgetTypeToItems, ProposalItemsGrid } from './ProposalItemsGrid';
+import { formatProposalDisplayCode } from '../lib/proposal-number';
 import {
   ContractBillingHistoryPanel,
-  ContractGestaoClickDataPanel,
   ContractVersionHistoryPanel,
   InvoiceExtraFieldsPanel,
   ReceiptDraftPreviewButton,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
+import { CatalogProductCombobox, catalogRentalPrice } from './CatalogProductCombobox';
+import { countValidContractProducts, validateRentalContractForm, type ContractFieldError } from '../../modules/erp/contract-form-validation';
 import {
   formatBrPhoneMask,
   formatCnpjMask,
@@ -66,6 +70,7 @@ import {
   downloadContractBillingHistoryReportOnDemand,
   type ContractBillingRunOptions,
 } from '../lib/contract-billing-utils';
+import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../modules/erp/billing-recipient-emails';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -100,10 +105,12 @@ export function ProposalEditModal({
     })
   );
   const [saving, setSaving] = useState(false);
+  const [contractFormError, setContractFormError] = useState<string | null>(null);
   const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(true);
   const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
+  const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
 
   const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
     if (Array.isArray(draft.versionHistory) && draft.versionHistory.length > 0) {
@@ -194,7 +201,7 @@ export function ProposalEditModal({
       });
       setVersionChangeNote(`Restaurado a partir da revisão ${entry.versionLabel}`);
       onShowToast?.(
-        `Dados da ${entry.versionLabel} carregados no formulário! Clique em "Salvar Alterações" para gravar a nova revisão.`
+        `Dados da ${entry.versionLabel} carregados no formulário! Clique em "Salvar" para gravar a nova revisão.`
       );
     } finally {
       setRestoringVersionNum(null);
@@ -565,70 +572,46 @@ export function ProposalEditModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
-        {/* TOP BLUE BAR GESTÃOCLICK */}
-        <div className="px-5 py-3 bg-[#1e3a6e] text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FileText className="w-5 h-5 text-emerald-300" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-extrabold">Seta Telecom • GestãoClick ERP</span>
-                <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
-                  {isNew ? 'Novo Orçamento' : `Editar Orçamento ${draft.code}`}
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-200 block">
-                Vendedor: {draft.sellerName || 'Marcelo Lopes Mira'} • {draft.sellerEmail || 'marcelo.mira@setatelecom.com.br'}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-200 hover:text-white cursor-pointer p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* PAGE HEADER & BREADCRUMB */}
+      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
+        {/* CABEÇALHO ÚNICO: título, versão (texto), histórico de versões, breadcrumb e fechar */}
         <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-extrabold text-slate-800">
-              {isNew ? 'Novo orçamento / proposta comercial' : `Editar orçamento #${draft.code}`}
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-base font-semibold text-slate-900">
+              {isNew ? 'Novo orçamento' : `Editar orçamento #${formatProposalDisplayCode(draft.code)}`}
             </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-[#1e3a6e] border border-blue-200">
-              {draft.budgetType === 'SERVICOS'
-                ? 'Orçamento de Serviços'
-                : draft.budgetType === 'PRODUTOS'
-                  ? 'Orçamento de Produtos'
-                  : draft.budgetType === 'CONJUNTO'
-                    ? 'Orçamento Conjunto (Produtos + Serviços)'
-                    : 'Locação Pura & Conectividade (MRR)'}
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
-              Versão Atual: v{draft.version || 1}.0 ({versionHistoryList.length}{' '}
-              {versionHistoryList.length === 1 ? 'revisão' : 'revisões'})
+            <span className="text-xs text-slate-500" data-testid="proposal-edit-version-text">
+              Versão {draft.version || 1}
             </span>
             {!isNew && (
               <button
                 type="button"
                 onClick={() => setShowVersionHistoryPanel((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold shadow-2xs cursor-pointer"
+                aria-expanded={showVersionHistoryPanel}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-medium cursor-pointer"
               >
-                <History className="w-3.5 h-3.5 text-amber-300" />
+                <History className="w-3.5 h-3.5 text-slate-500" />
                 <span>
-                  {showVersionHistoryPanel ? 'Ocultar Histórico de Versões' : `Histórico de Versões (${versionHistoryList.length})`}
+                  {showVersionHistoryPanel ? 'Ocultar histórico de versões' : `Histórico de versões (${versionHistoryList.length})`}
                 </span>
               </button>
             )}
           </div>
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
-            <span>Início</span>
-            <span>&gt;</span>
-            <span>Orçamentos</span>
-            <span>&gt;</span>
-            <strong className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</strong>
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+              <span>Início</span>
+              <span>&gt;</span>
+              <span>Orçamentos</span>
+              <span>&gt;</span>
+              <span className="text-slate-800">{isNew ? 'Adicionar' : 'Editar'}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fechar"
+              className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
@@ -637,18 +620,13 @@ export function ProposalEditModal({
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                   <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
-                  <span>
-                    Informe os <span className="text-[#1e3a6e]">dados</span> do orçamento
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Número, cliente, vendedor, datas e a introdução da proposta
+                  <span>Dados do orçamento</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-bold text-slate-600">Layout / Template da Proposta:</label>
+                <label className="text-[11px] font-bold text-slate-600">Modelo da proposta</label>
                 <select
                   value={resolveProposalLayoutKind(draft.templateStyle)}
                   onChange={(e) =>
@@ -665,7 +643,7 @@ export function ProposalEditModal({
                   ))}
                 </select>
 
-                <label className="text-[11px] font-bold text-slate-600">Tipo de Orçamento:</label>
+                <label className="text-[11px] font-bold text-slate-600">Tipo de orçamento</label>
                 <select
                   value={draft.budgetType || 'LOCACAO'}
                   onChange={(e) =>
@@ -677,8 +655,8 @@ export function ProposalEditModal({
                 >
                   <option value="PRODUTOS">Orçamento de Produtos</option>
                   <option value="SERVICOS">Orçamento de Serviços</option>
-                  <option value="CONJUNTO">Orçamento Conjunto (Produtos + Serviços)</option>
-                  <option value="LOCACAO">Locação Pura &amp; Conectividade (MRR)</option>
+                  <option value="CONJUNTO">Orçamento conjunto</option>
+                  <option value="LOCACAO">Locação Pura &amp; Conectividade</option>
                 </select>
               </div>
             </div>
@@ -989,9 +967,9 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA 3 DO GESTÃOCLICK: Centro de custo | Título / Escopo Comercial | CNPJ / CPF | Prazo Contratual */}
+              {/* LINHA 3: Centro de custo | Plano de contas | Nome | CNPJ | Prazo */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
                     Centro de custo
                   </label>
@@ -1001,19 +979,39 @@ export function ProposalEditModal({
                     placeholder="Digite para buscar"
                     value={draft.costCenter || ''}
                     onChange={(e) => updateDraft({ costCenter: e.target.value })}
+                    data-testid="proposal-cost-center"
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                   <datalist id="gestaoclick-cost-centers">
-                    <option value="Comercial Telecom & TI" />
-                    <option value="Locação de Ativos (MRR)" />
-                    <option value="Projetos & Engenharia NOC" />
-                    <option value="VENDAS" />
+                    {auxOptions.costCenters.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
                   </datalist>
                 </div>
 
-                <div className="sm:col-span-5">
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Título / Escopo Comercial da Proposta <span className="text-rose-600">*</span>
+                    Plano de contas
+                  </label>
+                  <input
+                    type="text"
+                    list="gestaoclick-chart-accounts"
+                    placeholder="Digite para buscar"
+                    value={draft.chartOfAccounts || ''}
+                    onChange={(e) => updateDraft({ chartOfAccounts: e.target.value })}
+                    data-testid="proposal-chart-of-accounts"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                  />
+                  <datalist id="gestaoclick-chart-accounts">
+                    {auxOptions.chartOfAccountsList.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="sm:col-span-4">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Nome da proposta <span className="text-rose-600">*</span>
                   </label>
                   <input
                     type="text"
@@ -1026,7 +1024,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ / CPF</label>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ ou CPF</label>
                   <input
                     type="text"
                     placeholder="00.000.000/0000-00"
@@ -1038,7 +1036,7 @@ export function ProposalEditModal({
 
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Tempo de Contrato (Meses) *
+                    Prazo do contrato (meses) *
                   </label>
                   <input
                     type="number"
@@ -1058,7 +1056,7 @@ export function ProposalEditModal({
                 <div className="p-3.5 rounded-md border border-indigo-200 bg-indigo-50/50 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="block text-[11px] font-semibold text-indigo-950">
-                      Tipo de Serviço (Exibido no Cabeçalho e Escopo da Proposta de Serviços) *
+                      Tipo de serviço *
                     </label>
                     <span className="text-[10px] text-indigo-700">
                       Clique nos botões abaixo para combinar ou digite livremente
@@ -1119,7 +1117,7 @@ export function ProposalEditModal({
                 {draft.budgetType !== "PRODUTOS" && (
                   <div className="sm:col-span-4">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
-                      SLA Contratado (Acordo de Nível de Serviço) <span className="text-rose-600">*</span>
+                      SLA contratado <span className="text-rose-600">*</span>
                     </label>
                     <select
                       value={resolveProposalSlaOption(draft).id}
@@ -1198,7 +1196,7 @@ export function ProposalEditModal({
                         }
                         className="accent-[#1e3a6e]"
                       />
-                      <span>Incluir Setup / Ativação (R$)</span>
+                      <span>Incluir setup (R$)</span>
                     </label>
                   </div>
                   {Number(draft.setupFee || 0) > 0 ? (
@@ -1210,12 +1208,12 @@ export function ProposalEditModal({
                       onChange={(e) =>
                         updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
                       }
-                      placeholder="Valor do Setup (Isolado)"
+                      placeholder="Valor do setup"
                       className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
                     />
                   ) : (
                     <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
-                      Sem Setup (não exibido na proposta)
+                      Sem setup
                     </div>
                   )}
                 </div>
@@ -1240,14 +1238,9 @@ export function ProposalEditModal({
           {/* BLOCO 2 DO GESTÃOCLICK: PREENCHA OS CAMPOS EXTRAS DA SUA EMPRESA (CAPA) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                 <FileText className="w-4 h-4 text-[#1e3a6e]" />
-                <span>
-                  Preencha os <span className="text-[#1e3a6e]">campos extras</span> da sua empresa
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Campos que a sua empresa criou para os orçamentos
+                <span>Campos personalizados</span>
               </div>
             </div>
             <div className="p-5">
@@ -1289,18 +1282,15 @@ export function ProposalEditModal({
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Truck className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  4. Transporte / <span className="text-[#1e3a6e]">Frete e Endereço de Entrega</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Transportadora, valor do frete, endereço de instalação e índice de reajuste contratual.
+                <div className="text-sm font-semibold text-slate-800">
+                  Frete e entrega
                 </div>
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
               <div className="sm:col-span-3">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Prazo de Entrega / Ativação
+                  Prazo de entrega
                 </label>
                 <input
                   type="text"
@@ -1318,7 +1308,7 @@ export function ProposalEditModal({
               </div>
               <div className="sm:col-span-3">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Transportadora / Modalidade de Envio
+                  Transportadora
                 </label>
                 <select
                   value={draft.shippingCarrier || 'Frota Própria Seta Telecom'}
@@ -1348,7 +1338,7 @@ export function ProposalEditModal({
               </div>
               <div className="sm:col-span-4">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Endereço de Entrega / Instalação
+                  Endereço de entrega
                 </label>
                 <input
                   type="text"
@@ -1367,11 +1357,8 @@ export function ProposalEditModal({
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Calculator className="w-4 h-4 text-[#1e3a6e]" />
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  5. Totalizadores &amp; <span className="text-[#1e3a6e]">Condição de Pagamento / Parcelas</span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Resumo financeiro em tempo real e gerador automático de cronograma de parcelas.
+                <div className="text-sm font-semibold text-slate-800">
+                  Totais e pagamento
                 </div>
               </div>
             </div>
@@ -1388,7 +1375,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Subtotal Serviços
+                    Subtotal serviços
                   </span>
                   <strong className="text-xs font-extrabold text-indigo-900">
                     {formatBRL(draft.servicesSubtotal || 0)}
@@ -1396,9 +1383,10 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Desconto Global (R$ / %)
+                    Desconto
                   </span>
                   <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] text-slate-500">R$</span>
                     <input
                       type="number"
                       min={0}
@@ -1407,7 +1395,8 @@ export function ProposalEditModal({
                       onChange={(e) =>
                         updateDraft({ discountAmount: Math.max(0, Number(e.target.value) || 0) })
                       }
-                      title="Desconto Global R$"
+                      title="Desconto em R$"
+                      aria-label="Desconto em reais"
                       className="w-16 px-1.5 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
                     <input
@@ -1421,7 +1410,8 @@ export function ProposalEditModal({
                           discountPercentGlobal: Math.max(0, Number(e.target.value) || 0),
                         })
                       }
-                      title="Desconto Global %"
+                      title="Desconto em %"
+                      aria-label="Desconto em percentual"
                       className="w-12 px-1 py-1 rounded border border-slate-300 bg-white text-right text-[11px]"
                     />
                     <span className="text-[10px] text-slate-500">%</span>
@@ -1429,15 +1419,15 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Total Descontos
+                    Total de descontos
                   </span>
-                  <strong className="text-xs font-bold text-rose-600">
+                  <strong className="text-xs font-extrabold text-slate-900">
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
                   </strong>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Setup Único (Isolado)
+                    Setup único
                   </span>
                   <strong className="text-xs font-extrabold text-amber-800">
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
@@ -1445,7 +1435,7 @@ export function ProposalEditModal({
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">
-                    Frete (Isolado)
+                    Frete
                   </span>
                   <strong className="text-xs font-bold text-slate-800">
                     {formatBRL(draft.shippingCost || 0)}
@@ -1461,7 +1451,7 @@ export function ProposalEditModal({
                 </div>
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
                   <span className="text-[10px] uppercase font-bold text-emerald-300 block">
-                    Total / TCV ({draft.contractMonths}m)
+                    Total ({draft.contractMonths}m)
                   </span>
                   <strong className="text-sm font-black text-white">
                     {formatBRL(draft.totalContractValue)}
@@ -1475,7 +1465,7 @@ export function ProposalEditModal({
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-[#1e3a6e]" />
                     <span className="font-extrabold text-slate-800">
-                      Gerador de Parcelas e Vencimentos (Padrão GestãoClick)
+                      Parcelas e vencimentos
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1667,11 +1657,8 @@ export function ProposalEditModal({
           {/* BLOCO 6: OBSERVAÇÕES COMERCIAIS/FISCAIS E OBSERVAÇÕES INTERNAS */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-bold text-slate-800">
-                6. Observações Comerciais, <span className="text-[#1e3a6e]">Cláusulas SLA &amp; Notas Internas</span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Observações impressas no PDF A4 do cliente e anotações de uso exclusivo interno.
+              <div className="text-sm font-semibold text-slate-800">
+                Observações
               </div>
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1688,7 +1675,7 @@ export function ProposalEditModal({
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Cláusulas Técnicas, Remessa CFOP 5.908 &amp; SLA (Sai no PDF)
+                  Cláusulas técnicas e SLA
                 </label>
                 <textarea
                   rows={3}
@@ -1698,15 +1685,16 @@ export function ProposalEditModal({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-amber-800 mb-1">
-                  Observações Internas (Uso exclusivo interno — NÃO sai no PDF)
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex flex-wrap items-center gap-2">
+                  <span>Observações internas</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-semibold normal-case">Não aparece na proposta</span>
                 </label>
                 <textarea
                   rows={3}
                   value={draft.internalNotes || ''}
                   onChange={(e) => updateDraft({ internalNotes: e.target.value })}
-                  placeholder="Anotações confidenciais da negociação, margem ou aprovação..."
-                  className="w-full px-3 py-2 rounded border border-amber-300 bg-amber-50/30"
+                  placeholder="Anotações da negociação, margem ou aprovação..."
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
             </div>
@@ -1714,27 +1702,22 @@ export function ProposalEditModal({
 
           {/* BLOCO 7: VERSÕES DA PROPOSTA (SIMPLES, DIRETO E COM OS 3 BOTÕES: ABRIR TELA, PDF E RESTAURAR) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-[#1e3a6e] text-white flex flex-wrap items-center justify-between gap-2">
+            <div className="px-5 py-3 bg-white border-b border-slate-200 text-slate-900 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-emerald-300" />
-                <div>
-                  <div className="text-sm font-extrabold flex items-center gap-2">
-                    <span>Versões da Proposta ({versionHistoryList.length})</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black">
-                      Versão Atual: Versão {draft.version || 1}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-200">
-                    Abra a tela de qualquer versão anterior, gere o PDF A4 ou restaure em 1 clique.
-                  </div>
+                <History className="w-4 h-4 text-[#1e3a6e]" />
+                <div className="text-sm font-semibold flex items-center gap-2">
+                  <span>Versões anteriores</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                    Atual: v{draft.version || 1}
+                  </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowVersionHistoryPanel((v) => !v)}
-                className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+                className="px-3 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
               >
-                {showVersionHistoryPanel ? "Ocultar Versões ▲" : `Ver Versões (${versionHistoryList.length}) ▼`}
+                {showVersionHistoryPanel ? "Ocultar" : `Ver (${versionHistoryList.length})`}
               </button>
             </div>
 
@@ -1745,8 +1728,8 @@ export function ProposalEditModal({
                     <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
                       <tr>
                         <th className="py-2.5 px-3 w-36">Versão</th>
-                        <th className="py-2.5 px-3 w-48">Data / Hora &amp; Responsável</th>
-                        <th className="py-2.5 px-3">Valor Mensal / Resumo</th>
+                        <th className="py-2.5 px-3 w-48">Data e responsável</th>
+                        <th className="py-2.5 px-3">Valor mensal</th>
                         <th className="py-2.5 px-3 text-right">Ações</th>
                       </tr>
                     </thead>
@@ -1805,30 +1788,30 @@ export function ProposalEditModal({
                                   href={screenUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold"
                                 >
                                   <ExternalLink className="w-3 h-3" />
-                                  <span>Abrir Tela da Versão</span>
+                                  <span>Abrir</span>
                                 </a>
 
                                 <a
                                   href={pdfUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[11px] font-extrabold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold"
                                 >
                                   <Printer className="w-3 h-3" />
-                                  <span>Baixar / Imprimir PDF</span>
+                                  <span>Gerar PDF</span>
                                 </a>
 
                                 <button
                                   type="button"
                                   disabled={restoringVersionNum === ver.version}
                                   onClick={() => handleLoadVersionSnapshotIntoForm(ver)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer disabled:opacity-50"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
                                 >
-                                  <RotateCcw className="w-3 h-3 text-emerald-300" />
-                                  <span>Restaurar esta versão</span>
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Restaurar</span>
                                 </button>
                               </div>
                             </td>
@@ -1856,10 +1839,10 @@ export function ProposalEditModal({
                 <button
                   type="button"
                   onClick={() => onGenerateContract(draft)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
                   <FileCheck2 className="w-4 h-4" />
-                  <span>Gerar Contrato</span>
+                  <span>Gerar contrato</span>
                 </button>
               )}
             </div>
@@ -1867,25 +1850,25 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  MRR Mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
+                  Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
                   <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
                 <strong className="text-base font-black text-[#1e3a6e]">
-                  Valor Global ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
+                  Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
                 </strong>
               </div>
               <button
                 type="submit"
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm cursor-pointer"
               >
                 <Save className="w-4 h-4" />
                 {saving
                   ? 'Salvando...'
                   : isNew
-                    ? 'Cadastrar Orçamento & Gerar Link PDF A4'
-                    : 'Salvar Alterações & Atualizar Link PDF'}
+                    ? 'Salvar'
+                    : 'Salvar'}
               </button>
             </div>
           </div>
@@ -1900,7 +1883,7 @@ export function ProposalEditModal({
                   <Building2 className="w-5 h-5" />
                   <div>
                     <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 block">
-                      Cadastro Rápido Integrado ao Orçamento (Receita Federal + GestãoClick)
+                      Cadastro rápido do cliente
                     </span>
                     <h3 className="text-sm font-extrabold">
                       + Adicionar Novo Cliente e Vincular Automaticamente à Proposta
@@ -2012,7 +1995,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Telefone / WhatsApp</label>
+                    <label className="block font-bold text-slate-700 mb-1">Telefone ou WhatsApp</label>
                     <input
                       type="text"
                       value={qcPhone}
@@ -2022,7 +2005,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail Comercial / NFe</label>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail comercial</label>
                     <input
                       type="email"
                       value={qcEmail}
@@ -2131,13 +2114,14 @@ function computeContractEndDate(startDateStr: string, months: number): string {
   return target.toISOString().slice(0, 10);
 }
 
-// 2. RENTAL CONTRACT FULL EDITOR MODAL (COM 6 ABAS SEPARADAS: DADOS GERAIS, RENOVAR VIGÊNCIA, FATURAMENTO, REAJUSTE & ADITIVOS, EQUIPAMENTOS S/N, DOCUMENTO PDF)
+// 2. RENTAL CONTRACT FULL EDITOR MODAL (abas: Dados Gerais, Renovar Vigência, Faturamento, Reajuste, Produtos, Documento PDF)
 export type ContractModalTabId =
   | 'DADOS_GERAIS'
   | 'RENOVAR_VIGENCIA'
   | 'FATURAMENTO_RECIBOS'
   | 'REAJUSTE_ADITIVOS'
-  | 'EQUIPAMENTOS_PATRIMONIO'
+  | 'PRODUTOS'
+  | 'EQUIPAMENTOS_PATRIMONIO' // alias legado → mesma UI da aba Produtos
   | 'DOCUMENTO_HISTORICO';
 
 export function ContractEditModal({
@@ -2157,6 +2141,8 @@ export function ContractEditModal({
   onEmailInvoice,
   onRestoreVersion,
   onShowToast,
+  deleteInUse = false,
+  deleteUsageText,
 }: {
   contract: ErpRentalContract;
   catalog?: ErpCatalogItem[];
@@ -2174,6 +2160,8 @@ export function ContractEditModal({
   onEmailInvoice?: (inv: ErpFiscalInvoice) => void;
   onRestoreVersion?: (versionNumber: number) => Promise<void>;
   onShowToast?: (msg: string) => void;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }) {
   const [activeTab, setActiveTab] = useState<ContractModalTabId>(initialTab);
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnlyProp));
@@ -2183,7 +2171,11 @@ export function ContractEditModal({
   }));
   const [autoSyncMonthly, setAutoSyncMonthly] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
+  const [contractFormError, setContractFormError] = useState<string | null>(null);
+  const [contractFieldErrors, setContractFieldErrors] = useState<ContractFieldError[]>([]);
+  const [productToDeleteIdx, setProductToDeleteIdx] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [renewalPresetMode, setRenewalPresetMode] = useState<
@@ -2222,8 +2214,12 @@ export function ContractEditModal({
   // ===== Faturamento do Contrato (campos GestaoClick) =====
   const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
   const [recipientEmailsText, setRecipientEmailsText] = useState<string>(
-    (contract.billingRecipientEmails || []).join(', ')
+    billingRecipientEmailsText(contract.billingRecipientEmails)
   );
+  const draftWithRecipientEmails = (base: ErpRentalContract = draft): ErpRentalContract => ({
+    ...base,
+    billingRecipientEmails: parseBillingRecipientEmails(recipientEmailsText),
+  });
   const contractInvoices = matchInvoicesForContract(draft, invoices || []);
   const upcomingCycles = computeUpcomingRecurringCycles(draft, 4);
   const dueRulePreview = computeCustomDueDateClient({
@@ -2270,35 +2266,43 @@ export function ContractEditModal({
     if (!onGenerateInvoice) return;
     setBillingIssuing(true);
     try {
-      await onSave(draft);
-      await onGenerateInvoice(draft.id, { ...buildBillingRunOptions() });
+      const saved = draftWithRecipientEmails();
+      await onSave(saved);
+      await onGenerateInvoice(saved.id, { ...buildBillingRunOptions(), billingRecipientEmails: saved.billingRecipientEmails });
     } finally {
       setBillingIssuing(false);
     }
   };
-  const renderContractDataBlock = () => (
+  const renderContractDataBlock = (opts?: { includePoMeasurement?: boolean }) => {
+    const includePoMeasurement = opts?.includePoMeasurement === true;
+    if (!includePoMeasurement) return null;
+    return (
     <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3" data-testid="contract-data-po-bm">
-      <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-        1. Dados do Contrato, Classificação GestãoClick, Pedido do Cliente (PO) e Boletim de Medição (BM)
+      <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+        Pedido e medição
       </span>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="sm:col-span-2"><label className={lblCls}>Locatária / Cliente</label><input type="text" value={draft.companyName} onChange={(e) => setDraft({ ...draft, companyName: e.target.value })} className={`${inpCls} font-bold`} /></div>
-        <div><label className={lblCls}>CNPJ</label><input type="text" value={draft.companyCnpj} onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })} className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Contrato n.</label><input type="text" value={draft.contractNumber} onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })} className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Nº Contrato Externo</label><input type="text" value={draft.externalContractNumber || ''} onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Proposta Vinculada</label><input type="text" value={draft.proposalNumber || ''} onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>NF-e de Remessa / CFOP</label><div className="flex gap-1"><input type="text" value={draft.remessaNfeNumber || ''} onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })} className={`${inpCls} font-mono`} /><input type="text" value={draft.remessaCfop || ''} onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value } as ErpRentalContract)} className={`${inpCls} font-mono w-20`} /></div></div>
-        <div><label className={lblCls}>Prazo do Contrato</label><input type="text" value={draft.contractTermLabel || `${draft.contractMonths || ''} meses`} onChange={(e) => setDraft({ ...draft, contractTermLabel: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Vendedor</label><input type="text" value={draft.sellerName || ''} onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })} className={inpCls} /></div>
-        <div><label className={lblCls}>Centro de Custo</label><input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} className={inpCls} /><datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        <div><label className={lblCls}>Plano de Contas</label><input list="ctr-chart-accounts" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} className={inpCls} /><datalist id="ctr-chart-accounts">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist></div>
-        <div><label className={lblCls}>Nº Pedido do Cliente (PO)</label><input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Nº Boletim de Medição (BM)</label><input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} placeholder="BM-11/2026-453" className={`${inpCls} font-mono`} /></div>
-        <div><label className={lblCls}>Período de Medição (BM)</label><input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={inpCls} /></div>
-        <div className="sm:col-span-4"><label className={lblCls}>Observações da Medição (BM)</label><textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={inpCls} /></div>
+        <div>
+          <label className={lblCls}>Nº Pedido do Cliente (PO)</label>
+          <input type="text" value={draft.customerPurchaseOrderNumber || ''} onChange={(e) => setDraft({ ...draft, customerPurchaseOrderNumber: e.target.value })} placeholder="PED-CLI-2026-4654" className={`${inpCls} font-mono font-semibold`} />
+        </div>
+        <div>
+          <label className={lblCls}>Nº Boletim de Medição (BM)</label>
+          <input type="text" value={draft.measurementNumber || ''} onChange={(e) => setDraft({ ...draft, measurementNumber: e.target.value })} className={`${inpCls} font-mono font-semibold${fieldError('measurementNumber') ? ' border-rose-500' : ''}`} />
+        </div>
+        <div>
+          <label className={lblCls}>Período de Medição (BM)</label>
+          <input type="text" value={draft.measurementPeriod || ''} onChange={(e) => setDraft({ ...draft, measurementPeriod: e.target.value })} placeholder="Competência 11/2026" className={`${inpCls} font-semibold${fieldError('measurementPeriod') ? ' border-rose-500' : ''}`} />
+          {fieldError('measurementPeriod') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('measurementPeriod')}</span>}
+        </div>
+        <div className="sm:col-span-4">
+          <label className={lblCls}>Observações da Medição (BM)</label>
+          <textarea rows={2} value={draft.measurementNotes || ''} onChange={(e) => setDraft({ ...draft, measurementNotes: e.target.value })} className={`${inpCls} font-semibold`} />
+        </div>
       </div>
     </div>
-  );
+    );
+  };
 
   const updateEquipments = (nextEquipments: ErpRentalEquipmentItem[]) => {
     const computedMonthly = sumEquipmentsMonthly(nextEquipments);
@@ -2371,7 +2375,14 @@ export function ContractEditModal({
           : {}),
         updatedAt: new Date().toISOString(),
       };
-      await onSave(updatedContract);
+      const renewCheck = validateRentalContractForm(updatedContract);
+      if (!renewCheck.ok) {
+        setContractFieldErrors(renewCheck.errors);
+        setContractFormError(renewCheck.banner);
+        if (renewCheck.firstTab) setActiveTab(renewCheck.firstTab);
+        return;
+      }
+      await onSave(draftWithRecipientEmails(updatedContract));
       onShowToast?.(
         `Vigência do contrato ${updatedContract.contractNumber} renovada até ${updatedContract.endDate} e dados confirmados!`
       );
@@ -2403,8 +2414,9 @@ export function ContractEditModal({
         readjustmentHistory: [historyEntry, ...(draft.readjustmentHistory || [])],
         updatedAt: new Date().toISOString(),
       };
-      setDraft(updatedContract);
-      await onSave(updatedContract);
+      const saved = draftWithRecipientEmails(updatedContract);
+      setDraft(saved);
+      await onSave(saved);
       onShowToast?.(
         `Reajuste (${draft.readjustmentIndex} +${pct}%) confirmado e salvo no contrato ${updatedContract.contractNumber}!`
       );
@@ -2413,38 +2425,59 @@ export function ContractEditModal({
     }
   };
 
+  const applyContractValidation = (): boolean => {
+    const result = validateRentalContractForm(draft);
+    setContractFieldErrors(result.errors);
+    if (!result.ok) {
+      setContractFormError(result.banner);
+      if (result.firstTab) setActiveTab(result.firstTab === 'PRODUTOS' ? 'PRODUTOS' : result.firstTab);
+      return false;
+    }
+    setContractFormError(null);
+    return true;
+  };
+
+  const fieldError = (field: string): string | undefined =>
+    contractFieldErrors.find((e) => e.field === field)?.message;
+  const fieldErrCls = (field: string, base = 'w-full px-3 py-2 rounded border border-slate-300') =>
+    `${base}${fieldError(field) ? ' border-rose-500' : ''}`;
+  const tabHasError = (tab: ContractModalTabId) =>
+    contractFieldErrors.some((e) => e.tab === tab || (tab === 'PRODUTOS' && e.tab === 'PRODUTOS') || (tab === 'EQUIPAMENTOS_PATRIMONIO' && e.tab === 'PRODUTOS'));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!applyContractValidation()) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(draftWithRecipientEmails());
     } finally {
       setSaving(false);
     }
   };
 
   const CONTRACT_TABS: Array<{ id: ContractModalTabId; label: string }> = [
-    { id: 'DADOS_GERAIS', label: '1. Dados Gerais & Revisão' },
+    { id: 'DADOS_GERAIS', label: '1. Dados gerais' },
     { id: 'RENOVAR_VIGENCIA', label: '2. Renovar Vigência' },
     { id: 'FATURAMENTO_RECIBOS', label: '3. Faturamento & Recibos' },
     { id: 'REAJUSTE_ADITIVOS', label: '4. Reajuste & Aditivos' },
-    { id: 'EQUIPAMENTOS_PATRIMONIO', label: `5. Equipamentos & Patrimônio (${draft.equipments.length})` },
+    { id: 'PRODUTOS', label: '5. Produtos' },
     { id: 'DOCUMENTO_HISTORICO', label: '6. Documento PDF & Histórico' },
   ];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-6xl w-full overflow-hidden my-4">
-        <div className="px-5 py-3.5 bg-[#0d2b4e] text-white flex flex-wrap items-center justify-between gap-2">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
+      <div className="bg-white rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
+        <div className="px-5 py-3.5 bg-white border-b border-slate-200 text-slate-900 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <FileCheck2 className="w-5 h-5 text-emerald-300" />
+            <FileCheck2 className="w-5 h-5 text-[#1e3a6e]" />
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
-                Central do Contrato • Seta Telecom ERP (6 Abas de Gestão e Confirmação)
-              </span>
-              <h3 className="text-sm sm:text-base font-extrabold flex items-center gap-2">
-                <span>{draft.contractNumber || 'Novo Contrato'} — {draft.companyName || 'Selecione ou Preencha a Locatária'}</span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[10px] font-black">
+              <h3 className="text-sm sm:text-base font-semibold flex flex-wrap items-baseline gap-2">
+                <span>{draft.contractNumber ? `Contrato nº ${draft.contractNumber}` : 'Novo contrato'}</span>
+                {draft.companyName && <span className="text-slate-500 font-normal">— {draft.companyName}</span>}
+                <span className="text-[11px] text-slate-400 font-normal">
                   {draft.versionLabel || `v${draft.version || 1}.0`}
                 </span>
               </h3>
@@ -2455,7 +2488,7 @@ export function ContractEditModal({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
               >
                 Habilitar Edição
               </button>
@@ -2463,7 +2496,7 @@ export function ContractEditModal({
             <button
               type="button"
               onClick={onClose}
-              className="text-slate-300 hover:text-white cursor-pointer"
+              className="text-slate-400 hover:text-slate-700 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2478,11 +2511,11 @@ export function ContractEditModal({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                className={`shrink-0 px-3.5 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   act
                     ? 'bg-[#1e3a6e] text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
-                }`}
+                } ${tabHasError(tab.id) && !act ? 'border-rose-400 text-rose-700 ring-1 ring-rose-200' : ''} ${tabHasError(tab.id) && act ? 'ring-2 ring-rose-300' : ''}`}
               >
                 {tab.label}
               </button>
@@ -2491,221 +2524,212 @@ export function ContractEditModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+          {contractFormError && (
+            <div role="alert" data-testid="contract-form-error" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
+              {contractFormError}
+            </div>
+          )}
           {activeTab === 'DADOS_GERAIS' && (
             <fieldset disabled={isReadOnly} className="space-y-4">
-              {renderContractDataBlock()}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                  <input
-                    type="text"
-                    value={draft.contractNumber}
-                    onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Objeto / Título do Contrato *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.title}
-                    onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Modalidade Contratual</label>
-                  <select
-                    value={draft.modality || 'LOCACAO'}
-                    onChange={(e) =>
-                      setDraft({ ...draft, modality: e.target.value as ErpContractModality })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-indigo-950"
-                  >
-                    <option value="LOCACAO">Locação de Equipamentos (0% ISS — SV 31 STF)</option>
-                    <option value="SERVICO">Serviços Técnicos / NOC (LC 116)</option>
-                    <option value="ASSINATURA">Assinatura / Telecom SCM</option>
-                    <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Empresa Locatária / Contratante *</label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.companyName}
-                    onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                  <input
-                    type="text"
-                    value={draft.companyCnpj}
-                    onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status de Vigência</label>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })
-                    }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="ATIVO">ATIVO</option>
-                    <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
-                    <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
-                    <option value="ENCERRADO">ENCERRADO</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Início da Vigência</label>
-                  <input
-                    type="date"
-                    value={(draft.startDate || '').slice(0, 10)}
-                    onChange={(e) => {
-                      const nextStart = e.target.value;
-                      const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
-                      setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prazo (Meses)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.contractMonths}
-                    onChange={(e) => {
-                      const nextMonths = Math.max(1, Number(e.target.value) || 24);
-                      const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
-                      setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Fim da Vigência</label>
-                  <input
-                    type="date"
-                    value={(draft.endDate || '').slice(0, 10)}
-                    onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Dia Vencimento</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={draft.dueDay}
-                    onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Índice Reajuste</label>
-                  <select
-                    value={draft.readjustmentIndex}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
-                      })
-                    }
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-bold"
-                  >
-                    <option value="IPCA">IPCA (IBGE)</option>
-                    <option value="IGP-M">IGP-M (FGV)</option>
-                    <option value="IST_ANATEL">IST Anatel</option>
-                    <option value="FIXO">FIXO / Negociado</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Mensalidade (R$)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={draft.monthlyValue}
-                    onChange={(e) => {
-                      setAutoSyncMonthly(false);
-                      setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 });
-                    }}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-extrabold text-emerald-700"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">NF-e Remessa Nº &amp; CFOP</label>
-                  <div className="grid grid-cols-2 gap-2">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">Dados gerais</span>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">Nome do contrato <span className="text-rose-600">*</span></label>
                     <input
                       type="text"
-                      value={draft.remessaNfeNumber}
-                      onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
-                      placeholder="Nº NF-e Remessa"
-                      className="px-3 py-2 rounded border border-slate-300 font-mono"
+                      required
+                      value={draft.title}
+                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                      className={fieldErrCls('title', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
                     />
+                    {fieldError('title') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('title')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Contrato n.</label>
+                    <input
+                      type="text"
+                      value={draft.contractNumber}
+                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Nº contrato externo</label>
+                    <input
+                      type="text"
+                      value={draft.externalContractNumber || ''}
+                      onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">Cliente <span className="text-rose-600">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      value={draft.companyName}
+                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                      className={fieldErrCls('companyName', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
+                    />
+                    {fieldError('companyName') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('companyName')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">CNPJ</label>
+                    <input
+                      type="text"
+                      value={draft.companyCnpj}
+                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Vendedor</label>
+                    <input
+                      type="text"
+                      value={draft.sellerName || ''}
+                      onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Proposta</label>
+                    <input
+                      type="text"
+                      value={draft.proposalNumber || ''}
+                      onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Modalidade</label>
                     <select
-                      value={draft.remessaCfop}
-                      onChange={(e) =>
-                        setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })
-                      }
-                      className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-bold"
+                      value={draft.modality || 'LOCACAO'}
+                      onChange={(e) => setDraft({ ...draft, modality: e.target.value as ErpContractModality })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
                     >
-                      <option value="5.908">CFOP 5.908 (Estadual)</option>
-                      <option value="6.908">CFOP 6.908 (Interestadual)</option>
+                      <option value="LOCACAO">Locação de Equipamentos</option>
+                      <option value="SERVICO">Serviços Técnicos / NOC</option>
+                      <option value="ASSINATURA">Assinatura / Telecom SCM</option>
+                      <option value="HIBRIDO">Híbrido (Locação + Serviços)</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Status de vigência</label>
+                    <select
+                      value={draft.status}
+                      onChange={(e) => setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    >
+                      <option value="ATIVO">ATIVO</option>
+                      <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
+                      <option value="RENOVACAO_PROXIMA">RENOVAÇÃO PRÓXIMA</option>
+                      <option value="ENCERRADO">ENCERRADO</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Centro de custo</label>
+                    <input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} data-testid="contract-cost-center" className="w-full px-3 py-2 rounded border border-slate-300 font-semibold" />
+                    <datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist>
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Amparo Legal &amp; Observações Fiscais</label>
-                  <input
-                    type="text"
-                    value={draft.legalBasisNote}
-                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
-                  />
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Início da vigência</label>
+                    <input
+                      type="date"
+                      value={(draft.startDate || '').slice(0, 10)}
+                      onChange={(e) => {
+                        const nextStart = e.target.value;
+                        const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
+                        setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
+                      }}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Prazo (meses)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.contractMonths}
+                      onChange={(e) => {
+                        const nextMonths = Math.max(1, Number(e.target.value) || 24);
+                        const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
+                        setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd, contractTermLabel: `${nextMonths} meses` });
+                      }}
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Fim da vigência</label>
+                    <input
+                      type="date"
+                      value={(draft.endDate || '').slice(0, 10)}
+                      onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
+                      className={fieldErrCls('endDate', 'w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold')}
+                    />
+                    {fieldError('endDate') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('endDate')}</span>}
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Plano de contas</label>
+                    <input list="ctr-chart-accounts-geral" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} data-testid="contract-chart-of-accounts" className="w-full px-2.5 py-2 rounded border border-slate-300 font-semibold" />
+                    <datalist id="ctr-chart-accounts-geral">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">NF-e remessa e CFOP</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={draft.remessaNfeNumber}
+                        onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
+                        placeholder="Nº NF-e remessa"
+                        className="px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                      />
+                      <select
+                        value={draft.remessaCfop}
+                        onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })}
+                        className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                      >
+                        <option value="5.908">CFOP 5.908 (Estadual)</option>
+                        <option value="6.908">CFOP 6.908 (Interestadual)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1 flex flex-wrap items-center gap-2">
+                      <span>Observações internas</span>
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-semibold normal-case">Não aparece no contrato</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={draft.internalNotes || ''}
+                      onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    />
+                  </div>
                 </div>
               </div>
-
-              <ContractGestaoClickDataPanel
-                draft={draft}
-                setDraft={setDraft}
-                catalog={catalog}
-                disabled={isReadOnly}
-              />
             </fieldset>
           )}
 
           {activeTab === 'RENOVAR_VIGENCIA' && (
             <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <span className="text-[10px] font-black uppercase text-emerald-800 block">
+                    <span className="text-[10px] font-semibold uppercase text-slate-800 block">
                       PASSO 1 • ESCOLHA O PRAZO DE RENOVAÇÃO DE VIGÊNCIA (PADRÃO OU FORA DO PADRÃO DE MERCADO)
                     </span>
-                    <h4 className="text-sm font-extrabold text-slate-900">
+                    <h4 className="text-sm font-semibold text-slate-900">
                       Selecione o tempo de renovação ou adicione um prazo personalizado fora do padrão:
                     </h4>
                   </div>
-                  <span className="px-2.5 py-1 rounded bg-emerald-700 text-white font-extrabold text-xs">
+                  <span className="px-2.5 py-1 rounded font-semibold text-xs bg-slate-100 text-slate-700">
                     Nova Vigência: {draft.startDate} até {draft.endDate} ({draft.contractMonths} meses)
                   </span>
                 </div>
@@ -2735,9 +2759,9 @@ export function ContractEditModal({
                             customDaysValue
                           );
                         }}
-                        className={`p-2.5 rounded-lg border text-xs font-extrabold transition cursor-pointer ${
+                        className={`p-2.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
                           isSel
-                            ? 'bg-[#0d2b4e] text-white border-[#0d2b4e] shadow-sm'
+                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
                             : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
@@ -2748,8 +2772,8 @@ export function ContractEditModal({
                 </div>
 
                 {renewalPresetMode === 'CUSTOM' && (
-                  <div className="p-3.5 rounded-lg bg-white border border-emerald-300 space-y-3">
-                    <div className="font-extrabold text-slate-800">
+                  <div className="p-3.5 rounded-lg bg-white border border-slate-200 space-y-3">
+                    <div className="font-semibold text-slate-800">
                       Configurar Tempo Fora do Padrão do Mercado (Meses, Dias Corridos ou Datas Específicas):
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
@@ -2836,7 +2860,7 @@ export function ContractEditModal({
                           type="date"
                           value={(draft.endDate || '').slice(0, 10)}
                           onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-emerald-800"
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-800"
                         />
                       </div>
                     </div>
@@ -2845,60 +2869,23 @@ export function ContractEditModal({
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
-                    PASSO 2 • REVISÃO E CONFIRMAÇÃO DE TODAS AS INFORMAÇÕES DO CONTRATO (EDITÁVEL SE NECESSÁRIO)
-                  </span>
-                  <h4 className="text-sm font-extrabold text-slate-900">
-                    Confirme ou edite qualquer cláusula, cliente, valor mensal, reajuste ou SLA antes de efetivar a renovação:
-                  </h4>
-                </div>
-
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">Confirmação da renovação</span>
+                <p className="text-xs font-semibold text-slate-700">
+                  {draft.contractNumber} — {draft.companyName}{draft.companyCnpj ? ` (${draft.companyCnpj})` : ''}. Vigência: {draft.startDate} a {draft.endDate} ({draft.contractMonths} meses).
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nº do Contrato</label>
-                    <input
-                      type="text"
-                      value={draft.contractNumber}
-                      onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Cliente / Razão Social</label>
-                    <input
-                      type="text"
-                      value={draft.companyName}
-                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
-                    <input
-                      type="text"
-                      value={draft.companyCnpj}
-                      onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor Mensal Atual / Renovado (R$)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Valor mensal (R$)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={draft.monthlyValue}
-                      onChange={(e) =>
-                        setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })
-                      }
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-emerald-700"
+                      onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Índice de Reajuste</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Índice de reajuste</label>
                     <select
                       value={draft.readjustmentIndex}
                       onChange={(e) =>
@@ -2907,7 +2894,7 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
                     >
                       <option value="IPCA">IPCA (IBGE)</option>
                       <option value="IGP-M">IGP-M (FGV)</option>
@@ -2916,57 +2903,33 @@ export function ContractEditModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">% Reajuste na Renovação (Opcional)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Reajuste na renovação (%)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={renewalReadjustmentPercent}
                       onChange={(e) => setRenewalReadjustmentPercent(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Dia de Vencimento</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={draft.dueDay}
-                      onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Objeto / Escopo do Contrato</label>
-                    <input
-                      type="text"
-                      value={draft.title}
-                      onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                       className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">SLA &amp; Condições Comerciais</label>
+                    <label className="block font-semibold text-slate-700 mb-1">SLA</label>
                     <input
                       type="text"
                       value={renewalSlaText}
                       onChange={(e) => setRenewalSlaText(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                     />
                   </div>
                 </div>
-
                 <div className="flex justify-end pt-2">
                   <button
                     type="button"
                     disabled={saving}
                     onClick={handleConfirmRenewalAndSave}
-                    className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-sm cursor-pointer"
+                    className="px-6 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                   >
-                    {saving ? 'Confirmando Renovação...' : 'Confirmar Renovação de Vigência e Salvar Alterações'}
+                    {saving ? 'Confirmando Renovação...' : 'Confirmar renovação'}
                   </button>
                 </div>
               </div>
@@ -2976,13 +2939,10 @@ export function ContractEditModal({
           {activeTab === 'FATURAMENTO_RECIBOS' && (
             <div className="space-y-4" data-testid="contract-billing-tab">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-[#1e3a6e] block">
-                  FATURAMENTO DO CONTRATO — FATURA DE LOCAÇÃO (0% ISS — SÚMULA VINCULANTE 31 STF), NFS-E OU NF-E REMESSA
-                </span>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-extrabold text-slate-900">
-                    Confira e edite os dados do contrato antes de emitir a Fatura Mensal ou NF-e de Remessa:
-                  </h4>
+                  <div>
+                    <h4 className="text-sm font-semibold text-[#1e3a6e]">Faturamento</h4>
+                  </div>
                   <ReceiptDraftPreviewButton onClick={() => setReceiptDraftOpen(true)} />
                 </div>
               </div>
@@ -2997,11 +2957,11 @@ export function ContractEditModal({
                 />
               )}
 
-              {renderContractDataBlock()}
+              {renderContractDataBlock({ includePoMeasurement: true })}
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-                  2. Confira o Total da Locação / Faturamento (Produtos, Acréscimo, Desconto e Frete)
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Total da fatura
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
@@ -3060,19 +3020,19 @@ export function ContractEditModal({
                   </label>
                   <div className="ml-auto">
                     <label className={lblCls}>Valor Líquido / Total da Fatura (R$)</label>
-                    <input type="number" step="0.01" value={draft.monthlyValue} onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })} className={`${inpCls} font-extrabold text-emerald-700`} />
+                    <input type="number" step="0.01" value={draft.monthlyValue} onChange={(e) => setDraft({ ...draft, monthlyValue: Number(e.target.value) || 0 })} className={`${inpCls} font-semibold text-slate-800`} />
                     <span className="text-[10px] text-slate-500">Calculado: {formatBRL(computedInvoiceTotal(draft))}</span>
                   </div>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-                  3. Regra de Vencimento Customizada, Recorrência, Forma de Pagamento e Automação de E-mails
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Cobrança e automações
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className={lblCls}>Periodicidade de Cobrança</label>
+                    <label className={lblCls}>Repetir a cobrança *</label>
                     <select value={draft.billingRecurrence || 'MENSAL'} onChange={(e) => setDraft({ ...draft, billingRecurrence: e.target.value as ErpRentalContract['billingRecurrence'] })} className={inpCls}>
                       {auxOptions.recurrenceOptions.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
                     </select>
@@ -3089,17 +3049,23 @@ export function ContractEditModal({
                     )}
                   </div>
                   <div>
-                    <label className={lblCls}>Forma de Pagamento</label>
-                    <input list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={inpCls} />
+                    <label className={lblCls}>Forma de pagamento *</label>
+                    <input required list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={`${inpCls}${fieldError('paymentMethod') ? ' border-rose-500' : ''}`} />{fieldError('paymentMethod') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('paymentMethod')}</span>}
                     <datalist id="ctr-payment-methods">{auxOptions.paymentMethods.map((p) => (<option key={p} value={p} />))}</datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className={lblCls}>Próximo Vencimento</label>
-                      <input type="date" value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={inpCls} />
+                      <label className={lblCls}>Próximo vencimento *</label>
+                      <input type="date" required value={(draft.nextBillingDate || draft.nextDueDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, nextBillingDate: e.target.value, nextDueDate: e.target.value })} className={`${inpCls}${fieldError('nextBillingDate') ? ' border-rose-500' : ''}`} />
+                      {fieldError('nextBillingDate') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('nextBillingDate')}</span>}
                     </div>
                     <div>
-                      <label className={lblCls}>Gerar fatura (dias antes)</label>
+                      <label className={lblCls}>Dia de vencimento</label>
+                      <input type="number" min={1} max={31} value={draft.dueDay} onChange={(e) => setDraft({ ...draft, dueDay: Number(e.target.value) || 10 })} className={`${inpCls}${fieldError('dueDay') ? ' border-rose-500' : ''}`} />
+                      {fieldError('dueDay') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('dueDay')}</span>}
+                    </div>
+                    <div>
+                      <label className={lblCls}>Gerar a fatura *</label>
                       <select value={String(draft.autoGenerateInvoiceDaysBeforeDue ?? 0)} onChange={(e) => setDraft({ ...draft, autoGenerateInvoiceDaysBeforeDue: Number(e.target.value) })} className={inpCls}>
                         {auxOptions.invoiceAdvanceDaysOptions.map((d) => (<option key={d} value={d}>{d} dias</option>))}
                       </select>
@@ -3107,68 +3073,65 @@ export function ContractEditModal({
                   </div>
                 </div>
 
-                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/60 space-y-2">
-                  <label className="inline-flex items-center gap-2 font-extrabold text-slate-800">
-                    <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
-                    Ativar Regra de Vencimento Customizada (ex.: 45 dias + próxima quarta-feira)
-                  </label>
-                  {draft.customDueRuleEnabled && (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                      <div>
-                        <label className={lblCls}>Preset rápido</label>
-                        <select value="" onChange={(e) => { const p = auxOptions.customDueDateRules.find((r) => r.id === e.target.value); if (p) setDraft({ ...draft, customDueOffsetDays: p.offsetDays, customDueTargetWeekday: p.targetWeekday, customDueRuleLabel: p.label }); }} className={inpCls}>
-                          <option value="">Selecionar preset...</option>
-                          {auxOptions.customDueDateRules.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={lblCls}>Prazo em Dias (Offset)</label>
-                        <input type="number" min={0} value={draft.customDueOffsetDays ?? 0} onChange={(e) => setDraft({ ...draft, customDueOffsetDays: Number(e.target.value) || 0, customDueRuleLabel: undefined })} className={inpCls} />
-                      </div>
-                      <div>
-                        <label className={lblCls}>Dia da Semana Alvo</label>
-                        <select value={draft.customDueTargetWeekday || 'NONE'} onChange={(e) => setDraft({ ...draft, customDueTargetWeekday: e.target.value as ErpRentalContract['customDueTargetWeekday'], customDueRuleLabel: undefined })} className={inpCls}>
-                          <option value="NONE">Nenhum (dias corridos)</option>
-                          <option value="MONDAY">Segunda-feira</option>
-                          <option value="TUESDAY">Terça-feira</option>
-                          <option value="WEDNESDAY">Quarta-feira</option>
-                          <option value="THURSDAY">Quinta-feira</option>
-                          <option value="FRIDAY">Sexta-feira</option>
-                        </select>
-                      </div>
-                      <div className="p-2 rounded bg-white border border-amber-300">
-                        <div className="text-[10px] font-black uppercase text-amber-800">Vencimento calculado</div>
-                        <div className="font-extrabold text-slate-900">{dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt})</div>
-                        <div className="text-[10px] text-slate-600">{dueRulePreview.ruleLabel}</div>
-                        <button type="button" onClick={() => setDraft({ ...draft, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="mt-1 px-2 py-1 rounded bg-amber-600 text-white text-[10px] font-extrabold cursor-pointer">
-                          Aplicar no Próximo Vencimento
-                        </button>
-                      </div>
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2" data-testid="custom-due-rule-block">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 font-semibold text-slate-800">
+                      <input type="checkbox" checked={Boolean(draft.customDueRuleEnabled)} onChange={(e) => setDraft({ ...draft, customDueRuleEnabled: e.target.checked, customDueOffsetDays: draft.customDueOffsetDays ?? 45, customDueTargetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY' })} className="w-4 h-4" />
+                      Regra de vencimento personalizada
+                    </label>
+                    <select aria-label="Aplicar regra salva em Opções Auxiliares" value="" onChange={(e) => { const p = auxOptions.customDueDateRules.find((r) => r.id === e.target.value); if (p) setDraft({ ...draft, customDueRuleEnabled: true, customDueOffsetDays: p.offsetDays, customDueTargetWeekday: p.targetWeekday, customDueRuleLabel: p.label }); }} className={inpCls + ' max-w-[280px]'}>
+                      <option value="">Aplicar regra salva em Opções Auxiliares...</option>
+                      {auxOptions.customDueDateRules.map((r) => (<option key={r.id} value={r.id}>{r.label}</option>))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                    <div>
+                      <label className={lblCls}>Prazo base (dias)</label>
+                      <input type="number" min={0} value={draft.customDueOffsetDays ?? 45} onChange={(e) => setDraft({ ...draft, customDueOffsetDays: Math.max(0, Number(e.target.value) || 0), customDueRuleLabel: undefined })} className={inpCls} />
                     </div>
-                  )}
+                    <div>
+                      <label className={lblCls}>Ajustar para dia da semana</label>
+                      <select value={draft.customDueTargetWeekday || 'WEDNESDAY'} onChange={(e) => setDraft({ ...draft, customDueTargetWeekday: e.target.value as ErpRentalContract['customDueTargetWeekday'], customDueRuleLabel: undefined })} className={inpCls}>
+                        <option value="NONE">Nenhum (dias corridos)</option>
+                        <option value="MONDAY">Segunda-feira</option>
+                        <option value="TUESDAY">Terça-feira</option>
+                        <option value="WEDNESDAY">Quarta-feira</option>
+                        <option value="THURSDAY">Quinta-feira</option>
+                        <option value="FRIDAY">Sexta-feira</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <button type="button" onClick={() => setDraft({ ...draft, customDueRuleEnabled: true, nextBillingDate: dueRulePreview.dueDateIso, nextDueDate: dueRulePreview.dueDateIso, customDueRuleLabel: draft.customDueRuleLabel || dueRulePreview.ruleLabel })} className="w-full px-3 py-2 rounded text-xs font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
+                        Aplicar ao próximo vencimento
+                      </button>
+                    </div>
+                  </div>
+                  <div data-testid="due-rule-preview" className="text-[11px] font-semibold text-slate-800">
+                    Simulação: vencimento calculado em {dueRulePreview.dueDateBr} ({dueRulePreview.weekdayLabelPt.toLowerCase()})
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className={lblCls}>Automação de Envio de E-mail</label>
-                    <select value={draft.emailAutomationMode || ''} onChange={(e) => setDraft({ ...draft, emailAutomationMode: e.target.value })} className={inpCls}>
-                      <option value="">Selecionar...</option>
+                    <label className={lblCls}>Enviar a fatura por e-mail *</label>
+                    <select required value={draft.emailAutomationMode || ''} onChange={(e) => setDraft({ ...draft, emailAutomationMode: e.target.value, autoSendEmailOnBilling: e.target.value !== '' && e.target.value !== 'Não enviar e-mail' })} className={inpCls}>
+                      <option value="">Selecione</option>
                       {auxOptions.emailAutomationOptions.map((o) => (<option key={o} value={o}>{o}</option>))}
                     </select>
                     <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.autoSendEmailOnBilling)} onChange={(e) => setDraft({ ...draft, autoSendEmailOnBilling: e.target.checked })} /> Enviar e-mail automaticamente ao faturar</label>
                     <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.dunningRuleEnabled)} onChange={(e) => setDraft({ ...draft, dunningRuleEnabled: e.target.checked })} /> Régua de Cobrança / Dunning</label>
-                    <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" checked={Boolean(draft.generateNextInvoiceOnSave)} onChange={(e) => setDraft({ ...draft, generateNextInvoiceOnSave: e.target.checked })} /> Gerar próxima fatura ao salvar contrato</label>
+                    <label className="flex items-center gap-2 text-slate-700 mt-2"><input type="checkbox" role="switch" aria-label="Gerar a próxima fatura agora" checked={Boolean(draft.generateNextInvoiceOnSave)} onChange={(e) => setDraft({ ...draft, generateNextInvoiceOnSave: e.target.checked })} /> Gerar a próxima fatura agora</label>
                   </div>
                   <div>
-                    <label className={lblCls}>Destinatários de E-mail de Faturamento (múltiplos e-mails separados por vírgula)</label>
-                    <textarea rows={4} value={recipientEmailsText} onChange={(e) => { setRecipientEmailsText(e.target.value); setDraft({ ...draft, billingRecipientEmails: e.target.value.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) }); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
+                    <label className={lblCls}>Destinatários da fatura (e-mails separados por vírgula)</label>
+                    <textarea rows={4} value={recipientEmailsText} onChange={(e) => { const text = e.target.value; setRecipientEmailsText(text); setDraft((prev) => ({ ...prev, billingRecipientEmails: parseBillingRecipientEmails(text) })); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
                   </div>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-                  4. Logística de Entrega e Retirada e Observações Impressas na Fatura
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Logística e observações
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div><label className={lblCls}>Cidade de Entrega</label><input type="text" value={draft.deliveryCity || ''} onChange={(e) => setDraft({ ...draft, deliveryCity: e.target.value })} className={inpCls} /></div>
@@ -3177,14 +3140,13 @@ export function ContractEditModal({
                   <div><label className={lblCls}>Data de Entrega</label><input type="date" value={(draft.deliveryDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, deliveryDate: e.target.value })} className={inpCls} /></div>
                   <div><label className={lblCls}>Data de Retirada</label><input type="date" value={(draft.pickupDate || '').slice(0, 10)} onChange={(e) => setDraft({ ...draft, pickupDate: e.target.value })} className={inpCls} /></div>
                   <div className="sm:col-span-3"><label className={lblCls}>Observações de Entrega</label><textarea rows={2} value={draft.deliveryNotes || ''} onChange={(e) => setDraft({ ...draft, deliveryNotes: e.target.value })} className={inpCls} /></div>
-                  <div className="sm:col-span-3"><label className={lblCls}>Observações Impressas na Fatura / Contrato</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => setDraft({ ...draft, contractNotes: e.target.value })} className={inpCls} /></div>
-                  <div className="sm:col-span-3"><label className={lblCls}>Observações Internas</label><textarea rows={2} value={draft.internalNotes || ''} onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })} className={inpCls} /></div>
+                  <div className="sm:col-span-3"><label className={lblCls}>Observações impressas na fatura</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => setDraft({ ...draft, contractNotes: e.target.value })} className={inpCls} /></div>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[11px] font-black uppercase text-[#1e3a6e] block">
-                  5. Próximos Ciclos Previstos e Histórico de Faturas do Contrato (PDF / CSV sob demanda — 0 MB em disco)
+                <span className="text-[11px] font-semibold text-[#1e3a6e] block">
+                  Próximos ciclos e faturas
                 </span>
                 <table className="w-full text-left text-xs">
                   <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Parcela</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Regra</th><th className="text-right">Valor</th></tr></thead>
@@ -3213,7 +3175,7 @@ export function ContractEditModal({
                           <td>{inv.status}</td>
                           <td className="text-right font-bold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
                           <td className="text-right whitespace-nowrap">
-                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded bg-[#0d2b4e] text-white font-bold cursor-pointer mr-1">Imprimir / PDF Fatura A4</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-bold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Baixar PDF</button>
                             <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-bold cursor-pointer">Baixar Fatura HTML</button>
                           </td>
                         </tr>
@@ -3230,7 +3192,7 @@ export function ContractEditModal({
                     type="button"
                     disabled={billingIssuing}
                     onClick={() => void finalizeContractBilling()}
-                    className="px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                    className="px-4 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                   >
                     Confirmar e Emitir Fatura / Recibo de Locação do Mês
                   </button>
@@ -3242,13 +3204,13 @@ export function ContractEditModal({
                     onClick={async () => {
                       setBillingIssuing(true);
                       try {
-                        await onSave(draft);
+                        await onSave(draftWithRecipientEmails());
                         await onGenerateRemessaNfe(draft.id);
                       } finally {
                         setBillingIssuing(false);
                       }
                     }}
-                    className="px-4 py-2.5 rounded-lg bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-extrabold cursor-pointer"
+                    className="px-4 py-2.5 rounded-lg border border-[#1e3a6e] text-[#1e3a6e] bg-white hover:bg-slate-50 font-semibold cursor-pointer"
                   >
                     Confirmar e Emitir NF-e de Remessa (CFOP {draft.remessaCfop})
                   </button>
@@ -3260,10 +3222,10 @@ export function ContractEditModal({
           {activeTab === 'REAJUSTE_ADITIVOS' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-                <span className="text-[10px] font-black uppercase text-indigo-800 block">
+                <span className="text-[10px] font-semibold uppercase text-slate-800 block">
                   APLICAÇÃO DE REAJUSTE ANUAL (IPCA / IGP-M / PERSONALIZADO) &amp; ADITIVOS CONTRATUAIS
                 </span>
-                <h4 className="text-sm font-extrabold text-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900">
                   Revise as informações do contrato e confirme o percentual de reajuste ou devolução parcial pro-rata:
                 </h4>
 
@@ -3297,7 +3259,7 @@ export function ContractEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Mensalidade Atual (R$)</label>
+                    <label className="block font-bold text-slate-700 mb-1">Valor mensal atual (R$)</label>
                     <input
                       type="number"
                       value={draft.monthlyValue}
@@ -3308,8 +3270,8 @@ export function ContractEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nova Mensalidade Pós-Reajuste</label>
-                    <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 font-black text-emerald-800">
+                    <label className="block font-bold text-slate-700 mb-1">Novo valor mensal</label>
+                    <div className="px-3 py-2 rounded bg-slate-50 border border-slate-200 font-semibold text-slate-800">
                       {formatBRL(
                         Math.round(
                           draft.monthlyValue * (1 + (Number(readjPercentInput) || 0) / 100) * 100
@@ -3335,7 +3297,7 @@ export function ContractEditModal({
                     type="button"
                     disabled={saving}
                     onClick={handleApplyReadjustmentInsideTab}
-                    className="px-5 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold cursor-pointer"
+                    className="px-5 py-2.5 rounded-lg font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     Confirmar Reajuste Anual e Atualizar Contrato
                   </button>
@@ -3347,7 +3309,7 @@ export function ContractEditModal({
                         onClose();
                         onOpenPartialReturn(draft);
                       }}
-                      className="px-4 py-2.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-extrabold cursor-pointer"
+                      className="px-4 py-2.5 rounded-lg font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
                       Abrir Devolução Parcial de Equipamentos &amp; Rateio Pro-Rata
                     </button>
@@ -3357,15 +3319,17 @@ export function ContractEditModal({
             </div>
           )}
 
-          {activeTab === 'EQUIPAMENTOS_PATRIMONIO' && (
-            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+          {(activeTab === 'PRODUTOS' || activeTab === 'EQUIPAMENTOS_PATRIMONIO') && (
+            <div
+              className={`border rounded-lg p-4 bg-slate-50 space-y-3 ${
+                tabHasError('PRODUTOS') ? 'border-rose-400 ring-2 ring-rose-200' : 'border-slate-200'
+              }`}
+              data-testid="contract-products-tab"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="font-extrabold text-slate-800 uppercase text-[11px] block">
-                    Equipamentos Locados, Números de Série (S/N) &amp; Patrimônio ({draft.equipments.length})
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Patrimônio Total Alocado: <strong>{formatBRL(sumEquipmentsPatrimony(draft.equipments))}</strong> • Soma Mensal dos Itens: <strong className="text-emerald-700">{formatBRL(sumEquipmentsMonthly(draft.equipments))}</strong>
+                  <span className="font-semibold text-slate-800 text-sm block">
+                    Produtos ({draft.equipments.length})
                   </span>
                 </div>
                 <button
@@ -3385,49 +3349,56 @@ export function ContractEditModal({
                       remessaCfop: draft.remessaCfop || '5.908',
                       remessaNfeKey: '',
                     };
-                    updateEquipments([...draft.equipments, eq]);
+                    updateEquipments([...(draft.equipments || []), eq]);
                   }}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
                 >
-                  + Adicionar Equipamento / Patrimônio (S/N)
+                  Adicionar produto
                 </button>
               </div>
+              {fieldError('equipments') && (
+                <div data-testid="contract-products-error" className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-800">
+                  {fieldError('equipments')}
+                </div>
+              )}
 
               <div className="space-y-2">
-                {draft.equipments.map((eq, idx) => (
+                {(draft.equipments || []).map((eq, idx) => (
                   <div
                     key={eq.id || idx}
                     className="bg-white p-3 rounded border border-slate-200 space-y-2"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                      <div className="sm:col-span-5">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Produto</label>
+                        <CatalogProductCombobox
+                          catalog={catalog}
+                          value={eq.skuGestaoClick ? `${eq.skuGestaoClick} - ${eq.description}` : (eq.description || '')}
+                          placeholder="Digite para buscar"
+                          invalid={Boolean(fieldError('equipments') && !(eq.skuGestaoClick || eq.description))}
+                          onChangeText={(text) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], description: text, skuGestaoClick: copy[idx].skuGestaoClick && text.includes(copy[idx].skuGestaoClick) ? copy[idx].skuGestaoClick : '' };
+                            updateEquipments(copy);
+                          }}
+                          onSelect={(item) => {
+                            const copy = [...draft.equipments];
+                            const ncmMatch = String(item.ncmOrLc116 || '').match(/\d{4}\.\d{2}\.\d{2}/);
+                            copy[idx] = {
+                              ...copy[idx],
+                              skuGestaoClick: item.gestaoClickCode,
+                              description: item.name,
+                              unitMonthlyRent: catalogRentalPrice(item),
+                              ncm: ncmMatch ? ncmMatch[0] : copy[idx].ncm,
+                              stockAvailable: item.stockAvailable,
+                              variationDetails: copy[idx].variationDetails || item.unitOfMeasure || '',
+                            };
+                            updateEquipments(copy);
+                          }}
+                        />
+                      </div>
                       <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">SKU</label>
-                        <input
-                          type="text"
-                          value={eq.skuGestaoClick}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], skuGestaoClick: e.target.value };
-                            updateEquipments(copy);
-                          }}
-                          className="w-full px-2 py-1 rounded border font-mono text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-4">
-                        <label className="text-[10px] text-slate-400 block">Descrição do Ativo</label>
-                        <input
-                          type="text"
-                          value={eq.description}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], description: e.target.value };
-                            updateEquipments(copy);
-                          }}
-                          className="w-full px-2 py-1 rounded border font-semibold text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="text-[10px] text-slate-400 block">Nº de Série (S/N)</label>
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">S/N</label>
                         <input
                           type="text"
                           value={eq.serialNumber}
@@ -3436,28 +3407,46 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], serialNumber: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-mono font-bold text-indigo-950 text-xs"
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 font-mono font-semibold text-xs"
                         />
                       </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] text-slate-400 block">Locação Unit. (R$)</label>
+                      <div className="sm:col-span-1">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Qtd. <span className="text-rose-600">*</span></label>
                         <input
                           type="number"
+                          min={1}
+                          step="1"
+                          value={eq.quantity}
+                          onChange={(e) => {
+                            const copy = [...draft.equipments];
+                            copy[idx] = { ...copy[idx], quantity: Number(e.target.value) };
+                            updateEquipments(copy);
+                          }}
+                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : 'border-slate-300'}`}
+                        />
+                        {fieldError(`equipments.${idx}.quantity`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.quantity`)}</span>}
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Valor mensal (R$)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
                           value={eq.unitMonthlyRent}
                           onChange={(e) => {
                             const copy = [...draft.equipments];
                             copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1 rounded border font-bold text-emerald-700 text-xs"
+                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.unitMonthlyRent`) ? 'border-rose-500' : 'border-slate-300'}`}
                         />
+                        {fieldError(`equipments.${idx}.unitMonthlyRent`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.unitMonthlyRent`)}</span>}
                       </div>
-                      <div className="sm:col-span-1 flex items-end justify-end pt-3">
+                      <div className="sm:col-span-1 flex items-center justify-end">
                         <button
                           type="button"
-                          onClick={() =>
-                            updateEquipments(draft.equipments.filter((_, i) => i !== idx))
-                          }
+                          aria-label="Excluir produto"
+                          onClick={() => setProductToDeleteIdx(idx)}
                           className="p-1.5 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -3473,15 +3462,22 @@ export function ContractEditModal({
           {activeTab === 'DOCUMENTO_HISTORICO' && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2">
-                <h4 className="text-sm font-extrabold text-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900">
                   Minuta Contratual &amp; Histórico de Reajustes / Devoluções Parciais
                 </h4>
                 <p className="text-xs text-slate-600">
                   Contrato <strong>{draft.contractNumber}</strong> firmado com <strong>{draft.companyName}</strong> ({draft.companyCnpj}), vigência de <strong>{draft.startDate}</strong> a <strong>{draft.endDate}</strong> ({draft.contractMonths} meses), valor mensal de <strong>{formatBRL(draft.monthlyValue)}</strong>.
                 </p>
-                <p className="text-xs text-emerald-800 font-semibold">
-                  Amparo Legal: {draft.legalBasisNote || 'Locação de Bens Móveis (Não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF).'}
-                </p>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Amparo legal e observações fiscais</label>
+                  <textarea
+                    rows={2}
+                    value={draft.legalBasisNote || ''}
+                    onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
+                    placeholder="Locação de bens móveis (não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF)."
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-xs"
+                  />
+                </div>
               </div>
 
               <ContractVersionHistoryPanel
@@ -3509,10 +3505,54 @@ export function ContractEditModal({
             </div>
           )}
 
+          {productToDeleteIdx !== null && (
+            <div className="fixed inset-0 z-[80] bg-slate-900/50 flex items-center justify-center p-4" data-testid="confirm-delete-product">
+              <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+                <h4 className="text-sm font-semibold text-slate-900">Excluir produto?</h4>
+                {countValidContractProducts(
+                  (draft.equipments || []).filter((_, i) => i !== productToDeleteIdx)
+                ) < 1 && (
+                  <p className="text-xs font-semibold text-slate-600">O contrato precisa de pelo menos um produto.</p>
+                )}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setProductToDeleteIdx(null)}
+                    className="px-3.5 py-2 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const idx = productToDeleteIdx;
+                      setProductToDeleteIdx(null);
+                      if (idx === null) return;
+                      updateEquipments((draft.equipments || []).filter((_, i) => i !== idx));
+                    }}
+                    className="px-3.5 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200">
             <div>
               {!isReadOnly && onDelete && (
-                !confirmDelete ? (
+                deleteInUse ? (
+                  <button
+                    type="button"
+                    title="Em uso"
+                    aria-disabled
+                    onClick={() => setShowInUseModal(true)}
+                    className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                  >
+                    Excluir Contrato
+                  </button>
+                ) : !confirmDelete ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}
@@ -3562,9 +3602,9 @@ export function ContractEditModal({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer shadow-sm"
+                  className="px-6 py-2.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
                 >
-                  {saving ? 'Salvando...' : 'Salvar Alterações do Contrato'}
+                  {saving ? 'Salvando...' : 'Salvar'}
                 </button>
               )}
             </div>
@@ -3603,8 +3643,8 @@ export function InvoiceEditModal({
       <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-2xl w-full overflow-hidden my-8">
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-[#ff7a59]" />
-            <h3 className="text-sm font-extrabold">
+            <Receipt className="w-5 h-5 text-slate-900" />
+            <h3 className="text-sm font-semibold">
               Editar Documento Fiscal — {draft.documentNumber}
             </h3>
           </div>
@@ -3687,7 +3727,7 @@ export function InvoiceEditModal({
                 step="0.01"
                 value={draft.grossAmount}
                 onChange={(e) => setDraft({ ...draft, grossAmount: Number(e.target.value) || 0 })}
-                className="w-full px-3 py-2 rounded border font-extrabold text-slate-900"
+                className="w-full px-3 py-2 rounded border font-semibold text-slate-900"
               />
             </div>
             <div>
@@ -3733,7 +3773,7 @@ export function InvoiceEditModal({
             <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
               Cancelar
             </button>
-            <button type="submit" disabled={saving} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer">
+            <button type="submit" disabled={saving} className="px-5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
               {saving ? 'Salvando...' : 'Salvar Documento Fiscal'}
             </button>
           </div>
@@ -3754,7 +3794,7 @@ export interface GenericFieldSpec {
 
 export const SERVICE_ORDER_EDITOR_FIELDS: GenericFieldSpec[] = [
   { key: 'code', label: 'Nº da O.S.' },
-  { key: 'companyName', label: 'Cliente / Razão Social *' },
+  { key: 'companyName', label: 'Cliente *' },
   {
     key: 'technicianName',
     label: 'Técnico Responsável',
@@ -3804,7 +3844,7 @@ export const SERVICE_ORDER_EDITOR_FIELDS: GenericFieldSpec[] = [
 ];
 
 export const CATALOG_ITEM_EDITOR_FIELDS: GenericFieldSpec[] = [
-  { key: 'gestaoClickCode', label: 'Código / SKU GestãoClick *' },
+  { key: 'gestaoClickCode', label: 'Código / SKU *' },
   { key: 'name', label: 'Descrição do Equipamento / Serviço *' },
   {
     key: 'category',
@@ -3844,6 +3884,8 @@ export function GenericRecordEditModal({
   onClose,
   onSave,
   onDelete,
+  deleteInUse = false,
+  deleteUsageText,
 }: {
   title: string;
   initialValues: Record<string, unknown>;
@@ -3852,10 +3894,13 @@ export function GenericRecordEditModal({
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
   onDelete?: () => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initialValues }));
   const [isReadOnly, setIsReadOnly] = useState<boolean>(Boolean(readOnly));
   const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -3888,6 +3933,9 @@ export function GenericRecordEditModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div
         className={`bg-white rounded-lg border border-slate-300 shadow-2xl ${
           isWide ? 'max-w-2xl' : 'max-w-lg'
@@ -3895,8 +3943,8 @@ export function GenericRecordEditModal({
       >
         <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-emerald-300" />
-            <h3 className="text-sm font-extrabold">
+            <Edit3 className="w-4 h-4 text-slate-200" />
+            <h3 className="text-sm font-semibold">
               {isReadOnly ? title.replace(/^Editar/i, 'Consultar') : title}
             </h3>
           </div>
@@ -3905,7 +3953,7 @@ export function GenericRecordEditModal({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="px-2.5 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                className="px-2.5 py-1 rounded text-xs font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 Habilitar Edição
               </button>
@@ -3983,7 +4031,7 @@ export function GenericRecordEditModal({
                         className={`w-full px-3 py-2 rounded border ${
                           /cnpj|cpf/i.test(f.key) && docFeedback
                             ? docFeedback.isValid
-                              ? 'border-emerald-500 bg-emerald-50/20 font-mono'
+                              ? 'border-slate-200 bg-slate-50 font-mono'
                               : 'border-rose-500 bg-rose-50/40 text-rose-900 font-mono'
                             : 'border-slate-300'
                         }`}
@@ -3991,7 +4039,7 @@ export function GenericRecordEditModal({
                       {/cnpj|cpf/i.test(f.key) && docFeedback && (
                         <span
                           className={`block text-[10px] font-bold mt-1 ${
-                            docFeedback.isValid ? 'text-emerald-700' : 'text-rose-600'
+                            docFeedback.isValid ? 'text-slate-800' : 'text-rose-600'
                           }`}
                         >
                           {docFeedback.message}
@@ -4012,7 +4060,17 @@ export function GenericRecordEditModal({
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t">
             <div>
               {!isReadOnly && onDelete && (
-                !confirmDelete ? (
+                deleteInUse ? (
+                  <button
+                    type="button"
+                    title="Em uso"
+                    aria-disabled
+                    onClick={() => setShowInUseModal(true)}
+                    className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                  >
+                    Excluir Registro
+                  </button>
+                ) : !confirmDelete ? (
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}
@@ -4058,12 +4116,12 @@ export function GenericRecordEditModal({
                 <button
                   type="button"
                   onClick={() => setIsReadOnly(false)}
-                  className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
                   Editar Registro
                 </button>
               ) : (
-                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded bg-[#ff7a59] text-white font-extrabold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                <button type="submit" disabled={saving || hasInvalidDoc} className="px-5 py-2 rounded font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
                   {saving ? 'Salvando...' : 'Salvar Registro'}
                 </button>
               )}

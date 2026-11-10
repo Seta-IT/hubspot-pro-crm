@@ -14,6 +14,7 @@ import {
   Upload,
   Sparkles,
 } from 'lucide-react';
+import ImportFilePicker from './ImportFilePicker';
 import {
   ErpFiscalInvoice,
   ErpImportDeclarationInfo,
@@ -24,6 +25,8 @@ import {
   analyzeAndFixSebraeTxt,
   BACEN_COUNTRIES,
   calculateSebraeImportNfe,
+  decodeImportFileBytes,
+  MAX_IMPORT_FILE_BYTES,
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
   SEBRAE_REFERENCE_CASES,
@@ -225,11 +228,21 @@ export default function SebraeImportNfeWorkspace({
         const j = await res.json();
         if (j.data) {
           await onInvoiceCreated(j.data);
-          setNNF(String(Number(nNF || 12) + 1));
+          const usedNumber = Number(j.importMetadata?.nNF || nNF || 0);
+          setNNF(String(usedNumber + 1));
           onShowToast(
-            `NF-e de Importação ${j.data.documentNumber} (DI ${di.nDI}) emitida no padrão Sebrae 4.01 e escriturada em Compras!`
+            `NF-e de Importação ${j.data.documentNumber} (DI ${di.nDI}) registrada como rascunho (Sebrae 4.01) e escriturada em Compras.`
           );
         }
+      } else {
+        const j = await res.json().catch(() => ({}));
+        if (res.status === 409 && j?.nextAvailable) {
+          setNNF(String(j.nextAvailable));
+        }
+        onShowToast(
+          (j && typeof j.error === "string" && j.error) ||
+            `Não foi possível emitir a NF-e de importação (HTTP ${res.status}).`
+        );
       }
     } finally {
       setEmitting(false);
@@ -302,13 +315,21 @@ export default function SebraeImportNfeWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUploadedFile?.trigger]);
 
+  // #25: detecção de codificação (UTF-8 x ISO-8859-1/Windows-1252) feita por decodeImportFileBytes
   const readFileFromBrowser = (file: File) => {
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      onShowToast(
+        `Arquivo "${file.name}" excede o limite de ${(MAX_IMPORT_FILE_BYTES / 1024 / 1024).toFixed(0)} MB para importação.`
+      );
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const content = String(reader.result || "");
+      const buf = reader.result instanceof ArrayBuffer ? new Uint8Array(reader.result) : new Uint8Array();
+      const content = decodeImportFileBytes(buf).text;
       handleImportFileAndPopulateTabs(content, file.name);
     };
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
   };
 
   const handleUploadTxtFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,23 +350,11 @@ export default function SebraeImportNfeWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="bg-gradient-to-r from-[#0f172a] via-[#1e3a6e] to-[#0f172a] text-white rounded-md p-5 border border-slate-700 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-semibold uppercase tracking-wider">
-                EMISSOR NF-e 4.01 SEBRAE • SIMPLES NACIONAL (CRT=1 / CSOSN 900)
-              </span>
-              <span className="px-2.5 py-0.5 rounded bg-white/10 text-amber-300 text-[10px] font-mono font-semibold border border-amber-400/30">
-                Layout SEFAZ 4.00 + Motor SetaIT/app-nfe-importacao
-              </span>
-            </div>
-            <h3 className="text-base font-semibold tracking-tight">
-              Emissão de NF-e de Entrada de Importação Direta (CFOP 3.102 / 3.551 / 3.101)
-            </h3>
-            <p className="text-xs text-slate-300">
-              Cálculo automático de Conversão PTAX, Valor Aduaneiro (CIF), II, IPI, PIS-Importação (2,10%), COFINS-Importação (9,65%), Rateio SISCOMEX/AFRMM e <strong>Base de Cálculo do ICMS &ldquo;Por Dentro&rdquo; (Art. 13, V da LC 87/96)</strong>.
-            </p>
+      <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">NF-e de importação</h3>
+            <p className="text-xs text-slate-500">Emissor Sebrae 4.01 · Simples Nacional</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -358,103 +367,76 @@ export default function SebraeImportNfeWorkspace({
                   'text/plain;charset=utf-8'
                 )
               }
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-300" /> Baixar TXT Sebrae 4.01
+              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" /> Baixar TXT
             </button>
             <button
               type="button"
               onClick={() =>
                 handleDownloadFile(
                   computedMeta.sefazXmlContent || '',
-                  `NFE_IMP_${nNF}_SEFAZ_400.xml`,
+                  `NFE_IMP_${nNF}_RASCUNHO_NAO_AUTORIZADO.xml`,
                   'application/xml;charset=utf-8'
                 )
               }
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
             >
-              <FileCode2 className="w-3.5 h-3.5 text-amber-300" /> Baixar XML 4.00
+              <FileCode2 className="w-3.5 h-3.5 text-slate-500" /> Baixar XML (rascunho)
             </button>
             <button
               type="button"
               disabled={emitting}
               onClick={handleEmitImportNfe}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-md cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
-              {emitting ? 'Emitindo NF-e...' : `Emitir & Escriturar NF-e Importação #${nNF}`}
+              {emitting ? 'Emitindo NF-e...' : `Emitir e escriturar NF-e #${nNF}`}
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-white/15 text-xs">
-          <div className="bg-white/10 rounded p-2.5 border border-white/10">
-            <span className="text-[10px] uppercase font-semibold text-slate-300 block">
-              Valor Produtos (FOB R$)
-            </span>
-            <strong className="text-sm font-semibold text-white">
-              {formatBRL(computedMeta.totals.vProd)}
-            </strong>
-            <span className="text-[10px] text-emerald-300 block">
-              PTAX: R$ {di.exchangeRatePtax.toFixed(4)}/{di.currency}
-            </span>
-          </div>
-          <div className="bg-white/10 rounded p-2.5 border border-white/10">
-            <span className="text-[10px] uppercase font-semibold text-slate-300 block">
-              Valor Aduaneiro (CIF)
-            </span>
-            <strong className="text-sm font-semibold text-white">
-              {formatBRL(computedMeta.totals.vAduaneiro)}
-            </strong>
-            <span className="text-[10px] text-slate-300 block">
-              Frete+Seg: {formatBRL(computedMeta.totals.vFrete + computedMeta.totals.vSeg)}
-            </span>
-          </div>
-          <div className="bg-white/10 rounded p-2.5 border border-white/10">
-            <span className="text-[10px] uppercase font-semibold text-slate-300 block">
-              II + IPI Importação
-            </span>
-            <strong className="text-sm font-semibold text-amber-300">
-              {formatBRL(computedMeta.totals.vII + computedMeta.totals.vIPI)}
-            </strong>
-            <span className="text-[10px] text-slate-300 block">
-              II: {formatBRL(computedMeta.totals.vII)} | IPI: {formatBRL(computedMeta.totals.vIPI)}
-            </span>
-          </div>
-          <div className="bg-white/10 rounded p-2.5 border border-white/10">
-            <span className="text-[10px] uppercase font-semibold text-slate-300 block">
-              PIS (2,1%) + COFINS (9,65%)
-            </span>
-            <strong className="text-sm font-semibold text-cyan-300">
-              {formatBRL(computedMeta.totals.vPIS + computedMeta.totals.vCOFINS)}
-            </strong>
-            <span className="text-[10px] text-slate-300 block">
-              SISCOMEX+Desp: {formatBRL(computedMeta.totals.vSiscomex + computedMeta.totals.vDespAduaneiras + computedMeta.totals.vAFRMM)}
-            </span>
-          </div>
-          <div className="bg-emerald-500/20 rounded p-2.5 border border-emerald-400/40">
-            <span className="text-[10px] uppercase font-semibold text-emerald-200 block">
-              BC ICMS &ldquo;Por Dentro&rdquo; (18%)
-            </span>
-            <strong className="text-sm font-semibold text-emerald-300">
-              {formatBRL(computedMeta.totals.vBC_ICMS)}
-            </strong>
-            <span className="text-[10px] text-emerald-200 block">
-              ICMS Devido: {formatBRL(computedMeta.totals.vICMS)}
-            </span>
-          </div>
-          <div className="bg-[#ff7a59]/25 rounded p-2.5 border border-[#ff7a59]/60">
-            <span className="text-[10px] uppercase font-semibold text-amber-200 block">
-              Total da NF-e (vNF)
-            </span>
-            <strong className="text-base font-semibold text-white">
-              {formatBRL(computedMeta.totals.vNF)}
-            </strong>
-            <span className="text-[10px] text-amber-200 block">
-              vOutro: {formatBRL(computedMeta.totals.vOutro)}
-            </span>
-          </div>
-        </div>
+        <table className="w-full text-left text-xs border border-slate-200 rounded">
+          <thead className="bg-slate-50 text-slate-500 text-[11px] border-b border-slate-200">
+            <tr>
+              <th className="py-2 px-3 font-medium">Totais</th>
+              <th className="py-2 px-3 font-medium text-right">Valor</th>
+              <th className="py-2 px-3 font-medium">Detalhe</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+              <tr>
+                <td className="py-2 px-3 text-slate-600">Valor dos produtos (FOB)</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-900">{formatBRL(computedMeta.totals.vProd)}</td>
+                <td className="py-2 px-3 text-slate-500">{`PTAX R$ ${di.exchangeRatePtax.toFixed(4)}/${di.currency}`}</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 text-slate-600">Valor aduaneiro (CIF)</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-900">{formatBRL(computedMeta.totals.vAduaneiro)}</td>
+                <td className="py-2 px-3 text-slate-500">{`Frete + seguro ${formatBRL(computedMeta.totals.vFrete + computedMeta.totals.vSeg)}`}</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 text-slate-600">II + IPI</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-900">{formatBRL(computedMeta.totals.vII + computedMeta.totals.vIPI)}</td>
+                <td className="py-2 px-3 text-slate-500">{`II ${formatBRL(computedMeta.totals.vII)} · IPI ${formatBRL(computedMeta.totals.vIPI)}`}</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 text-slate-600">PIS + COFINS importação</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-900">{formatBRL(computedMeta.totals.vPIS + computedMeta.totals.vCOFINS)}</td>
+                <td className="py-2 px-3 text-slate-500">{`SISCOMEX + despesas ${formatBRL(computedMeta.totals.vSiscomex + computedMeta.totals.vDespAduaneiras + computedMeta.totals.vAFRMM)}`}</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 text-slate-600">Base do ICMS</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-900">{formatBRL(computedMeta.totals.vBC_ICMS)}</td>
+                <td className="py-2 px-3 text-slate-500">{`ICMS devido ${formatBRL(computedMeta.totals.vICMS)}`}</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 text-slate-600">Total da NF-e (vNF)</td>
+                <td className="py-2 px-3 text-right font-mono font-semibold text-slate-900">{formatBRL(computedMeta.totals.vNF)}</td>
+                <td className="py-2 px-3 text-slate-500">{`vOutro ${formatBRL(computedMeta.totals.vOutro)}`}</td>
+              </tr>
+          </tbody>
+        </table>
       </div>
 
       {/* DROPZONE PRINCIPAL DE ALTO DESTAQUE: ARRASTE OU SELECIONE ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI) */}
@@ -465,19 +447,19 @@ export default function SebraeImportNfeWorkspace({
         }}
         onDragLeave={() => setIsDraggingOver(false)}
         onDrop={handleDropFile}
-        className={`rounded-lg border-2 border-dashed p-6 transition shadow-sm space-y-4 ${
+        className={`rounded-lg border border-dashed p-6 transition space-y-4 ${
           isDraggingOver
-            ? "border-[#ff7a59] bg-orange-50/80"
-            : "border-emerald-600 bg-emerald-50/40 hover:bg-emerald-50/70"
+            ? "border-[#1e3a6e] bg-slate-50"
+            : "border-slate-300 bg-white hover:bg-slate-50"
         }`}
       >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide">
-                PASSO 1 — ENVIAR ARQUIVO .TXT (SEBRAE 4.01) OU .XML (NF-e 4.00 / DI)
+              <span className="text-xs font-semibold text-slate-900">
+                Passo 1 — enviar arquivo .TXT (Sebrae 4.01) ou .XML (NF-e 4.00 / DI)
               </span>
-              <span className="text-xs font-semibold text-emerald-950">
+              <span className="text-xs text-slate-500">
                 Arraste e solte seu arquivo aqui ou clique no botão ao lado para selecionar do computador!
               </span>
             </div>
@@ -487,15 +469,13 @@ export default function SebraeImportNfeWorkspace({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <label className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-sm font-semibold shadow-md cursor-pointer transition">
+            <ImportFilePicker
+              testId="upload-nfe-importacao-passo1"
+              onFileSelected={handleUploadTxtFile}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-sm font-semibold cursor-pointer transition"
+            >
               <Upload className="w-5 h-5" /> Selecionar Arquivo .TXT ou .XML do Computador
-              <input
-                type="file"
-                accept=".txt,.xml,text/plain,text/xml,application/xml"
-                hidden
-                onChange={handleUploadTxtFile}
-              />
-            </label>
+            </ImportFilePicker>
             <button
               type="button"
               onClick={() => setShowPasteBox((v) => !v)}
@@ -506,7 +486,7 @@ export default function SebraeImportNfeWorkspace({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-200/80 text-xs">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 text-xs">
           <span className="font-semibold text-slate-600">Ou teste agora com 1 clique:</span>
           <button
             type="button"
@@ -537,10 +517,10 @@ export default function SebraeImportNfeWorkspace({
             onClick={() =>
               handleImportFileAndPopulateTabs(
                 computedMeta.sefazXmlContent || "",
-                `NFE_IMP_${nNF}_SEFAZ_400.xml`
+                `NFE_IMP_${nNF}_RASCUNHO_NAO_AUTORIZADO.xml`
               )
             }
-            className="px-3 py-1.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-semibold border border-indigo-200 cursor-pointer"
+            className="px-3 py-1.5 rounded bg-slate-50 hover:bg-slate-50 text-slate-800 text-xs font-semibold border border-slate-200 cursor-pointer"
           >
             Carregar Exemplo XML 4.00
           </button>
@@ -556,7 +536,7 @@ export default function SebraeImportNfeWorkspace({
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
               placeholder="Cole aqui o conteúdo começando por NOTA FISCAL|1| ou <?xml version=..."
-              className="w-full p-2.5 rounded border border-slate-300 font-mono text-[11px] bg-slate-950 text-emerald-300"
+              className="w-full p-2.5 rounded border border-slate-300 font-mono text-[11px] bg-slate-950 text-slate-200"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -576,7 +556,7 @@ export default function SebraeImportNfeWorkspace({
                   handleImportFileAndPopulateTabs(pastedText, fname);
                   setShowPasteBox(false);
                 }}
-                className="px-4 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                className="px-4 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white font-semibold cursor-pointer"
               >
                 Processar Texto Colado &amp; Preencher Abas
               </button>
@@ -585,13 +565,13 @@ export default function SebraeImportNfeWorkspace({
         )}
 
         {importedDraftBanner && (
-          <div className="p-3.5 rounded bg-teal-950 text-white border border-teal-500 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
+          <div className="p-3.5 rounded bg-accent text-white border border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-semibold uppercase">
+                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold uppercase">
                   ARQUIVO CARREGADO NAS ABAS ({importedDraftBanner.sourceFormat})
                 </span>
-                <span className="font-mono font-semibold text-emerald-300">
+                <span className="font-mono font-semibold text-slate-200">
                   {importedDraftBanner.filename} &rarr; NF-e #{importedDraftBanner.nNF} • DI {importedDraftBanner.di.nDI}
                 </span>
               </div>
@@ -605,7 +585,7 @@ export default function SebraeImportNfeWorkspace({
                     .map((f, idx) => (
                       <span
                         key={idx}
-                        className="px-2 py-0.5 rounded bg-amber-400/20 border border-amber-300/40 text-amber-200 text-[10px] font-semibold"
+                        className="px-2 py-0.5 rounded bg-white/10 border border-slate-200 text-slate-200 text-[10px] font-semibold"
                       >
                         Auto-Fix [{f.record}]: {f.message}
                       </span>
@@ -618,7 +598,7 @@ export default function SebraeImportNfeWorkspace({
                 type="button"
                 disabled={emitting}
                 onClick={handleEmitImportNfe}
-                className="px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer"
+                className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold shadow-sm cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
                 {emitting ? "Emitindo..." : `Confirmar & Emitir NF-e #${nNF}`}
@@ -637,12 +617,12 @@ export default function SebraeImportNfeWorkspace({
 
       <div className="bg-white rounded-md border border-slate-200 p-2 flex flex-wrap items-center gap-1.5">
         {[
-          { id: 'ABA_1_NFE', label: '1. Dados da NF-e (Reg. B • Mod. 55)' },
-          { id: 'ABA_2_EXPORTADOR', label: '2. Exportador Estrangeiro (Reg. E • UF EX)' },
-          { id: 'ABA_3_DI_ADUANA', label: '3. DI / DUIMP, Câmbio & Aduana (Reg. I18/I25)' },
-          { id: 'ABA_4_ITENS_IMPOSTOS', label: `4. Produtos & Impostos CSOSN 900 (${rawItems.length})` },
-          { id: 'ABA_5_TOTAIS_INFCPL', label: '5. Totais W02 & Inf. Complementares (Reg. Z)' },
-          { id: 'ABA_6_TXT_XML_FIREWALL', label: '6. Validador TXT Sebrae 4.01 & XML (Firewall Fiscal)' },
+          { id: 'ABA_1_NFE', label: 'Dados da NF-e' },
+          { id: 'ABA_2_EXPORTADOR', label: 'Exportador' },
+          { id: 'ABA_3_DI_ADUANA', label: 'DI e câmbio' },
+          { id: 'ABA_4_ITENS_IMPOSTOS', label: 'Produtos' },
+          { id: 'ABA_5_TOTAIS_INFCPL', label: 'Totais' },
+          { id: 'ABA_6_TXT_XML_FIREWALL', label: 'Validação' },
         ].map((t) => (
           <button
             key={t.id}
@@ -650,7 +630,7 @@ export default function SebraeImportNfeWorkspace({
             onClick={() => setActiveTab(t.id as SebraeStepTab)}
             className={`px-3 py-2 rounded text-xs font-semibold transition cursor-pointer ${
               activeTab === t.id
-                ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                ? 'bg-[#1e3a6e] text-white'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -670,7 +650,7 @@ export default function SebraeImportNfeWorkspace({
                 Identificação da NF-e de Entrada de Importação (Simples Nacional CRT=1)
               </h4>
             </div>
-            <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[11px] font-semibold">
+            <span className="px-2.5 py-1 rounded bg-slate-50 text-slate-800 border border-slate-200 font-mono text-[11px] font-semibold">
               tpNF=0 (Entrada) • idDest=3 (Exterior) • indIntermed={indIntermed}
             </span>
           </div>
@@ -724,7 +704,7 @@ export default function SebraeImportNfeWorkspace({
               <select
                 value={crt}
                 onChange={(e) => setCrt(e.target.value as '1' | '2' | '3')}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-emerald-900"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
               >
                 <option value="1">1 — Simples Nacional (CSOSN 900)</option>
                 <option value="2">2 — Simples Nacional (Excesso Sublimite)</option>
@@ -882,7 +862,7 @@ export default function SebraeImportNfeWorkspace({
                 Declaração de Importação (DI / DSI / DUIMP), Taxa PTAX e Despesas Aduaneiras
               </h4>
             </div>
-            <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-950 font-semibold cursor-pointer">
+            <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-slate-50 border border-slate-200 text-slate-800 font-semibold cursor-pointer">
               <input
                 type="checkbox"
                 checked={di.somarTributosEmVOutroSimples}
@@ -1017,9 +997,13 @@ export default function SebraeImportNfeWorkspace({
                 min="0.01"
                 value={di.exchangeRatePtax}
                 onChange={(e) =>
-                  setDi({ ...di, exchangeRatePtax: Math.max(0.01, Number(e.target.value) || 5.725) })
+                  setDi({
+                    ...di,
+                    // #10: sem PTAX padrão — mantém o último valor válido informado
+                    exchangeRatePtax: Number(e.target.value) > 0 ? Number(e.target.value) : di.exchangeRatePtax,
+                  })
                 }
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-emerald-800"
+                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-slate-800"
               />
             </div>
           </div>
@@ -1144,7 +1128,7 @@ export default function SebraeImportNfeWorkspace({
                   },
                 ])
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
             >
               <Plus className="w-4 h-4" /> + Adicionar Item da DI
             </button>
@@ -1163,7 +1147,7 @@ export default function SebraeImportNfeWorkspace({
                       <span className="px-2 py-0.5 rounded bg-[#1e3a6e] text-white font-mono font-semibold text-[11px]">
                         Item #{idx + 1} (Adição {raw.nAdicao})
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono font-semibold text-[10px]">
+                      <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 font-mono font-semibold text-[10px]">
                         Origem {raw.orig} (Importação Direta) • CSOSN {raw.csosn} (Simples Nacional)
                       </span>
                     </div>
@@ -1274,7 +1258,7 @@ export default function SebraeImportNfeWorkspace({
                           };
                           setRawItems(next);
                         }}
-                        className="w-full px-2 py-1.5 rounded border bg-white text-right font-mono font-semibold text-indigo-900"
+                        className="w-full px-2 py-1.5 rounded border bg-white text-right font-mono font-semibold text-slate-800"
                       />
                     </div>
                   </div>
@@ -1345,7 +1329,7 @@ export default function SebraeImportNfeWorkspace({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-semibold text-emerald-800 block">
+                      <label className="text-[10px] font-semibold text-slate-800 block">
                         ICMS Alíq. (%) — CSOSN 900
                       </label>
                       <input
@@ -1357,7 +1341,7 @@ export default function SebraeImportNfeWorkspace({
                           next[idx] = { ...next[idx], icmsRatePercent: Number(e.target.value) || 0 };
                           setRawItems(next);
                         }}
-                        className="w-full px-2 py-1 rounded border bg-white font-mono font-semibold text-emerald-900"
+                        className="w-full px-2 py-1 rounded border bg-white font-mono font-semibold text-slate-800"
                       />
                     </div>
                     <div>
@@ -1399,19 +1383,19 @@ export default function SebraeImportNfeWorkspace({
                           {formatBRL(calc.pisAmountBrl + calc.cofinsAmountBrl)}
                         </strong>
                       </div>
-                      <div className="bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                        <span className="text-emerald-700 text-[10px] font-semibold block">
+                      <div className="bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                        <span className="text-slate-800 text-[10px] font-semibold block">
                           BC ICMS Por Dentro / vICMS
                         </span>
-                        <strong className="text-emerald-950">
+                        <strong className="text-slate-800">
                           {formatBRL(calc.icmsBaseCalculoPorDentroBrl)} &rarr; {formatBRL(calc.icmsAmountBrl)}
                         </strong>
                       </div>
-                      <div className="bg-amber-50 px-2 py-1 rounded border border-amber-200 text-right">
-                        <span className="text-amber-800 text-[10px] font-semibold block">
+                      <div className="bg-slate-50 px-2 py-1 rounded border border-slate-200 text-right">
+                        <span className="text-slate-800 text-[10px] font-semibold block">
                           Total Item NF-e (vNF)
                         </span>
-                        <strong className="text-amber-950">{formatBRL(calc.totalItemNfeBrl)}</strong>
+                        <strong className="text-slate-800">{formatBRL(calc.totalItemNfeBrl)}</strong>
                       </div>
                     </div>
                   )}
@@ -1433,12 +1417,12 @@ export default function SebraeImportNfeWorkspace({
             </h4>
           </div>
 
-          <div className="p-4 rounded bg-emerald-50/80 border border-emerald-300 space-y-2">
-            <div className="font-semibold text-emerald-950 uppercase text-[11px] flex items-center gap-1.5">
-              <Calculator className="w-4 h-4 text-emerald-700" />
+          <div className="p-4 rounded bg-slate-50 border border-slate-200 space-y-2">
+            <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
+              <Calculator className="w-4 h-4 text-slate-800" />
               Fórmula Legal da Base de Cálculo do ICMS na Importação (Art. 13, V da LC 87/1996)
             </div>
-            <p className="font-mono text-[11px] text-emerald-900 bg-white p-2.5 rounded border border-emerald-200">
+            <p className="font-mono text-[11px] text-slate-800 bg-white p-2.5 rounded border border-slate-200">
               BC_ICMS = (Vlr_Aduaneiro [{formatBRL(computedMeta.totals.vAduaneiro)}] + II [{formatBRL(computedMeta.totals.vII)}] + IPI [{formatBRL(computedMeta.totals.vIPI)}] + PIS_Imp [{formatBRL(computedMeta.totals.vPIS)}] + COFINS_Imp [{formatBRL(computedMeta.totals.vCOFINS)}] + SISCOMEX [{formatBRL(computedMeta.totals.vSiscomex)}] + AFRMM [{formatBRL(computedMeta.totals.vAFRMM)}] + Desp_Aduaneiras [{formatBRL(computedMeta.totals.vDespAduaneiras)}]) &divide; (1 &minus; 0,18) = <strong>{formatBRL(computedMeta.totals.vBC_ICMS)}</strong> &rarr; ICMS (18%) = <strong>{formatBRL(computedMeta.totals.vICMS)}</strong>
             </p>
           </div>
@@ -1503,14 +1487,18 @@ export default function SebraeImportNfeWorkspace({
                     setTxtAnalyzerFilename(`NFE_IMP_${nNF}_SEBRAE_401.txt`);
                     handleRunTxtAnalyzer(generated, `NFE_IMP_${nNF}_SEBRAE_401.txt`);
                   }}
-                  className="px-3 py-1.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-semibold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-slate-50 hover:bg-slate-50 text-slate-800 font-semibold cursor-pointer"
                 >
                   Validar TXT da NF-e Atual (#{nNF})
                 </button>
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer">
+                <ImportFilePicker
+                  testId="upload-nfe-importacao-analisador"
+                  accept=".txt,text/plain"
+                  onFileSelected={handleUploadTxtFile}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer"
+                >
                   <Upload className="w-3.5 h-3.5" /> Upload .TXT
-                  <input type="file" accept=".txt,text/plain" hidden onChange={handleUploadTxtFile} />
-                </label>
+                </ImportFilePicker>
               </div>
             </div>
 
@@ -1533,7 +1521,7 @@ export default function SebraeImportNfeWorkspace({
                       onClick={() =>
                         handleImportFileAndPopulateTabs(txtAnalyzerInput, txtAnalyzerFilename)
                       }
-                      className="px-3 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                      className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white font-semibold cursor-pointer"
                     >
                       Carregar nas Abas p/ Emitir NF-e
                     </button>
@@ -1543,7 +1531,7 @@ export default function SebraeImportNfeWorkspace({
                   rows={10}
                   value={txtAnalyzerInput}
                   onChange={(e) => setTxtAnalyzerInput(e.target.value)}
-                  className="w-full p-3 rounded border border-slate-300 font-mono text-[11px] bg-slate-950 text-emerald-300"
+                  className="w-full p-3 rounded border border-slate-300 font-mono text-[11px] bg-slate-950 text-slate-200"
                 />
               </div>
 
@@ -1561,7 +1549,7 @@ export default function SebraeImportNfeWorkspace({
                         'text/plain;charset=utf-8'
                       )
                     }
-                    className="px-3 py-1 rounded bg-emerald-600 text-white font-semibold cursor-pointer"
+                    className="px-3 py-1 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     <Download className="w-3 h-3 inline mr-1" /> Baixar TXT Corrigido
                   </button>
@@ -1575,8 +1563,8 @@ export default function SebraeImportNfeWorkspace({
                         f.severity === 'error'
                           ? 'bg-rose-50 border-rose-600 text-rose-950'
                           : f.severity === 'warning'
-                            ? 'bg-amber-50 border-amber-500 text-amber-950'
-                            : 'bg-blue-50 border-blue-600 text-blue-950'
+                            ? 'bg-slate-50 border-slate-200 text-slate-800'
+                            : 'bg-slate-50 border-slate-200 text-slate-800'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase">
@@ -1587,8 +1575,8 @@ export default function SebraeImportNfeWorkspace({
                         <span
                           className={`px-1.5 py-0.5 rounded ${
                             f.autoFix
-                              ? 'bg-emerald-200 text-emerald-900'
-                              : 'bg-amber-200 text-amber-900'
+                              ? 'bg-slate-50 text-slate-800'
+                              : 'bg-slate-50 text-slate-800'
                           }`}
                         >
                           {f.autoFix ? 'Correção Estrutural Automática' : 'Protegido pelo Firewall Fiscal'}
@@ -1638,10 +1626,10 @@ export default function SebraeImportNfeWorkspace({
                     <span className="px-2.5 py-0.5 rounded bg-slate-900 text-white font-mono font-semibold">
                       {inv.documentNumber}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold text-[11px]">
+                    <span className="px-2.5 py-0.5 rounded-full bg-slate-50 text-slate-800 border border-slate-200 font-semibold text-[11px]">
                       NF-e IMPORTAÇÃO SIMPLES NACIONAL (SEBRAE 4.01 • CSOSN 900)
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 font-mono font-semibold text-[11px]">
+                    <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 font-mono font-semibold text-[11px]">
                       DI: {meta?.di?.nDI || '26/1849201-4'}
                     </span>
                   </div>
@@ -1658,7 +1646,7 @@ export default function SebraeImportNfeWorkspace({
                     <span className="text-[10px] text-slate-500 block">
                       BC ICMS Por Dentro: {formatBRL(meta?.totals?.vBC_ICMS || inv.grossAmount)} | ICMS: {formatBRL(inv.taxBreakdown.icmsAmount)}
                     </span>
-                    <strong className="text-sm text-emerald-800">
+                    <strong className="text-sm text-slate-800">
                       Total NF-e (vNF): {formatBRL(inv.grossAmount)}
                     </strong>
                   </div>
@@ -1673,7 +1661,7 @@ export default function SebraeImportNfeWorkspace({
                           'text/plain;charset=utf-8'
                         )
                       }
-                      className="px-2.5 py-2 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold cursor-pointer"
+                      className="px-2.5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
                       TXT Sebrae
                     </button>
@@ -1684,13 +1672,13 @@ export default function SebraeImportNfeWorkspace({
                       onClick={() =>
                         handleDownloadFile(
                           meta.sefazXmlContent!,
-                          `${inv.documentNumber}_SEFAZ_400.xml`,
+                          `${inv.documentNumber}_RASCUNHO_NAO_AUTORIZADO.xml`,
                           'application/xml;charset=utf-8'
                         )
                       }
-                      className="px-2.5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-semibold cursor-pointer"
+                      className="px-2.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white font-semibold cursor-pointer"
                     >
-                      XML 4.00
+                      XML 4.00 (rascunho)
                     </button>
                   )}
                   <button
@@ -1703,7 +1691,7 @@ export default function SebraeImportNfeWorkspace({
                   <button
                     type="button"
                     onClick={() => onEditInvoice(inv)}
-                    className="px-2.5 py-2 rounded bg-amber-500 text-white font-semibold cursor-pointer"
+                    className="px-2.5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     Editar
                   </button>

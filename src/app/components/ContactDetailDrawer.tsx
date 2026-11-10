@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
 import {
@@ -14,6 +16,7 @@ import {
 import { CompletenessResult } from '../../modules/data-health/completeness';
 import { CrmTask } from '../../db/types';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import {
   BUYING_ROLE_OPTIONS,
   SETA_OWNER_OPTIONS,
@@ -47,6 +50,8 @@ interface ContactDetailDrawerProps {
   onSingleEnrich: (contactId: string) => Promise<void>;
   onUpdateContact: (contactId: string, patch: Record<string, unknown>) => Promise<void>;
   onDeleteContact: (contactId: string) => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
   onAddContactActivity: (payload: {
     contactId: string;
     companyId?: string | null;
@@ -69,10 +74,13 @@ export default function ContactDetailDrawer({
   onSingleEnrich,
   onUpdateContact,
   onDeleteContact,
+  deleteInUse = false,
+  deleteUsageText,
   onAddContactActivity,
 }: ContactDetailDrawerProps) {
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -88,6 +96,7 @@ export default function ContactDetailDrawer({
   const [buyingRole, setBuyingRole] = useState<BuyingRoleType>('DECISOR');
   const [isUnworked, setIsUnworked] = useState<boolean>(false);
   const [ownerName, setOwnerName] = useState('Marcelo Lopes Mira');
+  const [initialOwnerName, setInitialOwnerName] = useState(''); // Pacote I: so envia se mudou
   const [city, setCity] = useState('');
   const [stateUf, setStateUf] = useState('');
 
@@ -114,14 +123,14 @@ export default function ContactDetailDrawer({
       setBuyingRole(contactDetail.buyingRole || 'DECISOR');
       setIsUnworked(Boolean(contactDetail.isUnworked));
       const props = contactDetail.customProperties || {};
-      setOwnerName(
-        String(
-          contactDetail.ownerName ||
-            props.ownerName ||
-            contactDetail.ownerId ||
-            'Marcelo Lopes Mira'
-        )
+      const loadedOwner = String(
+        contactDetail.ownerName ||
+          props.ownerName ||
+          contactDetail.ownerId ||
+          'Marcelo Lopes Mira'
       );
+      setOwnerName(loadedOwner);
+      setInitialOwnerName(loadedOwner);
       setCity(String(props.city || contactDetail.company?.city || ''));
       setStateUf(String(props.state || contactDetail.company?.state || ''));
     }
@@ -132,7 +141,9 @@ export default function ContactDetailDrawer({
     if (!contactDetail || !firstName.trim() || !email.trim()) return;
     setSavingEdit(true);
     try {
-      const cleanOwner = ownerName.trim() || 'Marcelo Lopes Mira';
+      // Pacote I: campo vazio ou sem mudanca => ownerName omitido (o servidor mantem o atual).
+      const cleanOwner = ownerName.trim();
+      const ownerChanged = cleanOwner !== '' && cleanOwner !== initialOwnerName.trim();
       await onUpdateContact(contactDetail.id, {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -144,10 +155,12 @@ export default function ContactDetailDrawer({
         leadStatus,
         buyingRole,
         isUnworked,
-        ownerId: cleanOwner.toLowerCase().includes('evelyn')
-          ? 'owner-evelyn'
-          : 'owner-marcello',
-        ownerName: cleanOwner,
+        ...(ownerChanged
+          ? {
+              ownerId: cleanOwner.toLowerCase().includes('evelyn') ? 'owner-evelyn' : 'owner-marcello',
+              ownerName: cleanOwner,
+            }
+          : {}),
         city: city.trim() || undefined,
         state: stateUf.trim() || undefined,
       });
@@ -189,6 +202,9 @@ export default function ContactDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
         <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -487,7 +503,18 @@ export default function ContactDetailDrawer({
                   </div>
 
                   <div className="pt-3 border-t border-orange-200/70 flex flex-wrap items-center justify-between gap-2">
-                    {!confirmDelete ? (
+                    {deleteInUse ? (
+                      <button
+                        type="button"
+                        title="Em uso"
+                        aria-disabled
+                        onClick={() => setShowInUseModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-400 cursor-not-allowed text-xs font-semibold"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Excluir Contato
+                      </button>
+                    ) : !confirmDelete ? (
                       <button
                         type="button"
                         onClick={() => setConfirmDelete(true)}
@@ -781,6 +808,18 @@ export default function ContactDetailDrawer({
                 onSent={() => {
                   onRefreshContact?.();
                 }}
+              />
+
+              {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO (ENVIO, RESPOSTAS, ABERTURAS E CLIQUES) */}
+              <CrmRecordEmailSection
+                record={{ contactId: contactDetail.id, companyId: contactDetail.companyId || null }}
+                defaultTo={contactDetail.email}
+                recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
+                suggestions={
+                  contactDetail.companyId
+                    ? allContacts.filter((c) => c.companyId === contactDetail.companyId).map((c) => c.email)
+                    : []
+                }
               />
 
               {/* HUBSPOT TASKS & FOLLOW-UP SECTION FOR THIS CONTACT */}

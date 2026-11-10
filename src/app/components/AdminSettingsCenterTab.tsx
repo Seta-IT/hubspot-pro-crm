@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
   Sliders,
@@ -78,6 +79,8 @@ export default function AdminSettingsCenterTab({
   onOpenEmailComposer,
   onShowToast,
 }: AdminSettingsCenterTabProps) {
+  // Central legada (sem importadores hoje): mesmo gate da StiHubAdminRbacPanel, admin com 2FA.
+  const centralAccess = useErpConfigAccess(null);
   const [subTab, setSubTab] = useState<AdminSubTab>('EMAIL_CONFIG');
 
   // 1. Email Config & Validation State
@@ -374,7 +377,17 @@ export default function AdminSettingsCenterTab({
           body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, Chamados NOC, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
         }),
       });
-      const json = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        let msg = `Falha ao enviar o e-mail de teste para ${testRecipient}.`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = `Falha ao enviar o e-mail de teste: ${j.error}`;
+        } catch {}
+        setValidationResult(null);
+        onShowToast(msg);
+        return;
+      }
+      const json = await res.json();
       const protocol = json?.data?.protocol || `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
       setValidationResult({
         protocol,
@@ -450,6 +463,16 @@ export default function AdminSettingsCenterTab({
     objectFilter === 'ALL'
       ? customFields
       : customFields.filter((f) => f.objectType === objectFilter);
+
+  if (centralAccess?.isAdmin !== true) {
+    if (!centralAccess) return null;
+    return (
+      <div data-testid="admin-central-restrita" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Lock className="w-4 h-4 shrink-0" />
+        <span className="font-semibold">Área restrita a administradores com 2FA.</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -632,7 +655,7 @@ export default function AdminSettingsCenterTab({
                   type="button"
                   disabled={testingEmail}
                   onClick={handleRunEmailValidationTest}
-                  className="px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer shrink-0"
                 >
                   {testingEmail ? 'Testando...' : 'Validar Disparo Agora'}
                 </button>
@@ -668,7 +691,7 @@ export default function AdminSettingsCenterTab({
                 </code>{' '}
                 e{' '}
                 <code className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-900 font-mono">
-                  STI_HUB_FROM_EMAIL
+                  RESEND_FROM_EMAIL
                 </code>{' '}
                 no projeto da Vercel.
               </p>
@@ -721,7 +744,7 @@ export default function AdminSettingsCenterTab({
                 >
                   <option value="CONTACT">Contato (CRM)</option>
                   <option value="COMPANY">Empresa / Cliente</option>
-                  <option value="DEAL">Negócio (Deal)</option>
+                  <option value="DEAL">Negócio</option>
                   <option value="TICKET">Chamado / O.S.</option>
                   <option value="PROPOSAL">Orçamento / Proposta</option>
                   <option value="CONTRACT">Contrato de Locação</option>
@@ -746,7 +769,7 @@ export default function AdminSettingsCenterTab({
               <div>
                 <button
                   type="submit"
-                  className="w-full py-2 px-4 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                  className="w-full py-2 px-4 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
                 >
                   + Criar Campo
                 </button>
@@ -812,7 +835,7 @@ export default function AdminSettingsCenterTab({
                       <td className="py-2.5 px-3 text-slate-600">{f.groupName}</td>
                       <td className="py-2.5 px-3 space-x-1">
                         {f.hubspotSynced && (
-                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-semibold">
+                          <span className="px-2 py-0.5 rounded bg-orange-50 text-[#1e3a6e] border border-orange-200 text-[10px] font-semibold">
                             HubSpot #4369067
                           </span>
                         )}
@@ -871,7 +894,7 @@ export default function AdminSettingsCenterTab({
                   updatedAt: new Date().toISOString(),
                 })
               }
-              className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
+              className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
             >
               + Novo Modelo de E-mail
             </button>
@@ -1043,7 +1066,7 @@ export default function AdminSettingsCenterTab({
           {/* Caminho / Guia Rápido para Adicionar Usuários, Tipos de Conta (CRM vs ERP), Permissões CRUD e 2FA */}
           <div className="bg-[#0d2b4e] text-white rounded-xl p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#ff7a59]">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e]">
                 ARQUITETURA DE CONTAS E PERMISSÕES SEPARADAS (CRM ≠ ERP) + 2FA GOOGLE AUTHENTICATOR
               </div>
               <div className="text-sm font-semibold">
@@ -1061,7 +1084,7 @@ export default function AdminSettingsCenterTab({
                 );
                 setShowAddUserModal(true);
               }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer shrink-0"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-sm cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" /> + Adicionar Novo Usuário &amp; 2FA
             </button>
@@ -1178,7 +1201,7 @@ export default function AdminSettingsCenterTab({
                       ← Voltar para Lista de Usuários
                     </button>
                     <div>
-                      <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                      <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                         CONFIGURAÇÕES &gt; USUÁRIOS &gt; CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES
                       </span>
                       <h3 className="text-sm font-semibold text-slate-900">
@@ -1202,7 +1225,7 @@ export default function AdminSettingsCenterTab({
                         setSelectedUserProfile(null);
                         onShowToast("Cadastro, Tipos de Conta e Permissões de " + selectedUserProfile.name + " salvos!");
                       }}
-                      className="px-4 py-1.5 rounded-lg bg-[#ff7a59] text-white font-semibold cursor-pointer"
+                      className="px-4 py-1.5 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                     >
                       Salvar Usuário &amp; Permissões
                     </button>
@@ -1347,7 +1370,7 @@ export default function AdminSettingsCenterTab({
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full p-6 space-y-4 text-xs my-6">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <div>
-                      <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                      <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                         CADASTRO DE USUÁRIO STI-HUB • CONTAS CRM &amp; ERP INDEPENDENTES + 2FA
                       </span>
                       <h3 className="text-base font-semibold text-slate-900">
@@ -1486,7 +1509,7 @@ export default function AdminSettingsCenterTab({
                       </button>
                       <button
                         type="submit"
-                        className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                        className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
                       >
                         Criar Usuário com Permissões CRM/ERP &amp; 2FA Ativo
                       </button>

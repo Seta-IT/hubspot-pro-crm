@@ -10,6 +10,10 @@ import {
 // HubSpot Pro CRM - Transactional Repository Layer (File-Persisted & In-Memory)
 // ============================================================================
 
+import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
+import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
+import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
+import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
@@ -20,6 +24,7 @@ import {
   CrmDatabaseState,
   DataHealthIssue,
   Deal,
+  ProposalFollowupEnrollment,
   EmailSequence,
   FormSubmission,
   Pipeline,
@@ -50,6 +55,9 @@ import {
   ErpFinancialEntry,
   ErpPurchaseOrder,
   ErpDatabaseState,
+  ErpProposalShortLink,
+  ErpInvoiceShortLink,
+  ErpInvoiceEmailHistoryEntry,
   GestaoClickConfig,
   ErpServiceOrder,
   ErpSaleOrder,
@@ -126,9 +134,12 @@ import {
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
 import { SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
+import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
+import type { FiscalDocumentSettings, FiscalEnvironment } from './types';
+import { FISCAL_PRODUCTION_SEED, normalizeFiscalDocumentSettings } from '../modules/erp/fiscal-settings';
 
 /** Identidade reservada a contas de servico (id svc-* ou e-mail @servico.sti-hub). */
 export function isServiceAccountIdentity(id: unknown, email?: unknown): boolean {
@@ -176,12 +187,26 @@ function generateTotpSecretBase32(seedIdentifier?: string): string {
   return deriveServerTotpSecret(String(seedIdentifier || ''));
 }
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
+import { mergeGcCatalog, mergeGcCompanies, mergeGcSuppliers } from '../modules/erp/gestaoclick-merge';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
 import {
   calculateLeadScore,
   computeContactNextBestAction,
   normalizeAndClassifyJobTitle,
 } from '../modules/enrichment/enrichment-service';
+
+/** Pacote L (2): item de equipamento de contrato precisa ser um objeto (nao null/array/primitivo). */
+export function isPlainEquipmentItem(eq: unknown): boolean {
+  return Boolean(eq) && typeof eq === 'object' && !Array.isArray(eq);
+}
+
+/** Pacote L (3): o registro do journal so repete o que o servidor ja tem (todas as chaves iguais)? */
+function journalRecordMatches(cur: Record<string, unknown>, inc: Record<string, unknown>): boolean {
+  for (const k of Object.keys(inc)) {
+    if (JSON.stringify(cur[k] ?? null) !== JSON.stringify(inc[k] ?? null)) return false;
+  }
+  return true;
+}
 
 export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpProposalVersionSnapshot {
   return {
@@ -226,6 +251,53 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     installments: Array.isArray(p.installments) ? structuredClone(p.installments) : [],
     items: Array.isArray(p.items) ? structuredClone(p.items) : [],
   };
+}
+
+/**
+ * D3 (checagem final v4): status em que o aceite publico pelo link assinado vale.
+ * Os demais status => o mesmo 404 generico do link (sem revelar o status).
+ */
+export const PROPOSAL_LINK_APPROVABLE_STATUSES = ['ENVIADA', 'EM_NEGOCIACAO'] as const;
+
+const PROPOSAL_STATUS_ONLY_VOLATILE_KEYS = new Set([
+  'status',
+  'statusHistory',
+  'statusObservation',
+  'updatedAt',
+  'updatedBy',
+  'versionChangeSummary',
+  'version',
+  'versionHistory',
+]);
+
+function stableProposalContent(v: unknown): string {
+  const walk = (x: unknown, top: boolean): unknown => {
+    if (Array.isArray(x)) return x.map((i) => walk(i, false));
+    if (x && typeof x === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(x as Record<string, unknown>).sort()) {
+        if (top && PROPOSAL_STATUS_ONLY_VOLATILE_KEYS.has(k)) continue;
+        const val = (x as Record<string, unknown>)[k];
+        if (val === undefined) continue;
+        out[k] = walk(val, false);
+      }
+      return out;
+    }
+    return x;
+  };
+  return JSON.stringify(walk(v, true));
+}
+
+/**
+ * D3: troca SO de status entre ENVIADA e EM_NEGOCIACAO (nenhum outro campo muda) nao cria
+ * versao nova: o conteudo que o cliente recebeu pelo link e o mesmo, entao o link continua
+ * valendo. Qualquer outra mudanca (inclusive status fora desse par) gera versao nova e o
+ * link anterior deixa de valer.
+ */
+export function isProposalLinkStableStatusOnlyChange(prev: ErpCommercialProposal, next: ErpCommercialProposal): boolean {
+  const ok = (st: unknown) => (PROPOSAL_LINK_APPROVABLE_STATUSES as readonly string[]).includes(String(st || ''));
+  if (!ok(prev.status) || !ok(next.status) || prev.status === next.status) return false;
+  return stableProposalContent(prev) === stableProposalContent(next);
 }
 
 export function computeProposalChangedFields(
@@ -338,6 +410,43 @@ export function mapProposalStatusToGcLabel(status: ErpCommercialProposal["status
   }
 }
 
+/**
+ * t29u: propostas que NAO existem no GestaoClick (seeds ficticios antigos: Nubank, TOTVS,
+ * Creditas, Wittel, Horizon). Removidas do seed e, no load, dos dados persistidos/journal.
+ * Contratos, faturas e pedidos de outros modulos nao sao apagados: so perdem o vinculo.
+ */
+export const REMOVED_FICTITIOUS_PROPOSAL_IDS: readonly string[] = [
+  'prop-seta-001',
+  'prop-seta-002',
+  'prop-seta-003',
+  'prop-seta-004',
+  'prop-seta-005',
+];
+
+export function isRemovedFictitiousProposalId(id: unknown): boolean {
+  const k = String(id ?? '').trim().toLowerCase();
+  return Boolean(k) && REMOVED_FICTITIOUS_PROPOSAL_IDS.includes(k);
+}
+
+export function removeFictitiousProposals(erp: ErpDatabaseState): string[] {
+  const proposals = Array.isArray(erp.proposals) ? erp.proposals : [];
+  const removed = proposals.filter((p) => p && isRemovedFictitiousProposalId(p.id)).map((p) => p.id);
+  if (removed.length === 0) return removed;
+  erp.proposals = proposals.filter((p) => !(p && isRemovedFictitiousProposalId(p.id)));
+  const unlink = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const rec of list as Array<Record<string, unknown>>) {
+      if (rec && isRemovedFictitiousProposalId(rec.proposalId)) rec.proposalId = null;
+    }
+  };
+  unlink(erp.rentalContracts);
+  unlink(erp.invoices);
+  unlink((erp as unknown as Record<string, unknown>).salesOrders);
+  unlink((erp as unknown as Record<string, unknown>).serviceOrders);
+  unlink((erp as unknown as Record<string, unknown>).financialEntries);
+  return removed;
+}
+
 export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): ErpCommercialProposal {
   if (p.slaTier === "NOC_24X7_ALTA_DISP_4H") {
     p.slaTier = "SEM_SLA_ESPECIFICO";
@@ -378,7 +487,7 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
       .trim();
   }
   if (
-    (p.id === "prop-seta-001" || p.id === "prop-gc-4695") &&
+    p.id === "prop-gc-4695" &&
     (!Array.isArray(p.versionHistory) || p.versionHistory.length < 2)
   ) {
     const currentSnap = buildProposalVersionSnapshot(p);
@@ -391,7 +500,7 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
       return structuredClone(it);
     });
     const v1Mrr = v1Items.reduce((acc, it) => acc + Number(it.totalMonthly || 0), 0);
-    const v1Months = p.id === "prop-seta-001" ? 12 : Number(p.contractMonths || 1);
+    const v1Months = Number(p.contractMonths || 1);
     const v1Snap = {
       ...structuredClone(currentSnap),
       contractMonths: v1Months,
@@ -754,6 +863,9 @@ export function pickEditableTicketFields(patch: unknown): Partial<ServiceTicket>
   return out as Partial<ServiceTicket>;
 }
 
+const SUPERSEDED_INVITE_MESSAGE =
+  "Este link de convite foi substituído por um convite mais recente. Use o link do último e-mail recebido.";
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -775,6 +887,7 @@ export class CrmRepository {
         const parsed = JSON.parse(raw) as CrmDatabaseState;
         this.state = this.hydrateParsedState(parsed);
         this.lastLoadedMtimeMs = stat.mtimeMs;
+        const salesStagesMigrated = applySalesPipelineStageMigration(this.state).applied;
         const needsContactBackfill = (parsed.contacts || []).some(
           (c) => !c.ownerName || !c.buyingRole
         );
@@ -789,6 +902,7 @@ export class CrmRepository {
           !Array.isArray(parsed.snippets) ||
           parsed.snippets.length === 0;
         if (
+          salesStagesMigrated ||
           (parsed.pipelines?.length || 0) < this.state.pipelines.length ||
           (parsed.deals?.length || 0) < this.state.deals.length ||
           needsContactBackfill ||
@@ -817,6 +931,7 @@ export class CrmRepository {
         workflowExecutions: [],
         sequences: [],
         sequenceEnrollments: [],
+        proposalFollowupEnrollments: [],
         dataHealthIssues: [],
         webForms: [],
         formSubmissions: [],
@@ -920,7 +1035,7 @@ export class CrmRepository {
       };
     });
 
-    return {
+    const hydratedState: CrmDatabaseState = {
       ...seedFallback,
       ...parsed,
       contacts: hydratedContacts,
@@ -942,6 +1057,9 @@ export class CrmRepository {
         Array.isArray(parsed.tasks) && parsed.tasks.length > 0
           ? parsed.tasks
           : seedFallback.tasks || [],
+      proposalFollowupEnrollments: Array.isArray(parsed.proposalFollowupEnrollments)
+        ? parsed.proposalFollowupEnrollments
+        : [],
       emailTemplates:
         Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length > 0
           ? parsed.emailTemplates
@@ -971,7 +1089,8 @@ export class CrmRepository {
         if (!parsed.erp || !Array.isArray(parsed.erp.proposals)) {
           return seedErp;
         }
-        const cleanedProposals = parsed.erp.proposals.map((p) => {
+        // t29u: propostas ficticias (nao existem no GestaoClick) saem dos dados persistidos.
+        const cleanedProposals = parsed.erp.proposals.filter((p) => !isRemovedFictitiousProposalId(p && p.id)).map((p) => {
           const cleanedTc = String(p.technicalClauses || "")
             .replace(
               /SLA\s*99,95%\s*com\s*substituiç[aã]o\s*expressa\s*de\s*hardware\s*\(Advance\s*Replacement\s*em\s*at[eé]\s*4h\s*na\s*Grande\s*SP\)\.\s*Vig[eê]ncia\s*de\s*24\s*meses\s*com\s*reajuste\s*anual\s*pelo\s*IPCA\.?/gi,
@@ -984,11 +1103,9 @@ export class CrmRepository {
             .trim();
           return {
             ...p,
-            budgetType: p.id === "prop-gc-4695" ? "PRODUTOS" : p.id === "prop-seta-001" ? "LOCACAO" : p.id === "prop-seta-004" ? "SERVICOS" : p.budgetType,
-            serviceType: p.id === "prop-seta-004" || p.budgetType === "SERVICOS" ? (p.serviceType || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação") : p.serviceType,
-            slaTier: p.id === "prop-gc-4695" || p.budgetType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : p.id === "prop-seta-001" && !p.slaTier ? "CORPORATIVO_8X5_NBD" : p.slaTier,
-            deliveryLeadTime: p.id === "prop-seta-001" && (!p.deliveryLeadTime || p.deliveryLeadTime.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryLeadTime,
-            deliveryForecast: p.id === "prop-seta-001" && (!p.deliveryForecast || p.deliveryForecast.includes("48h")) ? "10 dias úteis após o aceite" : p.deliveryForecast,
+            budgetType: p.id === "prop-gc-4695" ? "PRODUTOS" : p.budgetType,
+            serviceType: p.budgetType === "SERVICOS" ? (p.serviceType || "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação") : p.serviceType,
+            slaTier: p.id === "prop-gc-4695" || p.budgetType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : p.slaTier,
             technicalClauses: cleanedTc,
           };
         });
@@ -1048,6 +1165,7 @@ export class CrmRepository {
         };
       })(),
     };
+    return hydratedState;
   }
 
   syncFromDisk(): void {
@@ -1076,6 +1194,9 @@ export class CrmRepository {
         this.state = this.hydrateParsedState(parsed);
         this.persistPath = candidatePath;
         this.lastLoadedMtimeMs = stat.mtimeMs;
+        if (applySalesPipelineStageMigration(this.state).applied) {
+          this.save();
+        }
       }
     } catch {
       // Ignore transient disk read errors
@@ -1104,13 +1225,176 @@ export class CrmRepository {
     }
   }
 
-  reconcileClientState(journal?: ClientDurableJournal | null): {
+  /**
+   * Pacote J (A1/A2): propostas do journal do navegador.
+   * - Proposta NOVA (id exato inexistente) cujo id colide, sem caixa, com id ou codigo de outra
+   *   proposta => descartada (nunca sombra/duplicata). Codigo ausente ou ocupado => o servidor
+   *   gera o proximo codigo livre.
+   * - Proposta EXISTENTE (mesmo id): o journal nao troca o codigo para um ocupado nem o apaga.
+   * (Escopo/dono e status ficam com o router — area do link assinado.)
+   */
+  private guardJournalProposals(
+    current: ErpCommercialProposal[],
+    incoming: ErpCommercialProposal[] | undefined
+  ): ErpCommercialProposal[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const byId = new Map(current.map((p) => [p.id, p] as const));
+    const occupied = occupiedRefs(current, (p) => [p.id, p.code]);
+    const batchNewCodes = new Map<string, string>();
+    const out: ErpCommercialProposal[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object' || !inc.id || typeof inc.id !== 'string') continue;
+      if (isRemovedFictitiousProposalId(inc.id)) continue; // t29u: journal do navegador nao recria as ficticias
+      const cur = byId.get(inc.id);
+      const incCode = typeof inc.code === 'string' ? inc.code.trim() : '';
+      if (cur) {
+        const curCode = String(cur.code || '');
+        // Numeracao GestaoClick: codigo legado (PROP-AAAA-NNN) do navegador nao substitui o numero GC do servidor.
+        const legacyOverGc = isLegacyProposalCode(incCode) && !isLegacyProposalCode(curCode);
+        const codeOk = incCode && !legacyOverGc && (refKey(incCode) === refKey(curCode) || !occupied.has(refKey(incCode)));
+        const next = { ...inc } as ErpCommercialProposal;
+        if ('code' in inc || !curCode) next.code = codeOk ? incCode : curCode;
+        if (codeOk && refKey(incCode) !== refKey(curCode)) occupied.add(refKey(incCode));
+        out.push(next);
+        continue;
+      }
+      const again = batchNewCodes.get(inc.id);
+      if (again !== undefined) {
+        out.push({ ...inc, code: again } as ErpCommercialProposal); // mesma proposta nova repetida no lote
+        continue;
+      }
+      if (occupied.has(refKey(inc.id))) continue; // sombra por caixa ou pelo codigo de outra
+      const code = incCode && !occupied.has(refKey(incCode))
+        ? incCode
+        : nextFreeCode(occupied, nextGcProposalNumber([...current, ...out].map((p) => p && p.code)), formatProposalCode);
+      occupied.add(refKey(inc.id));
+      occupied.add(refKey(code));
+      batchNewCodes.set(inc.id, code);
+      out.push({ ...inc, code, items: Array.isArray(inc.items) ? inc.items : [] } as ErpCommercialProposal);
+    }
+    return out;
+  }
+
+  /**
+   * Pacote K: id do journal comparado sem caixa/espacos (como as buscas da API). Um registro do
+   * journal cujo id difere so na caixa de um existente E o mesmo registro (recebe o id canonico),
+   * nunca um novo; se a variacao bater em mais de um existente (ambiguo), e descartado.
+   * Repeticoes no mesmo lote convergem para o primeiro id.
+   */
+  private canonicalizeJournalIds<T extends { id: string }>(
+    current: readonly T[],
+    incoming: T[] | undefined
+  ): T[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const exact = new Set(current.map((c) => c.id));
+    const byKey = new Map<string, string[]>();
+    for (const c of current) {
+      const k = refKey(c.id);
+      if (!k) continue;
+      const arr = byKey.get(k) || [];
+      arr.push(c.id);
+      byKey.set(k, arr);
+    }
+    const batch = new Map<string, string>();
+    const out: T[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object' || typeof inc.id !== 'string' || !inc.id.trim()) continue;
+      if (exact.has(inc.id)) {
+        out.push(inc);
+        continue;
+      }
+      const k = refKey(inc.id);
+      const matches = byKey.get(k) || [];
+      if (matches.length === 1) {
+        out.push({ ...inc, id: matches[0] });
+        continue;
+      }
+      if (matches.length > 1) continue; // ambiguo: nunca sobrepoe um registro escolhido ao acaso
+      const first = batch.get(k);
+      if (first !== undefined) {
+        out.push({ ...inc, id: first });
+        continue;
+      }
+      batch.set(k, inc.id);
+      out.push(inc);
+    }
+    return out;
+  }
+
+  /**
+   * Pacote K: contratos do journal. Numero ausente ou ja usado por OUTRO contrato => contrato novo
+   * recebe o proximo LOC-2026-<n> livre; contrato existente mantem o proprio numero. O journal
+   * nunca gera fatura (generateNextInvoiceOnSave sempre false).
+   */
+  private guardJournalContracts(
+    current: ErpRentalContract[],
+    incoming: ErpRentalContract[] | undefined
+  ): ErpRentalContract[] | undefined {
+    if (!Array.isArray(incoming) || incoming.length === 0) return incoming;
+    const byId = new Map(current.map((c) => [c.id, c] as const));
+    const owner = new Map<string, string>(); // numero (sem caixa) -> id do contrato
+    for (const c of current) {
+      const k = refKey(c.contractNumber);
+      if (k && !owner.has(k)) owner.set(k, c.id);
+    }
+    const occupied = () => new Set(owner.keys());
+    const assigned = new Map<string, string>(); // id novo -> numero atribuido no lote
+    const out: ErpRentalContract[] = [];
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object') continue;
+      const cur = byId.get(inc.id);
+      const next = { ...inc, generateNextInvoiceOnSave: false } as ErpRentalContract;
+      // Contrato minimo/mal formado do journal (sem equipments, valor nao numerico) derrubava o
+      // /api/bootstrap e o overview do ERP para todos (500). Normaliza sem inventar dados.
+      if (!Array.isArray(next.equipments)) next.equipments = cur && Array.isArray(cur.equipments) ? cur.equipments : [];
+      else next.equipments = next.equipments.filter((eq) => isPlainEquipmentItem(eq)); // Pacote L (2): [null] etc.
+      if (!Number.isFinite(Number(next.monthlyValue))) next.monthlyValue = cur ? cur.monthlyValue : 0;
+      else next.monthlyValue = Number(next.monthlyValue);
+      const incNum = typeof inc.contractNumber === 'string' ? inc.contractNumber.trim() : '';
+      if (cur) {
+        const free = incNum && (!owner.has(refKey(incNum)) || owner.get(refKey(incNum)) === cur.id);
+        if (free) {
+          if (refKey(incNum) !== refKey(cur.contractNumber)) {
+            owner.delete(refKey(cur.contractNumber));
+            owner.set(refKey(incNum), cur.id);
+          }
+          next.contractNumber = incNum;
+        } else {
+          next.contractNumber = cur.contractNumber;
+        }
+        out.push(next);
+        continue;
+      }
+      const again = assigned.get(inc.id);
+      if (again !== undefined) {
+        out.push({ ...next, contractNumber: again });
+        continue;
+      }
+      const num = incNum && !owner.has(refKey(incNum))
+        ? incNum
+        : nextFreeCode(occupied(), 100 + current.length + assigned.size + 1, (n) => `LOC-2026-${n}`);
+      owner.set(refKey(num), inc.id);
+      assigned.set(inc.id, num);
+      out.push({ ...next, contractNumber: num });
+    }
+    return out;
+  }
+
+  reconcileClientState(
+    journal?: ClientDurableJournal | null,
+    options?: { canIssueFiscalDocuments?: boolean }
+  ): {
     reconciled: boolean;
     appliedCount: number;
+    fiscalDropped?: number;
   } {
     if (!journal || typeof journal !== "object") {
       return { reconciled: false, appliedCount: 0 };
     }
+    // Pacote K (D-I2): sem a alcada fiscal, o journal nao cria fatura/NF. O router sempre informa
+    // a alcada da sessao; chamada direta ao repositorio (contexto interno) segue liberada.
+    const canIssueFiscal = options?.canIssueFiscalDocuments !== false;
+    let fiscalDropped = 0;
 
     let appliedCount = 0;
 
@@ -1171,10 +1455,26 @@ export class CrmRepository {
       }
     };
 
-    upsertCollection(this.state.companies, journal.upsertedCompanies, deletedCompanies);
-    upsertCollection(this.state.contacts, journal.upsertedContacts, deletedContacts);
+    // Pacote K: contato/empresa/negocio com id em outra caixa = o mesmo registro (sem duplicar).
+    // Bootstrap enxuto: empresa vinda do cliente pode estar na forma __lean (customProperties
+    // minimas). customProperties fazem merge com as do servidor e o marcador e descartado.
+    const incomingCompanies = this.canonicalizeJournalIds(this.state.companies, journal.upsertedCompanies);
+    const companiesForUpsert = Array.isArray(incomingCompanies)
+      ? incomingCompanies.map((c) => {
+          if (!c || !c.id) return c;
+          const clean = stripLeanMarker(c);
+          const existing = this.state.companies.find((x) => x.id === clean.id);
+          if (!existing) return clean;
+          return {
+            ...clean,
+            customProperties: { ...(existing.customProperties || {}), ...(clean.customProperties || {}) },
+          };
+        })
+      : incomingCompanies;
+    upsertCollection(this.state.companies, companiesForUpsert, deletedCompanies);
+    upsertCollection(this.state.contacts, this.canonicalizeJournalIds(this.state.contacts, journal.upsertedContacts), deletedContacts);
     upsertCollection(this.state.pipelines, journal.upsertedPipelines);
-    upsertCollection(this.state.deals, journal.upsertedDeals, deletedDeals);
+    upsertCollection(this.state.deals, this.canonicalizeJournalIds(this.state.deals, journal.upsertedDeals), deletedDeals);
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
     upsertCollection(this.state.serviceTickets, journal.upsertedTickets, deletedTickets);
     if (!this.state.webForms) this.state.webForms = [];
@@ -1211,7 +1511,13 @@ export class CrmRepository {
       );
       appliedCount += before - erp.rentalContracts.length;
     }
-    const deletedInvoices = new Set(journal.deletedInvoiceIds || []);
+    // Pacote L (3): exclusao de fatura/NF pelo journal so com a alcada fiscal.
+    const deletedInvoices = new Set(Array.isArray(journal.deletedInvoiceIds) ? journal.deletedInvoiceIds : []);
+    if (!canIssueFiscal && deletedInvoices.size > 0) {
+      const existingRefs = new Set(erp.invoices.flatMap((i) => [i.id, i.documentNumber]));
+      for (const ref of deletedInvoices) if (existingRefs.has(ref)) fiscalDropped++;
+      deletedInvoices.clear();
+    }
     if (deletedInvoices.size > 0) {
       const before = erp.invoices.length;
       erp.invoices = erp.invoices.filter(
@@ -1268,9 +1574,40 @@ export class CrmRepository {
     if (!erp.salesOrders) erp.salesOrders = [];
     if (!erp.serviceOrders) erp.serviceOrders = [];
     if (!erp.purchaseOrders) erp.purchaseOrders = [];
-    upsertCollection(erp.proposals, journal.upsertedProposals, deletedProposals);
-    upsertCollection(erp.rentalContracts, journal.upsertedContracts, deletedContracts);
-    upsertCollection(erp.invoices, journal.upsertedInvoices, deletedInvoices);
+    // M2: o journal do navegador nao define nem troca sellerUserId (campo do servidor).
+    const serverSellerIds = new Map(erp.proposals.map((p) => [p.id, p.sellerUserId] as const));
+    upsertCollection(erp.proposals, this.guardJournalProposals(erp.proposals, journal.upsertedProposals), deletedProposals);
+    for (const p of erp.proposals) {
+      const keep = serverSellerIds.get(p.id);
+      if (keep) p.sellerUserId = keep;
+      else delete p.sellerUserId;
+    }
+    if (erp.proposalsStorage !== 'table') this.backfillMissingProposalCodes(erp.proposals);
+    // Pacote K: contrato do journal com id em outra caixa = o mesmo; numero duplicado => proximo livre.
+    upsertCollection(
+      erp.rentalContracts,
+      this.guardJournalContracts(erp.rentalContracts, this.canonicalizeJournalIds(erp.rentalContracts, journal.upsertedContracts)),
+      deletedContracts
+    );
+    {
+      // Pacote K (D-I2): fatura/NF NOVA pelo journal so com a alcada fiscal.
+      // Pacote L (3): sem a alcada, o journal tambem NAO altera fatura/NF existente (valor, numero,
+      // status...), inclusive com id em outra caixa (ja canonizado acima). Copia identica ao que o
+      // servidor ja tem (eco do proprio navegador) e ignorada sem contar como tentativa.
+      let incomingInvoices = this.canonicalizeJournalIds(erp.invoices, journal.upsertedInvoices);
+      if (!canIssueFiscal && Array.isArray(incomingInvoices)) {
+        const byId = new Map(erp.invoices.map((i) => [i.id, i] as const));
+        for (const inc of incomingInvoices) {
+          if (!inc || typeof inc !== 'object' || !inc.id) continue;
+          const cur = byId.get(inc.id);
+          if (!cur || !journalRecordMatches(cur as unknown as Record<string, unknown>, inc as unknown as Record<string, unknown>)) {
+            fiscalDropped++;
+          }
+        }
+        incomingInvoices = [];
+      }
+      upsertCollection(erp.invoices, incomingInvoices, deletedInvoices);
+    }
     upsertCollection(erp.catalog, journal.upsertedCatalogItems, deletedCatalog);
     upsertCollection(erp.suppliers, journal.upsertedSuppliers, deletedSuppliers);
     upsertCollection(erp.employees, journal.upsertedEmployees, deletedEmployees);
@@ -1292,7 +1629,9 @@ export class CrmRepository {
     if (appliedCount > 0) {
       this.save();
     }
-    return { reconciled: appliedCount > 0, appliedCount };
+    return fiscalDropped > 0
+      ? { reconciled: appliedCount > 0, appliedCount, fiscalDropped }
+      : { reconciled: appliedCount > 0, appliedCount };
   }
 
   resetToSeed(): CrmDatabaseState {
@@ -1407,6 +1746,7 @@ export class CrmRepository {
       state?: string;
     }
   ): Contact {
+    assertNewRecordId(this.state.contacts, input.id, 'CONTACT_ID_CONFLICT', 'um contato'); // Pacote J (A1)
     const now = new Date().toISOString();
     const cleanFirstName = (input.firstName || "Novo").trim();
     const cleanLastName = (input.lastName || "").trim();
@@ -1661,6 +2001,7 @@ export class CrmRepository {
   }
 
   createCompany(input: Partial<Company> & { name: string }): Company {
+    assertNewRecordId(this.state.companies, input.id, 'COMPANY_ID_CONFLICT', 'uma empresa'); // Pacote J (A1)
     const now = new Date().toISOString();
     const domVal = normalizeCorporateDomain(input.domain);
     const cnpjVal = validateCnpj(input.cnpj);
@@ -1720,7 +2061,8 @@ export class CrmRepository {
   }
 
   updateCompany(id: string, patchInput: Partial<Company> | Record<string, unknown>): Company | null {
-    const patch = patchInput as Partial<Company> & Record<string, unknown>;
+    // Marcador do bootstrap enxuto nunca e gravado.
+    const patch = stripLeanMarker(patchInput) as Partial<Company> & Record<string, unknown>;
     const idx = this.state.companies.findIndex((c) => c.id === id);
     if (idx === -1) return null;
 
@@ -1856,6 +2198,25 @@ export class CrmRepository {
     return pipeline;
   }
 
+  deletePipeline(id: string): boolean {
+    const before = this.state.pipelines.length;
+    this.state.pipelines = this.state.pipelines.filter((p) => p.id !== id);
+    if (this.state.pipelines.length === before) return false;
+    this.save();
+    return true;
+  }
+
+  deletePipelineStage(pipelineId: string, stageId: string): boolean {
+    const pipeline = this.getPipelineById(pipelineId);
+    if (!pipeline) return false;
+    const before = pipeline.stages.length;
+    pipeline.stages = pipeline.stages.filter((s) => s.id !== stageId);
+    if (pipeline.stages.length === before) return false;
+    pipeline.updatedAt = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
   listDeals(filters?: {
     pipelineId?: string;
     stageId?: string;
@@ -1877,6 +2238,7 @@ export class CrmRepository {
   }
 
   createDeal(input: Partial<Deal> & { title: string; value: number }): Deal {
+    assertNewRecordId(this.state.deals, input.id, 'DEAL_ID_CONFLICT', 'um negócio'); // Pacote J (A1)
     const now = new Date().toISOString();
     const defaultPipeline = this.state.pipelines[0];
     const matchedPipeForStage = input.stageId
@@ -2068,6 +2430,13 @@ export class CrmRepository {
           probability: updated.probability,
         },
       });
+    }
+
+    try {
+      const { syncProposalFollowupOnDealChange } = require('../modules/deals/proposal-followup-service') as typeof import('../modules/deals/proposal-followup-service');
+      syncProposalFollowupOnDealChange(this, existing, updated);
+    } catch {
+      // a sequência nunca impede a gravação do negócio
     }
 
     this.save();
@@ -2404,6 +2773,53 @@ export class CrmRepository {
     this.save();
     return enrollment;
   }
+
+  listProposalFollowupEnrollments(): ProposalFollowupEnrollment[] {
+    if (!Array.isArray(this.state.proposalFollowupEnrollments)) this.state.proposalFollowupEnrollments = [];
+    return this.state.proposalFollowupEnrollments;
+  }
+
+  getLatestProposalFollowup(dealId: string) {
+    const list = this.listProposalFollowupEnrollments().filter((e) => e.dealId === dealId);
+    return list.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] || undefined;
+  }
+
+  getActiveProposalFollowup(dealId: string) {
+    return this.listProposalFollowupEnrollments().find((e) => e.dealId === dealId && (e.status === 'ACTIVE' || e.status === 'PAUSED'));
+  }
+
+  saveProposalFollowupEnrollment(enrollment: ProposalFollowupEnrollment) {
+    if (!Array.isArray(this.state.proposalFollowupEnrollments)) this.state.proposalFollowupEnrollments = [];
+    const idx = this.state.proposalFollowupEnrollments.findIndex((e) => e.id === enrollment.id);
+    if (idx === -1) this.state.proposalFollowupEnrollments.unshift(enrollment);
+    else this.state.proposalFollowupEnrollments[idx] = enrollment;
+    this.save();
+    return enrollment;
+  }
+
+  incrementEmailTemplateUsage(id: string): void {
+    this.ensureTasksAndTemplates();
+    const tpl = (this.state.emailTemplates || []).find((t) => t.id === id);
+    if (!tpl) return;
+    tpl.usageCount = (tpl.usageCount || 0) + 1;
+    this.save();
+  }
+
+  /** Casa o dono do negócio só por correspondência exata: id do usuário, depois e-mail. Nunca por nome. */
+  resolveDealOwnerUser(deal: { ownerId?: string | null; ownerName?: string | null }): { email: string; name: string } | null {
+    const users = this.ensureRbacState().users || [];
+    const ownerKey = String(deal.ownerId || '').trim();
+    if (!ownerKey) return null;
+    const byUserId = users.find((u) => u.id === ownerKey);
+    if (byUserId?.email?.trim()) return { email: byUserId.email, name: byUserId.name };
+    const byHubspotId = users.find((u) => u.hubspotOwnerId && u.hubspotOwnerId === ownerKey);
+    if (byHubspotId?.email?.trim()) return { email: byHubspotId.email, name: byHubspotId.name };
+    const emailKey = ownerKey.toLowerCase();
+    const byEmail = users.find((u) => String(u.email || '').trim().toLowerCase() === emailKey);
+    if (byEmail?.email?.trim()) return { email: byEmail.email, name: byEmail.name };
+    return null;
+  }
+
 
   // ==========================================================================
   // DATA HEALTH ISSUES
@@ -3253,6 +3669,7 @@ export class CrmRepository {
     input: Partial<ServiceTicket> & { subject: string }
   ): ServiceTicket {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
+    assertNewRecordId(this.state.serviceTickets, input.id, 'TICKET_ID_CONFLICT', 'um chamado'); // Pacote J (A1)
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -3731,10 +4148,89 @@ export class CrmRepository {
     ) {
       this.state.erp.gestaoClickConfig.companyCnpj = '14.806.925/0001-32';
     }
-    if (Array.isArray(this.state.erp.proposals)) {
+    // Pacote L (2): dado legado de contrato com equipments nao-array ou com itens nao-objeto
+    // (ex.: [null]) derrubava /api/bootstrap e /api/erp/overview para todos (500). Leitura tolerante:
+    // descarta so os itens invalidos (objetos validos ficam intactos).
+    if (Array.isArray(this.state.erp.rentalContracts)) {
+      for (const ctr of this.state.erp.rentalContracts) {
+        if (!ctr || typeof ctr !== 'object') continue;
+        if (!Array.isArray(ctr.equipments)) {
+          (ctr as { equipments: unknown }).equipments = [];
+        } else if (ctr.equipments.some((eq) => !isPlainEquipmentItem(eq))) {
+          ctr.equipments = ctr.equipments.filter((eq) => isPlainEquipmentItem(eq));
+        }
+      }
+      if (this.state.erp.rentalContracts.some((c) => !c || typeof c !== 'object')) {
+        this.state.erp.rentalContracts = this.state.erp.rentalContracts.filter((c) => c && typeof c === 'object');
+      }
+    }
+    if (Array.isArray(this.state.erp.proposals) && this.state.erp.proposalsStorage === 'table') {
+      // Modo tabela: so as hidratadas estao aqui (codigos ja canonicos e unicos na tabela). A
+      // migracao de codigos legados (GC-ORC-N => N) NAO roda sobre um subconjunto: sem ver as
+      // demais, renomearia a duplicata GC-ORC-4695 para 4695 (colisao).
       this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
+    } else if (Array.isArray(this.state.erp.proposals)) {
+      this.state.erp.proposals.forEach((prop) => ensureProposalInitializedWithVersion(prop));
+      // Pacote J (A2): proposta sem code (journal antigo) recebe um codigo livre do servidor, para
+      // que buscas por id/codigo nunca derrubem as edicoes de todas as propostas.
+      this.backfillMissingProposalCodes(this.state.erp.proposals);
+      // t29u: remove propostas ficticias (prop-seta-00N) e desvincula contratos/faturas delas.
+      removeFictitiousProposals(this.state.erp);
     }
     return this.state.erp;
+  }
+
+  /** t33u: grava um short link (descarta os vencidos; teto de 5000 registros). */
+  addProposalShortLink(rec: ErpProposalShortLink): void {
+    const erp = this.ensureErp();
+    const now = Date.now();
+    const list = (Array.isArray(erp.proposalShortLinks) ? erp.proposalShortLinks : []).filter((r) => r && Number(r.exp) > now);
+    list.push(rec);
+    erp.proposalShortLinks = list.slice(-5000);
+    this.save();
+  }
+
+  findProposalShortLink(codeHash: string): ErpProposalShortLink | undefined {
+    const erp = this.ensureErp();
+    return (erp.proposalShortLinks || []).find((r) => r && r.codeHash === codeHash);
+  }
+
+  addInvoiceShortLink(rec: ErpInvoiceShortLink): void {
+    const erp = this.ensureErp();
+    const now = Date.now();
+    const list = (Array.isArray(erp.invoiceShortLinks) ? erp.invoiceShortLinks : []).filter((r) => r && Number(r.exp) > now);
+    list.push(rec);
+    erp.invoiceShortLinks = list.slice(-5000);
+    this.save();
+  }
+
+  findInvoiceShortLink(codeHash: string): ErpInvoiceShortLink | undefined {
+    const erp = this.ensureErp();
+    return (erp.invoiceShortLinks || []).find((r) => r && r.codeHash === codeHash);
+  }
+
+  getInvoiceByIdOrNumber(idOrDoc: string): ErpFiscalInvoice | undefined {
+    const erp = this.ensureErp();
+    const key = String(idOrDoc || '').trim().toLowerCase();
+    return erp.invoices.find((i) => i.id === idOrDoc || String(i.documentNumber || '').toLowerCase() === key);
+  }
+
+  appendInvoiceEmailHistory(idOrDoc: string, entry: ErpInvoiceEmailHistoryEntry): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const idx = erp.invoices.findIndex(
+      (i) => i.id === idOrDoc || i.documentNumber.toLowerCase() === String(idOrDoc || '').toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.invoices[idx];
+    const next: ErpFiscalInvoice = {
+      ...current,
+      lastEmailSentAt: entry.sentAt,
+      emailHistory: [...(current.emailHistory || []), entry],
+      updatedAt: new Date().toISOString(),
+    };
+    erp.invoices[idx] = next;
+    this.save();
+    return next;
   }
 
   getErpState(): ErpDatabaseState {
@@ -3750,7 +4246,7 @@ export class CrmRepository {
       0
     );
     const totalRentedEquipments = activeContracts.reduce(
-      (s, c) => s + c.equipments.reduce((acc, eq) => acc + eq.quantity, 0),
+      (s, c) => s + (Array.isArray(c.equipments) ? c.equipments : []).reduce((acc, eq) => acc + (eq && typeof eq === 'object' ? Number(eq.quantity) || 0 : 0), 0), // Pacote K/L: dado legado sem equipments ou com item nao-objeto nao derruba o overview
       0
     );
 
@@ -3785,6 +4281,7 @@ export class CrmRepository {
         totalPayables,
       },
       proposals: erp.proposals,
+      ...(erp.proposalsStorage ? { proposalsStorage: erp.proposalsStorage } : {}),
       rentalContracts: erp.rentalContracts,
       invoices: erp.invoices,
       catalog: erp.catalog,
@@ -3804,11 +4301,82 @@ export class CrmRepository {
     return [...this.ensureErp().proposals];
   }
 
-  createProposal(input: Partial<ErpCommercialProposal> & { title: string }): ErpCommercialProposal {
+  /** Modo tabela: dica de numeracao vinda do SQL (max(code) e refs ocupadas). null = desliga. */
+  private proposalNumberingHint: { maxCodeNumber: number; occupiedRefs: string[] } | null = null;
+
+  /** Orcamentos do GC mapeados no sync (modo tabela), a inserir por linha na proxima gravacao. */
+  private pendingGcProposalInserts: ErpCommercialProposal[] = [];
+
+  takePendingGcProposalInserts(): ErpCommercialProposal[] {
+    const out = this.pendingGcProposalInserts;
+    this.pendingGcProposalInserts = [];
+    return out;
+  }
+
+  setProposalNumberingHint(hint: { maxCodeNumber: number; occupiedRefs: string[] } | null): void {
+    this.proposalNumberingHint = hint;
+  }
+
+  /**
+   * Modo tabela: substitui erp.proposals pelas propostas carregadas da tabela para esta
+   * requisicao (normalizadas como no load). Nao grava em disco/Postgres. Devolve a lista em memoria.
+   */
+  hydrateStoredProposals(list: ErpCommercialProposal[]): ErpCommercialProposal[] {
+    const erp = this.ensureErp();
+    const seen = new Set<string>();
+    erp.proposals = [];
+    for (const p of list || []) {
+      if (!p || !p.id || seen.has(p.id)) continue;
+      seen.add(p.id);
+      erp.proposals.push(ensureProposalInitializedWithVersion(structuredClone(p)));
+    }
+    return erp.proposals;
+  }
+
+  /** Pacote J (A2): preenche `code` ausente/vazio com o proximo codigo livre (nao altera os demais). */
+  private backfillMissingProposalCodes(proposals: ErpCommercialProposal[]): void {
+    // Numeracao GestaoClick: PROP-AAAA-NNN / GC-ORC-N => numero sequencial GC (id de rota nao muda).
+    migrateLegacyProposalCodes(proposals);
+    if (!proposals.some((p) => p && !String(p.code || '').trim())) return;
+    const occupied = occupiedRefs(proposals, (p) => [p && p.id, p && p.code]);
+    for (const p of proposals) {
+      if (p && !String(p.code || '').trim()) {
+        p.code = nextFreeCode(occupied, nextGcProposalNumber(proposals.map((x) => x && x.code)), formatProposalCode);
+        occupied.add(refKey(p.code));
+      }
+    }
+  }
+
+  createProposal(
+    rawInput: Partial<ErpCommercialProposal> & { title: string },
+    serverOptions?: { sellerUserId?: string }
+  ): ErpCommercialProposal {
+    // M2: sellerUserId nunca vem do cliente; so o servidor informa (serverOptions).
+    const { sellerUserId: _clientSellerUserId, ...input } = rawInput as Partial<ErpCommercialProposal> & { title: string };
+    void _clientSellerUserId;
     const erp = this.ensureErp();
     const now = new Date().toISOString();
-    const nextNum = erp.proposals.length + 1;
-    const code = input.code || `PROP-2026-00${nextNum}`;
+    // Modo tabela (erp_proposals): o roteador informa o maior numero ocupado na tabela e os
+    // ids/codigos que colidem com o pedido (as propostas nao estao todas em memoria).
+    const ext = this.proposalNumberingHint;
+    const nextNum = Math.max(nextGcProposalNumber(erp.proposals.map((p) => p.code)), ext ? ext.maxCodeNumber + 1 : 0);
+    // Pacote J (A1): criacao nunca sobrepoe nem duplica. id/codigo informado que ja exista (como
+    // id OU codigo de outra proposta, sem caixa) => 409; sem codigo => proximo codigo livre.
+    const occupied = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);
+    if (ext) for (const r of ext.occupiedRefs) occupied.add(refKey(r));
+    const inputId = input.id !== undefined && input.id !== null ? String(input.id).trim() : '';
+    if (inputId && occupied.has(refKey(inputId))) {
+      throw new RecordIdConflictError('PROPOSAL_ID_CONFLICT', 'Já existe uma proposta com este identificador. Crie sem informar "id" (o servidor gera um novo).');
+    }
+    const inputCode = input.code !== undefined && input.code !== null ? String(input.code).trim() : '';
+    if (inputCode && occupied.has(refKey(inputCode))) {
+      throw new RecordIdConflictError('PROPOSAL_CODE_CONFLICT', 'Já existe uma proposta com este código. Crie sem informar "code" (o servidor gera um novo).');
+    }
+    const code = inputCode || nextFreeCode(occupied, nextNum, formatProposalCode);
+    let newId = inputId;
+    while (!newId || (newId !== inputId && occupied.has(refKey(newId)))) {
+      newId = `prop-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    }
 
     const company = input.companyId ? this.getCompanyById(input.companyId) : undefined;
     const contact = input.contactId ? this.getContactById(input.contactId) : undefined;
@@ -3920,13 +4488,14 @@ export class CrmRepository {
 
     const proposal: ErpCommercialProposal = {
       ...input,
-      id: input.id || `prop-${Date.now()}`,
+      id: newId,
       code,
       title: input.title.trim(),
       budgetType: inferredBudgetType,
       storeName: input.storeName || '',
       salesChannel: input.salesChannel || '',
       costCenter: input.costCenter || '',
+      chartOfAccounts: input.chartOfAccounts || '',
       proposalDate: input.proposalDate || now.slice(0, 10),
       deliveryLeadTime: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
       deliveryForecast: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
@@ -3987,6 +4556,8 @@ export class CrmRepository {
       updatedAt: now,
     };
 
+    if (serverOptions?.sellerUserId) proposal.sellerUserId = String(serverOptions.sellerUserId);
+    else delete proposal.sellerUserId;
     ensureProposalInitializedWithVersion(proposal);
     erp.proposals.unshift(proposal);
     this.save();
@@ -3995,26 +4566,32 @@ export class CrmRepository {
 
   updateProposal(
     idOrCode: string,
-    patch: Partial<ErpCommercialProposal>
+    patch: Partial<ErpCommercialProposal>,
+    serverOptions?: { sellerUserId?: string }
   ): ErpCommercialProposal | null {
     const erp = this.ensureErp();
     const idx = erp.proposals.findIndex(
-      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === idOrCode.toLowerCase()
     );
     const nowIso = new Date().toISOString();
 
     if (idx === -1) {
       // If editing a proposal/quote that was only on the client or GestãoClick, upsert it!
+      // Pacote J (A1): o upsert nunca duplica codigo de outra proposta (codigo ocupado => o servidor
+      // gera outro) e id que colide sem caixa com id/codigo existente => 409 (createProposal).
+      const occupiedCodes = occupiedRefs(erp.proposals, (p) => [p.id, p.code]);
+      const safeCode = patch.code && !occupiedCodes.has(refKey(patch.code)) ? String(patch.code) : undefined;
       const created = this.createProposal({
         ...patch,
+        code: safeCode,
         id: idOrCode,
         title: patch.title || `Proposta Comercial ${idOrCode}`,
-      });
+      }, serverOptions);
       return created;
     }
 
     const current = ensureProposalInitializedWithVersion(erp.proposals[idx]);
-    const rawItems = Array.isArray(patch.items) ? patch.items : current.items;
+    const rawItems = Array.isArray(patch.items) ? patch.items : Array.isArray(current.items) ? current.items : []; // Pacote J (A2)
     const items = rawItems.map((it) => {
       const itemType =
         it.itemType ||
@@ -4109,6 +4686,9 @@ export class CrmRepository {
       ...current,
       ...patch,
       id: current.id,
+      // M2/idempotencia: campos gravados so pelo servidor nao mudam por PATCH/PUT.
+      sellerUserId: current.sellerUserId,
+      approvalIdempotencyKeySha256: current.approvalIdempotencyKeySha256,
       code: patch.code || current.code,
       title: patch.title !== undefined ? String(patch.title).trim() : current.title,
       companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
@@ -4177,8 +4757,14 @@ export class CrmRepository {
       snapshot: buildProposalVersionSnapshot(candidate),
     };
 
-    candidate.version = nextVersion;
-    candidate.versionHistory = [...prevHistory, versionEntry];
+    if (isProposalLinkStableStatusOnlyChange(current, candidate)) {
+      // D3: so o status mudou (ENVIADA <-> EM_NEGOCIACAO): mesma versao, link continua valendo.
+      candidate.version = Math.max(1, Number(current.version || 1));
+      candidate.versionHistory = prevHistory;
+    } else {
+      candidate.version = nextVersion;
+      candidate.versionHistory = [...prevHistory, versionEntry];
+    }
 
     const prevStatusHistory = Array.isArray(current.statusHistory) ? [...current.statusHistory] : [];
     const statusObs = typeof (patch as Record<string, unknown>).statusObservation === "string"
@@ -4208,7 +4794,7 @@ export class CrmRepository {
   ): ErpCommercialProposal | null {
     const erp = this.ensureErp();
     const found = erp.proposals.find(
-      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === idOrCode.toLowerCase()
     );
     if (!found) return null;
     ensureProposalInitializedWithVersion(found);
@@ -4225,11 +4811,32 @@ export class CrmRepository {
     } as Partial<ErpCommercialProposal>);
   }
 
+  /** Aceite pelo link: grava (e persiste) o hash da Idempotency-Key, preso a proposta. */
+  setProposalApprovalIdempotencyHash(proposalId: string, hash: string): void {
+    const p = this.ensureErp().proposals.find((x) => x.id === proposalId);
+    if (!p) return;
+    p.approvalIdempotencyKeySha256 = hash;
+    this.save();
+  }
+
+  /** (c) Unico caminho para gravar sellerUserId (servidor; derivado do e-mail). undefined => remove. */
+  setProposalSellerUserId(idOrCode: string, sellerUserId: string | undefined): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const found = erp.proposals.find(
+      (p) => p.id === idOrCode || p.code.toLowerCase() === idOrCode.toLowerCase()
+    );
+    if (!found) return null;
+    if (sellerUserId) found.sellerUserId = String(sellerUserId);
+    else delete found.sellerUserId;
+    this.save();
+    return found;
+  }
+
   deleteProposal(idOrCode: string): boolean {
     const erp = this.ensureErp();
     const before = erp.proposals.length;
     erp.proposals = erp.proposals.filter(
-      (p) => p.id !== idOrCode && p.code.toLowerCase() !== idOrCode.toLowerCase()
+      (p) => p.id !== idOrCode && String(p.code || '').toLowerCase() !== idOrCode.toLowerCase()
     );
     if (erp.proposals.length !== before) {
       this.save();
@@ -4272,6 +4879,9 @@ export class CrmRepository {
         patch.contractMonths !== undefined ? Number(patch.contractMonths) : current.contractMonths,
       updatedAt: new Date().toISOString(),
     };
+    if (Object.prototype.hasOwnProperty.call(patch, 'billingRecipientEmails')) {
+      updated.billingRecipientEmails = parseBillingRecipientEmails(patch.billingRecipientEmails);
+    }
     appendContractVersionOnMutation(current, updated, undefined, savedBy);
     erp.rentalContracts[idx] = updated;
     if (patch.generateNextInvoiceOnSave === true) {
@@ -4500,7 +5110,10 @@ export class CrmRepository {
     const nextEquipments = structuredClone(current.equipments || []);
     const returnedItems: ErpContractPartialReturnItem[] = [];
     let totalReturnedAssetValueBrl = 0;
-    const returnCfop: '5.909' | '6.909' = current.remessaCfop === '6.908' ? '6.909' : '5.909';
+    // #12: a NF-e de retorno emitida pela própria locadora é de ENTRADA (CFOP 1.909 / 2.909);
+    // 5.909 / 6.909 é o CFOP de saída do locatário contribuinte.
+    const returnCfop: '1.909' | '2.909' = current.remessaCfop === '6.908' ? '2.909' : '1.909';
+    const returnedUnitAssetValues: number[] = [];
     const returnNfeNumber = `000.509.${100 + erp.invoices.length + 1}`;
 
     for (const reqItem of input.itemsToReturn || []) {
@@ -4528,6 +5141,7 @@ export class CrmRepository {
       const proRataBilledBrl = round2(monthlyReductionBrl * (cycleDaysUsed / 30));
       const unitAssetVal = eq.quantity > 0 ? Number(eq.assetValueBrl || 0) / eq.quantity : unitRent * 6;
       totalReturnedAssetValueBrl = round2(totalReturnedAssetValueBrl + unitAssetVal * actualQtyReturned);
+      returnedUnitAssetValues.push(unitAssetVal);
 
       returnedItems.push({
         skuGestaoClick: eq.skuGestaoClick,
@@ -4567,16 +5181,17 @@ export class CrmRepository {
 
     let returnNfe: ErpFiscalInvoice | null = null;
     if (input.emitReturnNfe !== false) {
+      // Mesmo valor dos bens na NF-e de remessa (sem piso artificial de R$ 100)
       const taxRet = calculateBrazilianTaxBreakdown({
-        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        grossAmount: totalReturnedAssetValueBrl,
         discountAmount: 0,
-        documentType: 'NFE_REMESSA_LOCACAO',
+        documentType: 'NFE_RETORNO_LOCACAO',
         taxRegime: erp.gestaoClickConfig.taxRegime,
       });
       returnNfe = {
         id: `inv-ret-${Date.now()}`,
         documentNumber: `NFE-RET-${returnNfeNumber.replace(/\./g, '')}`,
-        documentType: 'NFE_REMESSA_LOCACAO',
+        documentType: 'NFE_RETORNO_LOCACAO',
         competenceMonth: `${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
         companyId: current.companyId,
         companyName: current.companyName,
@@ -4585,27 +5200,27 @@ export class CrmRepository {
         rentalContractId: current.id,
         proposalId: current.proposalId,
         dealId: current.dealId,
-        grossAmount: Math.max(100, totalReturnedAssetValueBrl),
+        grossAmount: totalReturnedAssetValueBrl,
         discountAmount: 0,
-        netAmount: Math.max(100, totalReturnedAssetValueBrl),
-        status: 'PAGA',
+        netAmount: totalReturnedAssetValueBrl,
+        status: 'ENTRADA_REGISTRADA',
         issueDate: returnedAt,
         dueDate: returnedAt,
-        paidAt: returnedAt,
-        paymentMethod: 'TED_BANCARIA',
+        paidAt: null,
+        paymentMethod: 'NAO_APLICAVEL',
         serviceCodeLc116: null,
-        cfop: `${returnCfop} — Retorno de bem remetido por conta de contrato de locação`,
+        cfop: `${returnCfop} — Entrada: retorno de bem remetido por conta de contrato de locação`,
         cstIcms: '041 - Não tributada (Art. 7º, X do RICMS — Retorno de Locação)',
         cstPisCofins: '08 - Operação sem incidência da contribuição',
         verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 5091 0110 0050 9991`,
         pixCopyPaste: 'DOCUMENTO FISCAL DE RETORNO PATRIMONIAL PARCIAL — SEM COBRANÇA FINANCEIRA',
         boletoDigitableLine: `SEM FATURA FINANCEIRA (CFOP ${returnCfop} - RETORNO PARCIAL DE LOCAÇÃO)`,
-        itemsDescription: returnedItems.map((ri) => ({
+        itemsDescription: returnedItems.map((ri, riIdx) => ({
           description: `Retorno Parcial de Locação (${current.contractNumber}): ${ri.description}`,
           serialNumber: ri.serialNumber,
           quantity: ri.quantityReturned,
-          unitValue: ri.unitMonthlyRent * 6,
-          totalValue: round2(ri.quantityReturned * ri.unitMonthlyRent * 6),
+          unitValue: round2(returnedUnitAssetValues[riIdx] ?? 0),
+          totalValue: round2(ri.quantityReturned * (returnedUnitAssetValues[riIdx] ?? 0)),
         })),
         taxBreakdown: taxRet,
         createdAt: nowIso,
@@ -4949,24 +5564,28 @@ export class CrmRepository {
     const recipients: Array<{ contractNumber: string; companyName: string; email: string }> = [];
 
     for (const ctr of targetContracts) {
+      const savedEmails = parseBillingRecipientEmails(ctr.billingRecipientEmails);
       const matchedContact = ctr.contactId ? this.getContactById(ctr.contactId) : undefined;
-      const email =
-        ctr.lastEmailRecipient ||
-        matchedContact?.email ||
-        `financeiro@${ctr.companyName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}.com.br`;
+      const fallback = parseBillingRecipientEmails(
+        ctr.lastEmailRecipient || matchedContact?.email || ''
+      );
+      const emails = savedEmails.length > 0 ? savedEmails : fallback;
+      if (emails.length === 0) continue;
 
       ctr.lastEmailSentAt = nowIso;
-      ctr.lastEmailRecipient = email;
-      recipients.push({
-        contractNumber: ctr.contractNumber,
-        companyName: ctr.companyName,
-        email,
-      });
+      ctr.lastEmailRecipient = emails.join(', ');
+      for (const email of emails) {
+        recipients.push({
+          contractNumber: ctr.contractNumber,
+          companyName: ctr.companyName,
+          email,
+        });
+      }
 
       if (ctr.companyId || ctr.contactId || ctr.dealId) {
         this.createTimelineEvent({
           type: 'EMAIL',
-          title: `Disparo em massa: Fatura & Demonstrativo de Locação (${ctr.contractNumber}) -> ${email}`,
+          title: `Disparo em massa: Fatura & Demonstrativo de Locação (${ctr.contractNumber}) -> ${emails.join(', ')}`,
           body:
             input.customMessage ||
             `Enviado demonstrativo de equipamentos locados (${ctr.equipments.length} itens S/N), Fatura de Locação (0% ISS — SV 31 STF) e chave PIX/Boleto.`,
@@ -5009,6 +5628,36 @@ export class CrmRepository {
     );
     if (idx === -1) return null;
     const current = erp.invoices[idx];
+    // #16: NF-e de importação tem valores congelados (calculados por calculateSebraeImportNfe com ICMS
+    // "por dentro"); um PATCH não recalcula nem sobrescreve valores/tributos — apenas campos descritivos.
+    if (current.documentType === 'NFE_IMPORTACAO' && current.importMetadata) {
+      const {
+        grossAmount: _g,
+        discountAmount: _d,
+        netAmount: _n,
+        taxBreakdown: _t,
+        importMetadata: _m,
+        documentType: _dt,
+        itemsDescription: _items,
+        ...safePatch
+      } = patch;
+      const frozenUpdated: ErpFiscalInvoice = {
+        ...current,
+        ...safePatch,
+        id: current.id,
+        documentType: current.documentType,
+        grossAmount: current.grossAmount,
+        discountAmount: current.discountAmount,
+        netAmount: current.netAmount,
+        taxBreakdown: current.taxBreakdown,
+        importMetadata: current.importMetadata,
+        itemsDescription: current.itemsDescription,
+        updatedAt: new Date().toISOString(),
+      };
+      erp.invoices[idx] = frozenUpdated;
+      this.save();
+      return frozenUpdated;
+    }
     const grossAmount =
       patch.grossAmount !== undefined ? Number(patch.grossAmount) : current.grossAmount;
     const discountAmount =
@@ -5178,24 +5827,17 @@ export class CrmRepository {
         p.id === cleanId ||
         p.id.toLowerCase() === cleanId.toLowerCase() ||
         p.code === cleanId ||
-        p.code.toLowerCase() === cleanId.toLowerCase()
+        String(p.code || '').toLowerCase() === cleanId.toLowerCase()
     );
-    if (!proposal && signatureInput && typeof signatureInput === "object") {
-      const incoming = (signatureInput.proposal && typeof signatureInput.proposal === "object"
-        ? signatureInput.proposal
-        : signatureInput.title
-          ? signatureInput
-          : null) as Partial<ErpCommercialProposal> | null;
-      if (incoming) {
-        proposal =
-          this.updateProposal(cleanId, {
-            ...incoming,
-            id: incoming.id || cleanId,
-            title: incoming.title || `Proposta Comercial ${cleanId}`,
-          }) || undefined;
-      }
-    }
+    // Pacote L (1): o aceite NUNCA cria nem altera a proposta a partir do corpo (body.proposal /
+    // payload ?d=). So uma proposta que ja existe no estado do servidor pode ser aceita; todo dado
+    // comercial (itens, valores, cliente) do contrato e da fatura vem do servidor.
+    // Link assinado (29/10/2026): sem proposta => null (o antigo upsert por `proposal`/`title` foi removido).
     if (!proposal) return null;
+    // Pacote L (4): item legado sem ncmOrServiceCode (ou nao-objeto) nao derruba o aceite (500).
+    const proposalItems = (Array.isArray(proposal.items) ? proposal.items : []).filter(
+      (i): i is ErpCommercialProposal["items"][number] => Boolean(i) && typeof i === "object" && !Array.isArray(i)
+    );
 
     const now = new Date();
     const nowIso = now.toISOString();
@@ -5204,9 +5846,9 @@ export class CrmRepository {
     const contractNumber = `LOC-${now.getFullYear()}-${100 + erp.rentalContracts.length + 1}`;
     const remessaNfeNumber = `000.419.${100 + erp.invoices.length + 1}`;
 
-    const hasLocacao = proposal.items.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
-    const hasServico = proposal.items.some((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM');
-    const hasScm = proposal.items.some((i) => i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
+    const hasLocacao = proposalItems.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
+    const hasServico = proposalItems.some((i) => i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM');
+    const hasScm = proposalItems.some((i) => i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA');
     const mappedModality =
       proposal.modality === 'SERVICE'
         ? 'SERVICO'
@@ -5222,20 +5864,20 @@ export class CrmRepository {
                   ? 'SERVICO'
                   : 'LOCACAO';
 
-    const equipments = proposal.items.map((item, idx) => ({
+    const equipments = proposalItems.map((item, idx) => ({
       id: `eq-${Date.now()}-${idx + 1}`,
       skuGestaoClick: item.sku || `GC-EQ-00${idx + 1}`,
-      description: item.description,
+      description: String(item.description || ''),
       serialNumber:
-        item.serialNumber && item.serialNumber.trim()
+        typeof item.serialNumber === 'string' && item.serialNumber.trim()
           ? item.serialNumber.trim()
           : `SN-SETA-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       assetTag: `PAT-SETA-${1000 + erp.rentalContracts.length * 10 + idx + 1}`,
       assetStatus: 'EM_CLIENTE' as const,
-      ncm: item.ncmOrServiceCode.replace('NCM ', '') || '8517.62.14',
-      quantity: item.quantity,
-      unitMonthlyRent: item.unitPrice,
-      assetValueBrl: item.unitPrice * 6 * item.quantity,
+      ncm: String(item.ncmOrServiceCode || '').replace('NCM ', '') || '8517.62.14',
+      quantity: Number(item.quantity) || 0,
+      unitMonthlyRent: Number(item.unitPrice) || 0,
+      assetValueBrl: (Number(item.unitPrice) || 0) * 6 * (Number(item.quantity) || 0),
       remessaCfop: '5.908' as const,
       remessaNfeKey: `3526101845678900019055001000419${100 + idx}1000419991`,
     }));
@@ -5309,7 +5951,7 @@ export class CrmRepository {
       signatureHashSha256,
       timestampToken: `ACT-ITI-${now.getFullYear()}-${signatureHashSha256.slice(16, 28).toUpperCase()}`,
       signedAt: nowIso,
-      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "189.112.44.18",
+      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "sem-ip", // CISO 30/10: sem IP fixo de fallback
     };
 
     proposal.status = "CONVERTIDA_CONTRATO";
@@ -5353,9 +5995,15 @@ export class CrmRepository {
     input: Partial<ErpRentalContract> & { title: string; companyName: string; monthlyValue: number }
   ): ErpRentalContract {
     const erp = this.ensureErp();
+    assertNewRecordId(erp.rentalContracts, input.id, 'CONTRACT_ID_CONFLICT', 'um contrato'); // Pacote J (A1)
     const nowIso = new Date().toISOString();
+    // Pacote J (A1): numero de contrato nunca duplica (a tela calcula LOC-2026-<n> localmente; se
+    // ja existir, o servidor gera o proximo livre em vez de criar dois contratos com o mesmo numero).
+    const occupiedContractNumbers = occupiedRefs(erp.rentalContracts, (c) => [c.contractNumber]);
     const contractNumber =
-      input.contractNumber || `LOC-2026-${100 + erp.rentalContracts.length + 1}`;
+      input.contractNumber && !occupiedContractNumbers.has(refKey(input.contractNumber))
+        ? input.contractNumber
+        : nextFreeCode(occupiedContractNumbers, 100 + erp.rentalContracts.length + 1, (n) => `LOC-2026-${n}`);
     const contractMonths = Number(input.contractMonths || 24);
 
     const contract: ErpRentalContract = {
@@ -5401,9 +6049,7 @@ export class CrmRepository {
       billingRecurrence: input.billingRecurrence || 'MENSAL',
       paymentMethod: input.paymentMethod || 'Boleto Inter',
       emailAutomationMode: input.emailAutomationMode || 'Enviar lembrete de pagamento e boleto',
-      billingRecipientEmails: Array.isArray(input.billingRecipientEmails)
-        ? input.billingRecipientEmails
-        : [],
+      billingRecipientEmails: parseBillingRecipientEmails(input.billingRecipientEmails),
       autoGenerateInvoiceDaysBeforeDue:
         input.autoGenerateInvoiceDaysBeforeDue !== undefined
           ? Number(input.autoGenerateInvoiceDaysBeforeDue)
@@ -5767,6 +6413,120 @@ export class CrmRepository {
     return [...this.ensureErp().invoices];
   }
 
+  /**
+   * Chave do numerador. Homologação mantém o formato original do #11 ("55-1"); produção usa
+   * "PROD:55-1". Assim a numeração de homologação e a de produção nunca se misturam.
+   */
+  private fiscalSequenceKey(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): string {
+    const base = `${modelo}-${Number(String(serie).replace(/\D/g, '') || '1')}`;
+    return environment === 'PRODUCAO' ? `PROD:${base}` : base;
+  }
+
+  /** Ambiente de uma NF-e de importação gravada (notas anteriores às Configurações Fiscais = homologação). */
+  private importInvoiceEnvironment(inv: ErpFiscalInvoice): FiscalEnvironment {
+    return inv.importMetadata?.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+  }
+
+  /** Maior nNF já usado por NF-e modelo 55 da série no ambiente (a partir dos metadados de importação gravados). */
+  private maxUsedFiscalNumber(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): number {
+    if (modelo !== '55') return 0;
+    const erp = this.ensureErp();
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
+    let max = 0;
+    for (const inv of erp.invoices) {
+      const meta = inv.importMetadata;
+      if (!meta || this.fiscalSequenceKey('55', meta.serie, this.importInvoiceEnvironment(inv)) !== key) continue;
+      const n = Number(String(meta.nNF).replace(/\D/g, ''));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+
+  /**
+   * Configurações Fiscais: cria o padrão (tudo em HOMOLOGAÇÃO) e aplica uma única vez o seed dos
+   * números de produção do GestaoClick ao numerador (NF-e 2176/1, NFC-e 0/2, RPS 735/10001).
+   */
+  private ensureFiscalDocumentSettings(): FiscalDocumentSettings {
+    const erp = this.ensureErp();
+    const settings = normalizeFiscalDocumentSettings(erp.fiscalDocumentSettings);
+    if (!settings.productionSeedApplied) {
+      if (!erp.fiscalNumberSequences) erp.fiscalNumberSequences = {};
+      for (const seed of FISCAL_PRODUCTION_SEED) {
+        const key = this.fiscalSequenceKey(seed.modelo, seed.serie, 'PRODUCAO');
+        erp.fiscalNumberSequences[key] = Math.max(erp.fiscalNumberSequences[key] || 0, seed.lastIssued);
+      }
+      settings.productionSeedApplied = true;
+      erp.fiscalDocumentSettings = settings;
+      this.save();
+    } else {
+      erp.fiscalDocumentSettings = settings;
+    }
+    return settings;
+  }
+
+  /** Cópia das Configurações Fiscais (inclui o CSC: uso interno; a rota devolve só a visão mascarada). */
+  getFiscalDocumentSettings(): FiscalDocumentSettings {
+    return JSON.parse(JSON.stringify(this.ensureFiscalDocumentSettings()));
+  }
+
+  saveFiscalDocumentSettings(next: FiscalDocumentSettings, updatedBy: string): FiscalDocumentSettings {
+    const erp = this.ensureErp();
+    const normalized = normalizeFiscalDocumentSettings({
+      ...next,
+      productionSeedApplied: true,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String(updatedBy || 'sistema').slice(0, 200),
+    });
+    erp.fiscalDocumentSettings = normalized;
+    this.save();
+    return JSON.parse(JSON.stringify(normalized));
+  }
+
+  /** Próximo número disponível para modelo/série/ambiente, sem reservar (pré-visualização). */
+  peekNextFiscalNumber(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): number {
+    this.ensureFiscalDocumentSettings();
+    const erp = this.ensureErp();
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
+    const last = Math.max(erp.fiscalNumberSequences?.[key] || 0, this.maxUsedFiscalNumber(modelo, serie, environment));
+    return last + 1;
+  }
+
+  /**
+   * #11: numerador atômico por ambiente/modelo/série. A reserva é síncrona (sem await entre leitura e
+   * gravação), portanto duas emissões no mesmo processo nunca recebem o mesmo número. Quando o número
+   * é informado, ele só é aceito se ainda não tiver sido usado nem reservado no mesmo ambiente.
+   */
+  reserveFiscalNumber(
+    modelo: string,
+    serie: string,
+    requested?: number | null,
+    environment: FiscalEnvironment = 'HOMOLOGACAO'
+  ): { ok: true; nNF: number } | { ok: false; nextAvailable: number } {
+    this.ensureFiscalDocumentSettings();
+    const erp = this.ensureErp();
+    if (!erp.fiscalNumberSequences) erp.fiscalNumberSequences = {};
+    const key = this.fiscalSequenceKey(modelo, serie, environment);
+    const reserved = erp.fiscalNumberSequences[key] || 0;
+    const last = Math.max(reserved, this.maxUsedFiscalNumber(modelo, serie, environment));
+    let nNF: number;
+    if (requested !== undefined && requested !== null && Number.isFinite(requested) && requested > 0) {
+      const req = Math.floor(requested);
+      const used = erp.invoices.some(
+        (inv) =>
+          inv.importMetadata &&
+          this.fiscalSequenceKey('55', inv.importMetadata.serie, this.importInvoiceEnvironment(inv)) === key &&
+          Number(String(inv.importMetadata.nNF).replace(/\D/g, '')) === req
+      );
+      if (used || req <= reserved) return { ok: false, nextAvailable: last + 1 };
+      nNF = req;
+    } else {
+      nNF = last + 1;
+    }
+    erp.fiscalNumberSequences[key] = Math.max(last, nNF);
+    this.save();
+    return { ok: true, nNF };
+  }
+
   createInvoice(
     input: Partial<ErpFiscalInvoice> & {
       companyName: string;
@@ -5785,7 +6545,10 @@ export class CrmRepository {
       documentType: input.documentType,
       taxRegime: erp.gestaoClickConfig.taxRegime,
       issRatePercent: erp.gestaoClickConfig.defaultIssRatePercent,
+      importMetadata: input.importMetadata,
     });
+    const isEntryNote =
+      input.documentType === 'NFE_IMPORTACAO' || input.documentType === 'NFE_RETORNO_LOCACAO';
 
     const prefix =
       input.documentType === 'FATURA_LOCACAO'
@@ -5800,7 +6563,9 @@ export class CrmRepository {
                 ? 'NFCOM-2026-'
                 : input.documentType === 'NFE_IMPORTACAO'
                   ? 'NFE-IMP-00'
-                  : 'NFE-REM-';
+                  : input.documentType === 'NFE_RETORNO_LOCACAO'
+                    ? 'NFE-RET-'
+                    : 'NFE-REM-';
     const docNum =
       input.documentNumber || `${prefix}${String(erp.invoices.length + 1).padStart(4, '0')}`;
     const dueDate =
@@ -5820,7 +6585,9 @@ export class CrmRepository {
                 ? '5.933 — Prestação de serviço tributado pelo ISSQN'
                 : input.documentType === 'NFE_IMPORTACAO'
                   ? '3.102 — Compra para comercialização (Importação Direta — Simples Nacional CSOSN 900)'
-                  : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
+                  : input.documentType === 'NFE_RETORNO_LOCACAO'
+                    ? '1.909 — Entrada: retorno de bem remetido por conta de contrato de locação'
+                    : 'N/A (Fatura de Locação vinculada à NF-e Remessa CFOP 5.908)');
 
     const defaultCstIcms =
       input.cstIcms ||
@@ -5832,7 +6599,7 @@ export class CrmRepository {
 
     const defaultCstPisCofins =
       input.cstPisCofins ||
-      (input.documentType === 'NFE_REMESSA_LOCACAO'
+      (input.documentType === 'NFE_REMESSA_LOCACAO' || input.documentType === 'NFE_RETORNO_LOCACAO'
         ? '08 - Operação sem incidência da contribuição'
         : input.documentType === 'NFSE_SERVICO'
           ? '01 - Retenção na Fonte CSRF 4,65% + IRRF 1,5%'
@@ -5845,7 +6612,14 @@ export class CrmRepository {
       competenceMonth: input.competenceMonth || '10/2026',
       companyId: input.companyId || null,
       companyName: input.companyName,
-      companyCnpj: input.companyCnpj || '18.236.120/0001-58',
+      // #5: a contraparte estrangeira não tem CNPJ — o idEstrangeiro vai em counterpartyForeignId
+      companyCnpj:
+        input.documentType === 'NFE_IMPORTACAO'
+          ? String(input.companyCnpj || '')
+          : input.companyCnpj || '18.236.120/0001-58',
+      ...(input.counterpartyForeignId !== undefined
+        ? { counterpartyForeignId: input.counterpartyForeignId }
+        : {}),
       companyAddress: input.companyAddress || 'São Paulo/SP',
       rentalContractId: input.rentalContractId || null,
       proposalId: input.proposalId || null,
@@ -5853,11 +6627,16 @@ export class CrmRepository {
       grossAmount,
       discountAmount,
       netAmount: taxBreakdown.netReceivableAmount,
-      status: input.status || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PAGA' : 'EMITIDA'),
+      // #11: nota de entrada tem status próprio (não é PAGA/TED)
+      status:
+        input.status ||
+        (isEntryNote ? 'ENTRADA_REGISTRADA' : input.documentType === 'NFCE_CONSUMIDOR' ? 'PAGA' : 'EMITIDA'),
       issueDate: input.issueDate || nowIso.slice(0, 10),
       dueDate,
       paidAt: input.paidAt || (input.documentType === 'NFCE_CONSUMIDOR' ? nowIso.slice(0, 10) : null),
-      paymentMethod: input.paymentMethod || (input.documentType === 'NFCE_CONSUMIDOR' ? 'PIX_CORPORATIVO' : 'BOLETO_PIX'),
+      paymentMethod:
+        input.paymentMethod ||
+        (isEntryNote ? 'NAO_APLICAVEL' : input.documentType === 'NFCE_CONSUMIDOR' ? 'PIX_CORPORATIVO' : 'BOLETO_PIX'),
       serviceCodeLc116:
         input.serviceCodeLc116 !== undefined
           ? input.serviceCodeLc116
@@ -5873,7 +6652,7 @@ export class CrmRepository {
       cfop: defaultCfop,
       cstIcms: defaultCstIcms,
       cstPisCofins: defaultCstPisCofins,
-      verificationCodeOrKey: `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
+      verificationCodeOrKey: input.verificationCodeOrKey || `AUTH-SETA-${Date.now().toString(36).toUpperCase()}`,
       pixCopyPaste: `00020126580014BR.GOV.BCB.PIX0136financeiro@setatelecom.com.br5204000053039865408${taxBreakdown.netReceivableAmount.toFixed(2)}5802BR5917SETA TELECOM LTDA6009SAO PAULO6304B8C1`,
       boletoDigitableLine: `34191.79001 01043.510047 91020.150008 1 9890${String(Math.round(taxBreakdown.netReceivableAmount * 100)).padStart(10, '0')}`,
       itemsDescription:
@@ -5890,15 +6669,7 @@ export class CrmRepository {
                 totalValue: grossAmount,
               },
             ],
-      taxBreakdown: input.importMetadata
-        ? {
-            ...taxBreakdown,
-            pisAmount: input.importMetadata.totals.vPIS,
-            cofinsAmount: input.importMetadata.totals.vCOFINS,
-            icmsAmount: input.importMetadata.totals.vICMS,
-            totalTaxesEstimated: input.importMetadata.totals.vTotTrib,
-          }
-        : taxBreakdown,
+      taxBreakdown,
       ...(input.importMetadata ? { importMetadata: input.importMetadata } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -5913,7 +6684,7 @@ export class CrmRepository {
         id: `po-imp-${Date.now()}`,
         code: String(40 + erp.purchaseOrders.length),
         supplierName: input.companyName,
-        supplierCnpj: input.companyCnpj || "EXTERIOR",
+        supplierCnpj: input.companyCnpj || `EXTERIOR${input.counterpartyForeignId ? ` (ID ${input.counterpartyForeignId})` : ''}`,
         issueDate: (input.issueDate || nowIso.slice(0, 10)).split("-").reverse().join("/"),
         status: "Confirmada",
         nfeNumber: docNum,
@@ -5943,7 +6714,10 @@ export class CrmRepository {
         invoiceId: invoice.id,
         paymentMethod: 'Fechamento de Câmbio + DARF/GNRE Desembaraço',
       });
-    } else if (input.documentType !== 'NFE_REMESSA_LOCACAO') {
+    } else if (
+      input.documentType !== 'NFE_REMESSA_LOCACAO' &&
+      input.documentType !== 'NFE_RETORNO_LOCACAO'
+    ) {
       erp.financialEntries.unshift({
         id: `fin-${Date.now()}`,
         type: 'RECEBER',
@@ -6087,49 +6861,41 @@ export class CrmRepository {
       return this.syncGestaoClick();
     }
 
-    // 1. Merge real GestãoClick Companies
-    const existingCompById = new Map(this.state.companies.map((c) => [c.id, c]));
+    // 1. Merge real GestãoClick Companies (upsert não destrutivo: id GC ->
+    //    CNPJ/CPF -> nome; Trava Fiscal: nunca mescla documentos diferentes)
+    const companyMerge = mergeGcCompanies(this.state.companies, snapshot.mappedCompanies, (gcComp) => {
+      const now = new Date().toISOString();
+      return {
+        id: gcComp.id || `comp-gc-${gcComp.gestaoClickClientId}`,
+        name: gcComp.name,
+        domain: gcComp.domain || null,
+        cnpj: gcComp.cnpj || null,
+        industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
+        size: gcComp.size || '51-200 funcionários',
+        annualRevenue: gcComp.annualRevenue || 15_000_000,
+        city: gcComp.city || 'São Paulo',
+        state: gcComp.state || 'SP',
+        country: 'Brasil',
+        completenessScore: 88,
+        enrichedAt: now,
+        lastActivityAt: now,
+        enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
+        ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
+        isTargetAccount: true,
+        icpTier: 'TIER_1',
+        customProperties: {
+          gestaoClickClientId: gcComp.gestaoClickClientId,
+          accountExecutive: gcComp.ownerName || 'Marcelo Lopes Mira',
+          tier: 'ENTERPRISE',
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    const compByGcId = companyMerge.byGcId;
     const existingCompByName = new Map(
       this.state.companies.map((c) => [normalizeSearchText(c.name), c])
     );
-
-    for (const gcComp of snapshot.mappedCompanies) {
-      const existing =
-        (gcComp.id && existingCompById.get(gcComp.id)) ||
-        existingCompByName.get(normalizeSearchText(gcComp.name));
-      if (!existing) {
-        const now = new Date().toISOString();
-        const created: Company = {
-          id: gcComp.id || `comp-gc-${gcComp.gestaoClickClientId}`,
-          name: gcComp.name,
-          domain: gcComp.domain || null,
-          cnpj: gcComp.cnpj || null,
-          industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
-          size: gcComp.size || '51-200 funcionários',
-          annualRevenue: gcComp.annualRevenue || 15_000_000,
-          city: gcComp.city || 'São Paulo',
-          state: gcComp.state || 'SP',
-          country: 'Brasil',
-          completenessScore: 88,
-          enrichedAt: now,
-          lastActivityAt: now,
-          enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
-          ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
-          isTargetAccount: true,
-          icpTier: 'TIER_1',
-          customProperties: {
-            gestaoClickClientId: gcComp.gestaoClickClientId,
-            accountExecutive: gcComp.ownerName || 'Marcelo Lopes Mira',
-            tier: 'ENTERPRISE',
-          },
-          createdAt: now,
-          updatedAt: now,
-        };
-        this.state.companies.push(created);
-        existingCompById.set(created.id, created);
-        existingCompByName.set(normalizeSearchText(created.name), created);
-      }
-    }
 
     // 2. Merge real GestãoClick Contacts (append after user-created contacts)
     const existingContactByEmail = new Set(
@@ -6137,7 +6903,9 @@ export class CrmRepository {
     );
     for (const gcCont of snapshot.mappedContacts) {
       if (!existingContactByEmail.has(gcCont.email.toLowerCase())) {
-        const comp = existingCompByName.get(normalizeSearchText(gcCont.companyName));
+        const comp =
+          compByGcId.get(String(gcCont.gestaoClickClientId || '')) ||
+          existingCompByName.get(normalizeSearchText(gcCont.companyName));
         const now = new Date().toISOString();
         const contact: Contact = {
           id: `cont-gc-${gcCont.gestaoClickClientId}`,
@@ -6177,18 +6945,18 @@ export class CrmRepository {
       }
     }
 
-    // 3. Merge Catalog
-    const existingCatIds = new Set(erp.catalog.map((c) => c.id));
-    for (const item of snapshot.mappedCatalog) {
-      if (!existingCatIds.has(item.id)) {
-        erp.catalog.push(item);
-        existingCatIds.add(item.id);
-      }
-    }
+    // 3. Merge Catalog (produtos e serviços): só insere o que falta, casando por
+    //    id, id GC ou código; nunca substitui nem apaga itens existentes.
+    mergeGcCatalog(erp.catalog, snapshot.mappedCatalog);
 
-    // 4. Merge Proposals
+    // 4. Merge Proposals (modo tabela erp_proposals: os orcamentos GC entram pelo script de
+    // importacao/tabela, nunca por esta copia em memoria — evita inflar o bootstrap).
     const existingPropIds = new Set(erp.proposals.map((p) => p.id));
-    for (const prop of snapshot.mappedProposals) {
+    if (erp.proposalsStorage === 'table') {
+      // Modo tabela: nada no JSON; o router insere na tabela so os que ainda nao existem (id/id GC).
+      this.pendingGcProposalInserts = [...(snapshot.mappedProposals || [])];
+    }
+    for (const prop of erp.proposalsStorage === 'table' ? [] : snapshot.mappedProposals) {
       if (!existingPropIds.has(prop.id)) {
         erp.proposals.push(prop);
         existingPropIds.add(prop.id);
@@ -6240,7 +7008,11 @@ export class CrmRepository {
       erp.serviceOrders = snapshot.mappedServiceOrders;
     }
     if (snapshot.mappedSuppliers && snapshot.mappedSuppliers.length > 0) {
-      erp.suppliers = snapshot.mappedSuppliers;
+      // Upsert por id do GestãoClick (fallback CNPJ/CPF, Trava Fiscal). NUNCA
+      // substitui a lista: fornecedores/transportadoras migrados ou criados no
+      // STI-hub continuam intactos.
+      if (!Array.isArray(erp.suppliers)) erp.suppliers = [];
+      mergeGcSuppliers(erp.suppliers, snapshot.mappedSuppliers);
     }
     if (snapshot.mappedEmployees && snapshot.mappedEmployees.length > 0) {
       erp.employees = snapshot.mappedEmployees;
@@ -6509,6 +7281,7 @@ export class CrmRepository {
       subject: input.subject.trim(),
       body: input.body,
       createdBy: (input.createdBy || "Marcelo Lopes Mira").trim(),
+      ...(input.updatedBy ? { updatedBy: String(input.updatedBy).trim() } : {}),
       usageCount: input.usageCount ?? 0,
       createdAt: now,
       updatedAt: now,
@@ -6516,6 +7289,44 @@ export class CrmRepository {
     this.state.emailTemplates!.unshift(tpl);
     this.save();
     return tpl;
+  }
+
+  /** Pacote O: altera so name/category/subject/body; autoria da alteracao vem do chamador (sessao). */
+  updateEmailTemplate(
+    id: string,
+    patch: Partial<Pick<CrmEmailTemplate, "name" | "category" | "subject" | "body">>,
+    updatedBy: string
+  ): CrmEmailTemplate | null {
+    this.ensureTasksAndTemplates();
+    const idx = this.state.emailTemplates!.findIndex((t) => t.id === id);
+    if (idx === -1) return null;
+    const cur = this.state.emailTemplates![idx];
+    const next: CrmEmailTemplate = {
+      ...cur,
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.category !== undefined ? { category: patch.category } : {}),
+      ...(patch.subject !== undefined ? { subject: patch.subject } : {}),
+      ...(patch.body !== undefined ? { body: patch.body } : {}),
+      id: cur.id,
+      createdBy: cur.createdBy,
+      createdAt: cur.createdAt,
+      usageCount: cur.usageCount,
+      updatedBy: String(updatedBy || "Sistema STI-hub").trim(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.state.emailTemplates![idx] = next;
+    this.save();
+    return next;
+  }
+
+  /** Pacote O: exclui um modelo pelo id exato. */
+  deleteEmailTemplate(id: string): boolean {
+    this.ensureTasksAndTemplates();
+    const before = this.state.emailTemplates!.length;
+    this.state.emailTemplates = this.state.emailTemplates!.filter((t) => t.id !== id);
+    if (this.state.emailTemplates.length === before) return false;
+    this.save();
+    return true;
   }
 
   listSnippets(): CrmSnippet[] {
@@ -6785,12 +7596,51 @@ export class CrmRepository {
   static readonly LOGIN_TRACKER_MAX = 5000;
   static readonly LOGIN_TRACKER_RECENT_MS = 15 * 60 * 1000;
 
+  /**
+   * Pacote I (D1): o contador de falhas e por HMAC do e-mail normalizado (chave aleatoria por
+   * processo; o e-mail em claro nao fica no mapa) e NAO depende de a conta existir. Com o mapa
+   * cheio e sem entrada fria para despejar, a falha vai para um balde fixo (LOGIN_OVERFLOW_BUCKETS,
+   * memoria limitada) escolhido pelo mesmo HMAC: conta real e e-mail inexistente se comportam
+   * igual (os dois travam no 7o erro). Entradas ja existentes (ex.: vitima bloqueada) nunca saem.
+   * Custo aceito no modo degradado: e-mails que caem no mesmo balde compartilham o contador.
+   */
+  static readonly LOGIN_OVERFLOW_BUCKETS = 4096;
+  private readonly loginTrackerHmacKey = crypto.randomBytes(32);
+  private readonly loginOverflowBuckets = new Map<
+    number,
+    { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number }
+  >();
+
+  /** Chave do contador de login para um e-mail (HMAC; mesma para conta real ou inexistente). */
+  loginTrackerKey(email: string): string {
+    return (
+      "e:" +
+      crypto
+        .createHmac("sha256", this.loginTrackerHmacKey)
+        .update(String(email || "").trim().toLowerCase())
+        .digest("base64url")
+        .slice(0, 22)
+    );
+  }
+
+  private loginOverflowBucketOf(key: string): number {
+    const b = Buffer.from(key.slice(2), "base64url");
+    return ((b[0] << 8) | b[1]) % CrmRepository.LOGIN_OVERFLOW_BUCKETS;
+  }
+
+  /** Contador vigente (mapa ou, se o e-mail nao tem entrada, o balde de transbordo). */
+  private getLoginTracker(
+    email: string
+  ): { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number } | undefined {
+    const key = this.loginTrackerKey(email);
+    return this.loginAttemptTracker.get(key) || this.loginOverflowBuckets.get(this.loginOverflowBucketOf(key));
+  }
+
   private recordLoginFailureEntry(
     key: string,
-    isKnownAccount: boolean,
     entry: { failedAttempts: number; firstAttemptMs: number; lockedUntilMs: number; lastAttemptMs?: number },
     nowMs: number
-  ): boolean {
+  ): void {
     const map = this.loginAttemptTracker;
     if (!map.has(key) && map.size >= CrmRepository.LOGIN_TRACKER_MAX) {
       for (const [k, e] of map) {
@@ -6798,10 +7648,13 @@ export class CrmRepository {
         const last = e.lastAttemptMs ?? e.firstAttemptMs;
         if (e.lockedUntilMs <= nowMs && nowMs - last > CrmRepository.LOGIN_TRACKER_RECENT_MS) map.delete(k);
       }
-      if (map.size >= CrmRepository.LOGIN_TRACKER_MAX && !isKnownAccount) return false;
+      if (map.size >= CrmRepository.LOGIN_TRACKER_MAX) {
+        // Mapa cheio de entradas quentes: balde de transbordo (igual para qualquer e-mail).
+        this.loginOverflowBuckets.set(this.loginOverflowBucketOf(key), entry);
+        return;
+      }
     }
     map.set(key, entry);
-    return true;
   }
 
   private usedTotpCodeTracker = new Map<string, string>();
@@ -7648,7 +8501,7 @@ export class CrmRepository {
     const q = String(userId || "").trim().toLowerCase();
     const found = rbac.users.find((u) => u.id.toLowerCase() === q);
     if (!found) return { ok: false };
-    const key = found.email.toLowerCase();
+    const key = this.loginTrackerKey(found.email);
     const nowMs = Date.now();
     const windowMs = 15 * 60 * 1000;
     const t = this.loginAttemptTracker.get(key);
@@ -7666,7 +8519,7 @@ export class CrmRepository {
 
   /** Leitura do contador de falhas de senha (testes/diagnostico; sem dados sensiveis). */
   getFailedPasswordAttempts(email: string): number {
-    return this.loginAttemptTracker.get(String(email || "").trim().toLowerCase())?.failedAttempts || 0;
+    return this.getLoginTracker(email)?.failedAttempts || 0;
   }
 
   deleteRbacUser(
@@ -7785,6 +8638,8 @@ export class CrmRepository {
     const expMs = nowMs + 72 * 3600 * 1000; // 72 hours
     found.inviteStatus = "PENDING_INVITE";
     found.invitedAt = new Date(nowMs).toISOString();
+    // CISO 04/11: reenvio invalida o link anterior (aceite confere que o token e o mais recente).
+    found.latestInviteIat = nowMs;
     this.save();
 
     const normMod = normalizeUserModuleAccess({
@@ -7839,6 +8694,14 @@ export class CrmRepository {
     };
   }
 
+  /** CISO 04/11: convite substituido por um reenvio mais novo (so quando a instancia conhece o mais novo). */
+  private isInviteSuperseded(c: { uid: string; email: string; iat: number }): boolean {
+    const rbac = this.ensureRbacState();
+    const u = rbac.users.find((x) => x.id === c.uid || x.email.toLowerCase() === String(c.email || "").toLowerCase());
+    const latest = Number(u?.latestInviteIat || 0);
+    return latest > 0 && Number(c.iat || 0) < latest;
+  }
+
   inspectUserInvite(token: string): {
     ok: boolean;
     error?: string;
@@ -7868,6 +8731,9 @@ export class CrmRepository {
         ok: false,
         error: "Este convite já foi utilizado para cadastrar a senha. Faça login normalmente.",
       };
+    }
+    if (this.isInviteSuperseded(c)) {
+      return { ok: false, error: SUPERSEDED_INVITE_MESSAGE };
     }
 
     // Ensure user exists in repository (serverless stateless hydration)
@@ -7966,6 +8832,9 @@ export class CrmRepository {
         ok: false,
         error: "Este convite já foi utilizado. Faça login com seu e-mail e senha.",
       };
+    }
+    if (this.isInviteSuperseded(c)) {
+      return { ok: false, error: SUPERSEDED_INVITE_MESSAGE };
     }
     const cleanPass = String(input.password || "").trim();
     // Pacote C: senha NOVA do convite segue a politica de 12 caracteres.
@@ -8259,7 +9128,7 @@ export class CrmRepository {
     }
 
     const nowMs = Date.now();
-    const tracker = this.loginAttemptTracker.get(emailClean);
+    const tracker = this.getLoginTracker(emailClean); // Pacote I (D1): por HMAC do e-mail
     if (tracker && tracker.lockedUntilMs > nowMs) {
       const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
       return {
@@ -8277,7 +9146,7 @@ export class CrmRepository {
     if (!pwCheck.ok || !found || !found.active) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 6 ? nowMs + 5 * 60 * 1000 : 0;
-      this.recordLoginFailureEntry(emailClean, Boolean(found), {
+      this.recordLoginFailureEntry(this.loginTrackerKey(emailClean), {
         failedAttempts: fails,
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
@@ -8454,8 +9323,9 @@ export class CrmRepository {
     }
 
     const emailKey = user.email.toLowerCase();
+    const loginKey = this.loginTrackerKey(user.email); // Pacote I (D1): contador por HMAC do e-mail
     const nowMs = Date.now();
-    const tracker = this.loginAttemptTracker.get(emailKey);
+    const tracker = this.loginAttemptTracker.get(loginKey);
     if (tracker && tracker.lockedUntilMs > nowMs) {
       const waitSec = Math.ceil((tracker.lockedUntilMs - nowMs) / 1000);
       return {
@@ -8624,7 +9494,7 @@ export class CrmRepository {
     if (!isValidTotp && !isValidEmailOtp) {
       const fails = (tracker?.failedAttempts || 0) + 1;
       const lockedUntilMs = fails >= 5 ? nowMs + 5 * 60 * 1000 : 0;
-      this.loginAttemptTracker.set(emailKey, {
+      this.loginAttemptTracker.set(loginKey, {
         failedAttempts: fails,
         firstAttemptMs: tracker?.firstAttemptMs || nowMs,
         lockedUntilMs,
@@ -8646,7 +9516,7 @@ export class CrmRepository {
       };
     }
 
-    this.loginAttemptTracker.delete(emailKey);
+    this.loginAttemptTracker.delete(loginKey);
     if (statelessChallenge?.cid) {
       this.consumedChallengeIds.add(statelessChallenge.cid);
     }

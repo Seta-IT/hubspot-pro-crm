@@ -1,5 +1,7 @@
 'use client';
 
+import { CannotDeleteModal } from './CannotDeleteModal';
+
 import React, { useEffect, useState } from 'react';
 import {
   Building2,
@@ -16,6 +18,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { Company } from '../../db/types';
+import { isLeanCompany, stripLeanMarker } from '../../modules/bootstrap/lean-payload';
 import {
   formatBrPhoneMask,
   formatCepMask,
@@ -58,9 +61,11 @@ interface GestaoClickCompanyModalProps {
   onClose: () => void;
   onSave: (payload: any, secondArg?: any) => Promise<void>;
   onDelete?: (companyId: string) => Promise<void>;
+  deleteInUse?: boolean;
+  deleteUsageText?: string;
 }
 
-export default function GestaoClickCompanyModal({
+function GestaoClickCompanyModalForm({
   company: companyProp,
   initialCompany,
   isNew: isNewProp,
@@ -70,6 +75,8 @@ export default function GestaoClickCompanyModal({
   onClose,
   onSave,
   onDelete,
+  deleteInUse = false,
+  deleteUsageText,
 }: GestaoClickCompanyModalProps) {
   const company = companyProp !== undefined ? companyProp : (initialCompany ?? null);
   const isNew = isNewProp !== undefined ? isNewProp : mode === 'CREATE' || !company?.id;
@@ -212,6 +219,7 @@ export default function GestaoClickCompanyModal({
   const [validationErrorBanner, setValidationErrorBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirmStep, setShowDeleteConfirmStep] = useState(false);
+  const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Reset all fields whenever modal opens in New Mode vs Edit Mode
@@ -454,6 +462,9 @@ export default function GestaoClickCompanyModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {showInUseModal && (
+        <CannotDeleteModal text={deleteUsageText || "Este registro está em uso."} onClose={() => setShowInUseModal(false)} />
+      )}
       <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-2xl max-w-5xl w-full overflow-hidden my-4">
         {/* TOP HEADER GESTÃOCLICK / STI-HUB */}
         <div className="sticky top-0 z-20 px-4 sm:px-6 py-3.5 bg-[#1e3a6e] text-white flex items-center justify-between">
@@ -1217,7 +1228,17 @@ export default function GestaoClickCompanyModal({
             <div>
               {!isNew && !isReadOnly && company?.id && onDelete && canDelete && (
                 <>
-                  {!showDeleteConfirmStep ? (
+                  {deleteInUse ? (
+                    <button
+                      type="button"
+                      title="Em uso"
+                      aria-disabled
+                      onClick={() => setShowInUseModal(true)}
+                      className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 text-xs font-semibold cursor-not-allowed"
+                    >
+                      Excluir Cadastro
+                    </button>
+                  ) : !showDeleteConfirmStep ? (
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirmStep(true)}
@@ -1301,6 +1322,70 @@ export default function GestaoClickCompanyModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Bootstrap enxuto (04/11/2026): empresa sem vinculo de CRM chega na lista em forma resumida
+ * (__lean). Antes de abrir o formulario, busca o cadastro completo em GET /api/companies/:id para
+ * nao exibir nem regravar campos vazios. Se a busca falhar, abre somente leitura.
+ */
+export default function GestaoClickCompanyModal(props: GestaoClickCompanyModalProps) {
+  const source = props.company !== undefined ? props.company : (props.initialCompany ?? null);
+  const needsHydration = Boolean(source?.id && isLeanCompany(source));
+  const [full, setFull] = useState<Partial<Company> | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!needsHydration || !source?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/companies/${encodeURIComponent(String(source.id))}`, { cache: 'no-store' });
+        const json = res.ok ? await res.json() : null;
+        const data = json?.data as Record<string, unknown> | undefined;
+        if (!cancelled) {
+          if (data && data.id) {
+            const { contacts: _c, deals: _d, timeline: _t, tasks: _k, completenessDetail: _cd, ...company } = data;
+            setFull(stripLeanMarker(company) as Partial<Company>);
+          } else {
+            setFailed(true);
+          }
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needsHydration, source?.id]);
+
+  if (!needsHydration) return <GestaoClickCompanyModalForm {...props} />;
+  if (full) {
+    return props.company !== undefined ? (
+      <GestaoClickCompanyModalForm {...props} company={full} />
+    ) : (
+      <GestaoClickCompanyModalForm {...props} initialCompany={full} />
+    );
+  }
+  if (failed) {
+    // Sem o cadastro completo nao abre o formulario (evita gravar campos vazios por cima).
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+        <div className="rounded-md bg-white px-6 py-4 text-sm text-slate-700 shadow-xl">
+          <p>Nao foi possivel carregar o cadastro completo desta empresa. Tente novamente.</p>
+          <button type="button" onClick={props.onClose} className="mt-3 rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+      <div className="rounded-md bg-white px-6 py-4 text-sm text-slate-700 shadow-xl">Carregando cadastro completo...</div>
     </div>
   );
 }

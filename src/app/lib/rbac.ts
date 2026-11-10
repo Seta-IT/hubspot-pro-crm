@@ -105,7 +105,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     system: 'CRM',
     module: 'CRM',
     moduleLabel: 'Sales Hub (CRM)',
-    itemLabel: 'Metas Comerciais (Quotas) & Comissões MRR',
+    itemLabel: 'Metas comerciais e comissões',
     view: true,
     edit: true,
     delete: true,
@@ -668,7 +668,7 @@ export const CRM_ROLES_CATALOG: Record<CrmAccountRole, CrmRoleDefinitionMatrix> 
     label: 'Comercial — Gestor Sales Hub',
     badgeColor: 'bg-sky-600 text-white',
     description:
-      'Gestão completa de Contatos, Empresas, Deals Kanban (3 Pipelines), Quotas & Comissões MRR, Playbooks, Reuniões, Sequências e Data Health em toda a base.',
+      'Gestão completa de Contatos, Empresas, Deals Kanban (3 Pipelines), quotas e comissões, Playbooks, Reuniões, Sequências e Data Health em toda a base.',
     portfolioScope: 'ALL',
     itemPermissions: buildDefaultCrmItemPermissions('CRM_SALES_MANAGER'),
   },
@@ -1566,14 +1566,14 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   {
     id: 'cf-deal-mrr',
     internalName: 'hs_mrr',
-    label: 'Receita Recorrente Mensal (MRR Locação)',
+    label: 'Valor mensal',
     objectType: 'DEAL',
     groupName: 'Métricas Recorrentes Telecom',
     dataType: 'CURRENCY_BRL',
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Valor mensal recorrente do contrato de locação de equipamentos.',
+    description: 'Valor mensal do contrato de locação de equipamentos.',
   },
   {
     id: 'cf-deal-tcv',
@@ -1585,7 +1585,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Soma total do contrato (MRR × Prazo em meses + Taxa de Setup).',
+    description: 'Soma total do contrato (valor mensal × prazo em meses + taxa de setup).',
   },
   {
     id: 'cf-deal-won-reason',

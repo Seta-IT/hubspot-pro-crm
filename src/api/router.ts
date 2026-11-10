@@ -1,5 +1,13 @@
 import { createHash } from 'crypto';
 import {
+  BOOTSTRAP_HEALTH_ISSUES_MAX,
+  BOOTSTRAP_HIDDEN_OPPORTUNITIES_MAX,
+  linkedCompanyIds,
+  paginate,
+  projectBootstrapCompanies,
+  topIssuesBySeverity,
+} from '../modules/bootstrap/lean-payload';
+import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
   ERP_MODULE_ITEMS_CATALOG,
@@ -17,6 +25,7 @@ import {
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
 import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
+import { countValidContractProducts } from '../modules/erp/contract-form-validation';
 // ============================================================================
 // HubSpot Pro CRM - Unified REST API Router & Controller
 // ============================================================================
@@ -24,6 +33,7 @@ import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
 import { ClientDurableJournal, CrmRepository, getRepository } from '../db/repository';
 import {
   checkPostgresHealth,
+  getPostgresPool,
   isPostgresEnabled,
   loadStateFromPostgres,
   syncStateToPostgres,
@@ -36,6 +46,22 @@ import {
   ticketKeysNeededForRoute,
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
+import {
+  countProposals,
+  diffHydratedProposals,
+  getProposalsByDealOrCompany,
+  getProposalsByRefs,
+  hashProposal,
+  isEmptyDiff,
+  isProposalsTableState,
+  listProposalsPage,
+  maxProposalCodeNumber,
+  PROPOSAL_SUMMARY_MARKER,
+  ProposalWriteConflictError,
+  type HydratedSnapshot,
+  type PgQ,
+  type StoredProposal,
+} from '../db/proposal-store';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
@@ -75,8 +101,12 @@ import {
   selfProfilePatchSchema,
 } from './self-profile';
 import { isIamAdminRoute, isSelfProfileRoute, normalizeApiPathForAuthz } from '../app/lib/iam-admin-routes';
-import { buildKnownOwnerSet, cleanOwnerName, isAssignableOwnerName } from './owner-validation';
-import { emailCommentIsPublic, parseTicketTeamPatch, resolveTeamCommentVisibility } from './ticket-guards';
+import { buildOwnerCanonicalMap, cleanOwnerName, resolveOwnerNameToStore } from './owner-validation';
+import { emailCommentIsPublic, findInvalidTicketCreateEnums, parseTicketCommentStatus, parseTicketTeamPatch, resolveTeamCommentVisibility, TICKET_CREATE_ENUMS } from './ticket-guards';
+import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
+import { pickRentalContractPatch } from './contract-patch-guard';
+import { LoginIpFailureGuard } from './login-ip-guard';
+import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import {
   classifySalesAgentRoute,
@@ -91,17 +121,89 @@ import {
   SERVICE_MAX_BODY_BYTES,
   SERVICE_RATE_PER_MINUTE,
 } from '../app/lib/service-account';
-import { isServiceAccountIdentity } from '../db/repository';
+import { isServiceAccountIdentity, PROPOSAL_LINK_APPROVABLE_STATUSES } from '../db/repository';
 import { validateProposalApprovalInput } from '../modules/erp/proposal-approval';
+import {
+  buildSignedProposalUrl,
+  hashIdempotencyKey,
+  PROPOSAL_APPROVE_LIMITS,
+  isProposalLinkConfigured,
+  isProposalPublicApproveEnabled,
+  normalizeIdempotencyKey,
+  proposalNotFoundResponse,
+  PROPOSAL_TOO_MANY_BODY,
+  ProposalPublicRateLimiters,
+  publicProposalApproveSchema,
+  signProposalLinkToken,
+  verifyProposalLinkToken,
+  describeProposalLinkInText,
+  proposalValidUntilEndMs,
+  ProposalLinkExpiredProposalError,
+  resolveProposalLinkOrigin,
+  signProposalLinkClaims,
+  hashProposalShortCode,
+  generateProposalShortCode,
+  buildShortProposalUrl,
+  PROPOSAL_SHORT_CODE_PATTERN,
+} from '../app/lib/proposal-link';
+import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
+import { requestBodyCapFor } from '../app/lib/request-body-cap';
+import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
+import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
+import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
+import { toPublicInvoiceDto } from '../app/lib/invoice-public-dto';
+import {
+  isInvoiceLinkConfigured,
+  signInvoiceLinkToken,
+  signInvoiceLinkClaims,
+  verifyInvoiceLinkToken,
+  hashInvoiceShortCode,
+  generateInvoiceShortCode,
+  buildShortInvoiceUrl,
+} from '../app/lib/invoice-link';
+import { isIssuedInvoiceStatus } from '../modules/erp/invoice-send-attachments';
+import {
+  buildEmailHtmlFromText,
+  clientProvidedAttachmentPayload,
+  collectEmailRecipients,
+} from '../modules/erp/send-email-guards';
+import { buildServerInvoiceEmailAttachments } from '../app/lib/invoice-email-server';
+import {
+  countRecordUsage,
+  recordInUseBody,
+  recordUsageTotal,
+  type RecordUsageKind,
+  type RecordUsageRef,
+  type RecordUsageSources,
+} from '../modules/erp/record-in-use';
+import { formatIssuerAddress } from '../app/lib/company-issuer-address';
+import {
+  loadCompanyEmitterSettings,
+  parseCompanyEmitterPatch,
+  saveCompanyEmitterSettings,
+} from '../modules/erp/company-emitter-store';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
 import { lookupCnpjInReceitaFederal } from '../modules/erp/cnpj-lookup-service';
 import {
   analyzeAndFixSebraeTxt,
   calculateSebraeImportNfe,
+  ImportCnpjMismatchError,
+  ImportFileTooLargeError,
+  MAX_IMPORT_FILE_BYTES,
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
+  utf8ByteLength,
 } from '../modules/erp/sebrae-nfe-import-engine';
+import { validateImportNfeRequest } from '../modules/erp/nfe-import-validation';
+import {
+  FISCAL_PRODUCTION_CONFIRMATION,
+  FISCAL_PRODUCTION_GESTAOCLICK_WARNING,
+  applyFiscalSettingsUpdate,
+  parseFiscalSettingsUpdate,
+  toFiscalSettingsView,
+} from '../modules/erp/fiscal-settings';
 import { ErpImportDeclarationInfo } from '../db/types';
+import type { ErpCommercialProposal } from '../db/types';
 import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
   GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
@@ -110,6 +212,7 @@ import {
 import {
   DEFAULT_CERTIFICATE_SERIES_SETTINGS,
   DEFAULT_COMPANY_EMITTER_SETTINGS,
+  type StiHubCompanyEmitterSettings,
   DEFAULT_GENERAL_PARAMETERS,
   ErpSyncRunLog,
   INITIAL_MIGRATION_CHECKLIST_11_MODULES,
@@ -128,6 +231,7 @@ import {
   WebForm,
   WorkflowExecution,
   WorkflowTriggerType,
+  StiHubRbacState,
 } from '../db/types';
 
 import {
@@ -141,6 +245,27 @@ import {
   verifyPasswordResetToken,
 } from './password-reset';
 import { hashPasswordScrypt, verifyStoredPassword } from '../db/password-hash';
+import { isRecordIdConflictError } from '../db/record-id-guard';
+import {
+  emailTemplateWritePrivilege,
+  handleEmailTemplateRoute,
+  isEmailTemplateRoute,
+  sanitizeEmailTemplateJournal,
+} from './email-template-routes';
+import { handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
+import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
+import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
+import {
+  getFollowupStatus,
+  pauseFollowup,
+  processDueFollowups,
+  resumeFollowup,
+  stopFollowupForProposal,
+  toPublicEnrollment,
+} from '../modules/deals/proposal-followup-service';
+import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
+
+import type { FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -185,32 +310,10 @@ export function buildClearSessionCookie(): string {
 // o middleware (Edge) tambem nao. O token revogado continua valido ali ate expirar (24 h)
 // ou ate a troca de senha. Mitigacao: o cookie e apagado no navegador no logout.
 // ---------------------------------------------------------------------------
-const REVOKED_SESSION_MAX_ENTRIES = 10_000;
-const revokedSessionTokenHashes = new Map<string, number>();
-function sessionTokenHash(token: string): string {
-  return createHash('sha256').update(String(token)).digest('hex');
-}
-export function revokeSessionTokenBestEffort(token: string | null | undefined, expMs: number): void {
-  if (!token) return;
-  const now = Date.now();
-  for (const [h, exp] of revokedSessionTokenHashes) if (exp <= now) revokedSessionTokenHashes.delete(h);
-  if (revokedSessionTokenHashes.size >= REVOKED_SESSION_MAX_ENTRIES) {
-    const oldest = revokedSessionTokenHashes.keys().next().value;
-    if (oldest) revokedSessionTokenHashes.delete(oldest);
-  }
-  revokedSessionTokenHashes.set(sessionTokenHash(token), Number.isFinite(expMs) && expMs > now ? expMs : now + 24 * 3600 * 1000);
-}
-export function isSessionTokenRevoked(token: string | null | undefined): boolean {
-  if (!token) return false;
-  const h = sessionTokenHash(token);
-  const exp = revokedSessionTokenHashes.get(h);
-  if (exp === undefined) return false;
-  if (exp <= Date.now()) {
-    revokedSessionTokenHashes.delete(h);
-    return false;
-  }
-  return true;
-}
+// Pacote N (D-M2): implementacao movida para src/app/lib/session-revocation.ts (mesmo estado,
+// tambem lido pelo teto de corpo do bridge/dispatch). Reexportada aqui para os chamadores antigos.
+export { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
+import { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
@@ -371,6 +474,14 @@ export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; e
 export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInternalContext');
 
 /** Chaves internas que so o bridge (ou o proprio router) pode definir; nunca do cliente. */
+/**
+ * Pacote M (D1/D2): limites do aceite publico POST /api/erp/proposals/:id/approve (janela de 10 min).
+ * ip: toda tentativa anonima; ipPerProposal: toda tentativa de um IP contra uma proposta existente
+ * (id canonico); validPerProposal: so aceites que passaram na validacao (id canonico).
+ */
+// Rebase v5: a constante vive em src/app/lib/proposal-link.ts (fonte unica com o aceite pelo link).
+export { PROPOSAL_APPROVE_LIMITS };
+
 export const BRIDGE_RESERVED_KEYS = [
   '_fromHttpBridge',
   '_cronAuthorized',
@@ -381,6 +492,9 @@ export const BRIDGE_RESERVED_KEYS = [
   '_origin',
   '_enrolledUsers',
   '_trustedInternal',
+  // Pacote N (R4): o token do link de proposta so entra pelo header X-Proposal-Token (rotas Next
+  // /api/erp/proposals/[id]/* e server.ts). Nunca pelo corpo nem pela URL do cliente.
+  'proposalLinkToken',
 ] as const;
 
 export interface ApiRequest {
@@ -390,6 +504,8 @@ export interface ApiRequest {
   body?: unknown;
   /** So codigo do servidor passa TRUSTED_INTERNAL_CONTEXT (libera rotas IAM sem sessao). */
   context?: typeof TRUSTED_INTERNAL_CONTEXT;
+  /** B-V4-1: tamanho do corpo lido (bytes) ou o content-length declarado, quando o canal souber. */
+  bodyBytes?: number;
 }
 
 export interface ApiResponse<T = unknown> {
@@ -656,6 +772,11 @@ export class CrmApiRouter {
   private repo: CrmRepository;
   private isSingletonRepo: boolean;
   private pgInitialized = false;
+  /**
+   * Modo tabela (erp_proposals) da requisicao corrente: propostas hidratadas (id -> hash/versao
+   * lidos) para o diff gravado por linha depois da rota. null = modo JSON (comportamento anterior).
+   */
+  private proposalTableCtx: { hydrated: Map<string, HydratedSnapshot>; strictInserts: boolean } | null = null;
   private gcInitialized = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
@@ -667,19 +788,87 @@ export class CrmApiRouter {
     INITIAL_MIGRATION_CHECKLIST_11_MODULES
   );
   private companyEmitter = structuredClone(DEFAULT_COMPANY_EMITTER_SETTINGS);
+  /** t143u: Dados da Empresa carregados do crm_kv_store (erp_company_emitter_v1) uma vez por instancia. */
+  private companyEmitterHydrated = false;
   private certificateSettings = structuredClone(DEFAULT_CERTIFICATE_SERIES_SETTINGS);
   private generalParameters = structuredClone(DEFAULT_GENERAL_PARAMETERS);
 
-  constructor(repo?: CrmRepository) {
+  /** Pacote N: certificado A1 em linha propria do crm_kv_store (nunca no estado crm_state_v1). */
+  private readonly certificateStore: CertificateStore;
+  private readonly certUploadFailureLimiter = new SlidingWindowRateLimiter(CERT_UPLOAD_FAILURE_LIMIT.max, CERT_UPLOAD_FAILURE_LIMIT.windowMs);
+
+  /** E-mail individual do CRM (caixa Outlook do usuario): tabelas proprias, fora do crm_state_v1. */
+  private readonly mailboxStore: MailboxStore;
+  private readonly mailboxFetch: FetchLike;
+  private readonly mailboxSendLimiter = newMailboxSendLimiter();
+
+  constructor(
+    repo?: CrmRepository,
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike }
+  ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
+    this.certificateStore =
+      options?.certificateStore ||
+      (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
+    this.mailboxStore = options?.mailboxStore || (!repo ? getDefaultMailboxStore() : new MemoryMailboxStore());
+    this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
   }
 
   getRepository(): CrmRepository {
     return this.repo;
   }
 
-  buildBootstrapPayload(customAiQuestion?: string) {
+  /**
+   * Pacote J (5): visao do RBAC no /api/bootstrap e /api/state. Admin (canManageUsersRbac) ou
+   * contexto interno => estado completo (painel IAM). Demais usuarios => SO o proprio registro e o
+   * proprio papel (permissoes efetivas), sem lista de usuarios/e-mails, auditLogs nem
+   * configuracoes de seguranca. (Segredos ja sao removidos na resposta HTTP pelo sanitizador.)
+   */
+  private bootstrapRbacView(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { full: true } | { full: false; userId: string; email: string } {
+    if (ctx.trustedInternal) return { full: true };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    if (!sess || !sess.authenticated) return { full: false, userId: '', email: '' };
+    if (sess.effectiveActionGuards.canManageUsersRbac) return { full: true };
+    return { full: false, userId: String(sess.user?.id || ''), email: String(sess.user?.email || '') };
+  }
+
+  private buildRbacForViewer(view: ReturnType<CrmApiRouter['bootstrapRbacView']>): StiHubRbacState {
+    const rbac = this.repo.getRbacState();
+    if (view.full) return rbac;
+    const email = view.email.trim().toLowerCase();
+    const own = rbac.users.filter(
+      (u) => (view.userId && u.id === view.userId) || (email && String(u.email || '').toLowerCase() === email)
+    ).slice(0, 1);
+    const ownRoleIds = new Set(own.map((u) => u.roleId));
+    return {
+      roles: rbac.roles.filter((r) => ownRoleIds.has(r.id)),
+      users: own,
+      securityConfig: {} as StiHubRbacState['securityConfig'],
+      auditLogs: [],
+    };
+  }
+
+
+  /** t143u: carrega Dados da Empresa do Neon (crm_kv_store). Falha => mantem o padrao em memoria. */
+  private async ensureCompanyEmitterHydrated(): Promise<void> {
+    if (this.companyEmitterHydrated) return;
+    try {
+      this.companyEmitter = await loadCompanyEmitterSettings();
+    } catch {
+      // mantem DEFAULT em memoria
+    }
+    this.companyEmitterHydrated = true;
+  }
+
+  buildBootstrapPayload(
+    customAiQuestion?: string,
+    gcPrivileged = false,
+    rbacView: ReturnType<CrmApiRouter['bootstrapRbacView']> = { full: false, userId: '', email: '' }
+  ) {
     const rawContacts = this.repo.listContacts();
     const rawCompanies = this.repo.listCompanies();
     const rawDeals = this.repo.listDeals();
@@ -694,14 +883,36 @@ export class CrmApiRouter {
       company: c.companyId ? companiesMap.get(c.companyId) || null : null,
     }));
 
-    const enrichedCompanies = rawCompanies.map((comp) => ({
-      ...comp,
-      contactsCount: rawContacts.filter((c) => c.companyId === comp.id).length,
-      dealsCount: rawDeals.filter((d) => d.companyId === comp.id).length,
-      totalDealValue: rawDeals
-        .filter((d) => d.companyId === comp.id)
-        .reduce((s, d) => s + d.value, 0),
-    }));
+    // Contagens por empresa em um passe (antes: filter por empresa, O(empresas x contatos)).
+    const contactsCountByCompany = new Map<string, number>();
+    for (const c of rawContacts) {
+      if (c.companyId) contactsCountByCompany.set(c.companyId, (contactsCountByCompany.get(c.companyId) || 0) + 1);
+    }
+    const dealsAggByCompany = new Map<string, { count: number; value: number }>();
+    for (const d of rawDeals) {
+      if (!d.companyId) continue;
+      const agg = dealsAggByCompany.get(d.companyId) || { count: 0, value: 0 };
+      agg.count += 1;
+      agg.value += d.value;
+      dealsAggByCompany.set(d.companyId, agg);
+    }
+    // Bootstrap enxuto: empresa sem vinculo de CRM vai na forma __lean (cadastro completo em
+    // GET /api/companies/:id). Empresas com contato/negocio/chamado/tarefa seguem completas.
+    const crmLinkedCompanyIds = linkedCompanyIds([
+      rawContacts,
+      rawDeals,
+      this.repo.listServiceTickets(),
+      this.repo.listTasks(),
+    ]);
+    const enrichedCompanies = projectBootstrapCompanies(
+      rawCompanies.map((comp) => ({
+        ...comp,
+        contactsCount: contactsCountByCompany.get(comp.id) || 0,
+        dealsCount: dealsAggByCompany.get(comp.id)?.count || 0,
+        totalDealValue: dealsAggByCompany.get(comp.id)?.value || 0,
+      })),
+      crmLinkedCompanyIds
+    );
 
     const stageMap = new Map<string, { name: string; dealRottingDays: number }>();
     for (const p of rawPipelines) {
@@ -814,17 +1025,32 @@ export class CrmApiRouter {
     const emailTemplates = this.repo.listEmailTemplates();
     const snippets = this.repo.listSnippets();
 
-    const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion);
-    const erp = this.repo.getErpOverview();
+    const aiReport = this.aiInsightsService.generateInsights(this.repo, customAiQuestion, healthSummary);
+    const erpRaw = this.repo.getErpOverview();
+    // Pacote I: config GestaoClick sem campos tecnicos para quem nao e admin/ERP FULL.
+    const erp = { ...erpRaw, gestaoClickConfig: toGestaoClickConfigView(erpRaw.gestaoClickConfig, gcPrivileged) };
 
+    // Listas derivadas limitadas (top N) com o total original; o detalhe completo fica nos
+    // endpoints proprios (/api/ai-insights, /api/data-health/*, /api/marketing/campaigns).
+    const aiReportLean = {
+      ...aiReport,
+      hiddenOpportunities: aiReport.hiddenOpportunities.slice(0, BOOTSTRAP_HIDDEN_OPPORTUNITIES_MAX),
+      hiddenOpportunitiesTotal: aiReport.hiddenOpportunities.length,
+    };
+    const healthSummaryLean = {
+      ...healthSummary,
+      issues: topIssuesBySeverity(healthSummary.issues || [], BOOTSTRAP_HEALTH_ISSUES_MAX),
+      issuesTotal: (healthSummary.issues || []).length,
+    };
+    const accountEngagementAll = this.repo.getAccountBasedEngagementSummary();
     return {
-      aiReport,
+      aiReport: aiReportLean,
       pipelines: enrichedPipelines,
       deals: enrichedDeals,
       dealsForecast,
       contacts: enrichedContacts,
       companies: enrichedCompanies,
-      healthSummary,
+      healthSummary: healthSummaryLean,
       duplicates,
       workflows,
       workflowExecutions,
@@ -843,11 +1069,34 @@ export class CrmApiRouter {
       marketingSegments: this.repo.listMarketingSegments(),
       marketingLandingPages: this.repo.listMarketingLandingPages(),
       suppressionList: this.repo.listSuppressionEntries(),
-      accountEngagement: this.repo.getAccountBasedEngagementSummary(),
+      accountEngagement: accountEngagementAll.slice(0, 20),
+      accountEngagementTotal: accountEngagementAll.length,
       erp,
-      rbac: this.repo.getRbacState(),
+      rbac: this.buildRbacForViewer(rbacView),
       serverTimestamp: new Date().toISOString(),
     };
+  }
+
+
+  private recordUsageSources(): RecordUsageSources {
+    const erp = this.repo.getErpState();
+    return {
+      contracts: this.repo.listRentalContracts(),
+      proposals: this.repo.listProposals(),
+      deals: this.repo.listDeals(),
+      invoices: this.repo.listInvoices(),
+      serviceOrders: erp.serviceOrders || [],
+      tickets: this.repo.listServiceTickets(),
+      financialEntries: this.repo.listFinancialEntries(),
+      bankAccounts: erp.bankAccounts || [],
+      catalog: this.repo.listCatalog(),
+    };
+  }
+
+  private rejectIfRecordInUse(kind: RecordUsageKind, ref: RecordUsageRef): ApiResponse | null {
+    const counts = countRecordUsage(kind, ref, this.recordUsageSources());
+    if (recordUsageTotal(counts) <= 0) return null;
+    return { status: 409, body: recordInUseBody(counts) };
   }
 
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
@@ -871,26 +1120,87 @@ export class CrmApiRouter {
       delete query._sessionToken;
     }
 
-    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
+    const rawBody = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
       string,
       unknown
     >;
+    // Item 2 (CISO 30/10): redacao CENTRAL do token do link assinado (#t=, %23t%3D e o token
+    // solto) em TODO corpo que entra no roteador - qualquer rota que grave (timeline, notas,
+    // tarefas, chamados, journal, registros genericos) ja recebe o texto redigido. O link
+    // completo so segue para o Resend (send-email recebe o corpo bruto apenas para o envio).
+    // A4: corpo com chave propria __proto__/constructor/prototype (qualquer nivel) => 400. A copia
+    // redigida descarta essas chaves; recusar aqui mantem o 400 das validacoes .strict() (H/I).
+    // Corpo acima de 40 niveis => 400 (fail-closed; a redacao e a checagem de chaves reservadas
+    // examinam ate essa profundidade). Antes de qualquer efeito, como o A4.
+    // B-V4-1: corpo acima do teto => 413 ANTES da redacao (custo de CPU pre-sessao/rate-limit).
+    // Rebase v5 (pacote M): teto com a MESMA regra do bridge (requestBodyCapFor): 4 MiB so nas
+    // rotas de BRIDGE_LARGE_BODY_ROUTES com sessao assinada valida; 1 MiB no resto. Usa o tamanho
+    // informado pelo canal (server.ts standalone) e, sempre, a estimativa do corpo parseado
+    // (cota inferior exata do JSON: nunca recusa o que o bridge aceitou).
+    const bodyCap = requestBodyCapFor(method, cleanPath, query._sessionToken);
+    if (
+      (typeof req.bodyBytes === 'number' && Number.isFinite(req.bodyBytes) && req.bodyBytes > bodyCap) ||
+      bodyExceedsMaxBytes(req.body, bodyCap)
+    ) {
+      return {
+        status: 413,
+        body: { error: 'Corpo da requisição acima do limite permitido.', code: 'BODY_TOO_LARGE', maxBytes: bodyCap },
+      };
+    }
+    if (bodyExceedsMaxDepth(rawBody)) {
+      return {
+        status: 400,
+        body: { error: `Corpo da requisição aninhado demais (máximo de ${MAX_BODY_DEPTH} níveis).`, code: 'BODY_TOO_DEEP' },
+      };
+    }
+    if (hasDangerousBodyKey(rawBody)) {
+      return {
+        status: 400,
+        body: { error: 'Corpo da requisição com chave reservada (__proto__, constructor ou prototype).', code: 'BODY_RESERVED_KEY' },
+      };
+    }
+    const body = deepRedactProposalLinkTokens(rawBody) as Record<string, unknown>;
+    const mailerRawBody =
+      method === "POST" && cleanPath === "/api/communications/send-email" ? rawBody : undefined;
+    // Pacote N: o .pfx em base64 segue sem a redacao do token do link (nunca e gravado em claro).
+    const certRawBody = method === "POST" && isCertificateRoute(cleanPath) ? rawBody : undefined;
 
     if (this.isSingletonRepo) {
       this.repo.syncFromDisk();
     }
 
+    this.proposalTableCtx = null;
+    this.repo.setProposalNumberingHint(null);
     if (this.isSingletonRepo && isPostgresEnabled()) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
+          if (isProposalsTableState(pgState) && pgState.erp && Array.isArray(pgState.erp.proposals) && pgState.erp.proposals.length) {
+            // Modo tabela: propostas que um escritor antigo tenha deixado no JSON sao IGNORADAS (a
+            // fonte e erp_proposals); nunca entram na memoria nem no diff (incidente 04/11).
+            pgState.erp.proposals = [];
+          }
           this.repo.loadState(pgState);
+          if (isProposalsTableState(pgState)) {
+            this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
+          }
         }
         this.pgInitialized = true;
       } catch {
         // Fallback to local state if PostgreSQL is unreachable
       }
     }
+    if (this.proposalTableCtx) {
+      // Modo tabela: o estado nao traz propostas; carrega SO as que esta rota usa. Falha de leitura
+      // => 503 (nunca responder "nao encontrada" nem gravar com a lista vazia por engano).
+      try {
+        await this.hydrateProposalsForRoute(method, cleanPath, body);
+      } catch {
+        return { status: 503, body: { error: 'Orçamentos temporariamente indisponíveis. Tente de novo em instantes.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+      }
+    }
+
+    await this.ensureCompanyEmitterHydrated();
 
     // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
     let setaDeskBaseline: SetaDeskBaseline | null = null;
@@ -927,11 +1237,11 @@ export class CrmApiRouter {
       typeof body._reconcileJournal === "object" &&
       body._reconcileJournal !== null
     ) {
-      const rec = this.repo.reconcileClientState(body._reconcileJournal as ClientDurableJournal);
+      const rec = this.reconcileJournalForSession(body._reconcileJournal as ClientDurableJournal, query, { trustedInternal }, cleanPath);
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal });
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -959,11 +1269,12 @@ export class CrmApiRouter {
         response.status < 400) ||
         journalReconciled)
     ) {
-      try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // Ignore background sync failure if PostgreSQL is temporarily unavailable
-      }
+      const failed = await this.persistStateToPostgres();
+      if (failed) return failed;
+    }
+
+    if (this.proposalTableCtx && response.status === 200) {
+      await this.decorateProposalsTableResponse(cleanPath, response.body);
     }
 
     if (setaDeskBaseline) {
@@ -979,6 +1290,160 @@ export class CrmApiRouter {
     }
 
     return response;
+  }
+
+  // ==========================================================================
+  // TABELA PROPRIA DE ORCAMENTOS (erp_proposals) — src/db/proposal-store.ts
+  // ==========================================================================
+  private proposalsDb(): PgQ {
+    const pool = getPostgresPool();
+    if (!pool) throw new Error('Postgres indisponivel');
+    return pool as unknown as PgQ;
+  }
+
+  private rememberHydrated(rows: StoredProposal[]): void {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) return;
+    const merged = new Map<string, StoredProposal>();
+    for (const r of rows) if (r && r.proposal && r.proposal.id) merged.set(r.proposal.id, r);
+    const inMemory = this.repo.hydrateStoredProposals(Array.from(merged.values()).map((r) => r.proposal));
+    ctx.hydrated.clear();
+    for (const p of inMemory) {
+      ctx.hydrated.set(p.id, { hash: hashProposal(p), rowVersion: merged.get(p.id)?.rowVersion || 1 });
+    }
+  }
+
+  /** Carrega da tabela so as propostas que a rota usa (id/codigo, short link, negocio, numeracao). */
+  private async hydrateProposalsForRoute(method: string, cleanPath: string, body: Record<string, unknown>): Promise<void> {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) return;
+    const db = this.proposalsDb();
+    const refs: string[] = [];
+    let rows: StoredProposal[] = [];
+    const byRef = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
+    if (byRef) {
+      try {
+        refs.push(decodeURIComponent(byRef[1]).trim());
+      } catch {
+        refs.push(byRef[1]);
+      }
+    }
+    const shortM = cleanPath.match(/^\/api\/p\/([^/]+)$/);
+    if (shortM && method === 'GET') {
+      let code = '';
+      try {
+        code = decodeURIComponent(shortM[1]).trim();
+      } catch {
+        code = '';
+      }
+      const h = PROPOSAL_SHORT_CODE_PATTERN.test(code) ? hashProposalShortCode(code) : null;
+      const rec = h ? this.repo.findProposalShortLink(h) : undefined;
+      if (rec && rec.proposalId) refs.push(rec.proposalId);
+    }
+    if (refs.length) rows = rows.concat(await getProposalsByRefs(db, refs));
+    const dealM = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
+    if (dealM && method === 'GET') {
+      const deal = this.repo.getDealById(dealM[1]);
+      if (deal) rows = rows.concat(await getProposalsByDealOrCompany(db, deal.id, deal.companyId || null));
+    }
+    // Criacao (POST) e upsert (PUT/PATCH de id inexistente): numeracao pelo SQL + refs ocupadas.
+    const isProposalWrite =
+      (cleanPath === '/api/erp/proposals' && method === 'POST') ||
+      (Boolean(byRef) && ['PUT', 'PATCH', 'POST'].includes(method));
+    if (isProposalWrite) {
+      const cand = [body.id, body.code].filter((v) => typeof v === 'string' && String(v).trim()).map((v) => String(v).trim());
+      const clashes = cand.length ? await getProposalsByRefs(db, cand) : [];
+      this.repo.setProposalNumberingHint({
+        maxCodeNumber: await maxProposalCodeNumber(db),
+        occupiedRefs: clashes.flatMap((c) => [c.proposal.id, c.proposal.code]).filter(Boolean) as string[],
+      });
+      ctx.strictInserts = true;
+    }
+    this.rememberHydrated(rows);
+  }
+
+  /** Grava o estado (e, no modo tabela, o diff das propostas). Conflito => 409; falha => 503. */
+  private async persistStateToPostgres(): Promise<ApiResponse | null> {
+    const ctx = this.proposalTableCtx;
+    if (!ctx) {
+      try {
+        await syncStateToPostgres(this.repo.getState());
+      } catch {
+        // Ignore background sync failure if PostgreSQL is temporarily unavailable
+      }
+      return null;
+    }
+    const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
+    const gcInserts = this.repo.takePendingGcProposalInserts();
+    try {
+      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
+      return null;
+    } catch (err) {
+      if (err instanceof ProposalWriteConflictError) {
+        return {
+          status: 409,
+          body: {
+            error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+            code: 'PROPOSAL_VERSION_CONFLICT',
+            proposalId: err.proposalId,
+          },
+        };
+      }
+      if (!isEmptyDiff(diff)) {
+        return { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+      }
+      return null;
+    }
+  }
+
+  /** Bootstrap/overview/sync no modo tabela: sinaliza a lista paginada e corrige os contadores. */
+  private async decorateProposalsTableResponse(cleanPath: string, body: unknown): Promise<void> {
+    const paths = ['/api/bootstrap', '/api/state', '/api/state/reconcile', '/api/erp/overview', '/api/erp/gestaoclick/sync'];
+    if (!paths.includes(cleanPath) || !body || typeof body !== 'object') return;
+    const b = body as Record<string, any>;
+    const targets: Array<Record<string, any>> = [];
+    if (b.data && typeof b.data === 'object' && b.data.erp && typeof b.data.erp === 'object') targets.push(b.data.erp);
+    if (cleanPath === '/api/erp/overview' && b.data && typeof b.data === 'object') targets.push(b.data);
+    if (b.erp && typeof b.erp === 'object') targets.push(b.erp);
+    if (!targets.length) return;
+    let stats: { total: number; open: number } | null = null;
+    let nextNumber: number | null = null;
+    try {
+      stats = await countProposals(this.proposalsDb());
+      nextNumber = (await maxProposalCodeNumber(this.proposalsDb())) + 1;
+    } catch {
+      stats = null;
+    }
+    for (const erp of targets) {
+      erp.proposalsStorage = 'table';
+      erp.proposals = [];
+      if (stats) {
+        erp.proposalsTotal = stats.total;
+        if (nextNumber) erp.proposalsNextNumber = nextNumber;
+        if (erp.kpis && typeof erp.kpis === 'object') erp.kpis.openProposalsCount = stats.open;
+      }
+    }
+  }
+
+  /** GET /api/erp/proposals no modo tabela: pagina + filtros no SQL, no escopo da sessao. */
+  private async listProposalsFromTable(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Promise<ApiResponse> {
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'denied') return { status: 200, body: { data: [], total: 0, limit: 0, offset: 0, counts: { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 }, storage: 'table' } };
+    const owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    const page = await listProposalsPage(this.proposalsDb(), {
+      q: query.q ?? query.search,
+      status: query.status,
+      type: query.type,
+      companyId: query.companyId,
+      dealId: query.dealId,
+      owner,
+      limit: query.limit ? Number(query.limit) : 50,
+      offset: query.offset ? Number(query.offset) : 0,
+    });
+    return { status: 200, body: { ...page, storage: 'table' } };
   }
 
 
@@ -1093,17 +1558,329 @@ export class CrmApiRouter {
     );
 
     if (this.isSingletonRepo && isPostgresEnabled() && route.kind === 'CREATE' && raw.status >= 200 && raw.status < 400) {
-      try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // sincronizacao opcional
-      }
+      const failed = await this.persistStateToPostgres();
+      if (failed) return { status: failed.status, body: failed.body };
     }
     // Nunca devolve headers (em especial Set-Cookie) para a conta de servico.
     return { status: raw.status, body: projected };
   }
 
   // Step-up MFA (sessao ja autenticada): 5 desafios / 10 min e 10 verificacoes / 10 min por usuario.
+  /**
+   * Pacote I: mesma regra do POST /api/erp/gestaoclick/sync — sessao autenticada com 2FA e
+   * administrador (canManageUsersRbac) ou controle TOTAL do ERP. Contexto interno confiavel passa.
+   */
+  private gestaoClickPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const actor = this.repo.findRbacUserRecord(user.id, user.email);
+    const allowed = Boolean(
+      sess.mfaVerified && (sess.effectiveActionGuards.canManageUsersRbac || isModuleFullControl(actor, 'ERP'))
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /**
+   * Pacote K (D-I2): alcada FISCAL = a mesma de POST /api/erp/rental-contracts/:id/generate-invoice
+   * (canIssueFiscalDocuments no perfil ERP ou nos guards efetivos, sessao com 2FA). Contexto
+   * interno confiavel => liberado; conta de servico => nunca emite.
+   */
+  private fiscalIssuancePrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    if (ctx.serviceAccount) return { allowed: false, authenticated: true, email: 'conta-de-servico', name: 'Conta de serviço', roleId: 'SERVICE' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const allowed = Boolean(
+      sess.mfaVerified &&
+        (sess.erpPermissions?.canIssueFiscalDocuments || sess.effectiveActionGuards?.canIssueFiscalDocuments)
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /**
+   * Configurações Fiscais: alterar (e sobretudo levar um documento para PRODUÇÃO) exige a alçada
+   * fiscal canIssueFiscalDocuments ou administrador (canManageUsersRbac), sempre com 2FA.
+   * Conta de serviço nunca altera. Contexto interno confiável passa.
+   */
+  private fiscalSettingsPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    const fiscal = this.fiscalIssuancePrivilege(query, ctx);
+    if (fiscal.allowed || !fiscal.authenticated || ctx.serviceAccount) return fiscal;
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const admin = Boolean(sess && sess.authenticated && sess.mfaVerified && sess.effectiveActionGuards?.canManageUsersRbac);
+    return { ...fiscal, allowed: admin };
+  }
+
+  /** Pacote K (D-I2): negativa de emissao fiscal (403/401) sempre auditada como ERP_FISCAL_ISSUANCE_DENIED. */
+  private denyFiscalIssuance(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    priv: { authenticated: boolean; email?: string; name?: string; roleId?: string },
+    reason: string
+  ): ApiResponse {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: priv.email || 'desconhecido',
+        actorName: priv.name || 'desconhecido',
+        actorRole: priv.roleId || 'desconhecido',
+        action: 'ERP_FISCAL_ISSUANCE_DENIED',
+        module: 'ERP',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: 'BLOCKED',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Emissao de fatura/NF negada (${reason}): exige a alcada fiscal canIssueFiscalDocuments, a mesma de /generate-invoice.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+    return {
+      status: priv.authenticated ? 403 : 401,
+      body: {
+        error: "Permissão negada (Painel ERP): seu usuário não possui alçada para emitir documentos fiscais (NF-e / NFS-e / Fatura SV 31).",
+        code: "ERP_FISCAL_ISSUANCE_FORBIDDEN",
+      },
+    };
+  }
+
+  /**
+   * Pacote L (3): alcada FINANCEIRA para dar baixa (pagamento) em fatura: sessao com 2FA e
+   * Financeiro/Bancos EDIT ou FULL (perfil Financeiro) ou administrador. Contexto interno passa;
+   * conta de servico nunca.
+   */
+  private financePaymentPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { allowed: boolean; authenticated: boolean; email?: string; name?: string; roleId?: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true };
+    if (ctx.serviceAccount) return { allowed: false, authenticated: true, email: 'conta-de-servico', name: 'Conta de serviço', roleId: 'SERVICE' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false };
+    const finAccess = String(sess.erpPermissions?.financeBanksAccess || 'NONE');
+    const allowed = Boolean(
+      sess.mfaVerified && (sess.effectiveActionGuards?.canManageUsersRbac || finAccess === 'FULL' || finAccess === 'EDIT')
+    );
+    return { allowed, authenticated: true, email: user.email, name: user.name, roleId: user.roleId };
+  }
+
+  /** Pacote L (3): negativa de baixa de pagamento, auditada como ERP_FINANCE_PAYMENT_DENIED. */
+  private denyInvoiceChange(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    priv: { authenticated: boolean; email?: string; name?: string; roleId?: string },
+    reason: string,
+    code: string
+  ): ApiResponse {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: priv.email || 'desconhecido',
+        actorName: priv.name || 'desconhecido',
+        actorRole: priv.roleId || 'desconhecido',
+        action: 'ERP_FINANCE_PAYMENT_DENIED',
+        module: 'ERP',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: 'BLOCKED',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Negado (${reason}): exige 2FA e a alcada financeira (Financeiro/Bancos EDIT ou FULL) ou administrador.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+    return {
+      status: priv.authenticated ? 403 : 401,
+      body: {
+        error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para dar baixa em faturas.',
+        code,
+      },
+    };
+  }
+
+  /**
+   * Pacote L (2): equipments do contrato (POST/PATCH/PUT) precisa ser uma lista de objetos.
+   * [null], [1], ["x"], [[...]] ou um valor nao-lista => 400 antes de gravar.
+   */
+  private checkContractEquipmentsInput(method: string, cleanPath: string, body: Record<string, unknown>): ApiResponse | null {
+    const isContractCollection = cleanPath === '/api/erp/rental-contracts' || cleanPath === '/api/erp/contracts';
+    const isContractItem = /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+$/.test(cleanPath) &&
+      cleanPath !== '/api/erp/rental-contracts/batch-billing' && cleanPath !== '/api/erp/rental-contracts/batch-email';
+    if (!((method === 'POST' && isContractCollection) || ((method === 'PATCH' || method === 'PUT') && isContractItem))) return null;
+    const b = body && typeof body === 'object' ? body : {};
+    if (!Object.prototype.hasOwnProperty.call(b, 'equipments') || b.equipments === undefined) return null;
+    const eq = b.equipments;
+    if (!Array.isArray(eq) || eq.length > 2000 || eq.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+      return {
+        status: 400,
+        body: {
+          error: 'O campo "equipments" deve ser uma lista de equipamentos (objetos).',
+          code: 'CONTRACT_FIELD_INVALID',
+          fields: ['equipments'],
+        },
+      };
+    }
+    if (countValidContractProducts(eq) < 1) {
+      return {
+        status: 400,
+        body: {
+          error: 'Adicione pelo menos um produto.',
+          code: 'CONTRACT_FIELD_INVALID',
+          fields: ['equipments'],
+        },
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Pacote K (D-I2): toda rota que GERA fatura/NF exige a alcada fiscal; a geracao automatica ao
+   * salvar contrato (generateNextInvoiceOnSave) tambem respeita a flag global
+   * autoGenerateMonthlyRentalInvoices. Devolve a resposta de erro ou null (segue o fluxo).
+   */
+  private checkFiscalIssuanceRoute(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse | null {
+    const b = body && typeof body === 'object' ? body : {};
+    let reason: string | null = null;
+    let autoOnSave = false;
+    const isContractCollection = cleanPath === '/api/erp/rental-contracts' || cleanPath === '/api/erp/contracts';
+    const isContractItem = /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+$/.test(cleanPath) &&
+      cleanPath !== '/api/erp/rental-contracts/batch-billing' && cleanPath !== '/api/erp/rental-contracts/batch-email';
+    if (method === 'POST') {
+      if (
+        cleanPath === '/api/erp/invoices' ||
+        cleanPath === '/api/erp/fiscal-documents' ||
+        /^\/api\/erp\/rental-contracts\/[^/]+\/generate-(?:invoice|remessa)$/.test(cleanPath)
+      ) reason = 'emissao direta';
+      else if (cleanPath === '/api/erp/rental-contracts/batch-billing') reason = 'faturamento em lote';
+      else if (cleanPath === '/api/erp/nfe-importacao/emit') reason = 'NF-e de importacao';
+      else if (
+        /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+\/partial-return$/.test(cleanPath) &&
+        (b.emitReturnNfe !== false || b.emitProRataInvoice !== false)
+      ) reason = 'NF de retorno/fatura pro-rata da devolucao parcial';
+    }
+    if (((method === 'POST' && isContractCollection) || ((method === 'PATCH' || method === 'PUT') && isContractItem)) &&
+      b.generateNextInvoiceOnSave !== undefined) {
+      if (typeof b.generateNextInvoiceOnSave !== 'boolean') {
+        return {
+          status: 400,
+          body: { error: 'O campo "generateNextInvoiceOnSave" deve ser booleano.', code: 'CONTRACT_FIELD_INVALID', fields: ['generateNextInvoiceOnSave'] },
+        };
+      }
+      if (b.generateNextInvoiceOnSave === true) {
+        reason = 'fatura gerada ao salvar o contrato (generateNextInvoiceOnSave)';
+        autoOnSave = true;
+      }
+    }
+    if (!reason) return null;
+    const priv = this.fiscalIssuancePrivilege(query, ctx);
+    if (!priv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, priv, reason);
+    if (autoOnSave && this.repo.getErpOverview().gestaoClickConfig.autoGenerateMonthlyRentalInvoices === false) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: priv.email || 'sistema',
+          actorName: priv.name || 'Sistema STI-hub',
+          actorRole: priv.roleId || 'SYSTEM',
+          action: 'ERP_AUTO_INVOICE_DISABLED',
+          module: 'ERP',
+          resource: `${method} ${cleanPath}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: 'Geracao automatica de fatura ao salvar contrato recusada: autoGenerateMonthlyRentalInvoices=false. Use "Gerar fatura" (/generate-invoice).',
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+      return {
+        status: 409,
+        body: {
+          error: 'A geração automática de faturas mensais de locação está desligada na configuração do ERP. Salve o contrato sem "Gerar a próxima fatura" e use "Gerar fatura".',
+          code: 'ERP_AUTO_INVOICE_DISABLED',
+        },
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Pacote K (D-I2): journal do navegador com a alcada fiscal da sessao. Sem a alcada, faturas/NF
+   * NOVAS do journal sao descartadas (e auditadas); o journal nunca gera fatura de contrato.
+   */
+  private reconcileJournalForSession(
+    journal: ClientDurableJournal,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    resource: string
+  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number } {
+    const priv = this.fiscalIssuancePrivilege(query, ctx);
+    // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
+    // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).
+    const sanitizedJournal = this.sanitizeProposalJournal(deepRedactProposalLinkTokens(journal), query, ctx);
+    if (this.proposalTableCtx) {
+      // Modo tabela: propostas so gravam pela API por linha (controle otimista); o journal do
+      // navegador nunca reescreve/apaga orcamentos (copias antigas no localStorage).
+      sanitizedJournal.upsertedProposals = [];
+      sanitizedJournal.deletedProposalIds = [];
+    }
+    // Pacote O: modelos de e-mail no journal so com a alcada do PUT; o journal nunca cria modelo.
+    if (Array.isArray(sanitizedJournal.upsertedEmailTemplates) && sanitizedJournal.upsertedEmailTemplates.length > 0) {
+      const tplPriv = emailTemplateWritePrivilege(this.repo, query, ctx);
+      const tplRes = sanitizeEmailTemplateJournal(this.repo, sanitizedJournal.upsertedEmailTemplates, tplPriv);
+      sanitizedJournal.upsertedEmailTemplates = tplRes.safe;
+      if (tplRes.denied > 0) {
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: tplPriv.email || 'desconhecido',
+            actorName: tplPriv.name || 'desconhecido',
+            actorRole: tplPriv.roleId || 'desconhecido',
+            action: 'EMAIL_TEMPLATE_WRITE_DENIED',
+            module: 'CRM',
+            resource: `journal ${resource}`.slice(0, 200),
+            status: 'BLOCKED',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `Journal: ${tplRes.denied} alteracao(oes) de modelo de e-mail descartada(s): exige 2FA e Marketing EDIT/FULL ou administrador.`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+      }
+    }
+    const rec = this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
+    if (rec.fiscalDropped && rec.fiscalDropped > 0) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: priv.email || 'desconhecido',
+          actorName: priv.name || 'desconhecido',
+          actorRole: priv.roleId || 'desconhecido',
+          action: 'ERP_FISCAL_ISSUANCE_DENIED',
+          module: 'ERP',
+          resource: `journal ${resource}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: `Journal: ${rec.fiscalDropped} fatura(s)/NF nova(s), alterada(s) ou excluida(s) descartada(s): exige a alcada fiscal canIssueFiscalDocuments.`,
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+    }
+    return rec;
+  }
+
   /**
    * Pacote F: autoria padrao = nome do usuario da SESSAO; sem sessao (contexto interno/cron)
    * => "Sistema STI-hub". Nunca um nome fixo de pessoa.
@@ -1136,8 +1913,14 @@ export class CrmApiRouter {
       authorRole,
       isInternal,
       body: String(body.body),
-      newStatus: body.newStatus as TicketStatus | undefined,
     });
+    // Pacote I: status validado pelo router (parseTicketCommentStatus) e aplicado pelo mesmo
+    // caminho do PATCH (SLA, resolvedAt, slaStatus).
+    const nextStatus = parseTicketCommentStatus(body.newStatus);
+    let result = updated;
+    if (updated && nextStatus.ok && nextStatus.status && nextStatus.status !== updated.status) {
+      result = this.repo.updateServiceTicket(updated.id, { status: nextStatus.status }) || updated;
+    }
     if (updated && !isInternal) {
       try {
         const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
@@ -1157,7 +1940,7 @@ export class CrmApiRouter {
         // auditoria nunca derruba a resposta
       }
     }
-    return updated;
+    return result;
   }
 
   /**
@@ -1201,22 +1984,52 @@ export class CrmApiRouter {
     if (typeof body.ownerName !== 'string') return bad('OWNER_INVALID', 'Responsável (ownerName) inválido.');
     const cleaned = cleanOwnerName(body.ownerName);
     if (!cleaned) return bad('OWNER_EMPTY', 'Responsável (ownerName) vazio: escolha um responsável ou use null (somente administradores) para remover.');
-    body.ownerName = cleaned; // grava normalizado
-    const st = this.repo.getState();
-    const known = buildKnownOwnerSet({
-      users: this.repo.getRbacState().users as Array<{ name?: string; email?: string; active?: boolean }>,
-      existingOwnerNames: [
-        ...st.contacts.map((c) => c.ownerName),
-        ...st.companies.map((c) => c.ownerName),
-        ...st.deals.map((d) => d.ownerName),
-      ],
-    });
-    if (isAssignableOwnerName(cleaned, current, known)) return null;
+    // Pacote I: so usuario ATIVO do RBAC (ou opcao oficial do seletor); sem diferenciar caixa e
+    // acentos; grava o nome CANONICO. Nomes que existem so nos dados nao sao mais aceitos.
+    const canonicalOwner = resolveOwnerNameToStore(
+      cleaned,
+      current,
+      buildOwnerCanonicalMap({ users: this.repo.getRbacState().users as Array<{ name?: string; email?: string; active?: boolean }> })
+    );
+    if (canonicalOwner) {
+      body.ownerName = canonicalOwner;
+      return null;
+    }
     return bad('OWNER_NOT_FOUND', 'Responsável (ownerName) desconhecido ou inativo: escolha um usuário ativo do STI-hub ou um responsável da lista oficial.');
   }
 
   /** Portal do Cliente (HOTFIX 29/10): rate-limit por IP e por chave do chamado. */
   private readonly portalLimiters = new PortalRateLimiters();
+
+  /** Link assinado de proposta (29/10): rate-limit por IP e por proposta (por instancia). */
+  private readonly proposalLinkLimiters = new ProposalPublicRateLimiters();
+
+  /** Auditoria das rotas publicas/emissao de link de proposta. NUNCA recebe o token (so o jti). */
+  private proposalLinkAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    proposalRef: string,
+    outcome: string,
+    actor?: { email?: string; name?: string; role?: string },
+    jti?: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor?.email || 'anonimo@link-proposta',
+        actorName: actor?.name || 'Cliente (link assinado de proposta)',
+        actorRole: actor?.role || 'PROPOSAL_PUBLIC_LINK',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalRef || '').slice(0, 80)}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Link de proposta: ${outcome}.${jti ? ` jti=${String(jti).slice(0, 32)}.` : ''}`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
 
   /** Auditoria de TODA consulta/acao do portal (sucesso ou negada); e-mail mascarado. */
   private portalAudit(
@@ -1249,8 +2062,21 @@ export class CrmApiRouter {
   private readonly forgotPasswordIpLimiter = new SlidingWindowRateLimiter(10, 15 * 60 * 1000);
   private readonly forgotPasswordEmailLimiter = new SlidingWindowRateLimiter(3, 15 * 60 * 1000);
   private readonly resetPasswordIpLimiter = new SlidingWindowRateLimiter(20, 15 * 60 * 1000);
+  // Pacote L (1): aceite publico (POST /api/erp/proposals/:id/approve) com limite por IP e por proposta.
+  // Pacote M (D1/D2):
+  // - por IP: TODA tentativa anonima conta (corpo invalido, 404, 409...), contra forca bruta;
+  // - por IP + proposta: toda tentativa contra uma proposta existente, chaveada pelo id CANONICO
+  //   (o mesmo balde para id, id em outra caixa e code);
+  // - por proposta (id canonico): so aceites que PASSARAM na validacao. Tentativas invalidas de
+  //   terceiros nao consomem este balde, entao nao travam o aceite legitimo do cliente.
+  private readonly proposalApproveIpLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ip, PROPOSAL_APPROVE_LIMITS.windowMs);
+  private readonly proposalApproveIpPropLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.ipPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
+  private readonly proposalApproveIdLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.validPerProposal, PROPOSAL_APPROVE_LIMITS.windowMs);
+  /** Pacote N (R1): balde por jti + proposta, so para quem apresenta token valido. */
+  private readonly proposalApproveTokenLimiter = new SlidingWindowRateLimiter(PROPOSAL_APPROVE_LIMITS.perToken, PROPOSAL_APPROVE_LIMITS.windowMs);
   /** Pacote H (D3b): falhas de login por IP (alem do limite por e-mail do repositorio). */
-  private readonly loginFailIpLimiter = new SlidingWindowRateLimiter(20, 10 * 60 * 1000);
+  // Pacote I (D3): falhas por IP + e-mail (ver src/api/login-ip-guard.ts).
+  private readonly loginFailIpGuard = new LoginIpFailureGuard();
   private readonly consumedPasswordResetNonces = new Set<string>();
 
   /** GET/PATCH /api/auth/me — ver spec self-profile-patch-auth-me.md. */
@@ -1625,7 +2451,1262 @@ export class CrmApiRouter {
       }
     }
 
+    // Sem segredo no log: so o motivo (chave ausente/invalida, Resend recusou, SMTP incompleto).
+    console.warn(
+      `[STI-hub e-mail] Convite NAO entregue (${protocol}): resendKey=${resendKey ? "ok" : "ausente_ou_invalida"}, smtp=${smtpHost && smtpUser && smtpPass ? "falhou" : "nao_configurado"}.`
+    );
     return { delivered: false, deliveryMode: "INVITE_LINK_READY", protocol };
+  }
+
+  // ==========================================================================
+  // LINK ASSINADO DE PROPOSTA (29/10/2026)
+  // ==========================================================================
+
+  /**
+   * Sessao MFA valida do STI-hub para propostas (M1, parecer CISO 30/10): exige modulo ERP
+   * liberado e proposalsQuotesAccess != NONE. Devolve null se nao atende (=> caminho do link).
+   */
+  private resolveProposalSessionAccess(query: Record<string, string | undefined>): {
+    user: { id: string; email: string; name: string; scope: string; roleId: string };
+    isAdmin: boolean;
+    erpRole: string;
+    proposalsAccess: string;
+  } | null {
+    const token = query._sessionToken;
+    if (!token) return null;
+    const verified = verifyStiHubSessionToken(token);
+    if (!verified.valid) return null;
+    const sess = this.repo.resolveSessionFromToken(token);
+    if (!sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) return null;
+    const moduleAccess = (sess.user as { moduleAccess?: { erp?: boolean } }).moduleAccess;
+    if (!moduleAccess || moduleAccess.erp !== true) return null;
+    const proposalsAccess = String(sess.erpPermissions?.proposalsQuotesAccess || 'NONE');
+    if (proposalsAccess === 'NONE') return null;
+    const claims = verified.claims;
+    const erpRole = resolveErpAccountRoleFromClaims(
+      claims ? { ...claims, erpRole: claims.erpRole || sess.user.erpRole } : null
+    );
+    const roleId = String(sess.user.roleId || '');
+    const isAdmin =
+      Boolean(sess.effectiveActionGuards?.canManageUsersRbac) ||
+      roleId === 'SUPER_ADMIN' ||
+      roleId === 'DIRETORIA' ||
+      erpRole === 'ERP_ADMIN';
+    return {
+      user: {
+        id: String(sess.user.id || ''),
+        email: String(sess.user.email || ''),
+        name: String(sess.user.name || ''),
+        scope: String(sess.user.scope || 'PROPRIOS'),
+        roleId,
+      },
+      isAdmin,
+      erpRole,
+      proposalsAccess,
+    };
+  }
+
+  /** Escopo restrito: PROPRIOS e EQUIPE valem como "so as proprias" (M2). */
+  private static isRestrictedProposalScope(scope: string): boolean {
+    return scope !== 'TODOS';
+  }
+
+  /**
+   * M2: dono da proposta SEM usar sellerName (editavel/homonimo). Vale o sellerUserId gravado
+   * pelo servidor na criacao (imutavel); sem ele, o e-mail do vendedor da proposta.
+   */
+  private static isProposalOwnedBy(p: ErpCommercialProposal, user: { id: string; email: string }): boolean {
+    const norm = (v: unknown) => String(v || '').trim().toLowerCase();
+    if (p.sellerUserId) return norm(p.sellerUserId) !== '' && norm(p.sellerUserId) === norm(user.id);
+    return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(user.email);
+  }
+
+  /**
+   * Acesso completo a uma proposta: contexto interno/conta de servico, ou sessao que passa em
+   * resolveProposalSessionAccess e, no escopo restrito, e dona da proposta. Senao => link.
+   */
+  private hasFullProposalAccess(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    proposal?: ErpCommercialProposal
+  ): boolean {
+    if (ctx.trustedInternal || ctx.serviceAccount) return true;
+    const access = this.resolveProposalSessionAccess(query);
+    if (!access) return false;
+    if (access.isAdmin || !CrmApiRouter.isRestrictedProposalScope(access.user.scope)) return true;
+    if (!proposal) return true;
+    return CrmApiRouter.isProposalOwnedBy(proposal, access.user);
+  }
+
+  private findProposalExact(id: string): ErpCommercialProposal | undefined {
+    return this.repo.listProposals().find((p) => p.id === id);
+  }
+
+  // ==========================================================================
+  // ESCOPO DE PROPOSTAS NAS ROTAS AUTENTICADAS (parecer CISO 30/10, achados PATCH/lista)
+  // ==========================================================================
+
+  /**
+   * internal: codigo do servidor (contexto interno, conta de servico, ou chamada em processo sem
+   * HTTP e sem sessao). session: sessao MFA com ERP e acesso a propostas. denied: o resto.
+   * restricted = escopo PROPRIOS/EQUIPE sem admin. ownerAdmin = pode trocar o dono (admin, ou
+   * proposalsQuotesAccess FULL com escopo TODOS).
+   */
+  private proposalScope(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ):
+    | { kind: 'internal' }
+    | { kind: 'denied' }
+    | {
+        kind: 'session';
+        access: NonNullable<ReturnType<CrmApiRouter['resolveProposalSessionAccess']>>;
+        restricted: boolean;
+        ownerAdmin: boolean;
+      } {
+    if (ctx.trustedInternal || ctx.serviceAccount) return { kind: 'internal' };
+    if (query._fromHttpBridge !== '1' && !query._sessionToken) return { kind: 'internal' };
+    const access = this.resolveProposalSessionAccess(query);
+    if (!access) return { kind: 'denied' };
+    const restricted = !access.isAdmin && CrmApiRouter.isRestrictedProposalScope(access.user.scope);
+    const ownerAdmin = access.isAdmin || (access.proposalsAccess === 'FULL' && access.user.scope === 'TODOS');
+    return { kind: 'session', access, restricted, ownerAdmin };
+  }
+
+  private static proposalVisibleIn(scope: ReturnType<CrmApiRouter['proposalScope']>, p: ErpCommercialProposal): boolean {
+    if (scope.kind === 'internal') return true;
+    if (scope.kind === 'denied') return false;
+    return !scope.restricted || CrmApiRouter.isProposalOwnedBy(p, scope.access.user);
+  }
+
+  private filterProposalsByScope(
+    list: ErpCommercialProposal[],
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ErpCommercialProposal[] {
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'internal') return list;
+    return list.filter((p) => CrmApiRouter.proposalVisibleIn(scope, p));
+  }
+
+  /** Bootstrap/estado/overview: erp.proposals filtrado pelo escopo da sessao. */
+  private scopeBootstrapProposals<T>(payload: T, query: Record<string, string | undefined>, ctx: { trustedInternal: boolean; serviceAccount?: boolean }): T {
+    const erp = (payload as { erp?: { proposals?: ErpCommercialProposal[] } })?.erp;
+    if (!erp || !Array.isArray(erp.proposals)) return payload;
+    return { ...(payload as object), erp: { ...erp, proposals: this.filterProposalsByScope(erp.proposals, query, ctx) } } as T;
+  }
+
+  private findProposalByRef(ref: string): ErpCommercialProposal | undefined {
+    const r = String(ref || '').trim();
+    return this.repo.listProposals().find((p) => p.id === r || String(p.code || '').toLowerCase() === r.toLowerCase());
+  }
+
+  private static normSellerText(v: unknown): string {
+    return String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  /**
+   * Campos de dono que o corpo tenta MUDAR. Proposta existente: compara com o valor atual.
+   * Proposta nova: compara com o proprio usuario (vendedor restrito so cria em nome proprio).
+   * sellerUserId no corpo nunca e aceito (so o servidor grava).
+   */
+  private static sellerFieldChanges(
+    current: ErpCommercialProposal | undefined,
+    body: Record<string, unknown>,
+    self: { email: string; name: string }
+  ): string[] {
+    const changed: string[] = [];
+    const n = CrmApiRouter.normSellerText;
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k) && body[k] !== undefined;
+    if (has('sellerUserId') && n(body.sellerUserId) !== n(current?.sellerUserId)) changed.push('sellerUserId');
+    if (has('sellerEmail') && n(body.sellerEmail) !== n(current ? current.sellerEmail : self.email)) changed.push('sellerEmail');
+    if (has('sellerName') && n(body.sellerName) !== n(current ? current.sellerName : self.name)) changed.push('sellerName');
+    return changed;
+  }
+
+  /**
+   * D2 (CISO 30/10): campos de autoria, historico e aceite/assinatura sao do SERVIDOR. Em chamadas
+   * de sessao (tudo que nao e TRUSTED_INTERNAL_CONTEXT) eles sao descartados do corpo e o autor
+   * (updatedBy => savedBy da versao e employeeName do statusHistory) vem da sessao.
+   */
+  private static readonly SERVER_ONLY_PROPOSAL_FIELDS = [
+    'updatedBy',
+    'savedBy',
+    'employeeName',
+    'statusHistory',
+    'versionHistory',
+    'acceptance',
+    'digitalSignature',
+    'convertedContractId',
+    'convertedInvoiceId',
+    'convertedInvoiceIds',
+    'approvalIdempotencyKeySha256',
+    'sellerUserId',
+    'approvalMode',
+    'approvalJustification',
+    'approvedBy',
+    'approvedAt',
+  ] as const;
+
+  // ==========================================================================
+  // MUDANCA DE STATUS POR SESSAO (CISO 30/10)
+  // ==========================================================================
+  /** Status de conversao/faturamento do enum ErpProposalStatus: so approve com token ou contexto interno. */
+  static readonly PROPOSAL_CONVERSION_STATUSES: readonly string[] = ['CONVERTIDA_CONTRATO'];
+  /** Status "travados": sair deles para outro status, por sessao, so admin (auditado). */
+  static readonly PROPOSAL_LOCKED_STATUSES: readonly string[] = ['APROVADA', 'CONVERTIDA_CONTRATO'];
+  static readonly PROPOSAL_APPROVAL_JUSTIFICATION_MIN = 10;
+  /** A5: lista FECHADA (= ErpProposalStatus). */
+  static readonly PROPOSAL_STATUSES: readonly ErpCommercialProposal['status'][] = [
+    'RASCUNHO',
+    'ENVIADA',
+    'EM_NEGOCIACAO',
+    'APROVADA',
+    'CONVERTIDA_CONTRATO',
+    'RECUSADA',
+  ];
+  /** Invisiveis: \p{Cf} (ZWSP, ZWNJ, ZWJ, BOM, word joiner, soft hyphen...), CGJ e fillers Hangul. */
+  private static readonly INVISIBLE_CHARS_RE = /[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu;
+
+  /**
+   * A5: status do corpo -> valor canonico. NFKC (largura total etc.), sem invisiveis, trim e
+   * maiusculas; so vale se estiver na lista fechada. Nao-string (objeto, array, numero) = invalido.
+   */
+  /** D3: status (canonico, A5) em que o aceite publico pelo link vale. */
+  static isProposalLinkApprovableStatus(raw: unknown): boolean {
+    const n = CrmApiRouter.normalizeProposalStatus(raw);
+    return n.kind === 'ok' && (PROPOSAL_LINK_APPROVABLE_STATUSES as readonly string[]).includes(n.value);
+  }
+
+  static normalizeProposalStatus(
+    raw: unknown
+  ): { kind: 'absent' } | { kind: 'invalid' } | { kind: 'ok'; value: ErpCommercialProposal['status'] } {
+    if (raw === undefined || raw === null) return { kind: 'absent' };
+    if (typeof raw !== 'string') return { kind: 'invalid' };
+    const s = raw.normalize('NFKC').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').trim().toUpperCase();
+    if (!s) return { kind: 'absent' };
+    const hit = CrmApiRouter.PROPOSAL_STATUSES.find((x) => x === s);
+    return hit ? { kind: 'ok', value: hit } : { kind: 'invalid' };
+  }
+
+  /**
+   * A6: caracteres VISIVEIS da justificativa: tira invisiveis (\p{Cf}, fillers), espacos (NBSP,
+   * U+3000...) e marcas combinantes soltas (\p{M}); conta so letras e numeros.
+   */
+  static visibleJustificationLength(raw: string): number {
+    const cleaned = raw.normalize('NFKC').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').replace(/\p{M}/gu, '');
+    let n = 0;
+    for (const ch of cleaned) if (/[\p{L}\p{N}]/u.test(ch)) n++;
+    return n;
+  }
+
+  private static proposalStatusInvalid(): ApiResponse {
+    return {
+      status: 400,
+      body: {
+        error: `Situação inválida. Use uma de: ${CrmApiRouter.PROPOSAL_STATUSES.join(', ')}.`,
+        code: 'PROPOSAL_STATUS_INVALID',
+        fields: ['status'],
+      },
+    };
+  }
+
+  /**
+   * Regras 1-4 para chamadas que NAO sao TRUSTED_INTERNAL_CONTEXT. Devolve os campos que o
+   * servidor grava (aprovacao manual) e a auditoria a registrar apos gravar, ou a resposta de erro.
+   */
+  private checkProposalStatusChange(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    current: ErpCommercialProposal | undefined,
+    requestedRaw: unknown,
+    justificationRaw: unknown
+  ):
+    | { ok: true; transition: boolean; serverFields: Record<string, unknown>; audit?: { action: string; details: string } }
+    | { ok: false; response: ApiResponse } {
+    const none = { ok: true as const, transition: false, serverFields: {} };
+    if (ctx.trustedInternal) return none;
+    // A5: lista fechada depois de normalizar; nao-string/fora da lista => 400 (nunca 500).
+    const norm = CrmApiRouter.normalizeProposalStatus(requestedRaw);
+    if (norm.kind === 'absent') return none;
+    if (norm.kind === 'invalid') return { ok: false, response: CrmApiRouter.proposalStatusInvalid() };
+    const requested: string = norm.value;
+    const curNorm = current ? CrmApiRouter.normalizeProposalStatus(current.status) : null;
+    const from = curNorm && curNorm.kind === 'ok' ? curNorm.value : current ? String(current.status || '').toUpperCase() : '';
+    // O valor gravado e sempre o canonico.
+    const canon = { status: norm.value };
+    // Regra 4: reenviar o mesmo status nao e transicao.
+    if (current && requested === from) return { ...none, serverFields: canon };
+    const scope = this.proposalScope(query, ctx);
+    const access = scope.kind === 'session' ? scope.access : null;
+    const isAdmin = Boolean(access?.isAdmin);
+    const ownerAdmin = scope.kind === 'session' && scope.ownerAdmin;
+    const deny = (status: number, code: string, error: string): { ok: false; response: ApiResponse } => {
+      this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_STATUS_CHANGE', 'BLOCKED', `${code}: ${from || '(nova)'} -> ${requested}`);
+      return { ok: false, response: { status, body: { error, code } } };
+    };
+    // Regra 1: conversao/faturamento nunca por sessao.
+    if (CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(requested)) {
+      return deny(
+        403,
+        'PROPOSAL_STATUS_CONVERSION_FORBIDDEN',
+        'A conversão em contrato/faturamento não pode ser feita manualmente. Ela acontece quando o cliente aceita pelo link assinado (ou por processo interno do sistema). Use "Aprovar manualmente" se o cliente aceitou fora do link.'
+      );
+    }
+    // Regra 3: sair de APROVADA/CONVERTIDA so admin (auditado).
+    if (current && CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(from)) {
+      if (!isAdmin) {
+        return deny(
+          403,
+          'PROPOSAL_STATUS_LOCKED',
+          'Esta proposta já foi aprovada/convertida. Somente um administrador pode alterar a situação dela.'
+        );
+      }
+      if (requested !== 'APROVADA') {
+        return {
+          ok: true,
+          transition: true,
+          serverFields: canon,
+          audit: { action: 'PROPOSAL_STATUS_REOPEN', details: `Situação alterada por administrador: ${from} -> ${requested}` },
+        };
+      }
+    }
+    // Regra 2: APROVADA so admin ou FULL/TODOS, com justificativa (>= 10), sem conversao.
+    if (requested === 'APROVADA') {
+      if (!ownerAdmin) {
+        return deny(
+          403,
+          'PROPOSAL_MANUAL_APPROVAL_FORBIDDEN',
+          'Somente administradores ou perfis com acesso total (FULL/TODOS) podem aprovar uma proposta manualmente. Envie o link assinado para o cliente aceitar.'
+        );
+      }
+      // A6: justificativa precisa ser texto; contam so caracteres visiveis (letras/numeros).
+      if (justificationRaw !== undefined && justificationRaw !== null && typeof justificationRaw !== 'string') {
+        this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_MANUAL_APPROVAL', 'BLOCKED', 'justificativa nao textual (400)');
+        return {
+          ok: false,
+          response: {
+            status: 400,
+            body: {
+              error: 'A justificativa da aprovação manual deve ser um texto.',
+              code: 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED',
+              fields: ['approvalJustification'],
+            },
+          },
+        };
+      }
+      const justification = String(justificationRaw ?? '').replace(CrmApiRouter.INVISIBLE_CHARS_RE, '').trim();
+      if (CrmApiRouter.visibleJustificationLength(justification) < CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN) {
+        this.proposalStatusAudit(query, access, current?.id || '(nova)', 'PROPOSAL_MANUAL_APPROVAL', 'BLOCKED', 'justificativa ausente ou curta (400)');
+        return {
+          ok: false,
+          response: {
+            status: 400,
+            body: {
+              error: `Informe a justificativa da aprovação manual (mínimo de ${CrmApiRouter.PROPOSAL_APPROVAL_JUSTIFICATION_MIN} caracteres), por exemplo: "Cliente aceitou por telefone em 30/10 com o diretor".`,
+              code: 'PROPOSAL_APPROVAL_JUSTIFICATION_REQUIRED',
+              fields: ['approvalJustification'],
+            },
+          },
+        };
+      }
+      const clipped = justification.slice(0, 1000);
+      return {
+        ok: true,
+        transition: true,
+        serverFields: {
+          ...canon,
+          approvalMode: 'MANUAL',
+          approvalJustification: clipped,
+          approvedBy: this.sessionActorName(query),
+          approvedAt: new Date().toISOString(),
+          statusObservation: `Aprovação manual: ${clipped}`,
+        },
+        audit: { action: 'PROPOSAL_MANUAL_APPROVAL', details: `Aprovação manual (${from || 'nova'} -> APROVADA). Justificativa: ${clipped}` },
+      };
+    }
+    return { ok: true, transition: true, serverFields: canon };
+  }
+
+  private proposalStatusAudit(
+    query: Record<string, string | undefined>,
+    access: { user: { email: string; name: string; roleId: string } } | null,
+    proposalId: string,
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    details: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: access?.user.email || 'sem-sessao@sti-hub',
+        actorName: access?.user.name || 'Sem sessao',
+        actorRole: access?.user.roleId || 'NONE',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalId).slice(0, 80)}`,
+        status,
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: redactProposalLinkTokens(details).slice(0, 1500),
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
+  /**
+   * Item 4 (CISO 30/10): ALLOWLIST dos campos que o navegador pode gravar numa proposta (PATCH/PUT,
+   * POST e journal). Tudo fora dela (chaves desconhecidas, id/createdAt num PATCH, campos do
+   * servidor acima) e descartado em chamadas de sessao. Contexto interno confiavel nao passa aqui.
+   */
+  private static readonly CLIENT_EDITABLE_PROPOSAL_FIELDS: ReadonlySet<string> = new Set([
+    'code', 'title', 'serviceType', 'budgetType', 'storeName', 'salesChannel', 'costCenter', 'chartOfAccounts',
+    'proposalDate', 'deliveryLeadTime', 'deliveryForecast', 'careOf', 'introductionText', 'internalNotes',
+    'shippingCost', 'shippingCarrier', 'deliveryAddress', 'discountPercentGlobal', 'productsSubtotal',
+    'servicesSubtotal', 'installments', 'companyId', 'companyName', 'companyCnpj', 'contactId',
+    'contactName', 'contactEmail', 'dealId', 'sellerName', 'sellerEmail', 'sellerPhone', 'status',
+    'modality', 'templateStyle', 'setupFee', 'slaTier', 'slaResponseHours', 'slaAvailabilityPercent',
+    'deliveryDays', 'warrantyTerms', 'technicalScopeNotes', 'readjustmentIndex', 'discountAmount',
+    'contractMonths', 'paymentCondition', 'validUntil', 'items', 'monthlyRecurringTotal',
+    'oneTimeSetupTotal', 'totalContractValue', 'commercialNotes', 'technicalClauses',
+  ]);
+  /** Entradas de controle (nao sao colunas): observacao do historico e resumo da versao. */
+  private static readonly CLIENT_PROPOSAL_CONTROL_FIELDS: ReadonlySet<string> = new Set([
+    'statusObservation',
+    'versionChangeSummary',
+  ]);
+
+  private static pickClientProposalFields(
+    input: Record<string, unknown>,
+    extra: readonly string[] = []
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input || {})) {
+      if (CrmApiRouter.CLIENT_EDITABLE_PROPOSAL_FIELDS.has(k) || extra.includes(k)) out[k] = v;
+    }
+    return out;
+  }
+
+  private stripServerOnlyProposalFields(
+    input: Record<string, unknown>,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    mode: 'create' | 'patch' = 'patch'
+  ): Record<string, unknown> {
+    if (ctx.trustedInternal) return input;
+    const out = CrmApiRouter.pickClientProposalFields(input, [
+      ...CrmApiRouter.CLIENT_PROPOSAL_CONTROL_FIELDS,
+      ...(mode === 'create' ? ['id'] : []),
+    ]);
+    for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete out[k];
+    out.updatedBy = this.sessionActorName(query);
+    return out;
+  }
+
+  /** (c) sellerUserId: SOMENTE pelo servidor, do usuario RBAC cujo e-mail bate com sellerEmail. */
+  private resolveSellerUserIdByEmail(email: unknown): string | undefined {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e) return undefined;
+    const rec = this.repo.findRbacUserRecord('', e);
+    return rec && String(rec.email || '').toLowerCase() === e ? rec.id : undefined;
+  }
+
+  private proposalScopeForbidden(code: 'PROPOSAL_SCOPE_FORBIDDEN' | 'PROPOSAL_OWNER_IMMUTABLE', fields?: string[]): ApiResponse {
+    return {
+      status: 403,
+      body:
+        code === 'PROPOSAL_SCOPE_FORBIDDEN'
+          ? { error: 'Acesso negado: esta proposta não pertence ao seu escopo de visibilidade.', code }
+          : {
+              error: 'Somente administradores ou perfis com acesso total (FULL/TODOS) podem alterar o vendedor responsável pela proposta.',
+              code,
+              fields: fields || [],
+            },
+    };
+  }
+
+  private proposalOwnerAudit(
+    scope: ReturnType<CrmApiRouter['proposalScope']>,
+    query: Record<string, string | undefined>,
+    proposalId: string,
+    before: { sellerName?: string; sellerEmail?: string; sellerUserId?: string },
+    after: { sellerName?: string; sellerEmail?: string; sellerUserId?: string },
+    via: string
+  ): void {
+    const fmt = (o: { sellerName?: string; sellerEmail?: string; sellerUserId?: string }) =>
+      `nome="${String(o.sellerName || '')}" email="${String(o.sellerEmail || '')}" userId="${String(o.sellerUserId || '')}"`;
+    try {
+      const actor =
+        scope.kind === 'session'
+          ? { email: scope.access.user.email, name: scope.access.user.name, role: scope.access.user.roleId }
+          : { email: 'sistema@sti-hub', name: 'Sistema STI-hub (interno)', role: 'SYSTEM' };
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor.email,
+        actorName: actor.name,
+        actorRole: actor.role,
+        action: 'PROPOSAL_OWNER_CHANGE',
+        module: 'ERP',
+        resource: `/api/erp/proposals/${String(proposalId).slice(0, 80)}`,
+        status: 'SUCCESS',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `Troca do vendedor responsavel (${via}). Antes: ${fmt(before)}. Depois: ${fmt(after)}.`,
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+  }
+
+  /** Apos criar/editar/restaurar: recalcula sellerUserId pelo e-mail (se mudou) e audita troca de dono. */
+  private finalizeProposalOwner(
+    scope: ReturnType<CrmApiRouter['proposalScope']>,
+    query: Record<string, string | undefined>,
+    before: ErpCommercialProposal | null,
+    after: ErpCommercialProposal,
+    via: string
+  ): ErpCommercialProposal {
+    const n = CrmApiRouter.normSellerText;
+    const emailChanged = !before || n(before.sellerEmail) !== n(after.sellerEmail);
+    let result = after;
+    if (emailChanged) {
+      result = this.repo.setProposalSellerUserId(after.id, this.resolveSellerUserIdByEmail(after.sellerEmail)) || after;
+    }
+    if (
+      before &&
+      (n(before.sellerEmail) !== n(result.sellerEmail) ||
+        n(before.sellerName) !== n(result.sellerName) ||
+        n(before.sellerUserId) !== n(result.sellerUserId))
+    ) {
+      this.proposalOwnerAudit(
+        scope,
+        query,
+        result.id,
+        { sellerName: before.sellerName, sellerEmail: before.sellerEmail, sellerUserId: before.sellerUserId },
+        { sellerName: result.sellerName, sellerEmail: result.sellerEmail, sellerUserId: result.sellerUserId },
+        via
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Journal do navegador: nunca troca o dono (campos de vendedor das existentes sao mantidos) e,
+   * para escopo restrito, so aplica/apaga propostas proprias (novas: so em nome proprio).
+   */
+  private sanitizeProposalJournal(
+    journal: unknown,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ClientDurableJournal {
+    const j = { ...((journal || {}) as ClientDurableJournal) };
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'internal') return j;
+    const byId = new Map(this.repo.listProposals().map((p) => [p.id, p] as const));
+    if (Array.isArray(j.upsertedProposals)) {
+      j.upsertedProposals = j.upsertedProposals
+        .filter((inc) => {
+          if (!inc || !inc.id) return false;
+          if (scope.kind === 'denied') return false;
+          const cur = byId.get(inc.id);
+          if (cur) return CrmApiRouter.proposalVisibleIn(scope, cur);
+          if (!scope.restricted && scope.ownerAdmin) return true;
+          return CrmApiRouter.sellerFieldChanges(undefined, inc as unknown as Record<string, unknown>, scope.access.user).length === 0;
+        })
+        .map((inc) => {
+          const cur = byId.get(inc.id);
+          // D2: o journal nunca grava autoria, historico, versao nem aceite/assinatura; o upsert
+          // (merge) mantem os valores do servidor. Proposta nova: autor = sessao.
+          // Item 4: allowlist (id/updatedAt para o merge; createdAt so em proposta nova).
+          const rest: Record<string, unknown> = CrmApiRouter.pickClientProposalFields(
+            inc as unknown as Record<string, unknown>,
+            cur ? ['id', 'updatedAt'] : ['id', 'updatedAt', 'createdAt']
+          );
+          for (const k of CrmApiRouter.SERVER_ONLY_PROPOSAL_FIELDS) delete rest[k];
+          delete rest.version;
+          if (!cur) {
+            rest.updatedBy = this.sessionActorName(query);
+          }
+          // Status (CISO 30/10): o journal nunca muda situacao para/de APROVADA/CONVERTIDA (nem
+          // admin: isso exige PATCH com justificativa/auditoria). Demais transicoes seguem.
+          // A5: status normalizado (NFKC, sem invisiveis, maiusculas) e da lista fechada; o journal
+          // nunca grava minusculas nem valor fora da lista (existente: mantem o atual; nova: RASCUNHO).
+          if (scope.kind === 'session') {
+            const norm = CrmApiRouter.normalizeProposalStatus(rest.status);
+            if (cur) {
+              const curNorm = CrmApiRouter.normalizeProposalStatus(cur.status);
+              const curSt = curNorm.kind === 'ok' ? curNorm.value : String(cur.status || '');
+              if (norm.kind === 'absent') {
+                delete rest.status;
+              } else if (
+                norm.kind === 'invalid' ||
+                (norm.value !== curSt &&
+                  (CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(norm.value) || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(curSt)))
+              ) {
+                rest.status = cur.status;
+              } else {
+                rest.status = norm.value;
+              }
+            } else if (norm.kind !== 'ok' || CrmApiRouter.PROPOSAL_LOCKED_STATUSES.includes(norm.value)) {
+              rest.status = 'RASCUNHO';
+            } else {
+              rest.status = norm.value;
+            }
+          }
+          return (cur
+            ? { ...rest, sellerName: cur.sellerName, sellerEmail: cur.sellerEmail }
+            : rest) as unknown as ErpCommercialProposal;
+        });
+    }
+    if (Array.isArray(j.deletedProposalIds)) {
+      j.deletedProposalIds = j.deletedProposalIds.filter((id) => {
+        const cur = byId.get(String(id)) || this.findProposalByRef(String(id));
+        return Boolean(cur) && CrmApiRouter.proposalVisibleIn(scope, cur!);
+      });
+    }
+    return j;
+  }
+
+  /**
+   * t33u: GET /api/p/:code (publico). Mesmo rate limit por IP da visualizacao publica; codigo fora
+   * do formato, inexistente, revogado, vencido, de versao antiga ou cujo token reassinado nao
+   * passa no verifyProposalLinkToken => o mesmo 404 generico (anti-enumeracao).
+   */
+  private resolveProposalShortLink(code: string, query: Record<string, string | undefined>): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    if (!PROPOSAL_SHORT_CODE_PATTERN.test(code)) return proposalNotFoundResponse();
+    const codeHash = hashProposalShortCode(code);
+    const rec = codeHash ? this.repo.findProposalShortLink(codeHash) : undefined;
+    if (!rec || rec.revokedAt) return this.resolveInvoiceShortLink(code, query, codeHash);
+    let token: string;
+    try {
+      token = signProposalLinkClaims({ v: 1, pid: rec.proposalId, ver: rec.version, iat: rec.iat, exp: rec.exp, jti: rec.jti });
+    } catch {
+      return proposalNotFoundResponse();
+    }
+    const v = verifyProposalLinkToken(token, { proposalId: rec.proposalId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.findProposalExact(rec.proposalId);
+    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
+    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    try { stopFollowupForProposal(this.repo, found, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    return {
+      status: 200,
+      body: { kind: 'proposal', data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
+    };
+  }
+
+  /** t200u: short link de fatura emitida no mesmo GET /api/p/:code (404 generico se nao houver). */
+  private resolveInvoiceShortLink(code: string, query: Record<string, string | undefined>, codeHash: string | null): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const rec = codeHash ? this.repo.findInvoiceShortLink(codeHash) : undefined;
+    if (!rec || rec.revokedAt) return proposalNotFoundResponse();
+    let token: string;
+    try {
+      token = signInvoiceLinkClaims({ v: 1, typ: 'invoice', iid: rec.invoiceId, iat: rec.iat, exp: rec.exp, jti: rec.jti });
+    } catch {
+      return proposalNotFoundResponse();
+    }
+    const v = verifyInvoiceLinkToken(token, { invoiceId: rec.invoiceId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.repo.getInvoiceByIdOrNumber(rec.invoiceId);
+    if (!found || !isIssuedInvoiceStatus(found.status)) return proposalNotFoundResponse();
+    const contract = found.rentalContractId || found.contractNumber
+      ? this.repo.listRentalContracts().find((c) => c.id === found.rentalContractId || c.contractNumber === found.contractNumber)
+      : undefined;
+    const remessaDocs = this.repo.listInvoices().filter((i) => i.documentType === 'NFE_REMESSA_LOCACAO');
+    const issuerAddress = formatIssuerAddress(this.companyEmitter);
+    this.invoiceLinkAudit('INVOICE_PUBLIC_VIEW', 'SUCCESS', ip, found.id, 'visualizacao pelo short link', undefined, v.claims.jti);
+    return {
+      status: 200,
+      body: {
+        kind: 'invoice',
+        data: toPublicInvoiceDto(found, { contract, remessaDocs, issuerAddress }),
+        issuerAddress,
+      },
+    };
+  }
+
+  private invoiceLinkAudit(
+    action: string,
+    status: 'SUCCESS' | 'BLOCKED',
+    ip: string,
+    invoiceRef: string,
+    outcome: string,
+    actor?: { email?: string; name?: string; role?: string },
+    jti?: string
+  ): void {
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: actor?.email || 'anonimo@link-fatura',
+        actorName: actor?.name || 'Cliente (link assinado de fatura)',
+        actorRole: actor?.role || 'INVOICE_PUBLIC_LINK',
+        action,
+        module: 'ERP',
+        resource: `/api/erp/invoices/${String(invoiceRef || '').slice(0, 80)}`,
+        status,
+        ipAddress: ip || 'sem-ip',
+        details: `Link de fatura: ${outcome}.${jti ? ` jti=${String(jti).slice(0, 32)}.` : ''}`,
+      });
+    } catch {
+      /* auditoria nunca derruba a resposta */
+    }
+  }
+
+  /**
+   * Visibilidade da fatura no escopo PROPRIOS/EQUIPE: proposta ou negócio do usuário
+   * (sellerUserId / sellerEmail / ownerId; nunca o nome). Admin e escopo TODOS veem todas.
+   * Sem vínculo identificável, o escopo restrito é fail-closed.
+   */
+  private isInvoiceVisibleToSession(
+    invoice: { proposalId?: string | null; proposalNumber?: string | null; rentalContractId?: string | null; contractNumber?: string | null; dealId?: string | null },
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal) return true;
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token ? this.repo.resolveSessionFromToken(token) : null;
+    if (!sess || !sess.authenticated) return false;
+    if (sess.effectiveActionGuards?.canManageUsersRbac) return true;
+    const scope = String(sess.user.scope || 'PROPRIOS');
+    if (!CrmApiRouter.isRestrictedProposalScope(scope)) return true;
+    const user = { id: String(sess.user.id || ''), email: String(sess.user.email || '') };
+    const proposals = this.repo.listProposals();
+    const matchProposal = (id?: string | null, number?: string | null) =>
+      proposals.find(
+        (p) =>
+          (id && p.id === id) ||
+          (number && String(p.code || '').toLowerCase() === String(number).toLowerCase()) ||
+          (number && String((p as { proposalNumber?: string }).proposalNumber || '').toLowerCase() === String(number).toLowerCase())
+      );
+    const fromInvoice = matchProposal(invoice.proposalId, invoice.proposalNumber);
+    if (fromInvoice && CrmApiRouter.isProposalOwnedBy(fromInvoice, user)) return true;
+    const contract =
+      invoice.rentalContractId || invoice.contractNumber
+        ? this.repo
+            .listRentalContracts()
+            .find((c) => c.id === invoice.rentalContractId || (invoice.contractNumber && c.contractNumber === invoice.contractNumber))
+        : undefined;
+    if (contract) {
+      const fromContract = matchProposal(contract.proposalId, contract.proposalNumber);
+      if (fromContract && CrmApiRouter.isProposalOwnedBy(fromContract, user)) return true;
+    }
+    if (invoice.dealId) {
+      const deal = this.repo.getDealById(invoice.dealId);
+      if (deal?.ownerId && String(deal.ownerId) === user.id) return true;
+    }
+    return false;
+  }
+
+  /**
+   * POST /api/erp/invoices/:id/public-link (sessao MFA): gera o short link /p/<codigo>
+   * da fatura emitida para o cliente (somente leitura).
+   */
+  private issueInvoicePublicLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+      return {
+        status: 401,
+        body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+      };
+    }
+    const actor = { email: sess.user.email, name: sess.user.name, role: String(sess.user.roleId || '') };
+    const finPriv = this.financePaymentPrivilege(query, ctx);
+    if (!finPriv.allowed) {
+      this.invoiceLinkAudit(
+        'INVOICE_LINK_ISSUE',
+        'BLOCKED',
+        ip,
+        pathId,
+        'sem alcada financeira (Financeiro/Bancos EDIT ou FULL, ou administrador)',
+        actor
+      );
+      return {
+        status: 403,
+        body: {
+          error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para gerar o link desta fatura.',
+          code: 'INVOICE_LINK_FORBIDDEN',
+        },
+      };
+    }
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    if (!isInvoiceLinkConfigured()) {
+      this.invoiceLinkAudit('INVOICE_LINK_ISSUE', 'BLOCKED', ip, pathId, 'segredo de link ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: {
+          error: 'O link para o cliente está temporariamente indisponível (configuração de segurança pendente). Avise o administrador.',
+          code: 'INVOICE_LINK_SECRET_MISSING',
+        },
+      };
+    }
+    const found = this.repo.getInvoiceByIdOrNumber(pathId);
+    if (!found || !isIssuedInvoiceStatus(found.status) || !this.isInvoiceVisibleToSession(found, query, ctx)) {
+      return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
+    }
+    const signed = signInvoiceLinkToken({ invoiceId: found.id });
+    const origin = resolveProposalLinkOrigin(query._origin);
+    this.invoiceLinkAudit(
+      'INVOICE_LINK_ISSUE',
+      'SUCCESS',
+      ip,
+      found.id,
+      `link emitido (expira ${new Date(signed.claims.exp).toISOString()})`,
+      actor,
+      signed.claims.jti
+    );
+    let shortUrl: string | null = null;
+    try {
+      const code = generateInvoiceShortCode();
+      const codeHash = hashInvoiceShortCode(code);
+      if (codeHash) {
+        this.repo.addInvoiceShortLink({
+          codeHash,
+          invoiceId: signed.claims.iid,
+          iat: signed.claims.iat,
+          exp: signed.claims.exp,
+          jti: signed.claims.jti,
+          createdBy: String(sess.user.email || sess.user.id || ''),
+          revokedAt: null,
+        });
+        shortUrl = buildShortInvoiceUrl(origin, code);
+      }
+    } catch {
+      shortUrl = null;
+    }
+    const url = shortUrl || `${String(origin || '').replace(/\/+$/, '')}/p`;
+    return {
+      status: 200,
+      body: {
+        data: {
+          url,
+          shortUrl,
+          expiresAt: new Date(signed.claims.exp).toISOString(),
+        },
+      },
+    };
+  }
+
+  /** GET publico: so com token valido para ESTE id e a versao ATUAL. Qualquer falha => 404 generico. */
+  private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
+    if (!v.valid) return proposalNotFoundResponse();
+    const found = this.findProposalExact(pathId);
+    if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
+    this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    try { stopFollowupForProposal(this.repo, found, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    return {
+      status: 200,
+      body: { data: toPublicProposalDto(found), issuerAddress: formatIssuerAddress(this.companyEmitter) },
+    };
+  }
+
+  private publicApprovalResult(
+    proposal: ErpCommercialProposal,
+    contractNumber: string | null,
+    invoiceNumber: string | null
+  ): Record<string, unknown> {
+    // Confirmacao para o cliente: DTO publico + numeros dos documentos gerados (sem ids internos).
+    return { proposal: toPublicProposalDto(proposal), contractNumber, invoiceNumber };
+  }
+
+  /**
+   * POST /approve: exige o mesmo token do link (exceto contexto interno confiavel), corpo zod
+   * .strict(), idempotente (Idempotency-Key opcional, presa a proposta) e NUNCA cria proposta.
+   * Rebase v5 sobre o pacote M (D1/D2) e o L:
+   * - D1 por IP (30/10 min): toda tentativa SEM token valido (Pacote N, R1: o HMAC e verificado antes);
+   * - R1 por token (30/10 min, jti + proposta): tentativas com token valido (no lugar do balde por IP);
+   * - D2 por IP + proposta (10/10 min): toda tentativa contra a proposta existente, pelo id
+   *   CANONICO (na v4 o id do caminho tem de ser exatamente o do token; caixa/code dao 404 antes);
+   * - D1 por proposta (20/10 min): so aceites que passaram na validacao;
+   * - L: aceite repetido (assinatura ou fatura ja geradas) => 409 PROPOSAL_ALREADY_APPROVED;
+   * - D3: fora de ENVIADA/EM_NEGOCIACAO => o mesmo 404 generico (publico).
+   */
+  private async approveProposalViaLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Promise<ApiResponse> {
+    const trusted = ctx.trustedInternal === true;
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const ipKey = rateLimitIpKey(query._clientIp || '');
+    const rateLimited: ApiResponse = {
+      status: 429,
+      body: { error: 'Muitas tentativas de aceite. Aguarde alguns minutos e tente novamente.', code: 'PROPOSAL_APPROVE_RATE_LIMITED' },
+    };
+    let jti: string | undefined;
+    let tokenVersion: number | null = null;
+
+    if (!trusted) {
+      // Pacote N (R1): o HMAC do token e verificado PRIMEIRO (custo constante, sempre executado).
+      // Sem token ou com token invalido => balde de 30 por IP (Pacote M, D1) e o 404 generico.
+      // Com token valido => balde proprio por jti + proposta, e NAO o balde por IP: quem divide o IP
+      // do cliente (NAT, Wi-Fi) sem o token nao consegue travar o aceite dele.
+      const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
+      if (!v.valid) {
+        if (!this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
+          this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
+          return rateLimited;
+        }
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'token ausente ou invalido (404 generico)');
+        return proposalNotFoundResponse();
+      }
+      jti = v.claims.jti;
+      if (!this.proposalApproveTokenLimiter.hit(`approve-tok:${String(jti).slice(0, 128)}|${String(v.claims.pid).toLowerCase().slice(0, 128)}`)) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por token + proposta (429)', undefined, jti);
+        return rateLimited;
+      }
+      tokenVersion = v.claims.ver;
+      if (!isProposalPublicApproveEnabled()) {
+        this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'aceite pelo link desativado (403)', undefined, jti);
+        return {
+          status: 403,
+          body: {
+            error: 'O aceite por este link está desativado. Fale com o seu consultor Seta Telecom para concluir a aprovação.',
+            code: 'PROPOSAL_PUBLIC_APPROVE_DISABLED',
+          },
+        };
+      }
+    }
+
+    const existing = trusted
+      ? this.repo
+          .listProposals()
+          .find(
+            (p) =>
+              p.id === pathId ||
+              p.id.toLowerCase() === pathId.toLowerCase() ||
+              p.code === pathId ||
+              String(p.code || '').toLowerCase() === pathId.toLowerCase()
+          )
+      : this.findProposalExact(pathId);
+    if (!existing || (tokenVersion !== null && Math.max(1, Number(existing.version || 1)) !== tokenVersion)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'proposta inexistente ou versao diferente (404, nada criado)', undefined, jti);
+      return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
+    }
+    // Pacote M (D2): baldes por proposta pelo id CANONICO encontrado pelo servidor.
+    const canonicalPropKey = String(existing.id).toLowerCase().slice(0, 128);
+    if (!trusted && !this.proposalApproveIpPropLimiter.hit(`approve-ip-prop:${ipKey}|${canonicalPropKey}`)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'rate-limit por IP + proposta (429)', undefined, jti);
+      return rateLimited;
+    }
+
+    const parsed = publicProposalApproveSchema.safeParse(body || {});
+    if (!parsed.success) {
+      const fields = Array.from(
+        new Set(
+          parsed.error.issues.flatMap((i) =>
+            i.code === 'unrecognized_keys' ? (i as { keys?: string[] }).keys || [] : [String(i.path[0] ?? '')]
+          )
+        )
+      ).filter(Boolean);
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'corpo invalido (400)', undefined, jti);
+      return {
+        status: 400,
+        body: {
+          error:
+            'Dados do aceite inválidos. Informe nome completo, CPF válido, cargo do signatário, modalidade de assinatura e confirme a aceitação dos termos.',
+          code: 'INVALID_APPROVAL_INPUT',
+          fields,
+        },
+      };
+    }
+    const idem = normalizeIdempotencyKey(query.proposalIdempotencyKey);
+    if (!idem.ok) {
+      return {
+        status: 400,
+        body: { error: 'Idempotency-Key inválida (8 a 128 caracteres: letras, números, ".", "_", ":" ou "-").', code: 'INVALID_IDEMPOTENCY_KEY' },
+      };
+    }
+
+    // Repeticao com a MESMA Idempotency-Key NESTA proposta (o hash inclui o id da proposta):
+    // devolve exatamente o corpo do primeiro aceite, sem novo efeito e sem dado a mais.
+    if (
+      idem.key &&
+      existing.approvalIdempotencyKeySha256 &&
+      existing.approvalIdempotencyKeySha256 === hashIdempotencyKey(idem.key, existing.id) &&
+      (existing.status === 'CONVERTIDA_CONTRATO' || existing.convertedContractId)
+    ) {
+      const contract = this.repo.listRentalContracts().find((c) => c.id === existing.convertedContractId);
+      const invoice = this.repo.listInvoices().find((i) => i.id === existing.convertedInvoiceId);
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'SUCCESS', ip, existing.id, 'repeticao idempotente (mesma Idempotency-Key, sem novo efeito)', undefined, jti);
+      if (trusted) return { status: 200, body: { data: { proposal: existing, contract, invoice } } };
+      return {
+        status: 200,
+        body: { data: this.publicApprovalResult(existing, contract?.contractNumber || null, invoice?.documentNumber || null) },
+      };
+    }
+
+    // Pacote L (1): aceite repetido (assinatura ou fatura ja geradas, mesmo sem convertedContractId,
+    // ex.: dado legado) => 409, nenhum contrato/fatura a mais.
+    if (existing.digitalSignature?.signedAt || existing.convertedInvoiceId) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'aceite repetido (409)', undefined, jti);
+      return {
+        status: 409,
+        body: { error: 'Esta proposta já foi aceita e convertida em contrato.', code: 'PROPOSAL_ALREADY_APPROVED' },
+      };
+    }
+
+    // D3 (checagem final v4): aceite publico so em ENVIADA ou EM_NEGOCIACAO. Qualquer outro
+    // status (RASCUNHO, APROVADA, CONVERTIDA_CONTRATO, RECUSADA, invalido) => o MESMO 404
+    // generico do link, sem revelar o status.
+    if (!trusted && !CrmApiRouter.isProposalLinkApprovableStatus(existing.status)) {
+      this.proposalLinkAudit(
+        'PROPOSAL_PUBLIC_APPROVE',
+        'BLOCKED',
+        ip,
+        existing.id,
+        `status ${String(existing.status || '').slice(0, 40)} fora de ENVIADA/EM_NEGOCIACAO (404 generico)`,
+        undefined,
+        jti
+      );
+      return proposalNotFoundResponse();
+    }
+    // A5/D3: valida pelo status canonico (caixa/invisiveis nao mudam a decisao do gate acima).
+    const existingStatusNorm = CrmApiRouter.normalizeProposalStatus(existing.status);
+    const approval = validateProposalApprovalInput(
+      parsed.data,
+      existingStatusNorm.kind === 'ok' ? existingStatusNorm.value : existing.status,
+      existing.convertedContractId || null
+    );
+    if (!approval.ok) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, `${approval.code} (${approval.status})`, undefined, jti);
+      return {
+        status: approval.status,
+        body: { error: approval.error, code: approval.code, fields: approval.fields },
+      };
+    }
+    // Pacote M (D1): o limite por proposta so conta aceites que passaram na validacao.
+    if (!trusted && !this.proposalApproveIdLimiter.hit(`approve-id:${canonicalPropKey}`)) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'rate-limit por proposta (aceites validados, 429)', undefined, jti);
+      return rateLimited;
+    }
+    // M3: antes de converter, rele a proposta (memoria e, se houver, o estado persistido no
+    // PostgreSQL) e confere de novo convertedContractId. Reduz, mas NAO elimina, a corrida entre
+    // instancias serverless (sem lock/transacao no crm_kv_store): duas instancias que passem por
+    // aqui no mesmo instante ainda podem converter em paralelo. Ver relatorio (pendencia).
+    const alreadyConverted = (p: ErpCommercialProposal | undefined) =>
+      Boolean(p && (p.convertedContractId || p.status === 'CONVERTIDA_CONTRATO'));
+    let reloadedConverted = alreadyConverted(this.findProposalExact(existing.id));
+    if (!reloadedConverted && this.isSingletonRepo && isPostgresEnabled()) {
+      try {
+        if (this.proposalTableCtx) {
+          const freshRows = await getProposalsByRefs(this.proposalsDb(), [existing.id]);
+          reloadedConverted = alreadyConverted(freshRows.find((r) => r.proposal.id === existing.id)?.proposal);
+        }
+        const fresh = this.proposalTableCtx ? null : await loadStateFromPostgres();
+        if (fresh) reloadedConverted = alreadyConverted(fresh?.erp?.proposals?.find((p) => p.id === existing.id));
+      } catch {
+        // PostgreSQL indisponivel: segue com a checagem em memoria ja feita.
+      }
+    }
+    if (reloadedConverted) {
+      this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, existing.id, 'ja convertida na releitura (409)', undefined, jti);
+      return {
+        status: 409,
+        body: { error: 'Esta proposta já foi aprovada e convertida em contrato.', code: 'PROPOSAL_ALREADY_CONVERTED' },
+      };
+    }
+    const res = this.repo.approveProposalAndConvertToContract(existing.id, {
+      ...approval.data,
+      ipAddress: query._clientIp || undefined,
+    } as Record<string, unknown>);
+    if (!res) return trusted ? { status: 404, body: { error: 'Proposta comercial não encontrada.' } } : proposalNotFoundResponse();
+    if (idem.key) {
+      const h = hashIdempotencyKey(idem.key, res.proposal.id);
+      res.proposal.approvalIdempotencyKeySha256 = h;
+      this.repo.setProposalApprovalIdempotencyHash(res.proposal.id, h);
+    }
+    this.proposalLinkAudit(
+      'PROPOSAL_PUBLIC_APPROVE',
+      'SUCCESS',
+      ip,
+      res.proposal.id,
+      `aceite registrado (${approval.data.modality}); contrato ${res.contract.contractNumber}`,
+      trusted ? { name: 'Sistema STI-hub (interno)', role: 'SYSTEM', email: 'sistema@sti-hub' } : undefined,
+      jti
+    );
+    try { stopFollowupForProposal(this.repo, res.proposal, 'PROPOSAL_ACCEPT'); } catch { /* parada nunca altera o aceite */ }
+    if (trusted) return { status: 200, body: { data: res } };
+    return {
+      status: 200,
+      body: { data: this.publicApprovalResult(res.proposal, res.contract.contractNumber || null, res.invoice?.documentNumber || null) },
+    };
+  }
+
+  /**
+   * POST /api/erp/proposals/:id/public-link (sessao MFA): gera o link assinado para o cliente.
+   * Admin (IAM/Diretoria/ERP_ADMIN) para qualquer proposta; perfil ERP Comercial com acesso
+   * EDIT/FULL a propostas para as que pode ver (escopo PROPRIOS => so as proprias).
+   */
+  private issueProposalPublicLink(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
+    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+      return {
+        status: 401,
+        body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+      };
+    }
+    // M1: modulo ERP + acesso a propostas != NONE (mesma regra do GET completo).
+    const access = this.resolveProposalSessionAccess(query);
+    const roleId = String(sess.user.roleId || '');
+    const erpRole = access?.erpRole || 'ERP_NONE';
+    const isAdmin = Boolean(access?.isAdmin);
+    const proposalsAccess = access?.proposalsAccess || 'NONE';
+    const canEdit =
+      Boolean(access) &&
+      (PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole) &&
+      (proposalsAccess === 'FULL' || proposalsAccess === 'EDIT');
+    const actor = { email: sess.user.email, name: sess.user.name, role: roleId };
+    const forbidden: ApiResponse = {
+      status: 403,
+      body: {
+        error: 'Seu perfil não tem permissão para gerar o link desta proposta para o cliente.',
+        code: 'PROPOSAL_LINK_FORBIDDEN',
+      },
+    };
+    if (!isAdmin && !canEdit) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, pathId, `perfil sem alcada (${erpRole}/${proposalsAccess})`, actor);
+      return forbidden;
+    }
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+      return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
+    }
+    const found = this.repo
+      .listProposals()
+      .find((p) => p.id === pathId || String(p.code || '').toLowerCase() === pathId.toLowerCase());
+    if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+    // M2: dono por sellerUserId (servidor) ou e-mail do vendedor; nunca pelo nome. EQUIPE = PROPRIOS.
+    if (!isAdmin && CrmApiRouter.isRestrictedProposalScope(String(sess.user.scope || 'PROPRIOS'))) {
+      if (!CrmApiRouter.isProposalOwnedBy(found, { id: String(sess.user.id || ''), email: String(sess.user.email || '') })) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `proposta de outro vendedor (escopo ${String(sess.user.scope || 'PROPRIOS')})`, actor);
+        return forbidden;
+      }
+    }
+    if (!isProposalLinkConfigured()) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'STI_HUB_PROPOSAL_LINK_SECRET ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: {
+          error: 'O link para o cliente está temporariamente indisponível (configuração de segurança pendente). Avise o administrador.',
+          code: 'PROPOSAL_LINK_SECRET_MISSING',
+        },
+      };
+    }
+    // 04/11 (pedido do Marcéllo): o link do cliente sai em QUALQUER status (APROVADA,
+    // CONVERTIDA_CONTRATO, RECUSADA, EXPIRADA...). So RASCUNHO muda de status (passa a ENVIADA
+    // abaixo); os demais ficam como estao. MFA/sessao, alcada, dono e assinatura seguem iguais.
+    // O aceite publico continua so em ENVIADA/EM_NEGOCIACAO (isProposalLinkApprovableStatus).
+    const statusNorm = CrmApiRouter.normalizeProposalStatus(found.status);
+    const statusCanon = statusNorm.kind === 'ok' ? statusNorm.value : null;
+    const isDraft = statusCanon === 'RASCUNHO';
+    // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link (e, se
+    // for RASCUNHO, sem mudar o status: a assinatura e testada ANTES da transicao).
+    let signed: ReturnType<typeof signProposalLinkToken>;
+    let target = found;
+    try {
+      signed = signProposalLinkToken({ proposalId: found.id, version: Math.max(1, Number(found.version || 1)), notAfterMs: proposalValidUntilEndMs(found.validUntil) });
+      if (isDraft) {
+        // D3: RASCUNHO -> ENVIADA na emissao, com o mesmo escopo/sessao ja conferidos acima,
+        // historico de status e auditoria. A transicao cria versao nova: o link sai dela.
+        const sent = this.repo.updateProposal(found.id, {
+          status: 'ENVIADA',
+          statusObservation: 'Enviada ao cliente (link assinado emitido)',
+          updatedBy: sess.user.name || sess.user.email,
+        } as Partial<ErpCommercialProposal>);
+        if (!sent) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        target = sent;
+        this.proposalStatusAudit(
+          query,
+          { user: { email: String(sess.user.email || ''), name: String(sess.user.name || ''), roleId } },
+          sent.id,
+          'PROPOSAL_STATUS_CHANGE',
+          'SUCCESS',
+          `RASCUNHO -> ENVIADA na emissao do link assinado (versao ${Math.max(1, Number(sent.version || 1))})`
+        );
+        signed = signProposalLinkToken({ proposalId: sent.id, version: Math.max(1, Number(sent.version || 1)), notAfterMs: proposalValidUntilEndMs(sent.validUntil) });
+      }
+    } catch (err) {
+      if (err instanceof ProposalLinkExpiredProposalError) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'validade da proposta vencida (409)', actor);
+        return {
+          status: 409,
+          body: { error: 'A validade desta proposta já venceu. Atualize a data de validade antes de gerar o link para o cliente.', code: 'PROPOSAL_EXPIRED' },
+        };
+      }
+      throw err;
+    }
+    const version = Math.max(1, Number(target.version || 1));
+    // Checagem final v4: STI_HUB_PUBLIC_ORIGIN (validado, so a origem) quando existir.
+    const origin = resolveProposalLinkOrigin(query._origin);
+    this.proposalLinkAudit(
+      'PROPOSAL_LINK_ISSUE',
+      'SUCCESS',
+      ip,
+      found.id,
+      `link emitido (versao ${version}, expira ${new Date(signed.claims.exp).toISOString()})`,
+      actor,
+      signed.claims.jti
+    );
+    // t33u: short link opaco /p/<codigo>. Grava so o HMAC do codigo e as claims do token (o
+    // token e reassinado igual na abertura); persiste no mesmo estado duravel da proposta.
+    let shortUrl: string | null = null;
+    try {
+      const code = generateProposalShortCode();
+      const codeHash = hashProposalShortCode(code);
+      if (codeHash) {
+        this.repo.addProposalShortLink({
+          codeHash,
+          proposalId: signed.claims.pid,
+          version: signed.claims.ver,
+          iat: signed.claims.iat,
+          exp: signed.claims.exp,
+          jti: signed.claims.jti,
+          createdBy: String(sess.user.email || sess.user.id || ''),
+          revokedAt: null,
+        });
+        shortUrl = buildShortProposalUrl(origin, code);
+      }
+    } catch {
+      shortUrl = null;
+    }
+    return {
+      status: 200,
+      body: {
+        data: {
+          url: buildSignedProposalUrl(origin, found.id, signed.token),
+          shortUrl,
+          version,
+          expiresAt: new Date(signed.claims.exp).toISOString(),
+          publicApproveEnabled: isProposalPublicApproveEnabled(),
+          // D3: situacao apos a emissao (RASCUNHO vira ENVIADA), para a tela atualizar.
+          proposalStatus: target.status,
+        },
+      },
+    };
   }
 
   private async handleRoute(
@@ -1633,7 +3714,7 @@ export class CrmApiRouter {
     cleanPath: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean } = { trustedInternal: false }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown>; certRawBody?: Record<string, unknown> } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -1735,8 +3816,8 @@ export class CrmApiRouter {
       const isCronAuthorized =
         isHttpRequest &&
         query._cronAuthorized === "1" &&
-        cleanPath === "/api/erp/daily-sync" &&
-        method === "GET";
+        method === "GET" &&
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup");
       const requestSessionToken =
         query._sessionToken;
 
@@ -1746,7 +3827,19 @@ export class CrmApiRouter {
       // ja validado + allowlist) e o cron autenticado pelo bridge. Sessao so via query._sessionToken
       // (definida pelo bridge a partir do cookie/header); body._sessionToken nunca e lido.
       if (!ctx.trustedInternal && !ctx.serviceAccount && !isPublicStiHubPath(cleanPath, method) && !isCronAuthorized) {
-        if (!requestSessionToken || !verifyStiHubSessionToken(requestSessionToken).valid) {
+        const gateCheck = requestSessionToken ? verifyStiHubSessionToken(requestSessionToken) : null;
+        if (!requestSessionToken || !gateCheck?.valid) {
+          // Pacote N: POST/DELETE do certificado A1 com sessao assinada sem 2FA => recusa auditada.
+          if (gateCheck?.reason === 'MFA_NOT_VERIFIED_IN_CLAIMS' && isCertificateMutation(method, cleanPath)) {
+            let who: { email?: string; name?: string; roleId?: string } = {};
+            try {
+              const c = JSON.parse(Buffer.from(String(requestSessionToken).split('.')[0], 'base64url').toString('utf8')) as Record<string, unknown>;
+              who = { email: String(c.email || '').slice(0, 120), name: String(c.name || '').slice(0, 120), roleId: String(c.roleId || '').slice(0, 60) };
+            } catch {
+              who = {};
+            }
+            auditCertificateMutationDenied(this.repo, who, method, String(query._clientIp || 'sem-ip').slice(0, 64), 'sessao sem 2FA');
+          }
           return {
             status: 401,
             body: {
@@ -1775,6 +3868,16 @@ export class CrmApiRouter {
           };
         }
         if (!resolvedSession.authenticated || !resolvedSession.mfaVerified) {
+          // Pacote N: POST/DELETE do certificado A1 com sessao sem 2FA => recusa auditada.
+          if (resolvedSession.authenticated && isCertificateMutation(method, cleanPath)) {
+            auditCertificateMutationDenied(
+              this.repo,
+              { email: resolvedSession.user?.email, name: resolvedSession.user?.name, roleId: resolvedSession.user?.roleId },
+              method,
+              String(query._clientIp || 'sem-ip').slice(0, 64),
+              'sessao sem 2FA'
+            );
+          }
           return {
             status: 401,
             body: {
@@ -1860,7 +3963,8 @@ export class CrmApiRouter {
         }
 
         if (method === "DELETE") {
-          if (cleanPath.startsWith("/api/erp/")) {
+          // Pacote N: o DELETE do certificado A1 tem guarda propria (2FA + admin, com auditoria).
+          if (cleanPath.startsWith("/api/erp/") && !isCertificateRoute(cleanPath)) {
             if (
               !resolvedSession.erpPermissions.canDeleteErpRecords &&
               !resolvedSession.effectiveActionGuards.canDeleteRecords
@@ -1877,7 +3981,8 @@ export class CrmApiRouter {
             cleanPath.startsWith("/api/contacts/") ||
             cleanPath.startsWith("/api/companies/") ||
             cleanPath.startsWith("/api/deals/") ||
-            cleanPath.startsWith("/api/tickets/")
+            cleanPath.startsWith("/api/tickets/") ||
+            cleanPath.startsWith("/api/pipelines/")
           ) {
             if (
               !resolvedSession.crmPermissions.canDeleteCrmRecords &&
@@ -1918,23 +4023,51 @@ export class CrmApiRouter {
           (cleanPath === "/api/erp/invoices" ||
             cleanPath === "/api/erp/fiscal-documents" ||
             cleanPath.endsWith("/generate-invoice") ||
-            cleanPath.endsWith("/generate-remessa")) &&
+            cleanPath.endsWith("/generate-remessa") ||
+            // #7: emissão/cálculo/importação de NF-e de importação exigem alçada fiscal
+            cleanPath === "/api/erp/nfe-importacao/emit" ||
+            cleanPath === "/api/erp/nfe-importacao/calculate" ||
+            cleanPath === "/api/erp/nfe-importacao/parse-file") &&
           method === "POST"
         ) {
           if (
             !resolvedSession.erpPermissions.canIssueFiscalDocuments &&
             !resolvedSession.effectiveActionGuards.canIssueFiscalDocuments
           ) {
-            return {
-              status: 403,
-              body: {
-                error: "Permissão negada (Painel ERP): seu usuário não possui alçada para emitir documentos fiscais (NF-e / NFS-e / Fatura SV 31).",
-                code: "ERP_FISCAL_ISSUANCE_FORBIDDEN",
-              },
-            };
+            // Pacote K: mesma resposta de antes, agora com auditoria da negativa.
+            const su = resolvedSession.user;
+            return this.denyFiscalIssuance(method, cleanPath, query, {
+              authenticated: true, email: su?.email, name: su?.name, roleId: su?.roleId,
+            }, 'emissao direta');
           }
         }
       }
+
+      // Pacote K (D-I2): demais caminhos que geram fatura/NF (contrato com generateNextInvoiceOnSave,
+      // faturamento em lote, NF-e de importacao, devolucao parcial) exigem a mesma alcada fiscal.
+      {
+        const eqErr = this.checkContractEquipmentsInput(method, cleanPath, body as Record<string, unknown>);
+        if (eqErr) return eqErr;
+        const fiscalErr = this.checkFiscalIssuanceRoute(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (fiscalErr) return fiscalErr;
+      }
+      // ======================================================================
+      // Pacote N: CERTIFICADO DIGITAL A1 (/api/erp/certificate) — so metadados nas respostas.
+      // ======================================================================
+      if (isCertificateRoute(cleanPath)) {
+        return await handleCertificateRoute(
+          {
+            repo: this.repo,
+            store: this.certificateStore,
+            failureLimiter: this.certUploadFailureLimiter,
+          },
+          method,
+          query,
+          ctx.certRawBody || body,
+          { trustedInternal: ctx.trustedInternal }
+        );
+      }
+
       // ======================================================================
       // ATOMIC BOOTSTRAP & STATE RECONCILIATION (/api/bootstrap, /api/state)
       // ======================================================================
@@ -1952,8 +4085,8 @@ export class CrmApiRouter {
         }
         let reconciliation = { reconciled: false, appliedCount: 0 };
         if (method === "POST" && body.reconcileJournal) {
-          reconciliation = this.repo.reconcileClientState(
-            body.reconcileJournal as ClientDurableJournal
+          reconciliation = this.reconcileJournalForSession(
+            body.reconcileJournal as ClientDurableJournal, query, ctx, cleanPath
           );
         }
         const question =
@@ -1963,7 +4096,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(question),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)), query, ctx),
             reconciliation,
           },
         };
@@ -1971,11 +4104,11 @@ export class CrmApiRouter {
 
       if (cleanPath === "/api/state/reconcile" && method === "POST") {
         const journal = (body.journal || body.reconcileJournal || body) as ClientDurableJournal;
-        const reconciliation = this.repo.reconcileClientState(journal);
+        const reconciliation = this.reconcileJournalForSession(journal, query, ctx, cleanPath);
         return {
           status: 200,
           body: {
-            data: this.buildBootstrapPayload(),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)), query, ctx),
             reconciliation,
           },
         };
@@ -2154,6 +4287,12 @@ export class CrmApiRouter {
         }
 
         if (method === 'DELETE') {
+          const existing = this.repo.getContactById(id);
+          if (!existing) {
+            return { status: 404, body: { error: 'Contato não encontrado.' } };
+          }
+          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteContact(id);
           if (!deleted) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
@@ -2168,12 +4307,14 @@ export class CrmApiRouter {
       if (cleanPath === '/api/companies') {
         if (method === 'GET') {
           const companies = this.repo.listCompanies({
-            search: query.search,
+            search: query.search || query.q,
             industry: query.industry,
           });
+          // Paginacao opcional (?limit=&offset=; sem limit = lista inteira, compatibilidade).
+          const { page, total, limit, offset } = paginate(companies, query.limit, query.offset);
           const contacts = this.repo.listContacts();
           const deals = this.repo.listDeals();
-          const data = companies.map((comp) => ({
+          const data = page.map((comp) => ({
             ...comp,
             contactsCount: contacts.filter((c) => c.companyId === comp.id).length,
             dealsCount: deals.filter((d) => d.companyId === comp.id).length,
@@ -2181,7 +4322,7 @@ export class CrmApiRouter {
               .filter((d) => d.companyId === comp.id)
               .reduce((s, d) => s + d.value, 0),
           }));
-          return { status: 200, body: { data, total: data.length } };
+          return { status: 200, body: { data, total, limit, offset } };
         }
 
         if (method === 'POST') {
@@ -2269,6 +4410,12 @@ export class CrmApiRouter {
         }
 
         if (method === 'DELETE') {
+          const existing = this.repo.getCompanyById(id);
+          if (!existing) {
+            return { status: 404, body: { error: 'Empresa não encontrada.' } };
+          }
+          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteCompany(id);
           if (!deleted) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
@@ -2347,7 +4494,44 @@ export class CrmApiRouter {
         }
       }
 
-      const dealIdMatch = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
+      if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
+        const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+        if (!ctx.trustedInternal && !cronOk) {
+          return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+        }
+        const result = await processDueFollowups(
+          this.repo,
+          createOutlookFollowupSendDeps({ repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter }, String(query._origin || ''))
+        );
+        return { status: 200, body: { data: result } };
+      }
+
+      const followupMatch = cleanPath.match(/^\/api\/deals\/([^/]+)\/proposal-followup$/);
+      if (followupMatch) {
+        const dealId = decodeURIComponent(followupMatch[1]);
+        const deal = this.repo.getDealById(dealId);
+        if (!deal) return { status: 404, body: { error: 'Negócio não encontrado.' } };
+        if (method === 'GET') {
+          return { status: 200, body: { data: getFollowupStatus(this.repo, dealId) } };
+        }
+        if (method === 'POST') {
+          const action = String((body as { action?: string })?.action || '').toLowerCase();
+          if (action === 'pause') {
+            const enr = pauseFollowup(this.repo, dealId);
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr ? toPublicEnrollment(enr) : enr } };
+          }
+          if (action === 'resume') {
+            if (!isProposalFollowupEnabled()) {
+              return { status: 409, body: { error: 'Sequência de follow-up indisponível', code: 'FOLLOWUP_DISABLED' } };
+            }
+            const enr = resumeFollowup(this.repo, dealId);
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr ? toPublicEnrollment(enr) : enr } };
+          }
+          return { status: 400, body: { error: 'Informe action: "pause" ou "resume".', code: 'FOLLOWUP_ACTION_INVALID' } };
+        }
+      }
+
+            const dealIdMatch = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
       if (dealIdMatch) {
         const id = dealIdMatch[1];
         if (method === 'GET') {
@@ -2356,13 +4540,18 @@ export class CrmApiRouter {
           const contact = deal.contactId ? this.repo.getContactById(deal.contactId) || null : null;
           const company = deal.companyId ? this.repo.getCompanyById(deal.companyId) || null : null;
           const timeline = this.repo.listTimelineEvents({ dealId: id });
-          const proposals = this.repo
-            .listProposals()
-            .filter(
-              (p) =>
-                p.dealId === id ||
-                (deal.companyId && p.companyId === deal.companyId)
-            );
+          // Escopo de propostas (CISO 30/10): o detalhe do negocio so traz as visiveis.
+          const proposals = this.filterProposalsByScope(
+            this.repo
+              .listProposals()
+              .filter(
+                (p) =>
+                  p.dealId === id ||
+                  (deal.companyId && p.companyId === deal.companyId)
+              ),
+            query,
+            ctx
+          );
           const rentalContracts = this.repo
             .listRentalContracts()
             .filter(
@@ -2372,7 +4561,7 @@ export class CrmApiRouter {
             );
           return {
             status: 200,
-            body: { data: { ...deal, contact, company, timeline, proposals, rentalContracts } },
+            body: { data: { ...deal, contact, company, timeline, proposals, rentalContracts, proposalFollowup: getFollowupStatus(this.repo, id) } },
           };
         }
 
@@ -2440,6 +4629,33 @@ export class CrmApiRouter {
         }
       }
 
+      const pipelineStageMatch = cleanPath.match(/^\/api\/pipelines\/([^/]+)\/stages\/([^/]+)$/);
+      if (pipelineStageMatch && method === 'DELETE') {
+        const pipelineId = decodeURIComponent(pipelineStageMatch[1]);
+        const stageId = decodeURIComponent(pipelineStageMatch[2]);
+        const pipeline = this.repo.getPipelineById(pipelineId);
+        if (!pipeline || !pipeline.stages.some((st) => st.id === stageId)) {
+          return { status: 404, body: { error: 'Etapa não encontrada.' } };
+        }
+        const blockedStage = this.rejectIfRecordInUse('pipelineStage', { id: stageId, pipelineId });
+        if (blockedStage) return blockedStage;
+        const deletedStage = this.repo.deletePipelineStage(pipelineId, stageId);
+        if (!deletedStage) return { status: 404, body: { error: 'Etapa não encontrada.' } };
+        return { status: 200, body: { success: true, deletedId: stageId } };
+      }
+
+      const pipelineIdMatch = cleanPath.match(/^\/api\/pipelines\/([^/]+)$/);
+      if (pipelineIdMatch && method === 'DELETE') {
+        const pipelineId = decodeURIComponent(pipelineIdMatch[1]);
+        const pipeline = this.repo.getPipelineById(pipelineId);
+        if (!pipeline) return { status: 404, body: { error: 'Pipeline não encontrado.' } };
+        const blockedPipe = this.rejectIfRecordInUse('pipeline', { id: pipeline.id, name: pipeline.name });
+        if (blockedPipe) return blockedPipe;
+        const deletedPipe = this.repo.deletePipeline(pipelineId);
+        if (!deletedPipe) return { status: 404, body: { error: 'Pipeline não encontrado.' } };
+        return { status: 200, body: { success: true, deletedId: pipelineId } };
+      }
+
       // ======================================================================
       // TIMELINE (/api/timeline)
       // ======================================================================
@@ -2462,7 +4678,8 @@ export class CrmApiRouter {
             };
           }
           // Pacote G: autor SEMPRE da sessao; id/createdAt/actor/author/ownerName do cliente ignorados.
-          const tb = body as Record<string, unknown>;
+          // A1: nada gravado na timeline leva o token do link assinado.
+          const tb = deepRedactProposalLinkTokens(body) as Record<string, unknown>;
           const event = this.repo.createTimelineEvent({
             type: tb.type as 'NOTE',
             title: String(tb.title),
@@ -3479,7 +5696,8 @@ export class CrmApiRouter {
               values.description ||
               values.message ||
               `Chamado aberto pelo formulário web "${form.name}".`,
-            category: (values.category as TicketCategory) || 'SUPPORT',
+            // Pacote J (4): categoria do formulario publico so do enum (senao SUPPORT).
+            category: (TICKET_CREATE_ENUMS.category.includes(String(values.category || '')) ? values.category : 'SUPPORT') as TicketCategory,
             priority,
             channel: 'WEB_PORTAL',
             contactId: contact.id,
@@ -3568,6 +5786,10 @@ export class CrmApiRouter {
       // ======================================================================
       // SERVICE HUB — JIRA SERVICE MANAGEMENT STYLE TICKETS (/api/tickets)
       // ======================================================================
+      // Pacote K (documentado): POST /api/tickets NUNCA repassa o "id" do corpo ao repositorio. Um id
+      // ja existente (ou qualquer id) resulta em 201 com um id novo gerado pelo servidor (tkt-...), sem
+      // sombra e com o chamado original intacto. O 409 TICKET_ID_CONFLICT de createServiceTicket so
+      // vale para chamadores internos que informem id. Comportamento intencional (nao e 409).
       if (cleanPath === '/api/tickets') {
         if (method === 'GET') {
           const allRaw = this.repo.listServiceTickets();
@@ -3615,6 +5837,17 @@ export class CrmApiRouter {
           if (!body.subject) {
             return { status: 400, body: { error: 'O campo "subject" do chamado é obrigatório.' } };
           }
+          const badTicketEnums = findInvalidTicketCreateEnums(body);
+          if (badTicketEnums.length > 0) {
+            return {
+              status: 400,
+              body: {
+                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do Service Desk (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
+                code: 'TICKET_CREATE_FIELD_INVALID',
+                fields: badTicketEnums,
+              },
+            };
+          }
           const created = this.repo.createServiceTicket({
             subject: String(body.subject),
             description: body.description ? String(body.description) : undefined,
@@ -3642,6 +5875,12 @@ export class CrmApiRouter {
         const idOrKey = decodeURIComponent(ticketCommentsMatch[1]);
         if (!body.body) {
           return { status: 400, body: { error: 'O campo "body" do comentário é obrigatório.' } };
+        }
+        if (!parseTicketCommentStatus(body.newStatus).ok) {
+          return {
+            status: 400,
+            body: { error: 'Status do comentário inválido: use OPEN, IN_PROGRESS, WAITING_CUSTOMER, RESOLVED ou CLOSED.', code: 'TICKET_COMMENT_STATUS_INVALID' },
+          };
         }
         const updated = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
         if (!updated) {
@@ -3691,6 +5930,12 @@ export class CrmApiRouter {
 
         if (method === 'PATCH' || method === 'PUT') {
           if (body.action === 'ADD_COMMENT' && body.body) {
+            if (!parseTicketCommentStatus(body.newStatus).ok) {
+              return {
+                status: 400,
+                body: { error: 'Status do comentário inválido: use OPEN, IN_PROGRESS, WAITING_CUSTOMER, RESOLVED ou CLOSED.', code: 'TICKET_COMMENT_STATUS_INVALID' },
+              };
+            }
             const withComment = this.addTeamTicketComment(idOrKey, body as Record<string, unknown>, query, ctx); // Pacote H
             if (!withComment) return { status: 404, body: { error: 'Chamado não encontrado.' } };
             const sla = computeRealtimeTicketSla(withComment);
@@ -3792,7 +6037,7 @@ export class CrmApiRouter {
             : 'HIGH';
           const equipmentSerial = body.equipmentSerial ? String(body.equipmentSerial).trim().slice(0, 120) : null;
 
-          if (!this.portalLimiters.createIp.hit(`create:${portalIp}`)) {
+          if (!this.portalLimiters.createIp.hit(`create:${rateLimitIpKey(portalIp)}`)) {
             this.portalAudit('PORTAL_TICKET_CREATE', 'BLOCKED', portalIp, '', email, 'rate-limit (429)');
             return tooMany;
           }
@@ -4202,8 +6447,9 @@ export class CrmApiRouter {
           this.repo.createServiceTicket({
             subject,
             description: String(p.content || p.description || 'Importado via HubSpot Service Hub.'),
-            priority: (p.hs_ticket_priority as TicketPriority) || 'HIGH',
-            status: (p.hs_pipeline_stage as TicketStatus) || 'OPEN',
+            // Pacote J (4): valores do HubSpot fora do enum do STI-hub => padrao (nunca grava cru).
+            priority: (TICKET_CREATE_ENUMS.priority.includes(String(p.hs_ticket_priority || '')) ? p.hs_ticket_priority : 'HIGH') as TicketPriority,
+            status: (TICKET_CREATE_ENUMS.status.includes(String(p.hs_pipeline_stage || '')) ? p.hs_pipeline_stage : 'OPEN') as TicketStatus,
             contactId: contact?.id || null,
             companyId: contact?.companyId || null,
             tags: ['HubSpot-Import'],
@@ -4249,86 +6495,158 @@ export class CrmApiRouter {
       // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
       // ======================================================================
       if (cleanPath === '/api/erp/overview' && method === 'GET') {
-        return { status: 200, body: { data: this.repo.getErpOverview() } };
+        // Escopo de propostas (CISO 30/10) + visao da config GestaoClick do pacote I sobre o erp ja filtrado.
+        const ov = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;
+        return {
+          status: 200,
+          body: {
+            data: {
+              ...ov,
+              gestaoClickConfig: toGestaoClickConfigView(ov.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed),
+              issuerAddress: formatIssuerAddress(this.companyEmitter),
+            },
+          },
+        };
       }
 
       if (cleanPath === '/api/erp/proposals') {
         if (method === 'GET') {
-          const list = this.repo.listProposals();
+          if (this.proposalTableCtx) return await this.listProposalsFromTable(query, ctx);
+          // (d) Lista filtrada no servidor pelo mesmo escopo do GET :id.
+          const list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {
           if (!body.title) {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
-          const created = this.repo.createProposal(
-            body as { title: string; [k: string]: unknown }
-          );
-          return { status: 201, body: { data: created } };
+          const scope = this.proposalScope(query, ctx);
+          if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          const { sellerUserId: _ignoredSellerUserId, ...createInput } = body as Record<string, unknown>;
+          void _ignoredSellerUserId;
+          delete createInput[PROPOSAL_SUMMARY_MARKER];
+          delete createInput.versionCount;
+          delete createInput.expectedUpdatedAt;
+          // Pacote J (A1): fora do contexto interno, id e code da proposta nova sao SEMPRE do
+          // servidor (a tela usa o registro devolvido). Colisao no contexto interno => 409.
+          if (!ctx.trustedInternal) {
+            delete createInput.id;
+            delete createInput.code;
+          }
+          if (scope.kind === 'session' && !scope.ownerAdmin) {
+            // (b) Quem nao e admin/FULL-TODOS so cria em nome proprio.
+            const changed = CrmApiRouter.sellerFieldChanges(undefined, body, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+            createInput.sellerEmail = scope.access.user.email;
+            if (!createInput.sellerName) createInput.sellerName = scope.access.user.name;
+          }
+          // Status (CISO 30/10): criar ja APROVADA/CONVERTIDA segue as mesmas regras.
+          const createStatus = this.checkProposalStatusChange(query, ctx, undefined, body.status, body.approvalJustification);
+          if (!createStatus.ok) return createStatus.response;
+          // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
+          const created = this.repo.createProposal({
+            ...this.stripServerOnlyProposalFields(createInput, query, ctx, 'create'),
+            ...createStatus.serverFields,
+          } as { title: string; [k: string]: unknown });
+          if (createStatus.audit) {
+            const sc = this.proposalScope(query, ctx);
+            this.proposalStatusAudit(query, sc.kind === 'session' ? sc.access : null, created.id, createStatus.audit.action, 'SUCCESS', createStatus.audit.details);
+          }
+          // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
+          const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
+          return { status: 201, body: { data: finalCreated } };
         }
+      }
+
+      // ======================================================================
+      // LINK ASSINADO DE PROPOSTA (29/10/2026) — src/app/lib/proposal-link.ts
+      // Publico (sem sessao) somente com X-Proposal-Token valido (HMAC, escopo id+versao+exp).
+      // Sem token valido => 404 generico identico ao de id inexistente. O token chega do
+      // header via src/app/api/erp/proposals/[id]/* em query.proposalLinkToken (nunca na URL
+      // do cliente: a rota descarta o parametro vindo da URL) e nunca e logado.
+      // ======================================================================
+      const proposalShortMatch = cleanPath.match(/^\/api\/p\/([^/]+)$/);
+      if (proposalShortMatch && method === 'GET') {
+        return this.resolveProposalShortLink(decodeURIComponent(proposalShortMatch[1]).trim(), query);
+      }
+      const proposalLinkIssueMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/public-link$/);
+      if (proposalLinkIssueMatch && method === 'POST') {
+        return this.issueProposalPublicLink(decodeURIComponent(proposalLinkIssueMatch[1]).trim(), query, ctx);
+      }
+      const invoiceLinkIssueMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/public-link$/);
+      if (invoiceLinkIssueMatch && method === 'POST') {
+        return this.issueInvoicePublicLink(decodeURIComponent(invoiceLinkIssueMatch[1]).trim(), query, ctx);
       }
 
       const approvePropMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/approve$/);
       if (approvePropMatch && method === 'POST') {
-        // Aceite publico do cliente: dados da assinatura e do aceite chegam no corpo do POST.
-        // Nenhum PATCH previo e necessario. Validacao de campos obrigatorios e status permitido.
-        const approveId = decodeURIComponent(approvePropMatch[1]).trim();
-        const existingProp = this.repo
-          .listProposals()
-          .find(
-            (p) =>
-              p.id === approveId ||
-              p.id.toLowerCase() === approveId.toLowerCase() ||
-              p.code === approveId ||
-              String(p.code || '').toLowerCase() === approveId.toLowerCase()
-          );
-        const incomingProp =
-          !existingProp && body.proposal && typeof body.proposal === 'object'
-            ? (body.proposal as Record<string, unknown>)
-            : null;
-        const approval = validateProposalApprovalInput(
-          body,
-          existingProp ? existingProp.status : incomingProp ? String(incomingProp.status || '') : null,
-          existingProp
-            ? existingProp.convertedContractId || null
-            : incomingProp && typeof incomingProp.convertedContractId === 'string'
-              ? incomingProp.convertedContractId
-              : null
-        );
-        if (!approval.ok) {
-          return {
-            status: approval.status,
-            body: { error: approval.error, code: approval.code, fields: approval.fields },
-          };
-        }
-        const res = this.repo.approveProposalAndConvertToContract(approveId, {
-          ...approval.data,
-          ipAddress: query._clientIp || undefined,
-          // O payload completo da proposta so e usado quando ela ainda nao existe nesta instancia
-          // (link compartilhado ?d=); uma proposta existente no servidor nunca e sobrescrita.
-          ...(incomingProp ? { proposal: incomingProp } : {}),
-        } as Record<string, unknown>);
-        if (!res) {
-          return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
-        }
-        return { status: 200, body: { data: res } };
+        return await this.approveProposalViaLink(decodeURIComponent(approvePropMatch[1]).trim(), query, body, ctx);
       }
 
       const restorePropVerMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/restore-version$/);
       if (restorePropVerMatch && method === 'POST') {
         const propId = decodeURIComponent(restorePropVerMatch[1]);
         const targetVersion = Number(body.targetVersion ?? body.version ?? 1);
-        const restored = this.repo.restoreProposalVersion(
+        // (d) Escopo: restrito so restaura as proprias; a revisao nao pode trocar o dono para quem
+        // nao e admin/FULL-TODOS; troca feita por admin e auditada.
+        const scope = this.proposalScope(query, ctx);
+        const current = this.findProposalByRef(propId);
+        if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+        if (current && !CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+        const beforeRestore = current ? { ...current } : null;
+        if (current && scope.kind === 'session' && !scope.ownerAdmin) {
+          const snap = (current.versionHistory || []).find((v) => Number(v.version) === targetVersion)?.snapshot as
+            | Record<string, unknown>
+            | undefined;
+          if (snap) {
+            const { sellerUserId: _s, ...snapNoId } = snap;
+            void _s;
+            const changed = CrmApiRouter.sellerFieldChanges(current, snapNoId, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+          }
+        }
+        // Status (CISO 30/10): a restauracao nao pode levar a APROVADA/CONVERTIDA por sessao (use
+        // "Alterar situacao"), e sair de APROVADA/CONVERTIDA so admin (auditado).
+        let restoreStatusAudit: { action: string; details: string } | undefined;
+        if (current && !ctx.trustedInternal) {
+          const snapStatus = (current.versionHistory || []).find((v) => Number(v.version) === targetVersion)?.snapshot?.status;
+          // A5: compara pelo valor canonico (snapshot gravado em minusculas/ZWSP nao escapa).
+          const snapNorm = CrmApiRouter.normalizeProposalStatus(snapStatus);
+          const curRNorm = CrmApiRouter.normalizeProposalStatus(current.status);
+          if (snapNorm.kind === 'invalid') return CrmApiRouter.proposalStatusInvalid();
+          const snapCanon = snapNorm.kind === 'ok' ? snapNorm.value : undefined;
+          const curCanon = curRNorm.kind === 'ok' ? curRNorm.value : String(current.status || '');
+          if (snapCanon && snapCanon !== curCanon) {
+            if (snapCanon === 'APROVADA' || CrmApiRouter.PROPOSAL_CONVERSION_STATUSES.includes(snapCanon)) {
+              this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, current.id, 'PROPOSAL_STATUS_CHANGE', 'BLOCKED', `restauracao para ${String(snapStatus)} (403)`);
+              return {
+                status: 403,
+                body: {
+                  error: 'Esta revisão mudaria a situação para Aprovada/Convertida. Restaure outra revisão ou use "Alterar situação" (aprovação manual com justificativa).',
+                  code: 'PROPOSAL_STATUS_RESTORE_FORBIDDEN',
+                },
+              };
+            }
+            const chk = this.checkProposalStatusChange(query, ctx, current, snapCanon, undefined);
+            if (!chk.ok) return chk.response;
+            restoreStatusAudit = chk.audit;
+          }
+        }
+        const restoredRaw = this.repo.restoreProposalVersion(
           propId,
           targetVersion,
           // Pacote G: autor da restauracao = sessao (body.restoredBy so de contexto interno confiavel)
           ctx.trustedInternal && typeof body.restoredBy === 'string' ? body.restoredBy : this.sessionActorName(query)
         );
-        if (!restored) {
+        if (!restoredRaw) {
           return {
             status: 404,
             body: { error: 'Proposta comercial ou versão solicitada não encontrada.' },
           };
+        }
+        const restored = this.finalizeProposalOwner(scope, query, beforeRestore, restoredRaw, `restauracao da versao ${targetVersion}`);
+        if (restoreStatusAudit) {
+          this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, restored.id, restoreStatusAudit.action, 'SUCCESS', `${restoreStatusAudit.details} (restauracao da versao ${targetVersion})`);
         }
         return { status: 200, body: { data: restored } };
       }
@@ -4336,9 +6654,11 @@ export class CrmApiRouter {
       const propVersionsMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/versions$/);
       if (propVersionsMatch && method === 'GET') {
         const propId = decodeURIComponent(propVersionsMatch[1]);
-        const found = this.repo
+        const found0 = this.repo
           .listProposals()
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        // (d) Fora do escopo => mesmo 404 de inexistente.
+        const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
         if (!found) {
           return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         }
@@ -4358,9 +6678,11 @@ export class CrmApiRouter {
       const acceptanceStatusMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/acceptance-status$/);
       if (acceptanceStatusMatch && method === 'GET') {
         const propId = decodeURIComponent(acceptanceStatusMatch[1]);
-        const found = this.repo
+        const found0 = this.repo
           .listProposals()
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
+        // (d) Fora do escopo => mesmo 404 de inexistente.
+        const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
         if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         const accepted = found.status === 'APROVADA' || found.status === 'CONVERTIDA_CONTRATO';
         return {
@@ -4386,18 +6708,92 @@ export class CrmApiRouter {
       if (proposalIdMatch) {
         const propId = decodeURIComponent(proposalIdMatch[1]);
         if (method === 'GET') {
+          // Sessao MFA valida (vendedor/admin), contexto interno ou conta de servico: proposta
+          // completa (comportamento anterior). Qualquer outro chamador: so com link assinado.
+          // M1: sessao sem ERP / sem acesso a propostas / fora do escopo PROPRIOS-EQUIPE => link.
+          if (!this.hasFullProposalAccess(query, ctx)) {
+            return this.viewProposalViaLink(propId.trim(), query);
+          }
           const found = this.repo
             .listProposals()
             .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
           if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
-          return { status: 200, body: { data: found } };
+          if (!this.hasFullProposalAccess(query, ctx, found)) {
+            return this.viewProposalViaLink(propId.trim(), query);
+          }
+          return { status: 200, body: { data: found, issuerAddress: formatIssuerAddress(this.companyEmitter) } };
         }
         if (method === 'PATCH' || method === 'PUT') {
-          const updated = this.repo.updateProposal(propId, body);
-          if (!updated) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          // (a) Mesmo escopo do GET: PROPRIOS/EQUIPE so editam as proprias (403 nas outras).
+          // (b) Dono (sellerEmail/sellerName/sellerUserId) so muda por admin ou FULL/TODOS, com
+          // auditoria antes/depois. (c) sellerUserId so pelo servidor, a partir do e-mail.
+          const scope = this.proposalScope(query, ctx);
+          if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          const current = this.findProposalByRef(propId);
+          if (current && !CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          const { sellerUserId: _bodySellerUserId, ...patch } = body as Record<string, unknown>;
+          void _bodySellerUserId;
+          // Controle otimista (tela Editar): expectedUpdatedAt = updatedAt do registro aberto.
+          const expectedUpdatedAt = typeof patch.expectedUpdatedAt === 'string' ? patch.expectedUpdatedAt : '';
+          delete patch.expectedUpdatedAt;
+          delete patch[PROPOSAL_SUMMARY_MARKER];
+          delete patch.versionCount;
+          if (current && expectedUpdatedAt && String(current.updatedAt || '') !== expectedUpdatedAt) {
+            return {
+              status: 409,
+              body: {
+                error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+                code: 'PROPOSAL_VERSION_CONFLICT',
+                currentUpdatedAt: current.updatedAt,
+              },
+            };
+          }
+          if (scope.kind === 'session' && !scope.ownerAdmin) {
+            const changed = CrmApiRouter.sellerFieldChanges(current, body, scope.access.user);
+            if (changed.length) return this.proposalScopeForbidden('PROPOSAL_OWNER_IMMUTABLE', changed);
+            if (current) {
+              // Valores iguais (normalizados): mantem exatamente os gravados.
+              delete patch.sellerEmail;
+              delete patch.sellerName;
+            } else {
+              // Upsert (proposta so existia no navegador): em nome proprio.
+              patch.sellerEmail = scope.access.user.email;
+              if (!patch.sellerName) patch.sellerName = scope.access.user.name;
+            }
+          }
+          const before = current ? { ...current } : null;
+          // Status (CISO 30/10): regras 1-4 (conversao nunca; APROVADA so admin/FULL-TODOS com
+          // justificativa; sair de APROVADA/CONVERTIDA so admin; mesmo status nao e transicao).
+          const statusCheck = this.checkProposalStatusChange(query, ctx, current, body.status, body.approvalJustification);
+          if (!statusCheck.ok) return statusCheck.response;
+          // D2: autoria/historico/aceite do corpo ignorados; autor = sessao.
+          const updatedRaw = this.repo.updateProposal(propId, {
+            ...this.stripServerOnlyProposalFields(patch, query, ctx),
+            ...statusCheck.serverFields,
+          } as Partial<ErpCommercialProposal>);
+          if (!updatedRaw) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          if (statusCheck.audit) {
+            this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, updatedRaw.id, statusCheck.audit.action, 'SUCCESS', statusCheck.audit.details);
+          }
+          const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          // (d) Escopo: restrito so apaga as proprias.
+          const delScope = this.proposalScope(query, ctx);
+          const delCurrent = this.findProposalByRef(propId);
+          if (delScope.kind === 'denied' || (delCurrent && !CrmApiRouter.proposalVisibleIn(delScope, delCurrent))) {
+            return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+          }
+          const existingProp = this.findProposalExact(propId) || this.repo.listProposals().find((p) => p.id === propId || p.code === propId);
+          if (!existingProp) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+          const blocked = this.rejectIfRecordInUse('proposal', {
+            id: existingProp.id,
+            code: existingProp.code,
+            convertedContractId: existingProp.convertedContractId,
+            convertedInvoiceId: existingProp.convertedInvoiceId,
+          });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteProposal(propId);
           if (!deleted) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           return { status: 200, body: { success: true, deletedId: propId } };
@@ -4416,9 +6812,14 @@ export class CrmApiRouter {
               body: { error: 'Os campos "title" e "companyName" são obrigatórios.' },
             };
           }
-          const created = this.repo.createRentalContract(
-            body as { title: string; companyName: string; monthlyValue: number }
-          );
+          // Pacote L (5): POST grava so as chaves conhecidas do contrato (mesma allowlist do PATCH);
+          // chaves desconhecidas, variantes de caixa/ZWSP e invoices embutidas sao descartadas.
+          // O id do cliente segue aceito (validado contra colisao no repositorio, Pacote J).
+          const { patch: ctrCreate } = pickRentalContractPatch(body);
+          const created = this.repo.createRentalContract({
+            ...ctrCreate,
+            ...(typeof body.id === 'string' && body.id.trim() ? { id: body.id } : {}),
+          } as { title: string; companyName: string; monthlyValue: number });
           return { status: 201, body: { data: created } };
         }
       }
@@ -4661,25 +7062,21 @@ export class CrmApiRouter {
         const ctrId = decodeURIComponent(contractIdMatch[1]);
         if (method === 'PATCH' || method === 'PUT') {
           // Pacote H (D2): autor da versao vem da SESSAO; trilhas e autoria do corpo sao ignoradas.
-          const {
-            updatedBy: _ub,
-            savedBy: _sb,
-            versionHistory: _vh,
-            statusHistory: _sh,
-            version: _v,
-            versionLabel: _vl,
-            ...ctrPatch
-          } = body as Record<string, unknown>;
-          void _ub; void _sb; void _vh; void _sh; void _v; void _vl;
+          // Pacote I: so chaves conhecidas do contrato; desconhecidas (SavedBy, saved_by...) sao descartadas.
+          const { patch: ctrPatch } = pickRentalContractPatch(body);
           const updated = this.repo.updateRentalContract(
             ctrId,
-            ctrPatch as Partial<ErpRentalContract>,
+            ctrPatch,
             this.sessionActorName(query)
           );
           if (!updated) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingCtr = this.repo.listRentalContracts().find((c) => c.id === ctrId || c.contractNumber === ctrId);
+          if (!existingCtr) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('rentalContract', { id: existingCtr.id, contractNumber: existingCtr.contractNumber });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteRentalContract(ctrId);
           if (!deleted) return { status: 404, body: { error: 'Contrato de locação não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: ctrId } };
@@ -4687,25 +7084,42 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/calculate' && method === 'POST') {
+        // #10: validação de entrada (zod) => 400 em vez de TypeError/NaN
+        const validated = validateImportNfeRequest(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'NFE_IMPORT_INVALID_INPUT', issues: validated.issues } };
+        }
+        const input = validated.data;
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
-        const meta = calculateSebraeImportNfe({
-          serie: String(body.serie || '1'),
-          nNF: String(body.nNF || String(erp.invoices.length + 12)),
-          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
-          crt: (body.crt as '1' | '2' | '3') || '1',
-          finNFe: (body.finNFe as '1' | '2') || '1',
-          indFinal: (body.indFinal as '0' | '1') || '0',
-          indPres: (body.indPres as '0' | '9') || '0',
-          indIntermed: (body.indIntermed as '0' | '1') || '0',
-          di: body.di as ErpImportDeclarationInfo,
-          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
-          emitterName: cfg.companyLegalName,
-          emitterCnpj: cfg.companyCnpj,
-          emitterIe: cfg.stateRegistration,
-          emitterUf: 'SP',
-        });
-        return { status: 200, body: { data: meta } };
+        const serie = input.serie || '1';
+        // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
+        const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
+        try {
+          const meta = calculateSebraeImportNfe({
+            serie,
+            nNF: input.nNF || String(this.repo.peekNextFiscalNumber('55', serie, nfeEnvironment)),
+            environment: nfeEnvironment,
+            natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
+            crt: input.crt || '1',
+            finNFe: input.finNFe || '1',
+            indFinal: input.indFinal || '0',
+            indPres: input.indPres || '0',
+            indIntermed: input.indIntermed || '0',
+            di: input.di as unknown as ErpImportDeclarationInfo,
+            rawItems: input.rawItems as RawImportItemDraft[],
+            emitterName: cfg.companyLegalName,
+            emitterCnpj: cfg.companyCnpj,
+            emitterIe: cfg.stateRegistration,
+            emitterUf: 'SP',
+          });
+          return { status: 200, body: { data: meta } };
+        } catch (err) {
+          return {
+            status: 400,
+            body: { error: err instanceof Error ? err.message : 'Falha no cálculo da NF-e de importação.', code: 'NFE_IMPORT_INVALID_INPUT' },
+          };
+        }
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/analyze-txt' && method === 'POST') {
@@ -4714,19 +7128,25 @@ export class CrmApiRouter {
         if (!rawTxt.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo TXT para análise.' } };
         }
+        if (utf8ByteLength(rawTxt) > MAX_IMPORT_FILE_BYTES) {
+          return {
+            status: 413,
+            body: { error: new ImportFileTooLargeError(utf8ByteLength(rawTxt)).message, code: 'IMPORT_FILE_TOO_LARGE' },
+          };
+        }
         const analysis = analyzeAndFixSebraeTxt(rawTxt, filename);
         return { status: 200, body: { data: analysis } };
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/parse-file' && method === 'POST') {
         const rawContent = String(body.content || body.txt || body.xml || '');
-        const filename = String(body.filename || body.fileName || 'NFE_IMPORTACAO_SEBRAE_401.txt');
+        const filename = String(body.filename || body.fileName || 'NFE_IMPORTACAO_SEBRAE_401.txt').slice(0, 255);
         if (!rawContent.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo .TXT ou .XML para importação.' } };
         }
+        const erp = this.repo.getErpOverview();
+        const cfg = erp.gestaoClickConfig;
         try {
-          const erp = this.repo.getErpOverview();
-          const cfg = erp.gestaoClickConfig;
           const draft = parseImportFileToSebraeDraft(rawContent, filename, {
             emitterName: cfg.companyLegalName,
             emitterCnpj: cfg.companyCnpj,
@@ -4735,6 +7155,35 @@ export class CrmApiRouter {
           });
           return { status: 200, body: { data: draft } };
         } catch (err) {
+          if (err instanceof ImportFileTooLargeError) {
+            return { status: 413, body: { error: err.message, code: err.code } };
+          }
+          if (err instanceof ImportCnpjMismatchError) {
+            // #5: trava de CNPJ => 409 + trilha de auditoria
+            const token = query._sessionToken;
+            const actor = token ? this.repo.resolveSessionFromToken(token) : null;
+            this.repo.appendSecurityAuditLog({
+              ...(actor?.authenticated
+                ? { actorEmail: actor.user.email, actorName: actor.user.name, actorRole: actor.role.id }
+                : { actorEmail: 'sem-sessao', actorName: 'Requisição sem sessão', actorRole: 'DESCONHECIDO' }),
+              action: 'NFE_IMPORT_CNPJ_MISMATCH_BLOCKED',
+              module: 'ERP',
+              resource: 'POST /api/erp/nfe-importacao/parse-file',
+              status: 'BLOCKED',
+              ipAddress: query._clientIp || undefined,
+              details: `Arquivo "${filename}" bloqueado: CNPJ ${err.fileCnpj} (${err.source}) diferente do CNPJ do emitente configurado ${err.configuredCnpj}.`,
+            });
+            return {
+              status: 409,
+              body: {
+                error: err.message,
+                code: err.code,
+                fileCnpj: err.fileCnpj,
+                configuredCnpj: err.configuredCnpj,
+                source: err.source,
+              },
+            };
+          }
           return {
             status: 400,
             body: {
@@ -4745,49 +7194,84 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/nfe-importacao/emit' && method === 'POST') {
+        // #10: validação de entrada (zod) => 400
+        const validated = validateImportNfeRequest(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'NFE_IMPORT_INVALID_INPUT', issues: validated.issues } };
+        }
+        const input = validated.data;
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
-        const meta = calculateSebraeImportNfe({
-          serie: String(body.serie || '1'),
-          nNF: String(body.nNF || String(erp.invoices.length + 12)),
-          natOp: String(body.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO'),
-          crt: (body.crt as '1' | '2' | '3') || '1',
-          finNFe: (body.finNFe as '1' | '2') || '1',
-          indFinal: (body.indFinal as '0' | '1') || '0',
-          indPres: (body.indPres as '0' | '9') || '0',
-          indIntermed: (body.indIntermed as '0' | '1') || '0',
-          di: body.di as ErpImportDeclarationInfo,
-          rawItems: (body.rawItems as RawImportItemDraft[]) || [],
-          emitterName: cfg.companyLegalName,
-          emitterCnpj: cfg.companyCnpj,
-          emitterIe: cfg.stateRegistration,
-          emitterUf: 'SP',
-        });
+        const serie = input.serie || '1';
+        // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
+        const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
+        // #11: numerador atômico por modelo/série (nunca reaproveita número já usado)
+        const reservation = this.repo.reserveFiscalNumber('55', serie, input.nNF ? Number(input.nNF) : null, nfeEnvironment);
+        if (!reservation.ok) {
+          return {
+            status: 409,
+            body: {
+              error: `O número ${input.nNF} já foi usado na série ${serie} (modelo 55). Próximo número disponível: ${reservation.nextAvailable}.`,
+              code: 'NFE_NUMBER_ALREADY_USED',
+              nextAvailable: reservation.nextAvailable,
+            },
+          };
+        }
+        let meta;
+        try {
+          meta = calculateSebraeImportNfe({
+            serie,
+            nNF: String(reservation.nNF),
+            environment: nfeEnvironment,
+            natOp: input.natOp || 'IMPORTACAO DE MERCADORIA PARA COMERCIALIZACAO / LOCACAO',
+            crt: input.crt || '1',
+            finNFe: input.finNFe || '1',
+            indFinal: input.indFinal || '0',
+            indPres: input.indPres || '0',
+            indIntermed: input.indIntermed || '0',
+            di: input.di as unknown as ErpImportDeclarationInfo,
+            rawItems: input.rawItems as RawImportItemDraft[],
+            emitterName: cfg.companyLegalName,
+            emitterCnpj: cfg.companyCnpj,
+            emitterIe: cfg.stateRegistration,
+            emitterUf: 'SP',
+          });
+        } catch (err) {
+          return {
+            status: 400,
+            body: { error: err instanceof Error ? err.message : 'Falha no cálculo da NF-e de importação.', code: 'NFE_IMPORT_INVALID_INPUT' },
+          };
+        }
 
         const docNum = `NFE-IMP-${String(meta.nNF).padStart(6, '0')}`;
         const mainCfop = meta.items[0]?.cfop || '3.102';
+        const issueDate = meta.di.dDesemb || new Date().toISOString().slice(0, 10);
         const created = this.repo.createInvoice({
           documentNumber: docNum,
           documentType: 'NFE_IMPORTACAO',
           companyName: `${meta.di.exporterName} (EXTERIOR - ${meta.di.exporterCountryName})`,
-          companyCnpj: `EXTERIOR-ID-${meta.di.exporterIdEstrangeiro}`,
+          // #5: exportador estrangeiro não tem CNPJ; o idEstrangeiro fica em campo próprio
+          companyCnpj: '',
+          counterpartyForeignId: meta.di.exporterIdEstrangeiro || null,
           companyAddress: `${meta.di.exporterAddress} - UF: EX (BACEN ${meta.di.exporterCountryCodeBacen} - ${meta.di.exporterCountryName})`,
           grossAmount: meta.totals.vNF,
           discountAmount: 0,
           netAmount: meta.totals.vNF,
-          status: 'PAGA',
-          issueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          dueDate: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          paidAt: meta.di.dDesemb || new Date().toISOString().slice(0, 10),
-          paymentMethod: 'TED_BANCARIA',
+          // #11: nota de entrada com status próprio (não PAGA / TED)
+          status: 'ENTRADA_REGISTRADA',
+          issueDate,
+          dueDate: issueDate,
+          paidAt: null,
+          paymentMethod: 'NAO_APLICAVEL',
           serviceCodeLc116: 'N/A — NF-e de Entrada de Importação (Emissor Sebrae 4.01 • Simples Nacional CRT=1)',
           cfop: `${mainCfop} — Importação Direta (DI ${meta.di.nDI} • Desembaraço ${meta.di.xLocDesemb}/${meta.di.UFDesemb})`,
           cstIcms: `CSOSN 900 (Simples Nacional) • Origem 1 • BC ICMS Por Dentro R$ ${meta.totals.vBC_ICMS.toFixed(2)} (ICMS: R$ ${meta.totals.vICMS.toFixed(2)})`,
           cstPisCofins: `CST 70 — PIS-Imp R$ ${meta.totals.vPIS.toFixed(2)} + COFINS-Imp R$ ${meta.totals.vCOFINS.toFixed(2)}`,
-          verificationCodeOrKey: `3526 1018 4567 8900 0190 5500 1000 ${String(meta.nNF).padStart(6, '0')} 1010 2010 08`,
+          // #6: chave de acesso real (DV módulo 11) do rascunho — ainda não autorizada pela SEFAZ
+          verificationCodeOrKey: (meta.accessKey || '').replace(/(\d{4})(?=\d)/g, '$1 '),
           pixCopyPaste: `DESEMBARAÇO ADUANEIRO DI ${meta.di.nDI} • PTAX R$ ${meta.di.exchangeRatePtax.toFixed(4)} + GNRE/DARF`,
           boletoDigitableLine: `IMPORTAÇÃO DIRETA — ${meta.di.xLocDesemb}/${meta.di.UFDesemb} (DI ${meta.di.nDI})`,
-          itemsDescription: meta.items.map((it: any) => ({
+          itemsDescription: meta.items.map((it) => ({
             description: `[${it.cProd}] ${it.xProd} (NCM ${it.ncm} • CFOP ${it.cfop} • DI ${meta.di.nDI} Ad. ${it.nAdicao})`,
             serialNumber: `DI-${meta.di.nDI.replace(/\D/g, "")}-AD${it.nAdicao}`,
             quantity: it.qCom,
@@ -4824,6 +7308,10 @@ export class CrmApiRouter {
 
       const payInvoiceMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/pay$/);
       if (payInvoiceMatch && method === 'POST') {
+        // Pacote L (3): baixa de pagamento exige a alcada FINANCEIRA (2FA + Financeiro/Bancos EDIT
+        // ou FULL, ou administrador), com auditoria da negativa.
+        const finPriv = this.financePaymentPrivilege(query, ctx);
+        if (!finPriv.allowed) return this.denyInvoiceChange(method, cleanPath, query, finPriv, 'baixa de pagamento', 'ERP_FINANCE_PAYMENT_FORBIDDEN');
         const paid = this.repo.markInvoicePaid(payInvoiceMatch[1]);
         if (!paid) {
           return { status: 404, body: { error: 'Fatura ou nota fiscal não encontrada.' } };
@@ -4837,6 +7325,9 @@ export class CrmApiRouter {
       if (invoiceIdMatch) {
         const invId = decodeURIComponent(invoiceIdMatch[1]);
         if (method === 'PATCH' || method === 'PUT') {
+          // Pacote L (3): alterar fatura/NF existente exige a alcada fiscal (a mesma do /generate-invoice).
+          const fisPriv = this.fiscalIssuancePrivilege(query, ctx);
+          if (!fisPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, fisPriv, 'alteracao de fatura/NF existente');
           const updated = this.repo.updateInvoice(invId, body);
           if (!updated) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
           return { status: 200, body: { data: updated } };
@@ -4876,6 +7367,15 @@ export class CrmApiRouter {
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingCat = this.repo.listCatalog().find((c) => c.id === catId || c.gestaoClickCode === catId);
+          if (!existingCat) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('catalogItem', {
+            id: existingCat.id,
+            name: existingCat.name,
+            sku: existingCat.gestaoClickCode,
+            gestaoClickCode: existingCat.gestaoClickCode,
+          });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteCatalogItem(catId);
           if (!deleted) return { status: 404, body: { error: 'Item do catálogo não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: catId } };
@@ -5019,6 +7519,40 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/erp/daily-sync' && (method === 'GET' || method === 'POST')) {
+        // Pacote J (3): a sync diaria chama o GestaoClick ao vivo (GET tambem). Mesma regra do
+        // POST /api/erp/gestaoclick/sync: 2FA + admin ou controle TOTAL do ERP. O Vercel Cron
+        // (GET com Bearer CRON_SECRET validado no bridge) e o contexto interno seguem liberados.
+        const dailyCron =
+          query._fromHttpBridge === '1' && query._cronAuthorized === '1' && method === 'GET';
+        if (!ctx.trustedInternal && !dailyCron) {
+          const priv = this.gestaoClickPrivilege(query, ctx);
+          if (!priv.allowed) {
+            if (priv.authenticated) {
+              try {
+                this.repo.appendSecurityAuditLog({
+                  actorEmail: priv.email || 'desconhecido',
+                  actorName: priv.name || 'desconhecido',
+                  actorRole: priv.roleId || 'desconhecido',
+                  action: 'ERP_DAILY_SYNC_DENIED',
+                  module: 'ERP',
+                  resource: `${method} /api/erp/daily-sync`,
+                  status: 'BLOCKED',
+                  ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+                  details: 'Disparo da sincronizacao diaria GestaoClick negado: exige 2FA e perfil administrador ou controle total do ERP.',
+                });
+              } catch {
+                // auditoria nunca derruba a resposta
+              }
+            }
+            return {
+              status: priv.authenticated ? 403 : 401,
+              body: {
+                error: 'Permissão negada: a sincronização diária do GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                code: 'ERP_DAILY_SYNC_FORBIDDEN',
+              },
+            };
+          }
+        }
         const syncReport = await this.repo.runIncrementalDailySync({
           forceRefresh: method === 'POST' ? body.forceRefresh !== false : false,
         });
@@ -5039,6 +7573,10 @@ export class CrmApiRouter {
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
+          const existingFin = this.repo.listFinancialEntries().find((f) => f.id === finId);
+          if (!existingFin) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('financialEntry', { id: existingFin.id, name: existingFin.description });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteFinancialEntry(finId);
           if (!deleted) return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: finId } };
@@ -5079,6 +7617,13 @@ export class CrmApiRouter {
           return { status: 200, body: { data: saved } };
         }
         if (method === 'DELETE' && recId) {
+          if (col === 'bankAccounts') {
+            const erp = this.repo.getErpState();
+            const existingBank = (erp.bankAccounts || []).find((b) => b.id === recId);
+            if (!existingBank) return { status: 404, body: { error: 'Registro não encontrado.' } };
+            const blocked = this.rejectIfRecordInUse('bankAccount', { id: existingBank.id, name: existingBank.name });
+            if (blocked) return blocked;
+          }
           const deleted = this.repo.deleteErpCollectionRecord(col, recId);
           if (!deleted) return { status: 404, body: { error: 'Registro não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: recId } };
@@ -5121,7 +7666,7 @@ export class CrmApiRouter {
           status: 200,
           body: {
             data: {
-              ...erp.gestaoClickConfig,
+              ...toGestaoClickConfigView(erp.gestaoClickConfig, this.gestaoClickPrivilege(query, ctx).allowed),
               hasEnvCredentials: Boolean(process.env.GESTAOCLICK_ACCESS_TOKEN),
               totalMcpEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS.length,
               liveTotalsStore118887: GESTAOCLICK_STORE_118887_TOTALS,
@@ -5168,42 +7713,301 @@ export class CrmApiRouter {
           }
         }
         const cfg = await this.repo.syncLiveGestaoClick({ forceRefresh: true });
+        // CISO 30/10 (item 1): o overview devolvido passa pelo mesmo escopo PROPRIOS/EQUIPE do
+        // bootstrap; a visao da config GestaoClick (pacote I) e aplicada sobre o erp ja filtrado.
+        const syncOv = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;
         return {
           status: 200,
           body: {
-            data: cfg,
-            erp: this.repo.getErpOverview(),
+            data: toGestaoClickConfigView(cfg, true),
+            erp: { ...syncOv, gestaoClickConfig: toGestaoClickConfigView(syncOv.gestaoClickConfig, true) },
           },
         };
       }
 
       if (cleanPath === '/api/erp/gestaoclick/config' && (method === 'PATCH' || method === 'POST')) {
-        const cfg = this.repo.updateGestaoClickConfig(body);
-        return { status: 200, body: { data: cfg } };
+        // Pacote I (D2): dados fiscais da empresa (ISS, regime, CNPJ...) afetam a emissao fiscal.
+        // Mesma guarda do sync (2FA + admin ou ERP FULL); allowlist fechada; auditoria antes/depois.
+        const gcPriv = this.gestaoClickPrivilege(query, ctx);
+        const gcIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        if (!gcPriv.allowed) {
+          if (gcPriv.authenticated) {
+            try {
+              this.repo.appendSecurityAuditLog({
+                actorEmail: gcPriv.email,
+                actorName: gcPriv.name,
+                actorRole: gcPriv.roleId,
+                action: 'GESTAOCLICK_CONFIG_UPDATE_DENIED',
+                module: 'ERP',
+                resource: '/api/erp/gestaoclick/config',
+                status: 'BLOCKED',
+                ipAddress: gcIp,
+                details: `Alteracao da configuracao fiscal/GestaoClick negada (403). Campos enviados: ${Object.keys(body || {}).slice(0, 20).join(', ').slice(0, 300)}.`,
+              });
+            } catch {
+              // auditoria nunca derruba a resposta
+            }
+          }
+          return {
+            status: gcPriv.authenticated ? 403 : 401,
+            body: {
+              error: 'Permissão negada: alterar a configuração fiscal/GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+              code: 'GESTAOCLICK_CONFIG_FORBIDDEN',
+            },
+          };
+        }
+        const parsedCfg = parseGestaoClickConfigPatch(body);
+        if (!parsedCfg.ok) {
+          return {
+            status: 400,
+            body: {
+              error:
+                parsedCfg.code === 'GESTAOCLICK_CONFIG_EMPTY'
+                  ? 'Nenhum campo editável informado.'
+                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
+              code: parsedCfg.code,
+              fields: parsedCfg.fields,
+            },
+          };
+        }
+        const cfgBefore = { ...this.repo.getErpOverview().gestaoClickConfig };
+        const cfg = this.repo.updateGestaoClickConfig(parsedCfg.data);
+        const changes = diffGestaoClickConfig(cfgBefore, cfg);
+        if (changes.length > 0) {
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: gcPriv.email || 'sistema@sti-hub',
+              actorName: gcPriv.name || 'Sistema STI-hub',
+              actorRole: gcPriv.roleId || 'SYSTEM',
+              action: 'GESTAOCLICK_CONFIG_UPDATED',
+              module: 'ERP',
+              resource: '/api/erp/gestaoclick/config',
+              status: 'SUCCESS',
+              ipAddress: gcIp,
+              details: `Configuracao fiscal/GestaoClick alterada: ${JSON.stringify(changes).slice(0, 1500)}`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+        }
+        return { status: 200, body: { data: toGestaoClickConfigView(cfg, true) } };
+      }
+
+      // ======================================================================
+      // CONFIGURAÇÕES FISCAIS (/api/erp/fiscal-settings) — NF-e, NFC-e, NFS-e, autXML, certificado
+      //  - GET: sessão autenticada; CSC sempre mascarado.
+      //  - PUT: zod .strict(); alçada fiscal ou admin (2FA); HOMOLOGAÇÃO -> PRODUÇÃO exige
+      //    confirmProductionSwitch = "CONFIRMO_PRODUCAO"; toda mudança/negativa vai para a auditoria
+      //    (sem o CSC). Sessão só por query (_sessionToken do bridge), nunca pelo corpo.
+      // ======================================================================
+      if (cleanPath === '/api/erp/fiscal-settings' && (method === 'GET' || method === 'PUT')) {
+        const fsIp = String(query._clientIp || 'sem-ip').slice(0, 64);
+        const fsSess = ctx.trustedInternal || !query._sessionToken ? null : this.repo.resolveSessionFromToken(query._sessionToken);
+        if (!ctx.trustedInternal && !ctx.serviceAccount && !(fsSess && fsSess.authenticated)) {
+          return { status: 401, body: { error: 'Sessão obrigatória para as Configurações Fiscais.', code: 'FISCAL_SETTINGS_AUTH_REQUIRED' } };
+        }
+        if (ctx.serviceAccount) {
+          return { status: 403, body: { error: 'Conta de serviço não acessa as Configurações Fiscais.', code: 'FISCAL_SETTINGS_FORBIDDEN' } };
+        }
+        const peek = (modelo: string, serie: string, env: 'HOMOLOGACAO' | 'PRODUCAO') => this.repo.peekNextFiscalNumber(modelo, serie, env);
+        const gcCfg = this.repo.getErpOverview().gestaoClickConfig;
+        if (method === 'GET') {
+          return { status: 200, body: { data: toFiscalSettingsView(this.repo.getFiscalDocumentSettings(), gcCfg, peek) } };
+        }
+
+        const fsPriv = this.fiscalSettingsPrivilege(query, ctx);
+        const rawBody = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        const wantsProduction = ['nfe', 'nfce', 'nfse'].some((d) => {
+          const v = rawBody[d];
+          return Boolean(v && typeof v === 'object' && (v as Record<string, unknown>).environment === 'PRODUCAO');
+        });
+        if (!fsPriv.allowed) {
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: fsPriv.email || 'desconhecido',
+              actorName: fsPriv.name || 'desconhecido',
+              actorRole: fsPriv.roleId || 'desconhecido',
+              action: wantsProduction ? 'FISCAL_ENVIRONMENT_PRODUCTION_DENIED' : 'FISCAL_SETTINGS_UPDATE_DENIED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'BLOCKED',
+              ipAddress: fsIp,
+              // Só os nomes dos blocos enviados — nunca valores (o CSC jamais entra em log).
+              details: `Alteracao das Configuracoes Fiscais negada (403): exige canIssueFiscalDocuments ou administrador com 2FA. Blocos enviados: ${Object.keys(rawBody).slice(0, 10).join(', ').slice(0, 200)}.`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+          return {
+            status: 403,
+            body: {
+              error: wantsProduction
+                ? 'Permissão negada: trocar o ambiente fiscal para PRODUÇÃO exige a alçada fiscal (canIssueFiscalDocuments) ou perfil administrador, com 2FA.'
+                : 'Permissão negada: alterar as Configurações Fiscais exige a alçada fiscal (canIssueFiscalDocuments) ou perfil administrador, com 2FA.',
+              code: wantsProduction ? 'FISCAL_PRODUCTION_SWITCH_FORBIDDEN' : 'FISCAL_SETTINGS_FORBIDDEN',
+            },
+          };
+        }
+        const parsedFs = parseFiscalSettingsUpdate(rawBody);
+        if (!parsedFs.ok) {
+          return {
+            status: 400,
+            body: { error: 'Configurações Fiscais inválidas.', code: 'FISCAL_SETTINGS_INVALID', issues: parsedFs.issues },
+          };
+        }
+        const currentFs = this.repo.getFiscalDocumentSettings();
+        const applied = applyFiscalSettingsUpdate(currentFs, parsedFs.data);
+        if (applied.productionSwitches.length > 0 && parsedFs.data.confirmProductionSwitch !== FISCAL_PRODUCTION_CONFIRMATION) {
+          return {
+            status: 409,
+            body: {
+              error: `Confirmação explícita obrigatória para emitir em PRODUÇÃO (${applied.productionSwitches.join(', ').toUpperCase()}). ${FISCAL_PRODUCTION_GESTAOCLICK_WARNING}`,
+              code: 'FISCAL_PRODUCTION_CONFIRMATION_REQUIRED',
+              documents: applied.productionSwitches,
+              requiredConfirmation: FISCAL_PRODUCTION_CONFIRMATION,
+              warning: FISCAL_PRODUCTION_GESTAOCLICK_WARNING,
+            },
+          };
+        }
+        const actorLabel = fsPriv.email || 'sistema@sti-hub';
+        const savedFs = applied.changes.length > 0 ? this.repo.saveFiscalDocumentSettings(applied.next, actorLabel) : currentFs;
+        try {
+          for (const c of applied.changes.filter((ch) => ch.field.endsWith('.environment'))) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: actorLabel,
+              actorName: fsPriv.name || 'Sistema STI-hub',
+              actorRole: fsPriv.roleId || 'SYSTEM',
+              action: 'FISCAL_ENVIRONMENT_CHANGED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'SUCCESS',
+              ipAddress: fsIp,
+              details: `Ambiente fiscal ${c.field.split('.')[0].toUpperCase()}: ${String(c.before)} -> ${String(c.after)}${c.after === 'PRODUCAO' ? ` (confirmado: ${FISCAL_PRODUCTION_CONFIRMATION}; o GestaoClick deve parar de emitir na mesma serie)` : ''}.`,
+            });
+          }
+          const others = applied.changes.filter((ch) => !ch.field.endsWith('.environment'));
+          if (others.length > 0) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: actorLabel,
+              actorName: fsPriv.name || 'Sistema STI-hub',
+              actorRole: fsPriv.roleId || 'SYSTEM',
+              action: 'FISCAL_SETTINGS_UPDATED',
+              module: 'ERP',
+              resource: 'PUT /api/erp/fiscal-settings',
+              status: 'SUCCESS',
+              ipAddress: fsIp,
+              // applyFiscalSettingsUpdate já redige o CSC ("[CSC REDIGIDO]").
+              details: `Configuracoes Fiscais alteradas: ${JSON.stringify(others).slice(0, 1500)}`,
+            });
+          }
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return {
+          status: 200,
+          body: {
+            data: toFiscalSettingsView(savedFs, gcCfg, peek),
+            changedFields: applied.changes.map((c) => c.field),
+          },
+        };
       }
 
       // ======================================================================
       // STI-HUB UNIFIED CLIENT EMAIL DISPATCHER (/api/communications/send-email)
       // ======================================================================
       if (cleanPath === '/api/communications/send-email' && method === 'POST') {
-        const to = String(body.to || '').trim();
+        // Item 2: `body` ja chega redigido do dispatch; o texto com o link completo (rawMail) e
+        // usado SO no payload do Resend e para extrair jti/exp. Nada de rawMail e gravado.
+        const rawMail = (ctx.mailerRawBody || body) as Record<string, unknown>;
+        const rawSubject = String(rawMail.subject || '').trim();
+        const rawEmailBody = String(rawMail.body || '').trim();
         const subject = String(body.subject || '').trim();
         const emailBody = String(body.body || '').trim();
         const docType = String(body.docType || 'PROPOSAL').trim();
-        if (!to || !subject) {
+        if (!subject) {
           return {
             status: 400,
             body: { error: 'Os campos "to" (destinatário) e "subject" (assunto) são obrigatórios.' },
           };
         }
+        const recipients = collectEmailRecipients({
+          to: rawMail.to ?? body.to,
+          cc: rawMail.cc ?? body.cc,
+          bcc: rawMail.bcc ?? body.bcc,
+        });
+        if (!recipients.ok) {
+          return { status: 400, body: { error: recipients.error, code: recipients.code } };
+        }
+        const to = recipients.to.join(', ');
+        const ccJoined = recipients.cc.length ? recipients.cc.join(', ') : '';
+        const invoiceId = body.invoiceId ? String(body.invoiceId).trim() : '';
+        let serverInvoiceAttachments: Array<{ filename: string; content: string; content_type: string }> = [];
+        if (invoiceId) {
+          if (clientProvidedAttachmentPayload(rawMail) || clientProvidedAttachmentPayload(body)) {
+            return {
+              status: 400,
+              body: {
+                error: 'Os anexos da fatura são montados no servidor. Não envie content, URL ou path.',
+                code: 'INVOICE_ATTACHMENT_CLIENT_FORBIDDEN',
+              },
+            };
+          }
+          const finPriv = this.financePaymentPrivilege(query, ctx);
+          const actor = { email: finPriv.email, name: finPriv.name, role: finPriv.roleId };
+          if (!finPriv.allowed) {
+            this.invoiceLinkAudit(
+              'INVOICE_EMAIL_DENIED',
+              'BLOCKED',
+              String(query._clientIp || 'sem-ip').slice(0, 64),
+              invoiceId,
+              'sem alcada financeira para enviar a fatura',
+              actor
+            );
+            return {
+              status: 403,
+              body: {
+                error: 'Permissão negada (Painel ERP): seu usuário não possui alçada financeira para enviar esta fatura.',
+                code: 'INVOICE_EMAIL_FORBIDDEN',
+              },
+            };
+          }
+          const invoice = this.repo.getInvoiceByIdOrNumber(invoiceId);
+          if (!invoice || !isIssuedInvoiceStatus(invoice.status) || !this.isInvoiceVisibleToSession(invoice, query, ctx)) {
+            return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
+          }
+          const contract =
+            invoice.rentalContractId || invoice.contractNumber
+              ? this.repo
+                  .listRentalContracts()
+                  .find((c) => c.id === invoice.rentalContractId || c.contractNumber === invoice.contractNumber)
+              : undefined;
+          const remessaDocs = this.repo.listInvoices().filter((i) => i.documentType === 'NFE_REMESSA_LOCACAO');
+          serverInvoiceAttachments = buildServerInvoiceEmailAttachments(invoice, {
+            contract,
+            remessaDocs,
+            kinds: body.selectedAttachments,
+          });
+        }
 
         const protocol = `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
         const nowIso = new Date().toISOString();
+        const serverHtml = buildEmailHtmlFromText(rawEmailBody);
 
-        // Optional external Resend HTTP relay if RESEND_API_KEY is configured
+        // Parecer CISO 04/11: remetente = o mesmo dos convites (RESEND_FROM_EMAIL, dominio
+        // notificacoes.setatelecom.com.br com DKIM); envio que falha devolve erro (nada e gravado
+        // como enviado). Sem provedor => 503 fora do runtime de teste.
         let externalRelay = 'LOGGED_STI_HUB';
+        const mailSecCfg = this.repo.getRbacState().securityConfig;
         const resendKey = resolveResendApiKey();
+        if (!resendKey && !isTestRuntime()) {
+          console.warn('[STI-hub e-mail] send-email: provedor Resend nao configurado.');
+          return {
+            status: 503,
+            body: { error: 'O envio de e-mail não está configurado. Fale com o administrador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
+          };
+        }
         if (resendKey) {
+          let failure: string | null = null;
           try {
             const res = await fetch('https://api.resend.com/emails', {
               method: 'POST',
@@ -5212,26 +8016,55 @@ export class CrmApiRouter {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                from: process.env.STI_HUB_FROM_EMAIL || 'Seta Telecom <comercial@setatelecom.com.br>',
-                to: to.split(',').map((x) => x.trim()).filter(Boolean),
-                cc: body.cc
-                  ? String(body.cc).split(',').map((x) => x.trim()).filter(Boolean)
+                from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail),
+                to: recipients.to,
+                cc: recipients.cc.length ? recipients.cc : undefined,
+                bcc: recipients.bcc.length ? recipients.bcc : undefined,
+                subject: rawSubject,
+                text: rawEmailBody,
+                html: serverHtml,
+                attachments: serverInvoiceAttachments.length
+                  ? serverInvoiceAttachments
+                      .slice(0, 4)
+                      .map((a) => ({
+                        filename: String(a.filename || 'anexo').slice(0, 120),
+                        content: String(a.content || ''),
+                        content_type: String(a.content_type || 'text/html; charset=utf-8'),
+                      }))
+                      .filter((a) => a.content && a.content.length <= 1_800_000)
                   : undefined,
-                subject,
-                text: emailBody,
               }),
             });
             if (res.ok) externalRelay = 'SENT_VIA_RESEND';
+            else failure = `HTTP ${res.status}`;
           } catch {
-            // Keep internal log if external relay is unreachable
+            failure = 'falha de rede';
+          }
+          if (failure) {
+            // Log so com o status (nunca chave, corpo ou link do e-mail).
+            console.warn(`[STI-hub e-mail] send-email: Resend recusou o envio (${failure}).`);
+            return {
+              status: 502,
+              body: { error: 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.', code: 'EMAIL_SEND_FAILED' },
+            };
           }
         }
+
+        // A1 (parecer CISO 30/10): o e-mail entregue (acima) leva o link completo; o que e
+        // GRAVADO (timeline, metadata, comentario de chamado) leva #t=[REDACTED]. Na metadata,
+        // do link assinado ficam so jti e exp.
+        const linkInfo =
+          describeProposalLinkInText(typeof rawMail.publicPdfUrl === 'string' ? rawMail.publicPdfUrl : '') ||
+          describeProposalLinkInText(rawEmailBody);
+        const storedEmailBody = redactProposalLinkTokens(emailBody);
+        const storedSubject = redactProposalLinkTokens(subject);
+        const storedPublicPdfUrl = body.publicPdfUrl ? redactProposalLinkTokens(String(body.publicPdfUrl)) : null;
 
         // Record in CRM Timeline
         const evt = this.repo.createTimelineEvent({
           type: 'EMAIL',
-          title: `[${docType}] ${subject}`,
-          body: `Para: ${to}${body.cc ? ` | CC: ${String(body.cc)}` : ''} • Protocolo: ${protocol}\n\n${emailBody.slice(0, 600)}`,
+          title: `[${docType}] ${storedSubject}`,
+          body: `Para: ${to}${ccJoined ? ` | CC: ${ccJoined}` : ''} • Protocolo: ${protocol}\n\n${storedEmailBody.slice(0, 600)}`,
           contactId: body.contactId ? String(body.contactId) : null,
           companyId: body.companyId ? String(body.companyId) : null,
           dealId: body.dealId ? String(body.dealId) : null,
@@ -5240,9 +8073,10 @@ export class CrmApiRouter {
             protocol,
             docType,
             to,
-            cc: body.cc || null,
+            cc: ccJoined || null,
             documentCode: body.documentCode || null,
-            publicPdfUrl: body.publicPdfUrl || null,
+            publicPdfUrl: storedPublicPdfUrl,
+            proposalLink: linkInfo ? { jti: linkInfo.jti, exp: linkInfo.exp } : null,
             externalRelay,
           },
         });
@@ -5259,7 +8093,7 @@ export class CrmApiRouter {
             author: `${this.sessionActorName(query)} (E-mail STI-hub)`, // Pacote G
             authorRole: 'AGENT',
             isInternal: !sePublic,
-            body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${emailBody}`,
+            body: `E-mail enviado para ${to} (Protocolo ${protocol}):\n${storedEmailBody}`,
           });
         }
 
@@ -5273,8 +8107,8 @@ export class CrmApiRouter {
           followUpTask = this.repo.createTask({
             title:
               typeof body.followUpTitle === 'string' && body.followUpTitle.trim()
-                ? body.followUpTitle.trim()
-                : `Follow-up sobre [${docType}] ${subject}`,
+                ? redactProposalLinkTokens(body.followUpTitle.trim())
+                : `Follow-up sobre [${docType}] ${storedSubject}`,
             notes: `Follow-up agendado automaticamente após envio de e-mail (${protocol}) para ${to}.`,
             type: (body.followUpType as 'EMAIL' | 'CALL' | 'TODO') || 'EMAIL',
             priority: (body.followUpPriority as 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE') || 'HIGH',
@@ -5291,6 +8125,24 @@ export class CrmApiRouter {
           });
         }
 
+        if (body.invoiceId) {
+          try {
+            this.repo.appendInvoiceEmailHistory(String(body.invoiceId), {
+              sentAt: nowIso,
+              to,
+              cc: ccJoined || null,
+              subject: storedSubject,
+              protocol,
+              actor: this.sessionActorName(query),
+              attachments: Array.isArray(body.selectedAttachments)
+                ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 4)
+                : [],
+            });
+          } catch {
+            /* historico da fatura nao derruba o envio ja realizado */
+          }
+        }
+
         return {
           status: 200,
           body: {
@@ -5299,8 +8151,8 @@ export class CrmApiRouter {
               protocol,
               sentAt: nowIso,
               to,
-              cc: body.cc || null,
-              subject,
+              cc: ccJoined || null,
+              subject: storedSubject,
               docType,
               externalRelay,
               timelineEventId: evt.id,
@@ -5392,26 +8244,17 @@ export class CrmApiRouter {
         }
       }
 
-      if (cleanPath === '/api/email-templates') {
-        if (method === 'GET') {
-          const list = this.repo.listEmailTemplates();
-          return { status: 200, body: { data: list, total: list.length } };
-        }
-        if (method === 'POST') {
-          if (!body.name || !body.subject || !body.body) {
-            return {
-              status: 400,
-              body: { error: 'Os campos "name", "subject" e "body" são obrigatórios.' },
-            };
-          }
-          const created = this.repo.createEmailTemplate({
-            ...(body as Record<string, unknown>),
-            name: String(body.name),
-            subject: String(body.subject),
-            body: String(body.body),
-          });
-          return { status: 201, body: { data: created } };
-        }
+      // E-mail individual do CRM pela caixa Outlook do proprio usuario (sessao 2FA + modulo CRM).
+      if (isMailboxRoute(cleanPath)) {
+        return handleMailboxRoute(
+          { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter },
+          method, cleanPath, query, body, ctx
+        );
+      }
+
+      // Pacote O: modelos de e-mail (lista/leitura com sessao; escrita com 2FA + Marketing EDIT/FULL ou admin).
+      if (isEmailTemplateRoute(cleanPath)) {
+        return handleEmailTemplateRoute(this.repo, method, cleanPath, query, body, ctx);
       }
 
       if (cleanPath === '/api/snippets') {
@@ -5490,7 +8333,7 @@ export class CrmApiRouter {
         // Pacote H (D3b): IP confiavel do bridge (x-vercel-forwarded-for / x-real-ip; ver
         // src/api/client-ip.ts). Sem IP => balde 'sem-ip' compartilhado (mais restritivo).
         const loginIp = String(query._clientIp || 'sem-ip').slice(0, 64);
-        if (this.loginFailIpLimiter.count(loginIp) >= this.loginFailIpLimiter.max) {
+        if (this.loginFailIpGuard.isBlocked(loginIp, email)) {
           return {
             status: 429,
             body: {
@@ -5506,7 +8349,7 @@ export class CrmApiRouter {
           enrolledSet.has(email.toLowerCase())
         );
         if (!challenge.ok) {
-          this.loginFailIpLimiter.hit(loginIp);
+          this.loginFailIpGuard.hit(loginIp, email);
           return {
             status: 401,
             body: { error: challenge.error || 'Falha na autenticação corporativa.' },
@@ -6006,7 +8849,7 @@ export class CrmApiRouter {
         const generic = { status: 200, body: { data: { ok: true, message: FORGOT_PASSWORD_GENERIC_MESSAGE } } };
         const emailIn = String(body.email || '').trim().toLowerCase().slice(0, 254);
         const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-        const ipOk = this.forgotPasswordIpLimiter.hit(ip);
+        const ipOk = this.forgotPasswordIpLimiter.hit(rateLimitIpKey(ip)); // Pacote J (D-I4)
         const emailOk = emailIn ? this.forgotPasswordEmailLimiter.hit(`${emailIn}`) : true;
         if (ipOk && emailOk && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailIn)) {
           const rec = this.repo.findRbacUserRecord('', emailIn);
@@ -6034,7 +8877,7 @@ export class CrmApiRouter {
 
       if (cleanPath === '/api/auth/reset-password' && method === 'POST') {
         const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-        if (!this.resetPasswordIpLimiter.hit(ip)) {
+        if (!this.resetPasswordIpLimiter.hit(rateLimitIpKey(ip))) { // Pacote J (D-I4)
           return { status: 429, body: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' } };
         }
         const invalidLink = {
@@ -6176,6 +9019,7 @@ export class CrmApiRouter {
               ...(delivery.delivered ? {} : { inviteToken: _invTok, inviteUrl: _invUrl, conviteUrl: _convUrl }),
               emailDelivered: delivery.delivered,
               deliveryMode: delivery.deliveryMode,
+              ...(delivery.delivered ? {} : { deliveryError: 'EMAIL_PROVIDER_NOT_CONFIGURED' }),
               protocol: delivery.protocol,
             },
           },
@@ -6790,7 +9634,27 @@ export class CrmApiRouter {
         }
         if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
           if (body.companyEmitter && typeof body.companyEmitter === 'object') {
-            const incomingCnpj = (body.companyEmitter as Record<string, unknown>).cnpj;
+            // CISO 05/11: allowlist fechada + teto de tamanho (sem mass assignment no crm_kv_store).
+            const parsedEmitter = parseCompanyEmitterPatch(body.companyEmitter);
+            if (!parsedEmitter.ok) {
+              return {
+                status: 400,
+                body: {
+                  error: parsedEmitter.error,
+                  code: parsedEmitter.code,
+                  fields: parsedEmitter.fields,
+                },
+              };
+            }
+            const incomingEmitter = { ...parsedEmitter.patch } as Record<string, unknown>;
+            const incomingCnpj = incomingEmitter.cnpj;
+            // Pacote K: cnpj presente precisa ser texto nao vazio (antes numero/objeto/"" passavam sem validacao).
+            if (Object.prototype.hasOwnProperty.call(incomingEmitter, 'cnpj') && (typeof incomingCnpj !== 'string' || !incomingCnpj.trim())) {
+              return {
+                status: 400,
+                body: { error: 'O CNPJ do emitente deve ser informado como texto.', code: 'COMPANY_EMITTER_CNPJ_INVALID' },
+              };
+            }
             if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
               const cnpjCheck = validateCnpj(incomingCnpj);
               if (!cnpjCheck.isValid || !cnpjCheck.digits?.startsWith('14806925')) {
@@ -6810,9 +9674,13 @@ export class CrmApiRouter {
                 };
               }
             }
+            if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
+              // Pacote K (D-I3): grava so os digitos, como PATCH /api/erp/gestaoclick/config.
+              incomingEmitter.cnpj = String(validateCnpj(incomingCnpj).digits || incomingCnpj.replace(/\D+/g, ''));
+            }
             this.companyEmitter = {
               ...this.companyEmitter,
-              ...(body.companyEmitter as Record<string, unknown>),
+              ...(incomingEmitter as Partial<StiHubCompanyEmitterSettings>),
             };
             this.repo.updateGestaoClickConfig({
               companyLegalName: this.companyEmitter.legalName,
@@ -6821,6 +9689,18 @@ export class CrmApiRouter {
               municipalRegistration: this.companyEmitter.municipalRegistration,
               taxRegime: this.companyEmitter.taxRegime,
             });
+            try {
+              await saveCompanyEmitterSettings(this.companyEmitter);
+              this.companyEmitterHydrated = true;
+            } catch {
+              return {
+                status: 503,
+                body: {
+                  error: 'Não foi possível gravar os Dados da Empresa no banco. Tente de novo em instantes.',
+                  code: 'COMPANY_EMITTER_STORE_UNAVAILABLE',
+                },
+              };
+            }
           }
           if (body.certificateSettings && typeof body.certificateSettings === 'object') {
             this.certificateSettings = {
@@ -6890,6 +9770,10 @@ export class CrmApiRouter {
         body: { error: `Rota não encontrada: ${method} ${cleanPath}` },
       };
     } catch (err) {
+      // Pacote J (A1): criacao com id/codigo ja existente => 409 (nunca sobrepoe nem duplica).
+      if (isRecordIdConflictError(err)) {
+        return { status: 409, body: { error: err.message, code: err.code } };
+      }
       return {
         status: 500,
         body: {

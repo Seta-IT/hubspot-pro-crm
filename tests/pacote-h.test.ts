@@ -147,8 +147,8 @@ describe('Pacote H (3): bloqueio de login', () => {
       map.set(`falso${i}@exemplo.com`, { failedAttempts: 1, firstAttemptMs: now, lockedUntilMs: 0, lastAttemptMs: now });
     }
     for (let i = 0; i < 3; i++) repo.initiateLoginChallenge(`novo${i}@exemplo.com`, 'x', '203.0.113.2');
-    assert.ok(map.has(VICTIM), 'vitima continua no mapa');
-    assert.ok(!map.has('novo0@exemplo.com'), 'e-mail desconhecido nao ganha entrada com o mapa cheio');
+    assert.ok(map.has(repo.loginTrackerKey(VICTIM)), 'vitima continua no mapa');
+    assert.ok(!map.has(repo.loginTrackerKey('novo0@exemplo.com')), 'e-mail desconhecido nao ganha entrada com o mapa cheio');
     assert.ok(map.size <= CrmRepository.LOGIN_TRACKER_MAX);
     assert.match(String(repo.initiateLoginChallenge(VICTIM, 'Errada#2026XX').error), /bloqueada/);
   });
@@ -161,7 +161,7 @@ describe('Pacote H (3): bloqueio de login', () => {
       map.set(`frio${i}@exemplo.com`, { failedAttempts: 1, firstAttemptMs: old, lockedUntilMs: 0, lastAttemptMs: old } as never);
     }
     repo.initiateLoginChallenge('novo.frio@exemplo.com', 'x');
-    assert.ok(map.has('novo.frio@exemplo.com'));
+    assert.ok(map.has(repo.loginTrackerKey('novo.frio@exemplo.com')));
     assert.ok(map.size <= CrmRepository.LOGIN_TRACKER_MAX);
   });
   it('limite por IP: 20 falhas em 10 min => 429 no mesmo IP; outro IP segue; sem IP fixo', async () => {

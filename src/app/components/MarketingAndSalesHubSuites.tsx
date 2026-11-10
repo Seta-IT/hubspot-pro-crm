@@ -954,7 +954,7 @@ export function SalesHubProToolsStrip({
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <Target className="w-3.5 h-3.5" /> Metas Comerciais (Quotas) &amp; Comissões
+            <Target className="w-3.5 h-3.5" /> Metas comerciais e comissões
           </button>
           <button
             type="button"
@@ -999,7 +999,7 @@ export function SalesHubProToolsStrip({
                   <span>Meta: {formatBRL(q.quota)}</span>
                 </div>
                 <div className="text-[10px] font-semibold text-[#1e3a6e]">
-                  Novo MRR Locação Adicionado: +{formatBRL(q.mrrAdded)}/mês
+                  Valor mensal adicionado: +{formatBRL(q.mrrAdded)}/mês
                 </div>
               </div>
             );

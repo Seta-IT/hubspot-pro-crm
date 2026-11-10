@@ -115,7 +115,7 @@ function DiscountInput({ item, onCommit }: { item: ErpProposalItem; onCommit: (p
   const shown = focused ? text : formatDiscount(item);
   return (
     <div className="flex items-stretch">
-      <span className="inline-flex items-center px-1.5 rounded-l-[3px] border border-r-0 border-[#ced4da] bg-[#dee2e6] text-[11px] text-slate-600">
+      <span className="inline-flex items-center px-1.5 rounded-l-[3px] border border-r-0 border-[#ced4da] bg-[#e9ecef] text-[12px] text-slate-800">
         R$
       </span>
       <input
@@ -154,6 +154,7 @@ export function ProposalItemsGrid({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [pendingRemoveIdx, setPendingRemoveIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const isProduct = kind === 'PRODUCT';
@@ -254,13 +255,8 @@ export function ProposalItemsGrid({
           ) : (
             <Wrench className="w-5 h-5 text-slate-600" />
           )}
-          <div>
-            <div className="text-[15px] font-normal text-slate-700">
-              Adicione os <span className="font-semibold text-slate-900">{noun}</span> do orçamento
-            </div>
-            <div className="text-[11px] text-slate-500">
-              {isProduct ? 'Produto' : 'Serviço'}, quantidade, valor e desconto por linha.
-            </div>
+          <div className="text-[15px] font-semibold text-slate-900">
+            {isProduct ? 'Produtos' : 'Serviços'}
           </div>
         </div>
         <button
@@ -361,7 +357,7 @@ export function ProposalItemsGrid({
                       <button
                         type="button"
                         title="Remover"
-                        onClick={() => removeRow(idx)}
+                        onClick={() => setPendingRemoveIdx(idx)}
                         className="p-1.5 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -514,6 +510,38 @@ export function ProposalItemsGrid({
           </span>
         </div>
       </div>
+
+      {pendingRemoveIdx !== null && (
+        <div className="fixed inset-0 z-[80] bg-slate-900/50 flex items-center justify-center p-4" data-testid="confirm-delete-proposal-product">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
+            <h4 className="text-sm font-semibold text-slate-900">Excluir produto?</h4>
+            {rows.filter(({ idx }) => idx !== pendingRemoveIdx).length < 1 && (
+              <p className="text-xs font-semibold text-slate-600">A proposta precisa de pelo menos um item.</p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingRemoveIdx(null)}
+                className="px-3.5 py-2 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const idx = pendingRemoveIdx;
+                  setPendingRemoveIdx(null);
+                  if (idx === null) return;
+                  removeRow(idx);
+                }}
+                className="px-3.5 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -100,6 +100,8 @@ export interface StiHubGeneralSystemParameters {
   enforceStrictCnpjMergeLock: boolean;
   enforceMfaOnAllRoutes: boolean;
   dailyIncrementalSyncCron: string;
+  /** Configurações gerais do ERP (tela Configurações > Gerais). Sem segredos: senha SMTP nunca entra aqui. */
+  erpConfigGerais?: Record<string, unknown>;
 }
 
 export const INITIAL_SYNC_LOGS: ErpSyncRunLog[] = [
@@ -273,8 +275,6 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     targetDestination: 'ERP > 3. Propostas e Vendas & CRM > Sales Hub (Deals)',
     sampleRecords: [
       'Orçamento #4695 — MUNDIVOX COMUNICACOES LTDA (SL-44-SEC-K9 • R$ 4.320,00)',
-      'PROP-2026-001 — Nu Pagamentos S.A. (Cluster PABX IP & SD-WAN • R$ 12.000/mês)',
-      'PROP-2026-002 — TOTVS S.A. (Parque Telefonia IP Matriz • R$ 9.500/mês)',
     ],
     requiredFieldsVerified: ['Número (#4695)', 'Cliente & CNPJ', 'Vendedor (Marcelo Mira)', 'Itens & Descontos', 'Link Público PDF (/proposta/[id])'],
     cnpjFiscalLockCheck: 'CNPJ do destinatário validado e impresso no PDF A4 timbrado.',
@@ -313,7 +313,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'LOC-2026-102 — RD Station (R$ 6.600/mês • CFOP 6.908)',
       'LOC-2026-103 — VTEX Commerce Cloud Brasil (R$ 5.250/mês • IPCA)',
     ],
-    requiredFieldsVerified: ['Nº Contrato', 'Locatária & CNPJ', 'Mensalidade (MRR)', 'Dia Vencimento', 'Índice Reajuste (IPCA/IGP-M)', 'Equipamentos S/N'],
+    requiredFieldsVerified: ['Nº Contrato', 'Locatária & CNPJ', 'Valor mensal', 'Dia Vencimento', 'Índice Reajuste (IPCA/IGP-M)', 'Equipamentos S/N'],
     cnpjFiscalLockCheck: 'Amparo legal LC 116/2003 + Súmula Vinculante 31 STF (0% ISS) + NF-e Remessa CFOP 5.908.',
     relationalIntegrityCheck: 'Geração de Fatura Mensal em lote, NF-e de Remessa e vínculo com Chamados/O.S. por S/N.',
     validationStatus: 'PASSOU',
@@ -384,14 +384,14 @@ export const DEFAULT_COMPANY_EMITTER_SETTINGS: StiHubCompanyEmitterSettings = {
   municipalRegistration: 'CCM 4.891.203-1',
   cnaeMain: '61.10-8-03 — Serviços de Comunicação Multimídia (SCM) e Locação de Equipamentos',
   taxRegime: 'LUCRO_PRESUMIDO',
-  cep: '13091-140',
-  addressStreet: 'Avenida José Bonifácio',
-  addressNumber: '1391',
-  addressComplement: 'Sede Administrativa Matriz #118887',
-  neighborhood: 'Jardim Flamboyant',
-  city: 'Campinas / São Paulo',
+  cep: '',
+  addressStreet: 'Rua Guapuruvu',
+  addressNumber: '242',
+  addressComplement: 'Sala 31',
+  neighborhood: 'Loteamento Alphaville',
+  city: 'Campinas',
   state: 'SP',
-  ibgeCode: '3550308',
+  ibgeCode: '3509502',
   phone: '(11) 3958-4929',
   financialEmail: 'financeiro@setatelecom.com.br',
   defaultBankInterAccount: 'Banco Inter PJ #237906 (Saldo R$ 4.572.238,02)',

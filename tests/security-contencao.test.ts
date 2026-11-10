@@ -15,7 +15,7 @@ import {
   verifyCorporatePassword,
   verifyStiHubSessionToken,
 } from '../src/app/lib/auth';
-import { createInMemoryRepository } from '../src/db/repository';
+import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
 import { deriveServerTotpSecret, sealIamRecord } from '../src/db/iam-security';
 import { forwardToCrmRouter } from '../src/app/api/_bridge';
@@ -56,16 +56,16 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
       ['/api/contacts', 'GET'],
       ['/api/erp/proposals', 'GET'],
       ['/api/admin/security', 'GET'],
-      ['/api/erp/proposals/prop-seta-001', 'PATCH'],
-      ['/api/erp/proposals/prop-seta-001/restore-version', 'POST'],
+      ['/api/erp/proposals/prop-fixture-001', 'PATCH'],
+      ['/api/erp/proposals/prop-fixture-001/restore-version', 'POST'],
     ]) {
       const d = evaluateStiHubRouteProtection({ pathname: p, method: m, sessionToken: null, enforceStrictLock: false });
       assert.equal(d.allowed, false, `${m} ${p}`);
       assert.equal(d.statusCode, 401, `${m} ${p}`);
       assert.notEqual(d.reason, 'DEFAULT_ADMIN_SESSION_FALLBACK');
     }
-    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-seta-001', method: 'GET', sessionToken: null }).allowed, true);
-    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-seta-001/approve', method: 'POST', sessionToken: null }).allowed, true);
+    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-fixture-001', method: 'GET', sessionToken: null }).allowed, true);
+    assert.equal(evaluateStiHubRouteProtection({ pathname: '/api/erp/proposals/prop-fixture-001/approve', method: 'POST', sessionToken: null }).allowed, true);
   });
 
   it('middleware HTTP: referer de mesma origem nao concede acesso', () => {
@@ -76,14 +76,14 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
     assert.equal(res.status, 401);
   });
 
-  it('router (defesa em profundidade): requisicao HTTP sem sessao => 401; GET proposta :id => 200', async () => {
+  it('router (defesa em profundidade): requisicao HTTP sem sessao => 401; GET proposta :id sem link assinado => 404', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
     for (const [p, m] of [
       ['/api/admin/users', 'GET'],
       ['/api/contacts', 'GET'],
       ['/api/erp/proposals', 'GET'],
-      ['/api/erp/proposals/prop-seta-001', 'PATCH'],
-      ['/api/erp/proposals/prop-seta-001/restore-version', 'POST'],
+      ['/api/erp/proposals/prop-fixture-001', 'PATCH'],
+      ['/api/erp/proposals/prop-fixture-001/restore-version', 'POST'],
     ]) {
       const res = await router.dispatch({ method: m, path: p, query: { ...HTTP }, body: {} });
       assert.equal(res.status, 401, `${m} ${p}`);
@@ -91,8 +91,9 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
     const forged = Buffer.from(JSON.stringify({ email: ADMIN_EMAIL, mfaVerified: true })).toString('base64url');
     const forgedRes = await router.dispatch({ method: 'GET', path: '/api/admin/users', query: { ...HTTP, _sessionToken: forged } });
     assert.equal(forgedRes.status, 401);
-    const pub = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP } });
-    assert.equal(pub.status, 200);
+    // Link assinado (29/10/2026): GET anonimo sem token => 404 generico (sem DTO parcial).
+    const pub = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP } });
+    assert.equal(pub.status, 404);
   });
 
   it('bridge descarta chaves internas _* vindas da URL (_sessionToken, _fromHttpBridge, _origin)', async () => {
@@ -106,11 +107,11 @@ describe('Contencao: API anonima => 401 (sem DEFAULT_ADMIN_SESSION_FALLBACK)', (
   it('PATCH/restore-version com sessao sem perfil ERP_ADMIN/ERP_COMMERCIAL => 403 tambem no router', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
     const finance = token({ uid: 'usr-fin-x', email: 'fin.x@setatelecom.com.br', roleId: 'FINANCEIRO_FATURAMENTO', erpRole: 'ERP_FINANCE' });
-    const patch = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
+    const patch = await router.dispatch({ method: 'PATCH', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
     assert.equal(patch.status, 403);
-    const put = await router.dispatch({ method: 'PUT', path: '/api/erp/proposals/prop-seta-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
+    const put = await router.dispatch({ method: 'PUT', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: finance }, body: { title: 'x' } });
     assert.equal(put.status, 403);
-    const restore = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-seta-001/restore-version', query: { ...HTTP, _sessionToken: finance }, body: { targetVersion: 1 } });
+    const restore = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-001/restore-version', query: { ...HTTP, _sessionToken: finance }, body: { targetVersion: 1 } });
     assert.equal(restore.status, 403);
   });
 });
@@ -287,6 +288,62 @@ describe('Contencao: Vercel Cron (CRON_SECRET) preservado', () => {
       assert.notEqual(viaBridge.status, 401);
       const forgedFlag = await forwardToCrmRouter(new NextRequest('https://sti-hub.vercel.app/api/erp/daily-sync?_cronAuthorized=1'));
       assert.equal(forgedFlag.status, 401);
+    } finally {
+      if (prev === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = prev;
+    }
+  });
+});
+
+describe('Contencao: Vercel Cron GET /api/crm/proposal-followup (CRON_SECRET)', () => {
+  it('sem segredo => 401 generico; segredo certo => passa; caminhos parecidos e query nao liberam', async () => {
+    const prev = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = 'cron-secret-de-teste-com-32-caracteres-abc';
+    const secret = process.env.CRON_SECRET;
+    const origin = 'https://sti-hub.vercel.app';
+    try {
+      const none = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`));
+      assert.equal(none.status, 401);
+      const noneBody = await none.json();
+      assert.equal(noneBody.error, 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.');
+      assert.equal(JSON.stringify(noneBody).includes('CRON_SECRET'), false);
+
+      const bad = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: 'Bearer errado' } }));
+      assert.equal(bad.status, 401);
+
+      const ok = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(ok.headers.get('x-stihub-auth-guard'), 'cron-secret-allowed');
+
+      const suffix = middleware(new NextRequest(`${origin}/api/crm/proposal-followup/x`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(suffix.status, 401);
+      assert.notEqual(suffix.headers.get('x-stihub-auth-guard'), 'cron-secret-allowed');
+
+      const prefix = middleware(new NextRequest(`${origin}/api/crm/proposal-followup-extra`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(prefix.status, 401);
+
+      const queryUnlock = middleware(new NextRequest(`${origin}/api/crm/proposal-followup/x?_cronAuthorized=1`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(queryUnlock.status, 401);
+
+      const forgedQuery = await forwardToCrmRouter(new NextRequest(`${origin}/api/crm/proposal-followup?_cronAuthorized=1`));
+      assert.equal(forgedQuery.status, 401);
+
+      const viaBridge = await forwardToCrmRouter(
+        new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: `Bearer ${secret}` } })
+      );
+      assert.notEqual(viaBridge.status, 401);
+
+      const suffixBridge = await forwardToCrmRouter(
+        new NextRequest(`${origin}/api/crm/proposal-followup/x`, { headers: { authorization: `Bearer ${secret}` } })
+      );
+      assert.equal(suffixBridge.status, 401);
+
+      const router = new CrmApiRouter(createInMemoryRepository());
+      const r401 = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP } });
+      assert.equal(r401.status, 401);
+      const rOk = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP, _cronAuthorized: '1' } });
+      assert.notEqual(rOk.status, 401);
+      const rSuffix = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup/x', query: { ...HTTP, _cronAuthorized: '1' } });
+      assert.equal(rSuffix.status, 401);
     } finally {
       if (prev === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = prev;

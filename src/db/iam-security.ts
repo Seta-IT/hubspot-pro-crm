@@ -142,6 +142,11 @@ export const ALWAYS_STRIPPED_RESPONSE_KEYS = [
   'otpCode',
   // Pacote A: o token de sessao so trafega no cookie HttpOnly.
   'sessionToken',
+  // Pacote N: material do certificado A1 nunca sai (nem por engano) em resposta HTTP.
+  'pfxBase64',
+  'pfxEnc',
+  'passwordEnc',
+  'privateKeyPem',
 ];
 
 /** Material de pareamento TOTP: so pode sair nas rotas de pareamento /api/auth/*. */

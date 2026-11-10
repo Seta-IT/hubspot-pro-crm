@@ -16,6 +16,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/redefinir-senha',
   '/api/auth',
   '/proposta',
+  '/p',
   '/portal',
   '/api/portal',
   '/api/health',
@@ -34,10 +35,25 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   ) {
     return true;
   }
+  // Parecer CISO 04/11: rastreio do e-mail do CRM. So GET e so o formato exato do caminho
+  // assinado (o HMAC e conferido na rota; sem chave a rota nao toca o banco). Nada mais sob
+  // /api/email-track e publico.
+  if (
+    String(method || 'GET').toUpperCase() === 'GET' &&
+    (/^\/api\/email-track\/o\/[A-Za-z0-9_-]{22,64}\/[A-Za-z0-9_-]{22}$/.test(clean) ||
+      /^\/api\/email-track\/c\/[A-Za-z0-9_-]{22,64}\/\d{1,2}\/[A-Za-z0-9_-]{22}$/.test(clean))
+  ) {
+    return true;
+  }
   // Public proposal view & external ICP-Brasil client approval link (/proposta/[id]).
   // Restricts public access exclusively to individual proposal routes with a specific :id
   // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).
   // Root listing (GET /api/erp/proposals) is NEVER public.
+  // t33u: resolucao do short link /p/<codigo> (GET /api/p/<codigo>, um unico segmento).
+  if (clean.startsWith('/api/p/') && String(method || 'GET').toUpperCase() === 'GET') {
+    const segs = clean.slice('/api/p/'.length).split('/').filter(Boolean);
+    if (segs.length === 1) return true;
+  }
   if (clean.startsWith('/api/erp/proposals/')) {
     const rest = clean.slice('/api/erp/proposals/'.length).trim();
     if (!rest) return false;
@@ -374,13 +390,13 @@ export function middleware(req: NextRequest) {
 
   const isLoggedOutCookie = req.cookies.get('stihub_logged_out')?.value === '1';
 
-  // Cron diario da Vercel (GET /api/erp/daily-sync): autorizado somente com
-  // Authorization: Bearer <CRON_SECRET> quando CRON_SECRET estiver configurado.
+  // Cron da Vercel (GET exactos /api/erp/daily-sync e /api/crm/proposal-followup):
+  // autorizado somente com Authorization: Bearer <CRON_SECRET> quando configurado.
   const cronSecret = process.env.CRON_SECRET?.trim();
   if (
     cronSecret &&
     cronSecret.length >= 16 &&
-    pathname === '/api/erp/daily-sync' &&
+    (pathname === '/api/erp/daily-sync' || pathname === '/api/crm/proposal-followup') &&
     req.method === 'GET' &&
     constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {

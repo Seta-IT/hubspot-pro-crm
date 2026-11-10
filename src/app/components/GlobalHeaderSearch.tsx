@@ -610,7 +610,7 @@ export default function GlobalHeaderSearch({
           }}
           placeholder="Pesquisar no STI-hub (clientes, negócios, orçamentos, produtos, notas fiscais)..."
           aria-label="Pesquisar no STI-hub"
-          className="w-full pl-8 pr-16 py-1.5 rounded-[5px] bg-[#33475b] border border-[#516f90] text-xs text-white placeholder-[#99acc2] focus:bg-white focus:text-[#33475b] focus:placeholder-[#516f90] focus:outline-none focus:border-[#0091ae] transition"
+          className="w-full pl-8 pr-16 py-1.5 rounded-[5px] bg-white/10 border border-white/25 text-xs text-white placeholder-white/65 focus:bg-white focus:text-[#33475b] focus:placeholder-[#516f90] focus:outline-none focus:border-[#0091ae] transition"
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
           {query && (
@@ -625,7 +625,7 @@ export default function GlobalHeaderSearch({
               Limpar
             </button>
           )}
-          <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-[#213343]/80 border border-[#516f90]/60 text-[10px] font-mono text-[#cbd6e2]">
+          <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-[10px] font-mono text-white/80">
             Ctrl+K
           </span>
         </div>

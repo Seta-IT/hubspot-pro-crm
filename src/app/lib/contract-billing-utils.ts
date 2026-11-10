@@ -1,5 +1,18 @@
 import { ErpContractVersionEntry, ErpFiscalInvoice, ErpRentalContract } from '../../db/types';
 import { calculateBrazilianTaxBreakdown } from '../../modules/erp/erp-tax-engine';
+import {
+  CCL_SHEET_CSS,
+  cclItemsTableHtml,
+  cclLetterheadHtml,
+  cclSignatureFooterHtml,
+  cclSummaryHtml,
+} from './proposal-sheet-theme';
+import { defaultIssuerAddressLine } from './company-issuer-address';
+import {
+  PROPOSAL_TEMPLATE_STYLE_OPTIONS,
+  resolveProposalLayoutKind,
+  type ProposalLightTemplateId,
+} from './proposal-share';
 
 export interface CustomDueDateRulePreset {
   id: string;
@@ -249,7 +262,9 @@ export function matchInvoicesForContract(
     if (
       cleanInvCnpj.length >= 11 &&
       cleanInvCnpj === cleanCtrCnpj &&
-      (inv.documentType === 'FATURA_LOCACAO' || inv.documentType === 'NFE_REMESSA_LOCACAO')
+      (inv.documentType === 'FATURA_LOCACAO' ||
+        inv.documentType === 'NFE_REMESSA_LOCACAO' ||
+        inv.documentType === 'NFE_RETORNO_LOCACAO')
     ) {
       return true;
     }
@@ -345,6 +360,35 @@ function formatMoneyBr(val: number | undefined | null): string {
 export interface StandaloneInvoiceHtmlOptions {
   /** Rascunho / pré-visualização: marca d'água, faixa "NÃO É DOCUMENTO FISCAL" e sem toolbar. */
   draft?: boolean;
+  /** Modelo da folha (os mesmos da proposta). Padrão: Clean Corporate Light. */
+  templateStyle?: ProposalLightTemplateId | string | null;
+  /** Embutido na prévia do app (iframe): sem a barra superior própria. */
+  embedded?: boolean;
+  /** Endereço completo da emitente no cabeçalho (t142u/t143u). */
+  issuerAddress?: string;
+  /** Folha publica do cliente: omite centro de custo, plano de contas e destinatarios internos. */
+  publicClient?: boolean;
+}
+
+/** Chave do metadado leve (localStorage) com o último modelo escolhido para o recibo. */
+export const RECEIPT_TEMPLATE_STORAGE_KEY = 'seta_erp_receipt_template_v1';
+
+export function loadReceiptTemplateStyle(): ProposalLightTemplateId {
+  if (typeof window === 'undefined') return 'CLEAN_CORPORATE_LIGHT';
+  try {
+    return resolveProposalLayoutKind(window.localStorage.getItem(RECEIPT_TEMPLATE_STORAGE_KEY) || undefined);
+  } catch {
+    return 'CLEAN_CORPORATE_LIGHT';
+  }
+}
+
+export function saveReceiptTemplateStyle(id: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RECEIPT_TEMPLATE_STORAGE_KEY, resolveProposalLayoutKind(id));
+  } catch {
+    /* sem storage: fica só no estado local */
+  }
 }
 
 export const RECEIPT_DRAFT_BANNER_TEXT = 'RASCUNHO — NÃO É DOCUMENTO FISCAL / pré-visualização';
@@ -398,19 +442,25 @@ export function buildStandaloneInvoiceHtml(
   const pickupDate = invoice.pickupDate || contract?.pickupDate || '—';
   const notes = invoice.contractNotes || contract?.contractNotes || '';
 
+  const templateId = resolveProposalLayoutKind(htmlOptions?.templateStyle || undefined);
   const rowsHtml = (invoice.itemsDescription || [])
     .map(
       (it) => `
-      <tr>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:10px;">${it.description}</td>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:9.5px;">${it.serialNumber || '—'}</td>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-size:10px;">${Number(it.quantity).toFixed(2).replace('.', ',')}</td>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-size:10px;">${formatMoneyBr(it.unitValue)}</td>
-        <td style="padding:4px 6px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;font-size:10px;">${formatMoneyBr(it.totalValue)}</td>
-      </tr>`
+        <tr>
+          <td class="ccl-td-sku">${it.serialNumber || '—'}</td>
+          <td><div class="ccl-td-desc">${it.description}</div></td>
+          <td class="ccl-td-qty">${Number(it.quantity).toFixed(2).replace('.', ',')}</td>
+          <td class="ccl-td-num">${formatMoneyBr(it.unitValue)}</td>
+          <td class="ccl-td-total">${formatMoneyBr(it.totalValue)}</td>
+        </tr>`
     )
     .join('');
+  const templateOptionsHtml = PROPOSAL_TEMPLATE_STYLE_OPTIONS.map(
+    (o) => `<option value="${o.id}"${o.id === templateId ? ' selected' : ''}>Modelo: ${o.shortLabel}</option>`
+  ).join('');
 
+  // Folha no template da proposta (módulo comum proposal-sheet-theme): mesmo cabeçalho
+  // timbrado, mesma tabela de itens, mesmos totais e mesmo rodapé; modelo via data-template.
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -419,21 +469,17 @@ export function buildStandaloneInvoiceHtml(
   <style>
     @page { size: A4 portrait; margin: 7mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; margin: 0; padding: 8px; font-size: 10.5px; line-height: 1.28; background: #fff; }
+    body { margin: 0; padding: 10px; font-size: 11px; line-height: 1.35; background: var(--ps-page-bg); }${htmlOptions?.embedded ? '\n    body { padding: 0; background: #fff; } .page { width: auto; max-width: 196mm; }' : ''}
     .page { width: 196mm; max-height: 282mm; margin: 0 auto; overflow: hidden; page-break-after: avoid; page-break-inside: avoid; break-inside: avoid; box-sizing: border-box; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0d2b4e; padding-bottom: 6px; margin-bottom: 7px; }
-    .box { border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: #f8fafc; page-break-inside: avoid; }
-    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .label { font-size: 8.5px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block; }
-    .val { font-size: 10.5px; font-weight: 700; color: #0f172a; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 6px; page-break-inside: avoid; }
-    th { background: #0d2b4e; color: #fff; text-transform: uppercase; font-size: 9px; padding: 5px 6px; text-align: left; }
+    .no-print { max-width: 196mm; margin: 0 auto 8px auto; }
+    .ccl-topbar select { padding: 5px 9px; border-radius: 6px; background: #fff; color: #334155; font-size: 12px; font-weight: 500; border: 1px solid #cbd5e1; cursor: pointer; font-family: inherit; }
+${CCL_SHEET_CSS}
     @media print {
       .no-print { display: none !important; }
-      body { padding: 0; margin: 0; }
+      body { padding: 0; margin: 0; background: #fff; }
       .page { width: 196mm; max-height: 282mm; }
+      .ccl-sheet { border: 0; border-radius: 0; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }${isDraft ? `
     .page { position: relative; }
     .draft-band { border: 2px dashed #b91c1c; background: #fef2f2; color: #b91c1c; font-weight: 900; text-align: center; font-size: 11px; letter-spacing: .3px; padding: 4px 6px; margin-bottom: 6px; text-transform: uppercase; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -441,101 +487,108 @@ export function buildStandaloneInvoiceHtml(
     .draft-watermark small { display: block; font-size: 18px; letter-spacing: 2px; text-align: center; }` : ''}
   </style>
 </head>
-<body>
-  ${isDraft ? '' : `<div class="no-print" style="max-width:196mm;margin:0 auto 8px auto;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:7px 12px;border-radius:5px;">
-    <span><strong>Recibo / Fatura de Locação ${invoice.documentNumber}</strong> — Formato Compacto: 1 Página A4 Única (0 MB em disco)</span>
-    <button onclick="window.print()" style="background:#ff7a59;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-weight:bold;cursor:pointer;">Imprimir em 1 Página A4 / Salvar PDF</button>
+<body class="ccl-body" data-template="${templateId}">
+  ${isDraft || htmlOptions?.embedded ? '' : `<div class="no-print ccl-topbar">
+    <span><strong style="color:#0f172a;">Fatura de Locação</strong> · ${invoice.documentNumber}</span>
+    <span style="display:inline-flex;gap:6px;align-items:center;">
+      <select aria-label="Modelo do documento" title="Escolher Template / Layout do Documento A4" onchange="document.body.setAttribute('data-template', this.value)">${templateOptionsHtml}</select>
+      <button class="ccl-btn ccl-btn-primary" onclick="window.print()">Imprimir</button>
+    </span>
   </div>`}
   <div class="page">
     ${isDraft ? `<div class="draft-watermark" aria-hidden="true">RASCUNHO<small>NÃO É DOCUMENTO FISCAL</small></div>
     <div class="draft-band" data-testid="receipt-draft-band">${RECEIPT_DRAFT_BANNER_TEXT} — Nº provisório ${invoice.documentNumber} • nada foi salvo, emitido ou enviado</div>` : ''}
-    <div class="header">
-      <div>
-        <div style="font-size:14px;font-weight:900;color:#0d2b4e;">SETA TELECOM LTDA</div>
-        <div style="font-size:9.5px;">CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}</div>
-      </div>
-      <div style="text-align:right;background:#f1f5f9;padding:5px 9px;border-radius:4px;border:1px solid #cbd5e1;">
-        <div style="font-size:8.5px;font-weight:800;color:#1e3a6e;">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF) • 1 PÁGINA A4 ÚNICA</div>
-        <div style="font-size:15px;font-weight:900;color:#0d2b4e;">Nº ${invoice.documentNumber}</div>
-        <div style="font-size:9.5px;">Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong> • Vencimento: <strong>${invoice.dueDate}</strong></div>
-        <div style="font-size:8.5px;color:#047857;font-weight:700;">Regra de Vencimento: ${dueRule}</div>
-      </div>
-    </div>
-
-    <div class="box">
-      <div style="font-weight:800;color:#0d2b4e;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">1. Locatário, Pedido do Cliente (PO) &amp; Boletim de Medição (BM)</div>
-      <div class="grid-4">
-        <div><span class="label">Locatário / Cliente</span><span class="val">${invoice.companyName}</span></div>
-        <div><span class="label">CNPJ</span><span class="val">${invoice.companyCnpj}</span></div>
-        <div><span class="label">Nº Pedido do Cliente (PO)</span><span class="val">${poNum}</span></div>
-        <div><span class="label">Boletim de Medição (BM)</span><span class="val">${bmNum} (${bmPeriod})</span></div>
-      </div>
-      ${bmNotes ? `<div style="margin-top:3px;font-size:9.5px;color:#334155;"><strong>Obs. Medição:</strong> ${bmNotes}</div>` : ''}
-      ${emails.length > 0 ? `<div style="margin-top:2px;font-size:9.5px;color:#1e3a6e;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</div>` : ''}
-    </div>
-
-    <div class="box">
-      <div style="font-weight:800;color:#0d2b4e;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">2. Dados do Contrato, Logística &amp; Classificação GestãoClick</div>
-      <div class="grid-4">
-        <div><span class="label">Contrato n.</span><span class="val">${ctrNum} (${contract?.versionLabel || 'v1.0'})</span></div>
-        <div><span class="label">Proposta</span><span class="val">${propNum}</span></div>
-        <div><span class="label">Nota Fiscal de Remessa</span><span class="val">${remNfe}</span></div>
-        <div><span class="label">Prazo do Contrato</span><span class="val">${termLabel}</span></div>
-        <div><span class="label">Vendedor</span><span class="val">${seller}</span></div>
-        <div><span class="label">Centro de Custo</span><span class="val">${costCenter}</span></div>
-        <div><span class="label">Plano de Contas</span><span class="val">${chartOfAccounts}</span></div>
-        <div><span class="label">Forma de Pagamento</span><span class="val">${paymentMethod}</span></div>
-        <div><span class="label">Cidade Entrega</span><span class="val">${deliveryCity}</span></div>
-        <div><span class="label">Transportadora</span><span class="val">${deliveryCarrier}</span></div>
-        <div><span class="label">Entrega / Retirada</span><span class="val">${deliveryDate} / ${pickupDate}</span></div>
-        <div><span class="label">Endereço</span><span class="val">${deliveryAddress}</span></div>
-      </div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Produto / Equipamento Locado</th>
-          <th>Nº de Série (S/N)</th>
-          <th style="text-align:right;">Quantidade</th>
-          <th style="text-align:right;">Vr. Unitário</th>
-          <th style="text-align:right;">Subtotal</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml}
-      </tbody>
-    </table>
-
-    <div class="box" style="background:#f0fdf4;border-color:#86efac;">
-      <div style="font-weight:800;color:#065f46;margin-bottom:4px;text-transform:uppercase;font-size:9.5px;">3. Confira o Total da Locação (Produtos, Acréscimo, Desconto e Frete)</div>
-      <div class="grid-5">
-        <div><span class="label">Produtos (Soma)</span><span class="val">${formatMoneyBr(prodSubtotal)}</span></div>
-        <div><span class="label">Acréscimo (R$)</span><span class="val">${formatMoneyBr(additionBrl)}</span></div>
-        <div><span class="label">Desconto (R$ / %)</span><span class="val">${formatMoneyBr(discountBrl)} (${Number(discountPct).toFixed(2)}%)</span></div>
-        <div><span class="label">Frete (${invoice.freightModality || contract?.freightModality || 'CIF'})</span><span class="val">${formatMoneyBr(freightBrl)}</span></div>
-        <div><span class="label">Valor Total da Fatura</span><span class="val" style="font-size:12.5px;color:#065f46;">${formatMoneyBr(invoice.netAmount)}</span></div>
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="box" style="margin-bottom:0;">
-        <div style="font-weight:800;color:#065f46;margin-bottom:3px;text-transform:uppercase;font-size:9.5px;">4. Enquadramento Fiscal (0% ISS — SV 31 STF)</div>
-        <div style="font-size:9.5px;color:#065f46;">
-          ${invoice.taxBreakdown?.legalExemptionNotice || 'Locação pura de bens móveis sem incidência de ISSQN conforme Súmula Vinculante 31 do STF e Veto ao Item 3.01 da LC 116/2003.'}
+    <div class="ccl-sheet">
+    ${cclLetterheadHtml({
+      eyebrow: 'FATURA / RECIBO DE LOCAÇÃO',
+      docNumber: `Nº ${invoice.documentNumber}`,
+      companyLine: `CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}`,
+      companyAddress: htmlOptions?.issuerAddress || defaultIssuerAddressLine(),
+      metaLinesHtml: [
+        `Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong>`,
+        `Vencimento: <strong>${invoice.dueDate}</strong> • ${dueRule}`,
+      ],
+      contactHtml: `<span>Vendedor / Responsável: <strong>${seller}</strong></span><span>Forma de pagamento: <strong>${paymentMethod}</strong></span>`,
+      chipsHtml: `<span class="ccl-chip ccl-chip-accent">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)</span>`,
+    })}
+    <div class="ccl-content">
+      <div class="ccl-section">
+        <div class="ccl-section-title">Dados do locatário</div>
+        <div class="ccl-grid ccl-grid-4">
+          <div><span class="ccl-label">Locatário / Cliente</span><span class="ccl-value">${invoice.companyName}</span></div>
+          <div><span class="ccl-label">CNPJ</span><span class="ccl-value">${invoice.companyCnpj}</span></div>
+          <div><span class="ccl-label">Nº Pedido do Cliente (PO)</span><span class="ccl-value">${poNum}</span></div>
+          <div><span class="ccl-label">Boletim de Medição (BM)</span><span class="ccl-value">${bmNum} (${bmPeriod})</span></div>
         </div>
-        <div style="margin-top:3px;font-size:9px;font-family:monospace;color:#334155;">
-          ISS: R$ 0,00 (0%) • CFOP: ${invoice.cfop || 'N/A'} • CST ICMS: ${invoice.cstIcms || '41'}
+        ${bmNotes ? `<p class="ccl-text" style="margin-top:3px;"><strong>Obs. Medição:</strong> ${bmNotes}</p>` : ''}
+        ${!htmlOptions?.publicClient && emails.length > 0 ? `<p class="ccl-text" style="margin-top:3px;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</p>` : ''}
+      </div>
+
+      <div class="ccl-section">
+        <div class="ccl-section-title">Contrato e logística</div>
+        <div class="ccl-grid ccl-grid-4">
+          <div><span class="ccl-label">Contrato n.</span><span class="ccl-value">${ctrNum} (${contract?.versionLabel || 'v1.0'})</span></div>
+          <div><span class="ccl-label">Proposta</span><span class="ccl-value">${propNum}</span></div>
+          <div><span class="ccl-label">Nota Fiscal de Remessa</span><span class="ccl-value">${remNfe}</span></div>
+          <div><span class="ccl-label">Prazo do Contrato</span><span class="ccl-value">${termLabel}</span></div>
+          <div><span class="ccl-label">Vendedor</span><span class="ccl-value">${seller}</span></div>
+          ${htmlOptions?.publicClient ? '' : `<div><span class="ccl-label">Centro de Custo</span><span class="ccl-value">${costCenter}</span></div>
+          <div><span class="ccl-label">Plano de Contas</span><span class="ccl-value">${chartOfAccounts}</span></div>`}
+          <div><span class="ccl-label">Forma de Pagamento</span><span class="ccl-value">${paymentMethod}</span></div>
+          <div><span class="ccl-label">Cidade Entrega</span><span class="ccl-value">${deliveryCity}</span></div>
+          <div><span class="ccl-label">Transportadora</span><span class="ccl-value">${deliveryCarrier}</span></div>
+          <div><span class="ccl-label">Entrega / Retirada</span><span class="ccl-value">${deliveryDate} / ${pickupDate}</span></div>
+          <div><span class="ccl-label">Endereço</span><span class="ccl-value">${deliveryAddress}</span></div>
         </div>
-        ${notes ? `<div style="margin-top:3px;font-size:9px;color:#334155;"><strong>Obs.:</strong> ${notes}</div>` : ''}
       </div>
-      <div class="box" style="background:#f1f5f9;margin-bottom:0;">
-        <div style="font-weight:800;color:#0f172a;margin-bottom:3px;text-transform:uppercase;font-size:9.5px;">5. Liquidação Financeira (${paymentMethod})</div>
-        ${isDraft
-          ? `<div style="font-size:9.5px;color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</div>`
-          : `<div style="font-family:monospace;font-size:9.5px;margin-bottom:3px;"><strong>Linha Digitável:</strong> ${invoice.boletoDigitableLine}</div>
-        <div style="font-family:monospace;font-size:9px;word-break:break-all;"><strong>PIX Copia e Cola:</strong> ${invoice.pixCopyPaste}</div>`}
+
+      ${cclItemsTableHtml({
+        title: 'ESPECIFICAÇÃO DOS EQUIPAMENTOS LOCADOS',
+        rightTitle: 'VALORES EM REAIS (BRL)',
+        columns: [
+          { label: 'Nº de Série', width: '16%' },
+          { label: 'Descrição do Item' },
+          { label: 'Quantidade', align: 'center', width: '11%' },
+          { label: 'Vlr. Unitário', align: 'right', width: '13%' },
+          { label: 'Subtotal', align: 'right', width: '13%' },
+        ],
+        rowsHtml,
+      })}
+
+      ${cclSummaryHtml(
+        [
+          { label: 'Produtos (Soma)', valueHtml: formatMoneyBr(prodSubtotal) },
+          { label: 'Acréscimo (R$)', valueHtml: formatMoneyBr(additionBrl) },
+          { label: 'Desconto (R$ / %)', valueHtml: `${formatMoneyBr(discountBrl)} (${Number(discountPct).toFixed(2)}%)`, negative: Number(discountBrl) > 0 },
+          { label: `Frete (${invoice.freightModality || contract?.freightModality || 'CIF'})`, valueHtml: formatMoneyBr(freightBrl) },
+        ],
+        { label: 'Valor Total da Fatura', valueHtml: formatMoneyBr(invoice.netAmount) }
+      )}
+
+      <div class="ccl-grid ccl-grid-2" style="grid-template-columns: 3fr 2fr; gap: 8px;">
+        <div class="ccl-fiscal">
+          <div class="ccl-fiscal-title">Fiscal — 0% ISS (SV 31 STF)</div>
+          <p class="ccl-text" style="color:#334155;">${invoice.taxBreakdown?.legalExemptionNotice || 'Locação pura de bens móveis sem incidência de ISSQN conforme Súmula Vinculante 31 do STF e Veto ao Item 3.01 da LC 116/2003.'}</p>
+          <p class="ccl-text ccl-mono" style="margin-top:3px;font-size:9.5px;color:#334155;">ISS: R$ 0,00 (0%) • CFOP: ${invoice.cfop || 'N/A'} • CST ICMS: ${invoice.cstIcms || '41'}</p>
+          ${notes ? `<p class="ccl-text" style="margin-top:3px;"><strong>Obs.:</strong> ${notes}</p>` : ''}
+        </div>
+        <div class="ccl-section ccl-section-white">
+          <div class="ccl-section-title">Pagamento — ${paymentMethod}</div>
+          ${isDraft
+            ? `<p class="ccl-text" style="color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</p>`
+            : `<span class="ccl-label">Linha Digitável</span>
+          <div class="ccl-mono" style="font-size:10px;color:#0f172a;word-break:break-all;margin-bottom:4px;">${invoice.boletoDigitableLine}</div>
+          <span class="ccl-label">PIX Copia e Cola</span>
+          <div class="ccl-mono" style="font-size:9px;color:#334155;word-break:break-all;">${invoice.pixCopyPaste}</div>`}
+        </div>
       </div>
+
+      ${cclSignatureFooterHtml({
+        title: `Recebimento — Fatura ${invoice.documentNumber}`,
+        left: { name: 'SETA TELECOM LTDA', detail: `${seller} • CNPJ 14.806.925/0001-32` },
+        right: { name: invoice.companyName, detail: `CNPJ ${invoice.companyCnpj} (Assinatura / Carimbo)` },
+      })}
+    </div>
     </div>
   </div>
 </body>
@@ -733,18 +786,20 @@ export function buildDraftRentalInvoiceFromContract(
 export function buildDraftReceiptHtml(
   contract: ErpRentalContract,
   options: ContractBillingRunOptions = {},
-  existingInvoicesCount = 0
+  existingInvoicesCount = 0,
+  templateStyle?: ProposalLightTemplateId | string | null
 ): { invoice: ErpFiscalInvoice; html: string } {
   const invoice = buildDraftRentalInvoiceFromContract(contract, options, existingInvoicesCount);
-  return { invoice, html: buildStandaloneInvoiceHtml(invoice, contract, { draft: true }) };
+  return { invoice, html: buildStandaloneInvoiceHtml(invoice, contract, { draft: true, templateStyle }) };
 }
 export function downloadInvoicePdfOnDemand(
   invoice: ErpFiscalInvoice,
   contract?: ErpRentalContract | null,
-  mode: 'DOWNLOAD' | 'PRINT' = 'DOWNLOAD'
+  mode: 'DOWNLOAD' | 'PRINT' = 'DOWNLOAD',
+  templateStyle?: ProposalLightTemplateId | string | null
 ): void {
   if (typeof window === 'undefined') return;
-  const html = buildStandaloneInvoiceHtml(invoice, contract);
+  const html = buildStandaloneInvoiceHtml(invoice, contract, { templateStyle: templateStyle ?? loadReceiptTemplateStyle() });
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
 
@@ -893,10 +948,11 @@ export function downloadContractBillingHistoryReportOnDemand(
 </head>
 <body>
   <div class="no-print" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;background:#0d2b4e;color:#fff;padding:10px 14px;border-radius:6px;">
-    <span><strong>Histórico Completo de Faturas — Contrato ${contract.contractNumber}</strong> (Gerado sob demanda — 0 MB em disco)</span>
-    <button onclick="window.print()" style="background:#ff7a59;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:bold;cursor:pointer;">Imprimir / Salvar PDF</button>
+    <span><strong>Histórico Completo de Faturas — Contrato ${contract.contractNumber}</strong></span>
+    <button onclick="window.print()" style="background:#1e3a6e;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:600;cursor:pointer;">Imprimir / Salvar PDF</button>
   </div>
   <h2 style="margin:0 0 4px 0;color:#0d2b4e;">Extrato de Faturamentos &amp; Notas do Contrato ${contract.contractNumber}</h2>
+  <p style="margin:0 0 6px 0;color:#64748b;font-size:11px;" data-testid="doc-issuer-address">SETA TELECOM LTDA — ${defaultIssuerAddressLine()}</p>
   <p style="margin:0 0 12px 0;color:#475569;">
     Cliente: <strong>${contract.companyName}</strong> (${contract.companyCnpj}) • Proposta: <strong>${contract.proposalNumber || '—'}</strong> • NF Remessa: <strong>${contract.remessaNfeNumber}</strong> • Vendedor: <strong>${contract.sellerName || 'Marcelo Mira'}</strong> • Centro de Custo: <strong>${contract.costCenter || 'LOCAÇÃO DE EQUIPAMENTO'}</strong> • Plano de Contas: <strong>${contract.chartOfAccounts || 'Locação de equipamento'}</strong>
   </p>
@@ -1037,11 +1093,12 @@ export function buildStandaloneContractA4Html(
     .join('');
   const extra = (customClauses ?? contract.customClausesText ?? '').trim();
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>${escHtml(docTitle)} — Nº ${escHtml(contract.contractNumber)}</title>
-<style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;font-size:12px;line-height:1.5}h1{font-size:17px;color:#0d2b4e;border-bottom:3px solid #ff7a59;padding-bottom:6px}h2{font-size:13px;color:#1e3a6e;margin-top:18px}.basis{font-style:italic;color:#475569}table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#1e3a6e;color:#fff}.sig{display:flex;gap:40px;margin-top:50px}.sig div{flex:1;border-top:1px solid #0f172a;text-align:center;padding-top:4px}</style></head><body>
+<style>@page{size:A4;margin:18mm}body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;font-size:12px;line-height:1.5}h1{font-size:17px;color:#0d2b4e;border-bottom:3px solid #1e3a6e;padding-bottom:6px}h2{font-size:13px;color:#1e3a6e;margin-top:18px}.basis{font-style:italic;color:#475569}table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#1e3a6e;color:#fff}.sig{display:flex;gap:40px;margin-top:50px}.sig div{flex:1;border-top:1px solid #0f172a;text-align:center;padding-top:4px}</style></head><body>
 <h1>${escHtml(docTitle)}</h1>
+<p style="margin:2px 0 10px 0;color:#64748b;font-size:11px;" data-testid="doc-issuer-address">${escHtml(defaultIssuerAddressLine())}</p>
 <p><strong>Contrato Nº:</strong> ${escHtml(contract.contractNumber)} &nbsp; <strong>Tipo:</strong> ${escHtml(templates.map((t) => t.shortLabel).join(' / '))}</p>
 <table><tr><th colspan="2">Partes</th></tr>
-<tr><td><strong>CONTRATADA / LOCADORA</strong></td><td>SETA TELECOM</td></tr>
+<tr><td><strong>CONTRATADA / LOCADORA</strong></td><td>SETA TELECOM LTDA — ${escHtml(defaultIssuerAddressLine())}</td></tr>
 <tr><td><strong>CONTRATANTE / LOCATÁRIO</strong></td><td>${escHtml(contract.companyName)} — CNPJ ${escHtml(contract.companyCnpj || '—')}</td></tr></table>
 <table><tr><th>Valor mensal</th><th>Vencimento</th><th>Vigência</th><th>Reajuste</th></tr>
 <tr><td>${brl(contract.monthlyValue)}</td><td>Dia ${escHtml(contract.dueDay)}</td><td>${escHtml(contract.startDate)} a ${escHtml(contract.endDate)} (${escHtml(contract.contractMonths)} meses)</td><td>${escHtml(contract.readjustmentIndex)}</td></tr></table>

@@ -955,6 +955,7 @@ export interface ErpCommercialProposal {
   storeName?: string;
   salesChannel?: string;
   costCenter?: string;
+  chartOfAccounts?: string;
   proposalDate?: string;
   deliveryLeadTime?: string;
   deliveryForecast?: string;
@@ -1011,6 +1012,15 @@ export interface ErpCommercialProposal {
   convertedContractId?: string | null;
   convertedInvoiceId?: string | null;
   digitalSignature?: ErpProposalDigitalSignature | null;
+  /** SHA-256 da Idempotency-Key do aceite pelo link (repeticao devolve o mesmo resultado). */
+  approvalIdempotencyKeySha256?: string;
+  /** Status (CISO 30/10): 'MANUAL' = aprovada por sessao admin/FULL-TODOS com justificativa (sem conversao). Gravado so pelo servidor. */
+  approvalMode?: 'MANUAL';
+  approvalJustification?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  /** M2 (CISO 30/10): id do usuario vendedor dono, gravado SOMENTE pelo servidor na criacao; imutavel. */
+  sellerUserId?: string;
   version?: number;
   versionHistory?: ErpProposalVersionEntry[];
   statusHistory?: ErpProposalStatusHistoryEntry[];
@@ -1071,7 +1081,8 @@ export interface ErpContractPartialReturnItem {
   unitMonthlyRent: number;
   proRataBilledBrl: number;
   monthlyReductionBrl: number;
-  returnNfeCfop?: '5.909' | '6.909';
+  /** CFOP da NF-e de entrada emitida pela locadora no retorno do bem (1.909 estadual / 2.909 interestadual) */
+  returnNfeCfop?: '1.909' | '2.909';
   returnNfeNumber?: string;
 }
 
@@ -1195,7 +1206,9 @@ export type ErpFiscalDocumentType =
   | 'NFE_VENDA_PRODUTO'
   | 'NFCE_CONSUMIDOR'
   | 'NFCOM_TELECOM'
-  | 'NFE_IMPORTACAO';
+  | 'NFE_IMPORTACAO'
+  /** NF-e de ENTRADA emitida pela locadora no retorno do bem locado (CFOP 1.909 / 2.909) */
+  | 'NFE_RETORNO_LOCACAO';
 
 export interface ErpImportDeclarationAddition {
   nAdicao: string;
@@ -1242,6 +1255,7 @@ export interface ErpImportNfeItem {
   uCom: string;
   qCom: number;
   fobUnitForeign: number;
+  /** Valor unitário em R$ com até 10 casas decimais (vUnCom do layout 4.00) */
   vUnComBrl: number;
   vProdBrl: number;
   vFreteShareBrl: number;
@@ -1271,6 +1285,8 @@ export interface ErpImportNfeItem {
   nAdicao: string;
   nSeqAdic: string;
   cFabricante: string;
+  /** true quando os valores do item foram preservados do arquivo/DI importado (não recalculados) */
+  declaredValuesApplied?: boolean;
 }
 
 export interface ErpImportNfeMetadata {
@@ -1306,6 +1322,16 @@ export interface ErpImportNfeMetadata {
     vTotTrib: number;
   };
   infCpl: string;
+  /** Chave de acesso de 44 dígitos (DV módulo 11) gerada para o rascunho */
+  accessKey?: string;
+  cNF?: string;
+  cDV?: string;
+  /** Data/hora de emissão no fuso America/Sao_Paulo (AAAA-MM-DDThh:mm:ss-03:00) */
+  dhEmi?: string;
+  /** O XML gerado é um rascunho: sem assinatura digital e sem protNFe da SEFAZ */
+  documentStatus?: 'RASCUNHO_NAO_AUTORIZADO';
+  /** Ambiente da numeração/tpAmb (ausente = HOMOLOGACAO, notas anteriores às Configurações Fiscais) */
+  environment?: FiscalEnvironment;
   sebraeTxtContent?: string;
   sefazXmlContent?: string;
 }
@@ -1348,11 +1374,14 @@ export interface ErpFiscalInvoice {
   grossAmount: number;
   discountAmount: number;
   netAmount: number;
-  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA';
+  /** ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria */
+  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA';
   issueDate: string;
   dueDate: string;
   paidAt: string | null;
-  paymentMethod: 'BOLETO_PIX' | 'PIX_CORPORATIVO' | 'TED_BANCARIA';
+  paymentMethod: 'BOLETO_PIX' | 'PIX_CORPORATIVO' | 'TED_BANCARIA' | 'NAO_APLICAVEL';
+  /** Identificador do estrangeiro (idEstrangeiro) quando a contraparte não possui CNPJ (ex.: exportador na importação) */
+  counterpartyForeignId?: string | null;
   serviceCodeLc116: string | null;
   cfop: string | null;
   cstIcms: string | null;
@@ -1404,12 +1433,28 @@ export interface ErpFiscalInvoice {
   customDueRuleLabel?: string | null;
   customDueOffsetDays?: number;
   customDueTargetWeekday?: "NONE" | "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | null;
+  lastEmailSentAt?: string | null;
+  emailHistory?: ErpInvoiceEmailHistoryEntry[];
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ErpInvoiceEmailHistoryEntry {
+  sentAt: string;
+  to: string;
+  cc?: string | null;
+  bcc?: string | null;
+  subject: string;
+  protocol: string;
+  actor?: string;
+  attachments?: string[];
+}
+
+
 export interface ErpCatalogItem {
   id: string;
+  /** id do registro no GestãoClick (chave do upsert do sync/migração). */
+  gestaoClickId?: string;
   gestaoClickCode: string;
   name: string;
   category: 'EQUIPAMENTO_LOCACAO' | 'SERVICO_TECNICO_LC116' | 'TELECOM_SCM_SVA' | 'VENDA_HARDWARE';
@@ -1578,6 +1623,8 @@ export interface ErpSupplierRecord {
   supplierType?: 'FORNECEDOR' | 'TRANSPORTADORA';
   cityState?: string;
   modalFrete?: string;
+  /** id do registro no GestãoClick (chave do upsert do sync/migração). */
+  gestaoClickId?: string;
 }
 
 export interface ErpEmployeeRecord {
@@ -1754,6 +1801,118 @@ export interface ErpDatabaseState {
   suppliers?: ErpSupplierRecord[];
   employees?: ErpEmployeeRecord[];
   purchaseOrders?: ErpPurchaseOrder[];
+  /**
+   * Numerador fiscal por ambiente/modelo/série => último número reservado.
+   * Homologação: chave "55-1" (modelo 55, série 1 — formato original do #11).
+   * Produção: chave "PROD:55-1". Modelos: 55 (NF-e), 65 (NFC-e), RPS (NFS-e).
+   */
+  fiscalNumberSequences?: Record<string, number>;
+  /** Configurações Fiscais (NF-e / NFC-e / NFS-e / autXML / certificado). O CSC nunca sai em claro. */
+  fiscalDocumentSettings?: FiscalDocumentSettings;
+  /** t33u: short links /p/<code> do link assinado (so o HMAC do codigo + as claims do token). */
+  proposalShortLinks?: ErpProposalShortLink[];
+  /** Short links /p/<code> de faturas emitidas (so o HMAC do codigo + claims). */
+  invoiceShortLinks?: ErpInvoiceShortLink[];
+  /**
+   * 04/11/2026: 'table' => as propostas vivem na tabela erp_proposals (src/db/proposal-store.ts) e
+   * `proposals` aqui guarda so as hidratadas pela requisicao (no JSON persistido fica []).
+   */
+  proposalsStorage?: 'table';
+}
+
+export interface ErpProposalShortLink {
+  codeHash: string;
+  proposalId: string;
+  version: number;
+  iat: number;
+  exp: number;
+  jti: string;
+  createdBy?: string;
+  revokedAt?: string | null;
+}
+
+export interface ErpInvoiceShortLink {
+  codeHash: string;
+  invoiceId: string;
+  iat: number;
+  exp: number;
+  jti: string;
+  createdBy?: string;
+  revokedAt?: string | null;
+}
+
+// ============================================================================
+// Configurações Fiscais (espelho da tela Fiscal do GestaoClick)
+// ============================================================================
+
+export type FiscalEnvironment = 'HOMOLOGACAO' | 'PRODUCAO';
+
+export type NfseStandard = 'INTEGRADORA' | 'NACIONAL';
+
+export type NfseOperationNature =
+  | 'TRIBUTAVEL_NAO_RETER_PIS_COFINS'
+  | 'TRIBUTAVEL_RETER_PIS_COFINS'
+  | 'TRIBUTACAO_FORA_MUNICIPIO'
+  | 'ISENCAO'
+  | 'IMUNE'
+  | 'EXIGIBILIDADE_SUSPENSA_JUDICIAL'
+  | 'EXIGIBILIDADE_SUSPENSA_ADMINISTRATIVA';
+
+export type NfseSpecialRegime =
+  | 'NENHUM'
+  | 'MICROEMPRESA_MUNICIPAL'
+  | 'ESTIMATIVA'
+  | 'SOCIEDADE_PROFISSIONAIS'
+  | 'COOPERATIVA'
+  | 'MEI'
+  | 'MEEPP';
+
+/** Apuração dos tributos (regApTribSN da NFS-e Nacional); '' = "Selecione". */
+export type NfseTaxApportionment = '' | 'SN_FEDERAIS_E_MUNICIPAL' | 'SN_FEDERAIS_ISSQN_FORA' | 'FORA_DO_SN';
+
+export interface FiscalDigitalCertificateInfo {
+  /** Upload ainda não disponível: nenhum .pfx nem senha é armazenado. */
+  status: 'NAO_CONFIGURADO' | 'VALIDO' | 'VENCIDO';
+  validUntil: string | null;
+  certificateCnpj: string | null;
+  uploadEnabled: false;
+}
+
+export interface FiscalDocumentSettings {
+  nfe: {
+    environment: FiscalEnvironment;
+    serie: string;
+    removeIcmsFromPisCofinsBase: boolean;
+    simplifiedDanfe: boolean;
+    additionalInfo: string;
+  };
+  nfce: {
+    environment: FiscalEnvironment;
+    serie: string;
+    /** ID do token do CSC (6 dígitos, gerado na SEFAZ) */
+    tokenId: string;
+    /** Código de Segurança do Contribuinte — SEGREDO: nunca devolvido em claro nem registrado em log */
+    csc: string;
+    additionalInfo: string;
+  };
+  nfse: {
+    standard: NfseStandard;
+    environment: FiscalEnvironment;
+    rpsSerie: string;
+    operationNature: NfseOperationNature;
+    specialRegime: NfseSpecialRegime;
+    taxApportionment: NfseTaxApportionment;
+    cityClassification: string;
+    cityOperationIndicator: string;
+    additionalInfo: string;
+  };
+  /** CPF/CNPJ autorizados a baixar o XML (autXML), só dígitos, DV validado */
+  xmlDownloadAuthorizations: string[];
+  certificate: FiscalDigitalCertificateInfo;
+  /** Seed dos números de produção (NF-e 2176/1, NFC-e 0/2, RPS 735/10001) já aplicado ao numerador */
+  productionSeedApplied: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
 }
 
 // ============================================================================
@@ -1804,6 +1963,8 @@ export interface CrmEmailTemplate {
   subject: string;
   body: string;
   createdBy: string;
+  /** Pacote O: autor da ultima alteracao (sempre da sessao). */
+  updatedBy?: string;
   usageCount: number;
   createdAt: string;
   updatedAt: string;
@@ -1961,6 +2122,8 @@ export interface StiHubUserRecord {
   passwordHash?: string;
   inviteStatus?: "PENDING_INVITE" | "ACTIVE";
   invitedAt?: string | null;
+  /** iat (epoch ms) do convite mais recente: convites com iat menor sao recusados (CISO 04/11). */
+  latestInviteIat?: number | null;
   actionGuardsOverride?: Partial<StiHubActionGuards>;
   /** Tela inicial padrao (ID da allowlist em src/app/lib/home-screen.ts). */
   homeScreen?: string | null;
@@ -2038,6 +2201,57 @@ export interface StiHubServiceAccountRecord {
   deactivatedBy?: string | null;
 }
 
+
+export type FollowupEnrollmentStatus = 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'COMPLETED';
+export type FollowupStopReason =
+  | 'EMAIL_REPLY'
+  | 'EMAIL_CLICK'
+  | 'PROPOSAL_VIEW'
+  | 'PROPOSAL_ACCEPT'
+  | 'STAGE_CHANGED'
+  | 'DEAL_WON'
+  | 'DEAL_LOST'
+  | 'MANUAL_PAUSE'
+  | 'UNSUBSCRIBED'
+  | 'NO_VALID_EMAIL'
+  | 'OWNER_MAILBOX_UNAVAILABLE'
+  | 'COMPLETED';
+
+export interface FollowupSentStep {
+  stepIndex: number;
+  offsetDays: number;
+  templateId: string;
+  sentAt: string;
+  to: string;
+  subject: string;
+  mailboxId?: string;
+  trackingId?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+}
+
+/** Inscrição da sequência automática de follow-up da etapa Proposta Enviada. */
+export interface ProposalFollowupEnrollment {
+  id: string;
+  dealId: string;
+  contactId: string | null;
+  companyId: string | null;
+  pipelineId: string;
+  triggerStageId: string;
+  enteredAt: string;
+  status: FollowupEnrollmentStatus;
+  sentCount: number;
+  nextStepIndex: number;
+  nextSendAt: string | null;
+  stopReason: FollowupStopReason | null;
+  stopDetail: string | null;
+  stoppedAt: string | null;
+  lastError: string | null;
+  sentSteps: FollowupSentStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmDatabaseState {
   contacts: Contact[];
   companies: Company[];
@@ -2056,6 +2270,7 @@ export interface CrmDatabaseState {
   setaDeskTicketSeq?: number;
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
+  proposalFollowupEnrollments?: ProposalFollowupEnrollment[];
   snippets?: CrmSnippet[];
   marketingEmails?: MarketingEmailBroadcast[];
   marketingCampaigns?: MarketingCampaign[];

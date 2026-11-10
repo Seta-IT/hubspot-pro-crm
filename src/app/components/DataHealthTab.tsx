@@ -154,7 +154,7 @@ export default function DataHealthTab({
         <button
           type="button"
           onClick={onRefresh}
-          className="px-4 py-2 bg-[#ff7a59] text-white rounded-lg font-medium"
+          className="px-4 py-2 bg-[#1e3a6e] text-white rounded-lg font-medium"
         >
           Recarregar Diagnóstico
         </button>
@@ -192,14 +192,14 @@ export default function DataHealthTab({
         <div>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[#0d2b4e] block">
             {resolvedScope === 'ERP'
-              ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO SETA ERP'
+              ? 'ERP'
               : resolvedScope === 'CHAMADOS'
                 ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CHAMADOS / NOC'
                 : 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CRM (SALES & MARKETING HUB)'}
           </span>
           <h3 className="text-sm sm:text-base font-semibold text-slate-900">
             {resolvedScope === 'ERP'
-              ? 'Data Health Individual do ERP (Clientes Fiscais, Fornecedores, Catálogo NCM/CFOP & Contratos S/N)'
+              ? 'Data Health do ERP'
               : resolvedScope === 'CHAMADOS'
                 ? 'Data Health Individual de Chamados (Integridade de Protocolos NOC, Vínculo de Clientes, S/N & SLA)'
                 : 'Data Health Individual do CRM (Contatos Comerciais, Empresas B2B, Deals & Desduplicação)'}
@@ -339,66 +339,54 @@ export default function DataHealthTab({
         </div>
       ) : resolvedScope === 'ERP' ? (
         <div className="space-y-5">
-          {/* ERP DATA HEALTH HERO */}
-          <div className="bg-gradient-to-br from-[#0d2b4e] via-[#1e3a6e] to-[#0f172a] rounded-2xl p-6 text-white shadow-lg border border-slate-800">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="flex items-center gap-5">
-                <div className="w-24 h-24 rounded-2xl bg-slate-900/90 border-2 border-emerald-400 flex flex-col items-center justify-center shrink-0">
-                  <span className="text-3xl font-semibold text-emerald-300">96</span>
-                  <span className="text-[10px] font-semibold uppercase text-slate-300">de 100 pts</span>
-                  <span className="mt-1 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
-                    Compliance Fiscal
-                  </span>
+          {/* ERP DATA HEALTH: nota em cartão branco e checagens em tabela (limpeza visual 02/11) */}
+          <div data-testid="erp-health-nota" className="bg-white rounded-lg border border-slate-200 p-5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-lg border border-slate-200 flex flex-col items-center justify-center shrink-0">
+                  <span className="text-2xl font-semibold text-[#1e3a6e]">96</span>
+                  <span className="text-[10px] font-semibold text-slate-500">de 100 pts</span>
                 </div>
-                <div className="space-y-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-semibold uppercase">
-                    AUDITORIA DE DADOS DO ERP (SEPARADA DA BASE CRM)
-                  </span>
-                  <h2 className="text-lg sm:text-xl font-semibold">
-                    Diagnóstico Fiscal, Cadastral e Patrimonial da Base ERP
-                  </h2>
-                  <p className="text-xs text-slate-300 max-w-2xl">
-                    Auditoria independente dos Clientes do ERP, Fornecedores, Catálogo de Produtos/Serviços (SKU, NCM, LC 116/03, CFOP) e Contratos de Locação (S/N e Súmula Vinculante 31 STF), mantendo a separação em relação aos leads/contas do CRM.
-                  </p>
+                <div className="space-y-1">
+                  <h2 className="text-base font-semibold text-slate-900">Pontuação da base do ERP</h2>
+                  <p className="text-xs text-slate-500">Clientes, fornecedores, catálogo e contratos do ERP, separados da base do CRM.</p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
-                  className="px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Abrir Cadastros do ERP →
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateToErpSection?.('CADASTROS', 'CAD_CLIENTES')}
+                className="px-4 py-2 rounded-md bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer shrink-0"
+              >
+                Abrir cadastros
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/15 text-xs">
-              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
-                <span className="text-slate-300 block">Clientes ERP c/ CNPJ Mod-11</span>
-                <strong className="text-base font-semibold text-white">
-                  {companies.filter((c) => Boolean(c.cnpj)).length} / {companies.length} (Trava Matriz/Filial Ativa)
-                </strong>
-              </div>
-              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
-                <span className="text-slate-300 block">Catálogo SKU + NCM / LC 116</span>
-                <strong className="text-base font-semibold text-emerald-300">
-                  {(erpData?.catalog || []).filter((i) => Boolean(i.ncmOrLc116)).length} / {(erpData?.catalog || []).length} Itens 100% Fiscais
-                </strong>
-              </div>
-              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
-                <span className="text-slate-300 block">Contratos c/ S/N &amp; Reajuste</span>
-                <strong className="text-base font-semibold text-white">
-                  {(erpData?.rentalContracts || []).length} Contratos Auditados
-                </strong>
-              </div>
-              <div className="p-3 rounded-xl bg-white/10 border border-white/10">
-                <span className="text-slate-300 block">Fornecedores &amp; Transportadoras</span>
-                <strong className="text-base font-semibold text-amber-300">
-                  {(erpData?.suppliers || []).length} Homologados
-                </strong>
-              </div>
-            </div>
+            <table className="w-full mt-4 text-xs border-t border-slate-200">
+              <thead className="bg-slate-50 text-slate-500 text-[11px]">
+                <tr>
+                  <th className="py-2 px-3 text-left font-semibold">Checagem</th>
+                  <th className="py-2 px-3 text-right font-semibold">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Clientes com CNPJ</td>
+                  <td className="py-2 px-3 text-right font-semibold">{companies.filter((c) => Boolean(c.cnpj)).length} / {companies.length}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Itens com NCM ou item LC 116</td>
+                  <td className="py-2 px-3 text-right font-semibold">{(erpData?.catalog || []).filter((i) => Boolean(i.ncmOrLc116)).length} / {(erpData?.catalog || []).length}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Contratos auditados</td>
+                  <td className="py-2 px-3 text-right font-semibold">{(erpData?.rentalContracts || []).length}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Fornecedores e transportadoras</td>
+                  <td className="py-2 px-3 text-right font-semibold">{(erpData?.suppliers || []).length}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           {/* ERP AUDIT FILTER BAR */}
@@ -557,7 +545,7 @@ export default function DataHealthTab({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-6">
             {/* Circular / Gauge Score */}
-            <div className="w-28 h-28 rounded-2xl bg-slate-900/90 border-2 border-[#ff7a59] flex flex-col items-center justify-center shrink-0 shadow-inner">
+            <div className="w-28 h-28 rounded-2xl bg-slate-900/90 border-2 border-[#1e3a6e] flex flex-col items-center justify-center shrink-0 shadow-inner">
               <span className="text-3xl font-semibold text-white">{summary.globalHealthScore}</span>
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 de 100 pts
@@ -570,8 +558,8 @@ export default function DataHealthTab({
             </div>
 
             <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#ff7a59]/20 border border-[#ff7a59]/40 text-[#ff987f] text-xs font-semibold">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#ff7a59]" />
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1e3a6e]/20 border border-[#1e3a6e]/40 text-[#c7d2e5] text-xs font-semibold">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#1e3a6e]" />
                 Central de Saúde e Higienização da Base (Data Health)
               </div>
               <h2 className="text-xl sm:text-2xl font-semibold text-white">
@@ -588,7 +576,7 @@ export default function DataHealthTab({
               type="button"
               disabled={cleaning}
               onClick={handleRunAutoClean}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs sm:text-sm font-semibold shadow-md transition disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs sm:text-sm font-semibold shadow-md transition disabled:opacity-60"
             >
               <Sparkles className={`w-4 h-4 ${cleaning ? 'animate-spin' : ''}`} />
               {cleaning
@@ -645,7 +633,7 @@ export default function DataHealthTab({
           <button
             type="button"
             onClick={() => setActiveIssueTab('DUPLICATES')}
-            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-[#ff7a59] rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
+            className="text-left bg-slate-800/70 hover:bg-slate-800 hover:border-[#1e3a6e] rounded-xl p-3.5 border border-slate-700 transition cursor-pointer"
           >
             <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
               <span>Livre de Duplicidades (25%) →</span>
@@ -653,7 +641,7 @@ export default function DataHealthTab({
             </div>
             <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#ff7a59] rounded-full"
+                className="h-full bg-[#1e3a6e] rounded-full"
                 style={{ width: `${summary.breakdown.deduplicationHealth}%` }}
               />
             </div>
@@ -719,7 +707,7 @@ export default function DataHealthTab({
                 key={i}
                 className="flex items-start gap-2.5 p-3 rounded-xl bg-orange-50/50 border border-orange-200/70 text-xs text-slate-800"
               >
-                <AlertTriangle className="w-4 h-4 text-[#ff7a59] shrink-0 mt-0.5" />
+                <AlertTriangle className="w-4 h-4 text-[#1e3a6e] shrink-0 mt-0.5" />
                 <span>{rec}</span>
               </div>
             ))}
@@ -728,10 +716,10 @@ export default function DataHealthTab({
       )}
 
       {/* AUDITORIA HUBSPOT SETA TELECOM (4369067): REATRIBUIÇÃO DE 41 EX-VENDEDORES INATIVOS */}
-      <div className="bg-white rounded-2xl border-2 border-[#ff7a59]/50 p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border-2 border-[#1e3a6e]/50 p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#ff7a59]/15 text-[#e05835] border border-[#ff7a59]/30">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#1e3a6e]/15 text-[#1e3a6e] border border-[#1e3a6e]/30">
               AUDITORIA PORTAL HUBSPOT 4369067 • SETA TELECOM
             </span>
             <span className="text-xs font-semibold text-slate-500">
@@ -785,7 +773,7 @@ export default function DataHealthTab({
               : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
           }`}
         >
-          <GitMerge className="w-4 h-4 text-[#ff7a59]" />
+          <GitMerge className="w-4 h-4 text-[#1e3a6e]" />
           Pares Duplicados ({duplicates?.totalDuplicates ?? 0})
         </button>
 
@@ -848,7 +836,7 @@ export default function DataHealthTab({
               {duplicates.contactDuplicates.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-[#ff7a59]" />
+                    <Users className="w-4 h-4 text-[#1e3a6e]" />
                     Duplicidades de Contatos Detectadas ({duplicates.contactDuplicates.length})
                   </h3>
 
@@ -877,7 +865,7 @@ export default function DataHealthTab({
                             onClick={() =>
                               handleMerge('CONTACT', pair.primary.id, pair.duplicate.id)
                             }
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                           >
                             <GitMerge className="w-4 h-4" />
                             {isMerging
@@ -1032,7 +1020,7 @@ export default function DataHealthTab({
               {duplicates.companyDuplicates.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-[#ff7a59]" />
+                    <Building2 className="w-4 h-4 text-[#1e3a6e]" />
                     Duplicidades de Empresas Detectadas ({duplicates.companyDuplicates.length})
                   </h3>
 
@@ -1061,7 +1049,7 @@ export default function DataHealthTab({
                             onClick={() =>
                               handleMerge('COMPANY', pair.primary.id, pair.duplicate.id)
                             }
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                           >
                             <GitMerge className="w-4 h-4" />
                             {isMerging

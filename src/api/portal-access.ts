@@ -17,6 +17,7 @@
 //     servidor: PRONTO, mas ainda NAO aceito pelas rotas (SetaDesk, e-mails [SD-n]).
 // ============================================================================
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { rateLimitIpKey } from './client-ip';
 import type { ServiceTicket, TicketStatus } from '../db/types';
 import { resolveStiHubSigningSecret } from '../app/lib/auth';
 import { SlidingWindowRateLimiter } from './password-reset';
@@ -131,7 +132,7 @@ export class PortalRateLimiters {
   readonly createIp = new SlidingWindowRateLimiter(PORTAL_CREATE_IP_LIMIT.max, PORTAL_CREATE_IP_LIMIT.windowMs);
   /** Conta IP E chave (ambos sempre registram a tentativa). */
   allow(ip: string, key: string): boolean {
-    const ipOk = this.ip.hit(`ip:${ip || 'sem-ip'}`);
+    const ipOk = this.ip.hit(`ip:${rateLimitIpKey(ip)}`); // Pacote J (D-I4): IPv6 por /64
     const keyOk = key ? this.key.hit(`key:${normalizePortalKey(key).toLowerCase()}`) : true;
     return ipOk && keyOk;
   }

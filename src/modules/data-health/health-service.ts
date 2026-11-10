@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { CrmRepository } from '../../db/repository';
+import { PERSISTED_HEALTH_ISSUES_MAX, topIssuesBySeverity } from '../bootstrap/lean-payload';
 import {
   Company,
   Contact,
@@ -327,8 +328,15 @@ export class DataHealthService {
       }
     }
 
-    // Save issues in repository
-    repo.setDataHealthIssues(issues);
+    // Save issues in repository: so os PERSISTED_HEALTH_ISSUES_MAX mais graves (os demais sao
+    // recalculados a cada resumo) e detectedAt estavel por id, para o estado nao inchar nem mudar
+    // a cada carga.
+    const previousDetectedAt = new Map(repo.listDataHealthIssues().map((i) => [i.id, i.detectedAt]));
+    for (const iss of issues) {
+      const prev = previousDetectedAt.get(iss.id);
+      if (prev) iss.detectedAt = prev;
+    }
+    repo.setDataHealthIssues(topIssuesBySeverity(issues, PERSISTED_HEALTH_ISSUES_MAX));
 
     // 5. Calculate Sub-Scores & Global Health Score (0-100)
     const avgContactCompleteness =

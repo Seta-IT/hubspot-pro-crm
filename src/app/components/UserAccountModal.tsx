@@ -14,7 +14,9 @@ import {
   KeyRound,
   LogOut,
   Settings,
+  Home,
 } from 'lucide-react';
+import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH } from '../lib/password-policy';
@@ -23,7 +25,12 @@ interface UserAccountModalProps {
   user: StiHubUserRecord;
   onClose: () => void;
   onUserUpdated: (updated: StiHubUserRecord) => void;
-  onOpenAdminIam: () => void;
+  /** Ausente => botão do Painel IAM oculto (só admin com 2FA abre a Central). */
+  onOpenAdminIam?: () => void;
+  /** Resumo da tela inicial padrão; ausente => seção oculta. */
+  homeScreenLabel?: string;
+  canChooseHomeScreen?: boolean;
+  onOpenHomeScreenPreference?: () => void;
   onLogout: () => void;
   onShowToast: (msg: string) => void;
 }
@@ -33,6 +40,9 @@ export default function UserAccountModal({
   onClose,
   onUserUpdated,
   onOpenAdminIam,
+  homeScreenLabel,
+  canChooseHomeScreen = false,
+  onOpenHomeScreenPreference,
   onLogout,
   onShowToast,
 }: UserAccountModalProps) {
@@ -318,7 +328,7 @@ export default function UserAccountModal({
         {/* Header */}
         <div className="bg-[#0d2b4e] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#ff7a59] text-white font-semibold text-sm flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-[#1e3a6e] text-white font-semibold text-sm flex items-center justify-center">
               {user.name
                 .split(' ')
                 .slice(0, 2)
@@ -327,7 +337,7 @@ export default function UserAccountModal({
                 .toUpperCase()}
             </div>
             <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#ff7a59] block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
                 MINHA CONTA CORPORATIVA • SEGURANÇA 2FA &amp; ESCOPO IAM
               </span>
               <h3 className="text-base font-semibold">
@@ -337,6 +347,7 @@ export default function UserAccountModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenAdminIam && (
             <button
               type="button"
               onClick={() => {
@@ -345,8 +356,9 @@ export default function UserAccountModal({
               }}
               className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer"
             >
-              <Settings className="w-3.5 h-3.5 text-[#ff7a59]" /> Painel IAM Completo
+              <Settings className="w-3.5 h-3.5 text-[#1e3a6e]" /> Painel IAM Completo
             </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -480,11 +492,40 @@ export default function UserAccountModal({
             )}
           </div>
 
+          {/* Tela inicial padrão (antes ficava no menu do perfil) */}
+          {onOpenHomeScreenPreference && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                  <Home className="w-4 h-4 text-slate-500" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-slate-900">Tela inicial padrão</h4>
+                  <p className="text-[11px] text-slate-600 font-semibold mt-0.5 truncate">
+                    {homeScreenLabel || 'Não definida'}
+                  </p>
+                  {!canChooseHomeScreen && (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Disponível quando houver acesso a mais de um sistema.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenHomeScreenPreference}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+              >
+                {canChooseHomeScreen ? 'Alterar' : 'Ver'}
+              </button>
+            </div>
+          )}
+
           {/* 2FA Configuration: Google Authenticator (Real ISO 18004 QR Code) vs Email OTP */}
           <div className="rounded-xl border-2 border-[#0d2b4e]/20 bg-slate-50/70 p-4 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
               <div>
-                <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                   AUTENTICAÇÃO MULTIFATOR (2FA) DA SUA CONTA
                 </span>
                 <h4 className="text-sm font-semibold text-slate-900">
@@ -501,7 +542,7 @@ export default function UserAccountModal({
                       : 'bg-white border border-slate-300 text-slate-700'
                   }`}
                 >
-                  <Smartphone className="w-3.5 h-3.5 text-[#ff7a59]" /> Google Authenticator (TOTP)
+                  <Smartphone className="w-3.5 h-3.5 text-[#1e3a6e]" /> Google Authenticator (TOTP)
                 </button>
                 <button
                   type="button"
@@ -662,6 +703,12 @@ export default function UserAccountModal({
             )}
           </div>
 
+          {/* Caixas Outlook 365 do proprio usuario e assinatura (e-mail individual do CRM) */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-slate-900">E-mail do CRM</h4>
+            <MailboxConnectionsPanel compact />
+          </div>
+
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
@@ -673,7 +720,7 @@ export default function UserAccountModal({
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+              className="px-5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
             >
               {saving ? 'Salvando...' : 'Salvar Configurações da Minha Conta'}
             </button>

@@ -12,6 +12,10 @@ function sanitizeIamUserPatch(patch: Record<string, unknown>): Record<string, un
   return out;
 }
 import React, { useState, useEffect } from 'react';
+import CertificateA1UploadCard from './CertificateA1UploadCard';
+import ErpGeneralSettingsPage from './ErpGeneralSettingsPage';
+import { useErpConfigAccess } from './useErpConfigAccess';
+import { canOpenAdminCentral, gestaoClickDeniedMessage, type ErpConfigAccess } from '../lib/erp-config-access';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -61,6 +65,8 @@ import {
   Trash2,
   UserCheck,
 } from 'lucide-react';
+import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
+import NeverLogPanel from './email/NeverLogPanel';
 import {
   CrmEmailTemplate,
   CrmEmailTemplateCategory,
@@ -99,8 +105,11 @@ import {
 export type AdminSubView =
   | 'USERS_RBAC'
   | 'COMPANY_EMITTER'
+  | 'CERTIFICATE_A1'
+  | 'ERP_GENERAL_SETTINGS'
   | 'CERTIFICATE_SERIES'
   | 'EMAIL_TEMPLATES'
+  | 'EMAIL_MAILBOXES'
   | 'CUSTOM_PROPERTIES'
   | 'DAILY_SYNC_LOGS'
   | 'MIGRATION_CHECKLIST'
@@ -114,6 +123,19 @@ interface StiHubAdminRbacPanelProps {
   onSelectActiveUser?: (user: StiHubUserRecord) => void;
   onRefresh: () => Promise<void>;
   onShowToast: (msg: string) => void;
+  /** Tela dedicada: oculta o banner e as abas da Central (ex.: ERP > Configurações > Certificado digital). */
+  singleView?: boolean;
+  /** Último número real de cada cadastro, para a seção Numerações das Configurações gerais. */
+  numberingBase?: Record<string, number | null>;
+  /** Navega para ERP > Configurações > Certificado digital (quando embutido no ERP). */
+  onOpenErpCertificate?: () => void;
+  /**
+   * Acesso calculado no servidor (resolveErpConfigAccess). Ausente => o painel busca
+   * /api/auth/session sozinho. A Central só aparece para admin com 2FA.
+   */
+  access?: ErpConfigAccess | null;
+  /** ERP > Configurações: oculta só o banner "Governança Corporativa" (mantém a barra de abas). */
+  hideTopBanner?: boolean;
 }
 
 const ACTION_GUARD_LABELS: Array<{ key: keyof StiHubActionGuards; label: string; desc: string }> = [
@@ -162,7 +184,14 @@ export default function StiHubAdminRbacPanel({
   onSelectActiveUser,
   onRefresh,
   onShowToast,
+  singleView = false,
+  hideTopBanner = false,
+  numberingBase,
+  onOpenErpCertificate,
+  access,
 }: StiHubAdminRbacPanelProps) {
+  const fetchedAccess = useErpConfigAccess(activeUser?.id ?? null, access === undefined);
+  const effectiveAccess = access === undefined ? fetchedAccess : access;
   const [subView, setSubView] = useState<AdminSubView>(initialSubView);
   const [selectedRoleId, setSelectedRoleId] = useState<StiHubRoleId>('SUPER_ADMIN');
   const [userFilter, setUserFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
@@ -194,6 +223,7 @@ export default function StiHubAdminRbacPanel({
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>([]);
   const [newUserMfaMethod, setNewUserMfaMethod] = useState<'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'>('TOTP_AUTHENTICATOR');
+  const [resendingInviteUserId, setResendingInviteUserId] = useState<string | null>(null);
   const [inviteModalData, setInviteModalData] = useState<{
     userName: string;
     email: string;
@@ -342,6 +372,8 @@ export default function StiHubAdminRbacPanel({
           `Sincronização diária incremental executada (${json?.data?.latestRun?.runId || 'OK'})!`
         );
         await onRefresh();
+      } else {
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível executar a sincronização diária agora.');
       }
     } finally {
       setRunningSyncNow(false);
@@ -555,6 +587,11 @@ export default function StiHubAdminRbacPanel({
     activeUser ? isModuleFullControl(activeUser, m) : false
   );
   const canAdminHomeScreen = actorIsSuperAdmin || actorFullControlModules.length > 0;
+  // Parecer CISO 04/11 (item 4): alinhado ao servidor, que exige canManageUsersRbac.
+  const actorRole = activeUser ? roles.find((r) => r.id === activeUser.roleId) : undefined;
+  const actorCanManageUsersRbac =
+    (activeUser?.actionGuardsOverride?.canManageUsersRbac ?? actorRole?.actionGuards?.canManageUsersRbac) === true;
+  const canManageInvites = actorIsSuperAdmin || actorCanManageUsersRbac;
   const homeScreenOptionsFor = (user: StiHubUserRecord) => {
     const access = moduleAccessFromUser(user);
     return HOME_SCREENS.filter(
@@ -646,9 +683,25 @@ export default function StiHubAdminRbacPanel({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ origin, resetTotp: true, iamUsersOverride: loadClientIamUsersOverride() }),
     });
-    if (res.ok) {
+    if (!res.ok) {
+      let msg = `Falha ao reenviar o convite para ${user.email}.`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg = `Falha ao reenviar o convite: ${j.error}`;
+      } catch {}
+      onShowToast(msg);
+      return;
+    }
+    {
       const json = await res.json();
       const d = json?.data;
+      if (d && !d.inviteUrl) {
+        onShowToast(
+          d.emailDelivered
+            ? `Convite reenviado para ${user.email}. O link anterior foi substituído.`
+            : `Falha ao enviar o convite para ${user.email}.`
+        );
+      }
       if (d?.user) {
         saveClientIamUserOverrideIfNewer({
           ...d.user,
@@ -668,7 +721,11 @@ export default function StiHubAdminRbacPanel({
           expiresAt: d.expiresAt || new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
           emailDelivered: Boolean(d.emailDelivered),
         });
-        onShowToast(`Link de convite gerado e copiado para ${user.email}!`);
+        onShowToast(
+          d.emailDelivered
+            ? `Convite reenviado para ${user.email}.`
+            : `O e-mail NÃO foi enviado para ${user.email}; link copiado para envio manual.`
+        );
       }
       await onRefresh();
     }
@@ -851,7 +908,7 @@ export default function StiHubAdminRbacPanel({
           to: testRecipient.trim(),
           cc: 'comercial@setatelecom.com.br',
           subject: '[STI-hub Mailer • Teste Validado] Proposta Comercial #4695 & Link PDF A4',
-          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-seta-001\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
+          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
           companyName: 'Seta Telecom Homologação',
           documentCode: '4695',
           amountBrl: 14800,
@@ -863,6 +920,13 @@ export default function StiHubAdminRbacPanel({
         setLastTestProtocol(proto);
         onShowToast(`E-mail de teste disparado para ${testRecipient} (Protocolo ${proto})!`);
         await onRefresh();
+      } else {
+        let msg = `Falha ao enviar o e-mail de teste para ${testRecipient}.`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = `Falha ao enviar o e-mail de teste: ${j.error}`;
+        } catch {}
+        onShowToast(msg);
       }
     } finally {
       setSendingTestEmail(false);
@@ -895,24 +959,37 @@ export default function StiHubAdminRbacPanel({
     }
   };
 
+  // Gate da Central (revisão CISO pós-B2): sem admin com 2FA, nenhuma aba, botão ou formulário.
+  if (!canOpenAdminCentral(effectiveAccess, { singleView, subView })) {
+    if (!effectiveAccess) return null;
+    return (
+      <div data-testid="admin-central-restrita" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Lock className="w-4 h-4 shrink-0" />
+        <span className="font-semibold">Área restrita a administradores com 2FA.</span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Top Banner */}
-      <div className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      {!singleView && (<>
+      {!hideTopBanner && (
+      <div data-testid="admin-central-banner" className="bg-[#0d2b4e] text-white rounded-xl p-5 shadow-sm border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded bg-[#ff7a59] text-white text-[10px] font-semibold uppercase tracking-wider">
-              GOVERNANÇA CORPORATIVA STI-HUB • SEÇÕES 4 &amp; 5 DO ROADMAP
+            <span className="px-2.5 py-0.5 rounded bg-[#1e3a6e] text-white text-[10px] font-semibold uppercase tracking-wider">
+              STI-hub
             </span>
-            <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-semibold">
-              9 Perfis RBAC • {users.length} Usuários ({users.filter((u) => u.active).length} Ativos) • MFA 2FA Ativo
+            <span className="px-2.5 py-0.5 rounded bg-white/10 text-slate-200 border border-white/20 text-[10px] font-semibold">
+              Administração
             </span>
           </div>
           <h2 className="text-base sm:text-lg font-semibold">
-            Central Unificada de Administração &amp; Configurações (CRM + SETA ERP)
+            Administração e Configurações
           </h2>
           <p className="text-xs text-slate-300">
-            Controle granular de acesso por perfil e colaborador (GestãoClick Loja #118887 + HubSpot Portal #4369067), escopo de visibilidade (Todos / Equipe / Próprios), disparo validado de e-mails e subdomínios oficiais.
+            Usuários, permissões, dados da empresa e configurações do sistema.
           </p>
         </div>
 
@@ -921,59 +998,75 @@ export default function StiHubAdminRbacPanel({
             href="/login"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white text-[#0d2b4e] hover:bg-slate-100 text-xs font-semibold shadow-xs"
           >
-            <Lock className="w-3.5 h-3.5 text-[#ff7a59]" /> Abrir Tela de Login + MFA (/login)
+            <Lock className="w-3.5 h-3.5 text-[#1e3a6e]" /> Tela de login
           </a>
           <button
             type="button"
             onClick={() => setShowNewUserModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-xs cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" /> + Novo Usuário Seta Telecom
+            <Plus className="w-3.5 h-3.5" /> Novo usuário
           </button>
         </div>
       </div>
+      )}
 
       {/* Sub-navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
         {[
           {
             id: 'USERS_RBAC' as const,
-            label: `Usuários (${users.length})`,
+            label: 'Usuários',
             icon: Users,
           },
           {
             id: 'COMPANY_EMITTER' as const,
-            label: 'Dados da Empresa & Fiscal',
+            label: 'Dados da Empresa e Fiscal',
             icon: ShieldCheck,
           },
           {
-            id: 'CERTIFICATE_SERIES' as const,
-            label: 'Certificado A1, Séries NF & Parâmetros',
+            id: 'ERP_GENERAL_SETTINGS' as const,
+            label: 'Configurações Gerais ERP',
+            icon: Globe,
+          },
+          {
+            id: 'CERTIFICATE_A1' as const,
+            label: 'Certificado Digital A1',
             icon: KeyRound,
           },
           {
+            id: 'CERTIFICATE_SERIES' as const,
+            label: 'Séries NF e Parâmetros',
+            icon: Database,
+          },
+          {
             id: 'EMAIL_TEMPLATES' as const,
-            label: `E-mail Validado & Modelos (${emailTemplates.length})`,
+            label: 'E-mail e Modelos',
+            icon: Mail,
+          },
+          {
+            id: 'EMAIL_MAILBOXES' as const,
+            label: 'Caixas de e-mail',
             icon: Mail,
           },
           {
             id: 'CUSTOM_PROPERTIES' as const,
-            label: 'Campos Customizáveis (#4369067)',
+            label: 'Campos Customizáveis',
             icon: Database,
           },
           {
             id: 'MIGRATION_CHECKLIST' as const,
-            label: 'Homologação da Migração (11 Módulos)',
+            label: 'Homologação da Migração',
             icon: CheckCircle2,
           },
           {
             id: 'DAILY_SYNC_LOGS' as const,
-            label: `Sincronização Diária ERP & Logs (${syncLogs.length})`,
+            label: 'Sincronização Diária',
             icon: RefreshCw,
           },
           {
             id: 'SUBDOMAIN_SECURITY' as const,
-            label: 'Segurança MFA 2FA, Rotas & Subdomínio',
+            label: 'Segurança',
             icon: Globe,
           },
         ].map((tab) => {
@@ -996,6 +1089,7 @@ export default function StiHubAdminRbacPanel({
           );
         })}
       </div>
+      </>)}
 
       {/* ====================================================================
           SUB-VIEW 1: CONFIGURAÇÕES > USUÁRIOS (TELA INICIAL LIMPA DE LISTAGEM)
@@ -1006,15 +1100,9 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                CONFIGURAÇÕES &gt; USUÁRIOS • DIRETÓRIO DE CONTAS SETA TELECOM
-              </span>
               <h3 className="text-base font-semibold text-slate-900">
-                Usuários ({filteredUsers.length} de {users.length})
+                Usuários
               </h3>
-              <p className="text-xs text-slate-500">
-                Clique em um usuário abaixo para abrir o cadastro completo, pareamento 2FA Google Authenticator, tipos de conta e permissões de todos os sistemas.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1046,7 +1134,7 @@ export default function StiHubAdminRbacPanel({
               <button
                 type="button"
                 onClick={() => setShowNewUserModal(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> + Novo Usuário
               </button>
@@ -1211,14 +1299,28 @@ export default function StiHubAdminRbacPanel({
                       </td>
                       <td className="py-3 px-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          {canManageInvites && (!u.lastLoginAt || u.inviteStatus === 'PENDING_INVITE') && (
                           <button
                             type="button"
-                            title="Enviar convite por e-mail com link para o usuário cadastrar a senha e o autenticador"
-                            onClick={() => handleGenerateUserInvite(u)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                            data-testid="reenviar-convite"
+                            title="Reenviar o convite por e-mail. Gera um novo link e substitui o anterior."
+                            disabled={resendingInviteUserId === u.id}
+                            onClick={async () => {
+                              setResendingInviteUserId(u.id);
+                              try {
+                                await handleGenerateUserInvite(u);
+                              } catch {
+                                onShowToast(`Falha ao reenviar o convite para ${u.email}.`);
+                              } finally {
+                                setResendingInviteUserId(null);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-[11px] font-semibold cursor-pointer disabled:opacity-60"
                           >
-                            <Mail className="w-3.5 h-3.5 text-emerald-600" /> Enviar Convite por E-mail
+                            <Mail className="w-3.5 h-3.5 text-slate-500" />{' '}
+                            {resendingInviteUserId === u.id ? 'Enviando...' : 'Reenviar convite'}
                           </button>
+                          )}
                           {confirmDeleteUserId === u.id ? (
                             <div className="inline-flex items-center gap-1">
                               <button
@@ -1265,15 +1367,14 @@ export default function StiHubAdminRbacPanel({
           {/* Left: Mailer Config & Validated Test Dispatch */}
           <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
-                STI-HUB MAILER • INFRAESTRUTURA DE ENVIO VALIDADO
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Configuração SMTP / Resend Relay &amp; Disparo de Teste
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Envio de e-mails</h3>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+            <details data-testid="smtp-detalhes" className="rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <summary className="px-3.5 py-2.5 font-semibold text-slate-700 cursor-pointer select-none">
+                Dados técnicos de envio (SMTP, remetente e DKIM)
+              </summary>
+            <div className="px-3.5 pb-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Provedor Ativo:</span>
                 <strong className="text-slate-900">
@@ -1300,14 +1401,12 @@ export default function StiHubAdminRbacPanel({
                 </span>
               </div>
             </div>
+            </details>
 
             <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3 text-xs">
               <div className="font-semibold text-[#0d2b4e]">
-                Testar Disparo de E-mail Transacional Agora
+                Enviar e-mail de teste
               </div>
-              <p className="text-[11px] text-slate-600">
-                Envia um e-mail de validação com o link público de Proposta PDF A4 (`https://sti-hub.vercel.app/proposta/prop-seta-001`) e registra protocolo na Timeline.
-              </p>
               <div className="flex gap-2">
                 <input
                   type="email"
@@ -1319,7 +1418,7 @@ export default function StiHubAdminRbacPanel({
                   type="button"
                   onClick={handleSendTestEmail}
                   disabled={sendingTestEmail}
-                  className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer shrink-0"
                 >
                   {sendingTestEmail ? 'Enviando...' : 'Disparar Teste'}
                 </button>
@@ -1429,12 +1528,19 @@ export default function StiHubAdminRbacPanel({
       {/* ====================================================================
           SUB-VIEW 3: HUBSPOT PORTAL 4369067 CUSTOM PROPERTIES
       ==================================================================== */}
+      {subView === 'EMAIL_MAILBOXES' && (
+        <div className="space-y-4">
+          <MailboxConnectionsPanel />
+          <NeverLogPanel />
+        </div>
+      )}
+
       {subView === 'CUSTOM_PROPERTIES' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
-                SEÇÃO 3 DO ROADMAP • CUSTOM PROPERTIES HUBSPOT PORTAL #4369067
+              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
+                CAMPOS CUSTOMIZÁVEIS
               </span>
               <h3 className="text-base font-semibold text-slate-900">
                 Dicionário de Propriedades Customizadas Sincronizadas (Contatos, Empresas, Deals &amp; Tickets)
@@ -1567,7 +1673,7 @@ export default function StiHubAdminRbacPanel({
                 <div className="font-semibold text-slate-900">Rotas Públicas Liberadas (Whitelisted):</div>
                 <ul className="text-[11px] text-slate-600 space-y-1 font-mono">
                   <li>• /login (Autenticação + Desafio MFA 2FA)</li>
-                  <li>• /proposta/[id] (Link Público PDF A4 p/ Cliente)</li>
+                  <li>• /proposta/[id] (link público da proposta)</li>
                   <li>• /portal &amp; /api/portal/* (Portal Externo NOC SLA)</li>
                   <li>• /api/health (Monitoramento de Infraestrutura)</li>
                 </ul>
@@ -1578,7 +1684,7 @@ export default function StiHubAdminRbacPanel({
               href="/login"
               className="w-full py-2.5 rounded-xl bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white font-semibold flex items-center justify-center gap-2"
             >
-              <Lock className="w-4 h-4 text-[#ff7a59]" /> Testar Fluxo de Login + MFA 2FA Agora
+              <Lock className="w-4 h-4 text-[#1e3a6e]" /> Testar Fluxo de Login + MFA 2FA Agora
             </a>
           </div>
         </div>
@@ -1591,12 +1697,7 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                CONFIGURAÇÕES &gt; DADOS DA EMPRESA EMITENTE (CFG_EMPRESA / LOJA MATRIZ #118887)
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Ficha Fiscal e Bancária da Seta Telecom LTDA
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Dados da empresa</h3>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1616,7 +1717,7 @@ export default function StiHubAdminRbacPanel({
                     'Dados fiscais e bancários da Seta Telecom salvos com sucesso!'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Dados da Empresa'}
               </button>
@@ -1685,8 +1786,8 @@ export default function StiHubAdminRbacPanel({
                 }
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
               >
-                <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
-                <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
+                <option value="LUCRO_PRESUMIDO">Lucro Presumido</option>
+                <option value="LUCRO_REAL">Lucro Real</option>
                 <option value="SIMPLES_NACIONAL">Simples Nacional</option>
               </select>
             </div>
@@ -1782,7 +1883,53 @@ export default function StiHubAdminRbacPanel({
       )}
 
       {/* ====================================================================
-          SUB-VIEW: CERTIFICADO DIGITAL A1, SÉRIES NF & PARÂMETROS GERAIS
+          SUB-VIEW: CONFIGURAÇÕES GERAIS DO ERP (padrão GestãoClick)
+      ==================================================================== */}
+      {subView === 'ERP_GENERAL_SETTINGS' && (
+        <ErpGeneralSettingsPage
+          savedSettings={generalParameters.erpConfigGerais}
+          certificateSettings={certificateSettings}
+          onCertificateSettingsChange={setCertificateSettings}
+          saving={savingSettings}
+          numberingBase={numberingBase}
+          onOpenCertificate={onOpenErpCertificate || (() => setSubView('CERTIFICATE_A1'))}
+          onSave={(erpConfigGerais) =>
+            handleSaveAdminSettings(
+              {
+                certificateSettings,
+                generalParameters: {
+                  ...generalParameters,
+                  erpConfigGerais: erpConfigGerais as unknown as Record<string, unknown>,
+                },
+              },
+              'Configurações gerais salvas.'
+            )
+          }
+        />
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: CERTIFICADO DIGITAL A1 (tela dedicada, contrato /api/erp/certificate)
+      ==================================================================== */}
+      {subView === 'CERTIFICATE_A1' && (
+        <CertificateA1UploadCard
+          onShowToast={onShowToast}
+          environment={{
+            value: certificateSettings.sefazEnvironment,
+            onChange: (value) => setCertificateSettings({ ...certificateSettings, sefazEnvironment: value }),
+            onSave: () =>
+              handleSaveAdminSettings(
+                { certificateSettings, generalParameters },
+                'Ambiente de emissão salvo.'
+              ),
+            saving: savingSettings,
+          }}
+          onOpenFiscalSeries={singleView ? undefined : () => setSubView('CERTIFICATE_SERIES')}
+        />
+      )}
+
+      {/* ====================================================================
+          SUB-VIEW: SÉRIES NF & PARÂMETROS GERAIS
       ==================================================================== */}
       {subView === 'CERTIFICATE_SERIES' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
@@ -1790,10 +1937,10 @@ export default function StiHubAdminRbacPanel({
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
-                  CONFIGURAÇÕES &gt; CERTIFICADO DIGITAL A1 &amp; NUMERAÇÃO FISCAL (CFG_CERTIFICADO)
+                  CONFIGURAÇÕES &gt; NUMERAÇÃO FISCAL &amp; AMBIENTE (CFG_GERAIS)
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Certificado ICP-Brasil (.pfx) e Séries NF-e / NFS-e / NFCom / Locação SV 31
+                  Séries NF-e / NFS-e / NFCom / Locação SV 31
                 </h3>
               </div>
               <button
@@ -1802,10 +1949,10 @@ export default function StiHubAdminRbacPanel({
                 onClick={() =>
                   handleSaveAdminSettings(
                     { certificateSettings, generalParameters },
-                    'Certificado Digital A1, séries fiscais e parâmetros gerais salvos!'
+                    'Séries fiscais e parâmetros gerais salvos.'
                   )
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer"
               >
                 {savingSettings ? 'Salvando...' : 'Salvar Parâmetros Fiscais'}
               </button>
@@ -1813,18 +1960,14 @@ export default function StiHubAdminRbacPanel({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Arquivo Certificado A1 (.pfx)</label>
-                <input
-                  type="text"
-                  value={certificateSettings.certificateFileName}
-                  onChange={(e) =>
-                    setCertificateSettings({
-                      ...certificateSettings,
-                      certificateFileName: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
-                />
+                <label className="block font-semibold text-slate-700 mb-1">Certificado Digital A1 (.pfx / .p12)</label>
+                <button
+                  type="button"
+                  onClick={() => setSubView('CERTIFICATE_A1')}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#1e3a6e] text-[#1e3a6e] hover:bg-blue-50 font-semibold cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" /> Gerenciar certificado digital
+                </button>
               </div>
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Ambiente SEFAZ / Prefeitura</label>
@@ -2050,17 +2193,12 @@ export default function StiHubAdminRbacPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
-              <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
-                HOMOLOGAÇÃO OFICIAL DA MIGRAÇÃO GESTÃOCLICK (#118887) &rarr; STI-HUB
-              </span>
-              <h3 className="text-base font-semibold text-slate-900">
-                Checklist Verificável dos 11 Módulos Importados (6.414 Registros Reais)
-              </h3>
+              <h3 className="text-base font-semibold text-slate-900">Homologação da migração</h3>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
+              <span data-testid="migracao-aprovados" className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
                 Aprovados: {migrationChecklist.filter((m) => m.validationStatus === 'PASSOU').length} /{' '}
-                {migrationChecklist.length} Módulos
+                {migrationChecklist.length}
               </span>
             </div>
           </div>
@@ -2091,21 +2229,21 @@ export default function StiHubAdminRbacPanel({
                       const cls =
                         st === 'PASSOU'
                           ? active
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-white text-emerald-700 border border-emerald-300'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                            : 'bg-white text-slate-500 border border-slate-200'
                           : st === 'FALHOU'
                             ? active
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-white text-rose-700 border border-rose-300'
+                              ? 'bg-rose-50 text-rose-800 border border-rose-300'
+                              : 'bg-white text-slate-500 border border-slate-200'
                             : active
-                              ? 'bg-amber-500 text-white'
-                              : 'bg-white text-amber-800 border border-amber-300';
+                              ? 'bg-amber-50 text-amber-800 border border-amber-300'
+                              : 'bg-white text-slate-500 border border-slate-200';
                       return (
                         <button
                           key={st}
                           type="button"
                           onClick={() => handleUpdateChecklistItem(item.moduleNumber, st, item.auditorNotes)}
-                          className={`px-2.5 py-1 rounded font-semibold text-[11px] cursor-pointer transition ${cls}`}
+                          className={`px-2.5 py-1 rounded-full font-semibold text-[11px] cursor-pointer transition ${cls}`}
                         >
                           {st === 'PASSOU' ? '[x] PASSOU' : st === 'FALHOU' ? '[ ] FALHOU' : 'EM CONFERÊNCIA'}
                         </button>
@@ -2286,7 +2424,7 @@ export default function StiHubAdminRbacPanel({
                     ← Voltar para Lista de Usuários
                   </button>
                   <div>
-                    <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                    <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                       CONFIGURAÇÕES &gt; USUÁRIOS &gt; TELA DE CADASTRO DO USUÁRIO, TIPOS DE CONTA E PERMISSÕES (TODOS OS SISTEMAS)
                     </span>
                     <h3 className="text-base font-semibold text-slate-900">
@@ -3037,7 +3175,7 @@ export default function StiHubAdminRbacPanel({
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-semibold cursor-pointer"
+                      className="px-5 py-2 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                     >
                       Salvar Políticas IAM do Usuário
                     </button>
@@ -3055,7 +3193,7 @@ export default function StiHubAdminRbacPanel({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 space-y-4 text-xs my-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
-                <span className="text-[10px] font-semibold uppercase text-[#ff7a59] block">
+                <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
                   IAM SETA TELECOM • NOVO COLABORADOR COM ESCOPO MODULAR &amp; 2FA
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
@@ -3474,7 +3612,7 @@ export default function StiHubAdminRbacPanel({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#ff7a59] text-white font-semibold cursor-pointer"
+                  className="px-5 py-2 rounded-lg bg-[#1e3a6e] text-white font-semibold cursor-pointer"
                 >
                   Salvar Usuário &amp; Gerar Convite
                 </button>
@@ -3506,13 +3644,23 @@ export default function StiHubAdminRbacPanel({
               </button>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
-              <div className="font-semibold text-emerald-950 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div
+              className={`p-3.5 rounded-xl border space-y-2 ${
+                inviteModalData.emailDelivered ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300'
+              }`}
+            >
+              <div
+                className={`font-semibold flex items-center gap-1.5 ${
+                  inviteModalData.emailDelivered ? 'text-emerald-950' : 'text-amber-950'
+                }`}
+              >
+                <CheckCircle2
+                  className={`w-4 h-4 shrink-0 ${inviteModalData.emailDelivered ? 'text-emerald-600' : 'text-amber-600'}`}
+                />
                 <span>
                   {inviteModalData.emailDelivered
                     ? `E-mail de convite enviado para ${inviteModalData.email}!`
-                    : "Link de convite pronto e copiado para sua área de transferência!"}
+                    : `O e-mail NÃO foi enviado para ${inviteModalData.email} (serviço de e-mail indisponível). Envie o link abaixo por um canal seguro.`}
                 </span>
               </div>
               <p className="text-[11px] text-emerald-900 leading-relaxed">
@@ -3545,7 +3693,7 @@ export default function StiHubAdminRbacPanel({
               </button>
               <a
                 href={inviteModalData.inviteUrl}
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold inline-flex items-center gap-1.5"
               >
                 <ExternalLink className="w-3.5 h-3.5" /> Abrir Tela do Convite Agora
               </a>

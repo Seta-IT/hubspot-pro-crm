@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { RowKebabMenu } from './FixedPortalMenu';
 import {
   FileText,
   FileCheck2,
@@ -93,12 +94,17 @@ import {
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
 } from '../lib/durable-storage';
-import { appendClientProposalVersion, buildProposalVersionShortUrl, buildPublicProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
+import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
 import GestaoClickDashboard from './GestaoClickDashboard';
+import { ProposalTemplateSelect } from './ProposalTemplateSelect';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
   buildStandaloneContractA4Html,
   downloadInvoicePdfOnDemand,
+  buildStandaloneInvoiceHtml,
+  loadReceiptTemplateStyle,
+  saveReceiptTemplateStyle,
   matchInvoicesForContract,
   printOrDownloadContractA4,
 } from '../lib/contract-billing-utils';
@@ -108,9 +114,32 @@ import {
   ContractVersionHistoryPanel,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
-import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE } from './GestaoClickSidebar';
+import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE, erpReportTitle } from './GestaoClickSidebar';
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
+import ImportFilePicker from './ImportFilePicker';
+import FiscalSettingsPanel from './FiscalSettingsPanel';
+import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
+import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
+import { lastNumberFromCodes } from '../lib/erp-general-settings';
+
+/** Fiscal: nome curto de cada subtela (mesmos rótulos da sidebar, sem CFOP nem legislação). */
+const FISCAL_SUBSCREEN_TITLES: Record<string, string> = {
+  FIS_TODAS: 'Todas as notas e faturas',
+  FIS_PRODUTOS: 'Notas de produtos',
+  FIS_SERVICOS: 'Notas de serviços',
+  FIS_CONSUMIDOR: 'Notas do consumidor',
+  FIS_IMPORTACAO: 'NF-e de importação',
+  FIS_COMPRAS: 'Notas de compras',
+  FIS_AUXILIARES: 'Opções auxiliares',
+};
+import {
+  filterErpMenuTree,
+  firstVisibleErpConfigItem,
+  gestaoClickDeniedMessage,
+  isErpConfigItemVisible,
+} from '../lib/erp-config-access';
+import { useErpConfigAccess } from './useErpConfigAccess';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
 import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
@@ -125,6 +154,20 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
+import { copySignedInvoiceLink } from '../lib/invoice-link-client';
+import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
+import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
+import {
+  countRecordUsage,
+  formatRecordUsageText,
+  parseRecordInUseResponse,
+  recordUsageTotal,
+  type RecordUsageKind,
+  type RecordUsageRef,
+  type RecordUsageSources,
+} from '../../modules/erp/record-in-use';
+import { CannotDeleteModal } from './CannotDeleteModal';
 import { SetaErpTenPillarsMatrix, SetaErpPdvPosView, SetaErpStockAndPurchasesSubbar } from './SetaErpTenPillarsAndPdv';
 import {
   BatchRentalBillingAndEmailModal,
@@ -148,6 +191,10 @@ export interface ErpOverviewPayload {
     totalPayables: number;
   };
   proposals: ErpCommercialProposal[];
+  /** 04/11/2026: 'table' => orcamentos na tabela erp_proposals (lista paginada pela API). */
+  proposalsStorage?: 'table';
+  proposalsTotal?: number;
+  proposalsNextNumber?: number;
   rentalContracts: ErpRentalContract[];
   invoices: ErpFiscalInvoice[];
   catalog: ErpCatalogItem[];
@@ -225,6 +272,14 @@ export function inferContractModality(ctr: ErpRentalContract): ErpContractModali
     return "HIBRIDO";
   }
   return "LOCACAO";
+}
+
+/** Pacote I: mensagem de erro do PATCH /api/erp/gestaoclick/config (403 sem permissao, 400 campo invalido). */
+async function gcConfigErrorMessage(res: Response): Promise<string> {
+  const j = (await res.json().catch(() => null)) as { error?: string } | null;
+  const denied = gestaoClickDeniedMessage(res.status, 'config');
+  if (denied) return denied;
+  return j?.error || 'Não foi possível salvar a configuração fiscal.';
 }
 
 function getModalityBadgeMeta(modality: ErpContractModality) {
@@ -326,13 +381,124 @@ export default function ErpGestaoClickTab({
     initialSection || "INICIO"
   );
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
+  // Telas dedicadas de Configurações (padrão GestãoClick): sem o cabeçalho genérico, o banner e as abas da Central.
+  const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS');
+  // B2: Configurações por permissão (sessão do servidor + matriz rbac.ts). null = carregando (fail closed).
+  const erpConfigAccess = useErpConfigAccess(activeUser?.id ?? null);
+  // Sync GestãoClick e regime/parâmetros fiscais: mesma regra do gestaoClickPrivilege do servidor (2FA + admin ou ERP FULL).
+  const canSyncGestaoClick = erpConfigAccess?.canSyncGestaoClick === true;
+  const visibleMenuTree = useMemo(() => filterErpMenuTree(GESTAO_CLICK_MENU_TREE, erpConfigAccess), [erpConfigAccess]);
+  const cfgScreenAllowed = activeSection !== 'CONFIGURACOES' || isErpConfigItemVisible(erpConfigAccess, activeSubId);
+  // Relatórios: indicadores para quem tem 'erp.relatorios_logs' na matriz; administração (empresa, regime,
+  // sincronização e a Central) só para admin com 2FA.
+  const reportsScreenAllowed = activeSection !== 'RELATORIOS' || erpConfigAccess?.canViewReports === true;
+  // Limpeza visual 02/11 (Marcéllo): Configurações sem cabeçalho, KPIs, banner nem ações repetidas;
+  // Relatórios só com o título. A Central abre só em Configurações (admin com 2FA, regra B2).
+  React.useEffect(() => {
+    if (!erpConfigAccess || activeSection !== 'RELATORIOS' || erpConfigAccess.canViewReports) return;
+    setActiveSection('INICIO');
+    setActiveSubId('INICIO');
+  }, [erpConfigAccess, activeSection]);
+  // Aberto pela URL/estado sem permissão: vai para o primeiro item permitido ou para o Início.
+  React.useEffect(() => {
+    if (!erpConfigAccess || activeSection !== 'CONFIGURACOES') return;
+    if (isErpConfigItemVisible(erpConfigAccess, activeSubId)) return;
+    const cfgGroup = GESTAO_CLICK_MENU_TREE.find((g) => g.id === 'CONFIGURACOES');
+    const fallback = firstVisibleErpConfigItem(erpConfigAccess, (cfgGroup?.subItems || []).map((x) => x.id));
+    if (fallback) {
+      setActiveSubId(fallback);
+    } else {
+      setActiveSection('INICIO');
+      setActiveSubId('INICIO');
+    }
+  }, [erpConfigAccess, activeSection, activeSubId]);
+  // Numerações: último número real a partir dos registros carregados; sem base => vazio.
+  const erpNumberingBase = useMemo<Record<string, number | null>>(
+    () => ({
+      orcamentos:
+        erpData?.proposalsStorage === 'table'
+          ? erpData.proposalsNextNumber
+            ? erpData.proposalsNextNumber - 1
+            : null
+          : lastNumberFromCodes((erpData?.proposals || []).map((p) => p.code)),
+      vendas: lastNumberFromCodes((erpData?.salesOrders || []).map((o) => o.code)),
+      ordensServico: lastNumberFromCodes((erpData?.serviceOrders || []).map((o) => o.code)),
+      locacoes: lastNumberFromCodes((erpData?.rentalContracts || []).map((c) => c.contractNumber)),
+      compras: lastNumberFromCodes((erpData?.purchaseOrders || []).map((o) => o.code)),
+    }),
+    [erpData]
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [erpMobileDrawerOpen, setErpMobileDrawerOpen] = useState(false);
-  const [editingProposal, setEditingProposal] = useState<ErpCommercialProposal | null>(null);
+  const [editingProposal, setEditingProposalRaw] = useState<ErpCommercialProposal | null>(null);
+  // Modo tabela (erp_proposals): a lista traz resumos (__summary, sem historico/textos longos);
+  // Editar sempre abre o registro completo vindo de GET /api/erp/proposals/:id.
+  const proposalsTableMode = erpData?.proposalsStorage === 'table';
+  const setEditingProposal = (p: ErpCommercialProposal | null) => {
+    if (!p || !(p as unknown as Record<string, unknown>).__summary) {
+      setEditingProposalRaw(p);
+      return;
+    }
+    fetch(`/api/erp/proposals/${encodeURIComponent(p.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const full = j && j.data && !Array.isArray(j.data) ? (j.data as ErpCommercialProposal) : null;
+        if (full) setEditingProposalRaw(full);
+        else onShowToast('Não foi possível abrir o orçamento completo. Tente de novo.');
+      })
+      .catch(() => onShowToast('Não foi possível abrir o orçamento completo. Tente de novo.'));
+  };
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
   const [proposalsSearch, setProposalsSearch] = useState<string>("");
   const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
+  // Modo tabela: pagina corrente da lista (busca/situacao/tipo filtrados no servidor).
+  const PROPOSALS_PAGE_SIZE = 50;
+  const [proposalsOffset, setProposalsOffset] = useState<number>(0);
+  const [proposalsPage, setProposalsPage] = useState<{
+    data: ErpCommercialProposal[];
+    total: number;
+    counts: { TODOS: number; PRODUTOS: number; LOCACAO: number; SERVICOS: number };
+  } | null>(null);
+  const [proposalsPageLoading, setProposalsPageLoading] = useState<boolean>(false);
+  const proposalsTypeParam =
+    activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : 'TODOS';
+  React.useEffect(() => {
+    setProposalsOffset(0);
+  }, [proposalsSearch, proposalsStatusFilter, proposalsTypeParam]);
+  React.useEffect(() => {
+    if (!proposalsTableMode) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({
+        limit: String(PROPOSALS_PAGE_SIZE),
+        offset: String(proposalsOffset),
+        status: proposalsStatusFilter,
+        type: proposalsTypeParam,
+      });
+      if (proposalsSearch.trim()) qs.set('q', proposalsSearch.trim());
+      setProposalsPageLoading(true);
+      fetch(`/api/erp/proposals?${qs.toString()}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!alive || !j) return;
+          setProposalsPage({
+            data: Array.isArray(j.data) ? j.data : [],
+            total: Number(j.total) || 0,
+            counts: j.counts || { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 },
+          });
+        })
+        .catch(() => null)
+        .finally(() => {
+          if (alive) setProposalsPageLoading(false);
+        });
+    }, proposalsSearch.trim() ? 300 : 0);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // erpData muda a cada onRefresh() => recarrega a pagina depois de salvar/excluir.
+  }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsTypeParam, erpData]);
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
@@ -340,6 +506,8 @@ export default function ErpGestaoClickTab({
   const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
   const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
   const [statusModalObservation, setStatusModalObservation] = useState<string>("");
+  const [statusModalJustification, setStatusModalJustification] = useState<string>("");
+  const [statusModalError, setStatusModalError] = useState<string | null>(null);
   const [statusModalHistoryOpen, setStatusModalHistoryOpen] = useState<boolean>(true);
   const [statusModalVersionsOpen, setStatusModalVersionsOpen] = useState<boolean>(true);
   const [savingProposalStatus, setSavingProposalStatus] = useState<boolean>(false);
@@ -347,7 +515,7 @@ export default function ErpGestaoClickTab({
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingContract, setEditingContract] = useState<ErpRentalContract | null>(null);
   const [editingContractTab, setEditingContractTab] = useState<
-    'DADOS_GERAIS' | 'RENOVAR_VIGENCIA' | 'FATURAMENTO_RECIBOS' | 'REAJUSTE_ADITIVOS' | 'EQUIPAMENTOS_PATRIMONIO' | 'DOCUMENTO_HISTORICO'
+    'DADOS_GERAIS' | 'RENOVAR_VIGENCIA' | 'FATURAMENTO_RECIBOS' | 'REAJUSTE_ADITIVOS' | 'PRODUTOS' | 'EQUIPAMENTOS_PATRIMONIO' | 'DOCUMENTO_HISTORICO'
   >('DADOS_GERAIS');
   const [editingContractReadOnly, setEditingContractReadOnly] = useState<boolean>(false);
   const [editingInvoice, setEditingInvoice] = useState<ErpFiscalInvoice | null>(null);
@@ -359,6 +527,8 @@ export default function ErpGestaoClickTab({
     readOnly?: boolean;
     onSave: (values: Record<string, unknown>) => Promise<void>;
     onDelete?: () => Promise<void>;
+    deleteInUse?: boolean;
+    deleteUsageText?: string;
   } | null>(null);
   const [hideBalances, setHideBalances] = useState(false);
   const [cadastrosSubTab, setCadastrosSubTab] = useState<
@@ -454,11 +624,15 @@ export default function ErpGestaoClickTab({
   const [syncingGc, setSyncingGc] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Modelo da folha do Recibo de Locação: mesmos modelos da proposta (padrão Clean Corporate Light).
+  const [invoiceSheetTemplate, setInvoiceSheetTemplate] = useState(() => loadReceiptTemplateStyle());
   const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] =
     useState<ErpFiscalInvoice | null>(null);
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] =
     useState<ErpPurchaseOrder | null>(null);
   const [servicosSubFilter, setServicosSubFilter] = useState<"TODOS" | "FATURA_LOCACAO" | "NFSE_SERVICO">("TODOS");
+  // Fiscal: menu único "+ Emitir nota ▾" (só UI; as ações são as mesmas dos antigos botões)
+  const [fiscalEmitMenuOpen, setFiscalEmitMenuOpen] = useState(false);
   const [globalUploadedImportFile, setGlobalUploadedImportFile] = useState<{
     content: string;
     fileName: string;
@@ -468,9 +642,16 @@ export default function ErpGestaoClickTab({
   const handleGlobalImportFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      onShowToast(`Arquivo "${file.name}" excede o limite de ${(MAX_IMPORT_FILE_BYTES / 1024 / 1024).toFixed(0)} MB para importação.`);
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      const content = String(reader.result || "");
+      // #25: detecta UTF-8 x ISO-8859-1 (TXT do Emissor Sebrae)
+      const buf = reader.result instanceof ArrayBuffer ? new Uint8Array(reader.result) : new Uint8Array();
+      const content = decodeImportFileBytes(buf).text;
       setActiveSection("FISCAL");
       setActiveSubId("FIS_IMPORTACAO");
       setGlobalUploadedImportFile({
@@ -479,10 +660,10 @@ export default function ErpGestaoClickTab({
         trigger: Date.now(),
       });
     };
-    reader.readAsText(file, "utf-8");
+    reader.readAsArrayBuffer(file);
     e.target.value = "";
   };
-  const [produtosSubFilter, setProdutosSubFilter] = useState<"TODOS" | "NFE_VENDA_PRODUTO" | "NFE_REMESSA_LOCACAO" | "NFCOM_TELECOM">("TODOS");
+  const [produtosSubFilter, setProdutosSubFilter] = useState<"TODOS" | "NFE_VENDA_PRODUTO" | "NFE_REMESSA_LOCACAO" | "NFE_RETORNO_LOCACAO" | "NFCOM_TELECOM">("TODOS");
   const [selectedProposalForPrint, setSelectedProposalForPrint] =
     useState<ErpCommercialProposal | null>(null);
   const [showNewProposalModal, setShowNewProposalModal] = useState(false);
@@ -542,6 +723,9 @@ export default function ErpGestaoClickTab({
         setHighlightedProposalId(found.id);
         setIsCreatingProposalModal(false);
         setEditingProposal(found);
+      } else if (erpData.proposalsStorage === 'table' && id) {
+        setIsCreatingProposalModal(false);
+        setEditingProposal({ id, __summary: true } as unknown as ErpCommercialProposal);
       }
     } else if (type === 'CONTRACT') {
       setActiveSection('CONTRATOS');
@@ -619,6 +803,11 @@ export default function ErpGestaoClickTab({
   const [invGrossAmount, setInvGrossAmount] = useState("");
   const [invCompetence, setInvCompetence] = useState(new Date().toISOString().slice(0, 7).split("-").reverse().join("/"));
   const [invDescription, setInvDescription] = useState("");
+  // Deve ficar ANTES do early return !erpData (Rules of Hooks). Em dominio novo / bootstrap
+  // frio o ERP monta com erpData=null e, ao chegar o payload, um useState depois do return
+  // estoura "Application error: a client-side exception has occurred".
+  const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
+  const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
 
   if (!erpData) {
     return (
@@ -630,7 +819,7 @@ export default function ErpGestaoClickTab({
 
   const {
     kpis,
-    proposals,
+    proposals: bootstrapProposals,
     rentalContracts,
     invoices,
     catalog,
@@ -644,6 +833,53 @@ export default function ErpGestaoClickTab({
     employees = [],
     purchaseOrders = [],
   } = erpData;
+  // Modo tabela: a lista e a pagina vinda do servidor; senao, as do bootstrap (como antes).
+  const proposals: ErpCommercialProposal[] = proposalsTableMode ? proposalsPage?.data || [] : bootstrapProposals;
+
+  const auxUsageSources = {
+    contracts: rentalContracts,
+    proposals,
+    invoices,
+    financialEntries,
+    purchaseOrders,
+  };
+
+  const openIssuedInvoiceEmail = (inv: (typeof invoices)[number]) => {
+    const contract = findLinkedRentalContract(inv, rentalContracts);
+    setEmailModalPayload(buildIssuedInvoiceEmailPayload(inv, { contract, remessaDocs: invoices }));
+  };
+
+  const handleGenerateInvoiceLink = async (inv: (typeof invoices)[number]) => {
+    const r = await copySignedInvoiceLink(inv.id);
+    onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+  };
+
+  const recordUsageSources: RecordUsageSources = {
+    contracts: rentalContracts,
+    proposals,
+    deals,
+    invoices,
+    serviceOrders,
+    financialEntries,
+    bankAccounts,
+    catalog,
+  };
+
+  const isRecordInUse = (kind: RecordUsageKind, ref: RecordUsageRef) =>
+    recordUsageTotal(countRecordUsage(kind, ref, recordUsageSources)) > 0;
+
+  const usageTextFor = (kind: RecordUsageKind, ref: RecordUsageRef) =>
+    formatRecordUsageText(countRecordUsage(kind, ref, recordUsageSources));
+
+  const blockDeleteIfUsed = (kind: RecordUsageKind, ref: RecordUsageRef): boolean => {
+    if (!isRecordInUse(kind, ref)) return false;
+    setCannotDeleteText(usageTextFor(kind, ref));
+    return true;
+  };
+  const nextProposalCodeHint = (): string =>
+    proposalsTableMode
+      ? String(erpData.proposalsNextNumber || '')
+      : String(nextGcProposalNumber(proposals.map((p) => showCode(p))));
 
   const handleSyncGestaoClick = async () => {
     setSyncingGc(true);
@@ -652,7 +888,11 @@ export default function ErpGestaoClickTab({
       if (res.ok) {
         onShowToast('Sincronização bidirecional GestãoClick + Seta Telecom concluída!');
         await onRefresh();
+      } else {
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o GestãoClick agora.');
       }
+    } catch {
+      onShowToast('Não foi possível sincronizar o GestãoClick agora.');
     } finally {
       setSyncingGc(false);
     }
@@ -667,43 +907,26 @@ export default function ErpGestaoClickTab({
     if (res.ok) {
       onShowToast(`Regime tributário do ERP alterado para ${taxRegime}!`);
       await onRefresh();
+    } else {
+      onShowToast(await gcConfigErrorMessage(res)); // Pacote I
     }
   };
 
+  // CISO 30/10: "Gerar contrato/locação" nao converte mais por sessao (o /approve exige o token do
+  // link assinado). Abre "Alterar situação" ja em "Aprovado manualmente" (justificativa obrigatoria,
+  // sem gerar contrato/fatura); a conversao acontece quando o cliente aceita pelo link.
   const handleApproveProposal = async (proposalId: string) => {
-    setBusyId(proposalId);
-    try {
-      const localProp = proposals.find((p) => p.id === proposalId || p.code === proposalId);
-      if (localProp) {
-        await fetch(`/api/erp/proposals/${encodeURIComponent(localProp.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(localProp),
-        }).catch(() => null);
-      }
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposalId)}/approve`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const j = await res.json();
-        if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
-        if (j.data?.contract) {
-          recordUpsertedContract(j.data.contract);
-          setHighlightedContractId(j.data.contract.id);
-        }
-        if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
-        const ctrNum = j.data?.contract?.contractNumber || 'LOC';
-        const invNum = j.data?.invoice?.documentNumber || 'FAT-LOC';
-        onShowToast(
-          `Proposta aprovada! Contrato ${ctrNum} e Fatura de Locação ${invNum} gerados automaticamente!`
-        );
-        await onRefresh();
-        setActiveSection('CONTRATOS');
-        setContractsSubFilter('TODOS');
-      }
-    } finally {
-      setBusyId(null);
+    const localProp = proposals.find((p) => p.id === proposalId || p.code === proposalId);
+    if (!localProp) return;
+    if (localProp.status === 'CONVERTIDA_CONTRATO' || localProp.convertedContractId) {
+      onShowToast(`O orçamento ${localProp.code} já está em contrato/faturamento.`);
+      return;
     }
+    openProposalStatusModal(localProp, false);
+    if (localProp.status !== 'APROVADA') setStatusModalSelectedStatus('APROVADA');
+    onShowToast(
+      'Contrato e fatura são gerados quando o cliente aceita pelo link assinado ("Copiar link para o cliente"). Aqui você pode registrar uma aprovação manual com justificativa.'
+    );
   };
 
   const handleRenewContract = async (ctr: ErpRentalContract, extraMonths = 12) => {
@@ -737,8 +960,8 @@ export default function ErpGestaoClickTab({
           status: 'ATIVO',
           updatedAt: new Date().toISOString(),
         };
-        await handleSaveEditedContract(updated);
-        onShowToast(`Vigência do contrato ${ctr.contractNumber} renovada por +${extraMonths} meses (até ${nextEnd})!`);
+        const saved = await handleSaveEditedContract(updated);
+        if (saved) onShowToast(`Vigência do contrato ${ctr.contractNumber} renovada por +${extraMonths} meses (até ${nextEnd})!`);
       }
     } finally {
       setBusyId(null);
@@ -802,7 +1025,8 @@ export default function ErpGestaoClickTab({
           ],
           updatedAt: new Date().toISOString(),
         };
-        await handleSaveEditedContract(updated);
+        const saved = await handleSaveEditedContract(updated);
+        if (!saved) return;
         setReadjustModal(null);
         onShowToast(
           `Reajuste anual (${index} +${pctNum.toFixed(2)}%) aplicado ao contrato ${contract.contractNumber}!`
@@ -830,14 +1054,14 @@ export default function ErpGestaoClickTab({
       equipments: nextEquipments,
       updatedAt: new Date().toISOString(),
     };
-    await handleSaveEditedContract(updated);
+    const saved = await handleSaveEditedContract(updated);
+    if (!saved) return;
     setRmaModal(null);
     onShowToast(
       `Patrimônio / S/N atualizado para ${newSerialNumber.trim()} (${newStatus}) no contrato ${contract.contractNumber}!`
     );
   };
 
-  const [rowBillingPreviewContract, setRowBillingPreviewContract] = useState<ErpRentalContract | null>(null);
   const handleGenerateContractInvoice = async (contractId: string, options?: Record<string, unknown>) => {
     setBusyId(contractId);
     try {
@@ -1009,15 +1233,15 @@ export default function ErpGestaoClickTab({
       const j = await res.json();
       if (j.data) {
         recordUpsertedProposal(j.data);
-        const publicUrl = buildPublicProposalUrl(j.data);
-        const printUrl = buildPublicProposalUrl(j.data, { autoPrint: true });
+        const publicUrl = buildInternalProposalUrl(j.data);
+        const printUrl = buildInternalProposalUrl(j.data, { autoPrint: true });
         setCreatedProposalBanner({
           proposal: j.data,
           publicUrl,
           printUrl,
         });
       }
-      onShowToast("Proposta Comercial criada com Link Público de PDF para o Cliente!");
+      onShowToast("Proposta Comercial criada! Para enviar ao cliente use \"Copiar link para o cliente\" (link assinado).");
       setShowNewProposalModal(false);
       setPropTitle("");
       setPropCustomCompanyName("");
@@ -1085,19 +1309,36 @@ export default function ErpGestaoClickTab({
   };
 
   const handleSaveEditedProposal = async (updated: ErpCommercialProposal) => {
-    const isNew = isCreatingProposalModal || !proposals.some((p) => p.id === updated.id);
+    // Modo tabela: a pagina nao tem todas as propostas; "novo" = so o fluxo de criacao.
+    const isNew = proposalsTableMode
+      ? isCreatingProposalModal
+      : isCreatingProposalModal || !proposals.some((p) => p.id === updated.id);
     const res = await fetch(
       isNew ? '/api/erp/proposals' : `/api/erp/proposals/${encodeURIComponent(updated.id)}`,
       {
         method: isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        // Controle otimista: o servidor recusa (409) se o orcamento mudou depois de aberto.
+        body: JSON.stringify(
+          !isNew && proposalsTableMode && editingProposal?.updatedAt
+            ? { ...updated, expectedUpdatedAt: editingProposal.updatedAt }
+            : updated
+        ),
       }
-    );
-    const saved: ErpCommercialProposal = res.ok ? (await res.json())?.data || updated : updated;
+    ).catch(() => null);
+    if (!res || !res.ok) {
+      // CISO 30/10: erro do servidor (400/403/409) aparece claro e nada e gravado localmente.
+      const j = res ? await res.json().catch(() => null) : null;
+      const msg =
+        (j && typeof j.error === "string" && j.error) ||
+        (!res ? "Falha de conexão." : `Erro ${res.status} ao salvar.`);
+      onShowToast(`Orçamento não salvo: ${msg}`);
+      return;
+    }
+    const saved: ErpCommercialProposal = (await res.json().catch(() => null))?.data || updated;
     recordUpsertedProposal(saved);
-    const publicUrl = buildPublicProposalUrl(saved);
-    const printUrl = buildPublicProposalUrl(saved, { autoPrint: true });
+    const publicUrl = buildInternalProposalUrl(saved);
+    const printUrl = buildInternalProposalUrl(saved, { autoPrint: true });
     setCreatedProposalBanner({
       proposal: saved,
       publicUrl,
@@ -1110,7 +1351,7 @@ export default function ErpGestaoClickTab({
     const revCount = Array.isArray(saved.versionHistory) ? saved.versionHistory.length : 1;
     onShowToast(
       isNew
-        ? `Orçamento ${saved.code} criado na Versão v${verNum}.0 e Link PDF A4 gerado!`
+        ? `Orçamento ${saved.code} criado na Versão v${verNum}.0 ! Para o cliente, use o link assinado.`
         : `Orçamento ${saved.code} salvo na Versão v${verNum}.0 (${revCount} revisão(ões) registradas no histórico)!`
     );
     await onRefresh();
@@ -1122,6 +1363,8 @@ export default function ErpGestaoClickTab({
     setStatusModalProposal(prop);
     setStatusModalSelectedStatus(prop.status);
     setStatusModalObservation("");
+    setStatusModalJustification("");
+    setStatusModalError(null);
     setStatusModalHistoryOpen(true);
     setStatusModalVersionsOpen(expandVersions);
   };
@@ -1155,84 +1398,99 @@ export default function ErpGestaoClickTab({
 
   const handleConfirmChangeProposalStatus = async () => {
     if (!statusModalProposal) return;
+    const prop = statusModalProposal;
+    const obs = statusModalObservation.trim();
+    const target = statusModalSelectedStatus;
+    const manualApproval = target === "APROVADA" && prop.status !== "APROVADA";
+    const justification = statusModalJustification.trim();
+    setStatusModalError(null);
+    // CISO 30/10: conversao em contrato/faturamento nao e mais manual (so aceite pelo link
+    // assinado ou processo interno). Aprovar manualmente exige justificativa (>= 10).
+    if (target === "CONVERTIDA_CONTRATO" && prop.status !== "CONVERTIDA_CONTRATO") {
+      setStatusModalError(
+        "A conversão em contrato/faturamento não é mais manual. Ela acontece quando o cliente aceita pelo link assinado. Use \"Aprovado manualmente\"."
+      );
+      return;
+    }
+    if (manualApproval && justification.length < 10) {
+      setStatusModalError(
+        "Informe a justificativa da aprovação manual (mínimo de 10 caracteres). Ex.: \"Cliente aceitou por telefone com o diretor em 30/10\"."
+      );
+      return;
+    }
+    if (target === prop.status && !obs) {
+      setStatusModalProposal(null);
+      return;
+    }
     setSavingProposalStatus(true);
     try {
-      const prop = statusModalProposal;
-      const obs = statusModalObservation.trim();
-      const approving =
-        statusModalSelectedStatus === "APROVADA" ||
-        statusModalSelectedStatus === "CONVERTIDA_CONTRATO";
-
-      // REGRA OBRIGATÓRIA: Para orçamentos de locação, ao aprovar já entra em contrato para seguir com faturamento
-      if (approving && isRentalProposal(prop)) {
-        const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}/approve`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            statusObservation:
-              obs || "Proposta aprovada — Contrato de Locação e Faturamento gerados automaticamente",
-            proposal: prop,
-          }),
-        });
-        if (res.ok) {
-          const j = await res.json();
-          if (j.data?.proposal) recordUpsertedProposal(j.data.proposal);
-          if (j.data?.contract) {
-            recordUpsertedContract(j.data.contract);
-            setHighlightedContractId(j.data.contract.id);
-          }
-          if (j.data?.invoice) recordUpsertedInvoice(j.data.invoice);
-          const ctrNum = j.data?.contract?.contractNumber || "LOC";
-          const invNum = j.data?.invoice?.documentNumber || "FAT-LOC";
-          onShowToast(
-            `Situação alterada para Concretizado! Contrato ${ctrNum} e Fatura ${invNum} gerados para faturamento.`
-          );
-          setStatusModalProposal(null);
-          await onRefresh();
-          setActiveSection("CONTRATOS");
-          setContractsSubFilter("TODOS");
-          return;
-        }
-      }
-
       const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: statusModalSelectedStatus,
+          status: target,
           statusObservation:
-            obs ||
-            `Situação alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}`,
-          updatedBy: activeUser?.name || "Sistema STI-hub",
+            obs || `Situação alterada para ${getGestaoClickSituationSpec(target).label}`,
+          ...(manualApproval ? { approvalJustification: justification } : {}),
         }),
-      });
-      if (res.ok) {
-        const j = await res.json();
-        const saved: ErpCommercialProposal = j?.data || {
-          ...prop,
-          status: statusModalSelectedStatus,
-        };
-        recordUpsertedProposal(saved);
-        onShowToast(
-          `Situação do orçamento ${prop.code} alterada para ${getGestaoClickSituationSpec(statusModalSelectedStatus).label}!`
-        );
-        setStatusModalProposal(saved);
-        setStatusModalObservation("");
-        await onRefresh();
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        const j = res ? await res.json().catch(() => null) : null;
+        const msg =
+          (j && typeof j.error === "string" && j.error) ||
+          (!res
+            ? "Falha de conexão. A situação não foi alterada."
+            : res.status === 403
+              ? "Você não tem permissão para esta mudança de situação."
+              : res.status === 400
+                ? "Dados inválidos para a mudança de situação."
+                : `Não foi possível alterar a situação (erro ${res.status}).`);
+        setStatusModalError(msg);
+        onShowToast(`Situação não alterada: ${msg}`);
+        return;
       }
+      const j = await res.json().catch(() => null);
+      const saved: ErpCommercialProposal = j?.data || { ...prop, status: target };
+      recordUpsertedProposal(saved);
+      onShowToast(
+        manualApproval
+          ? `Orçamento ${showCode(prop)} aprovado manualmente (sem gerar contrato/fatura).`
+          : `Situação do orçamento ${showCode(prop)} alterada para ${getGestaoClickSituationSpec(target).label}!`
+      );
+      setStatusModalProposal(saved);
+      setStatusModalObservation("");
+      setStatusModalJustification("");
+      await onRefresh();
     } finally {
       setSavingProposalStatus(false);
     }
   };
 
-  const handleDuplicateProposal = async (prop: ErpCommercialProposal) => {
+  // Numeracao GestaoClick exibida (PROP-AAAA-NNN / GC-ORC-N legados => numero sequencial GC).
+  // Sem hook: este trecho fica depois do retorno antecipado (!erpData) do componente.
+  const proposalDisplayCodes = buildProposalDisplayCodeMap(proposals);
+  const showCode = (p: Pick<ErpCommercialProposal, 'id' | 'code'>): string =>
+    proposalDisplayCodes.get(p.id) || formatProposalDisplayCode(p.code);
+
+  const handleDuplicateProposal = async (propIn: ErpCommercialProposal) => {
     setOpenProposalMenuId(null);
     setExpandedProposalSubmenu(null);
-    const nextNum = proposals.length + 1;
+    // Modo tabela: a copia parte do registro completo (o resumo da lista nao tem os textos).
+    let prop = propIn;
+    if ((propIn as unknown as Record<string, unknown>).__summary) {
+      const full = await fetch(`/api/erp/proposals/${encodeURIComponent(propIn.id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (!full || !full.data || Array.isArray(full.data)) {
+        onShowToast('Não foi possível copiar o orçamento agora. Tente de novo.');
+        return;
+      }
+      prop = full.data as ErpCommercialProposal;
+    }
     const copyPayload: Partial<ErpCommercialProposal> = {
       ...prop,
       id: `prop-copy-${Date.now()}`,
-      code: `${prop.code}-COPIA-${nextNum}`,
+      code: nextProposalCodeHint(),
       title: `${prop.title} (Cópia)`,
       status: "RASCUNHO",
       convertedContractId: null,
@@ -1249,7 +1507,7 @@ export default function ErpGestaoClickTab({
     if (res.ok) {
       const j = await res.json();
       if (j.data) recordUpsertedProposal(j.data);
-      onShowToast(`Cópia do orçamento ${prop.code} gerada com sucesso!`);
+      onShowToast(`Cópia do orçamento ${showCode(prop)} gerada com sucesso!`);
       await onRefresh();
     }
   };
@@ -1260,11 +1518,16 @@ export default function ErpGestaoClickTab({
   ) => {
     setOpenProposalMenuId(null);
     setExpandedProposalSubmenu(null);
-    const publicUrl = buildPublicProposalUrl(prop);
 
     if (target === "E_ASSINATURA") {
-      window.open(publicUrl, "_blank", "noopener,noreferrer");
-      onShowToast(`Proposta ${prop.code} aberta para e-Assinatura ICP-Brasil / Gov.br!`);
+      // Checagem final v4: a e-Assinatura e feita pelo cliente no link ASSINADO (o link interno
+      // sem token nao abre para o cliente). Abre o link assinado e o copia para enviar.
+      const r = await openWithSignedProposalLink(prop.id, (signedUrl) => signedUrl);
+      onShowToast(
+        r.ok
+          ? `Link assinado da proposta ${showCode(prop)} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil / Gov.br).`
+          : `Não foi possível gerar o link assinado: ${r.error}`
+      );
       return;
     }
     if (target === "COPIA") {
@@ -1278,7 +1541,7 @@ export default function ErpGestaoClickTab({
     if (target === "VENDA") {
       const salePayload = {
         id: `so-from-${prop.id}-${Date.now()}`,
-        code: `PV-${prop.code}`,
+        code: `PV-${showCode(prop)}`,
         customerName: prop.companyName,
         customerCnpj: prop.companyCnpj,
         sellerName: prop.sellerName || activeUser?.name || "",
@@ -1294,19 +1557,19 @@ export default function ErpGestaoClickTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(salePayload),
       }).catch(() => null);
-      onShowToast(`Pedido de Venda PV-${prop.code} gerado a partir do orçamento!`);
+      onShowToast(`Pedido de Venda PV-${showCode(prop)} gerado a partir do orçamento!`);
       await onRefresh();
       return;
     }
     if (target === "OS") {
       const osPayload = {
         id: `os-from-${prop.id}-${Date.now()}`,
-        code: `OS-${prop.code}`,
+        code: `OS-${showCode(prop)}`,
         customerName: prop.companyName,
         customerCnpj: prop.companyCnpj,
         technicianName: "Equipe Engenharia & NOC Seta Telecom",
         equipmentSummary: prop.items.map((i) => `${i.quantity}x ${i.description}`).join(" • "),
-        serviceDescription: `Implantação e ativação referente ao Orçamento ${prop.code} (${prop.title})`,
+        serviceDescription: `Implantação e ativação referente ao Orçamento ${showCode(prop)} (${prop.title})`,
         status: "ABERTA",
         priority: "ALTA",
         slaTargetHours: 4,
@@ -1318,7 +1581,7 @@ export default function ErpGestaoClickTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(osPayload),
       }).catch(() => null);
-      onShowToast(`Ordem de Serviço OS-${prop.code} gerada a partir do orçamento!`);
+      onShowToast(`Ordem de Serviço OS-${showCode(prop)} gerada a partir do orçamento!`);
       await onRefresh();
       return;
     }
@@ -1331,7 +1594,7 @@ export default function ErpGestaoClickTab({
           statusObservation: "Enviado para Produção / Separação Técnica de Hardware e Bancada",
         }),
       }).catch(() => null);
-      onShowToast(`Orçamento ${prop.code} encaminhado para Produção / Bancada Técnica!`);
+      onShowToast(`Orçamento ${showCode(prop)} encaminhado para Produção / Bancada Técnica!`);
       await onRefresh();
     }
   };
@@ -1369,30 +1632,41 @@ export default function ErpGestaoClickTab({
           <Pencil className="w-3.5 h-3.5" />
         </button>
 
-        {/* 3. Botão Menu 3 Pontos Verticais GestãoClick */}
-        <button
-          type="button"
-          onClick={() => {
-            if (isMenuOpen) {
-              setOpenProposalMenuId(null);
+        <RowKebabMenu
+          open={isMenuOpen}
+          onOpenChange={(next) => {
+            if (next) {
+              setOpenProposalMenuId(prop.id);
               setExpandedProposalSubmenu(null);
             } else {
-              setOpenProposalMenuId(prop.id);
+              setOpenProposalMenuId(null);
               setExpandedProposalSubmenu(null);
             }
           }}
+          width={224}
+          estimatedHeight={420}
+          className="max-h-[70vh]"
+          testId="proposal-gestao-click-menu"
           title="Mais opções do orçamento (GestãoClick)"
-          className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
-            isMenuOpen
-              ? "bg-[#1b2559] text-white border-[#1b2559]"
-              : "border-slate-200 bg-white text-slate-700 hover:bg-[#1b2559] hover:text-white hover:border-[#1b2559]"
-          }`}
+          renderTrigger={({ ref, open, toggle }) => (
+            <button
+              ref={ref}
+              type="button"
+              onClick={toggle}
+              title="Mais opções do orçamento (GestãoClick)"
+              aria-label="Mais opções do orçamento (GestãoClick)"
+              aria-expanded={open}
+              aria-haspopup="menu"
+              className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
+                open
+                  ? "bg-[#1b2559] text-white border-[#1b2559]"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-[#1b2559] hover:text-white hover:border-[#1b2559]"
+              }`}
+            >
+              <span className="font-semibold text-sm leading-none select-none">&#8942;</span>
+            </button>
+          )}
         >
-          <span className="font-black text-sm leading-none select-none">&#8942;</span>
-        </button>
-
-        {isMenuOpen && (
-          <div className="absolute right-0 top-9 w-56 bg-white rounded-md border border-slate-200 shadow-xl py-1.5 z-50 text-left text-xs text-slate-700">
             {/* Ver proposta */}
             <a
               href={publicUrl}
@@ -1483,9 +1757,28 @@ export default function ErpGestaoClickTab({
                 <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                    data-testid="menu-copy-client-link"
+                    onClick={async () => {
+                      // t33u: link curto assinado (/p/<codigo>) da versao atual.
                       setOpenProposalMenuId(null);
+                      const r = await copySignedProposalLink(prop.id);
+                      onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+                    }}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
+                  >
+                    Copiar link do cliente
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="menu-share-email"
+                    onClick={async () => {
+                      // Link assinado (29/10): o cliente so abre a proposta com o link gerado no servidor.
+                      setOpenProposalMenuId(null);
+                              const signed = await copySignedProposalLink(prop.id);
+                      if (!signed.ok) {
+                        onShowToast(signed.error);
+                        return;
+                      }
                       setEmailModalPayload({
                         docType: "PROPOSAL",
                         recipientName: prop.careOf || prop.contactName || prop.companyName,
@@ -1494,43 +1787,46 @@ export default function ErpGestaoClickTab({
                         companyCnpj: prop.companyCnpj,
                         documentCode: prop.code,
                         amountBrl: prop.monthlyRecurringTotal,
-                        publicPdfUrl: publicUrl,
+                        publicPdfUrl: signed.url,
                         proposalId: prop.id,
-                        customSubject: `Proposta Comercial ${prop.code} — Seta Telecom (${prop.companyName})`,
+                        customSubject: `Proposta Comercial ${showCode(prop)} — Seta Telecom (${prop.companyName})`,
                       });
-                      onShowToast(`Link público de ${prop.code} copiado para envio por e-mail!`);
+                      onShowToast(`Link assinado de ${showCode(prop)} copiado para envio por e-mail!`);
                     }}
                     className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por e-mail
                   </button>
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(
-                      `Olá! Segue o link da Proposta Comercial ${prop.code} da Seta Telecom (${prop.companyName}): ${publicUrl}`
-                    )}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                  <button
+                    type="button"
+                    onClick={async () => {
                       setOpenProposalMenuId(null);
+                      const r = await openWithSignedProposalLink(prop.id, (url) =>
+                        `https://wa.me/?text=${encodeURIComponent(
+                          `Olá! Segue o link da Proposta Comercial ${showCode(prop)} da Seta Telecom (${prop.companyName}): ${url}`
+                        )}`
+                      );
+                      if (!r.ok) onShowToast(r.error);
                     }}
-                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                    className="w-full text-left block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por WhatsApp
-                  </a>
-                  <a
-                    href={`sms:?&body=${encodeURIComponent(
-                      `Seta Telecom - Proposta Comercial ${prop.code}: ${publicUrl}`
-                    )}`}
-                    onClick={() => {
-                      navigator.clipboard?.writeText(publicUrl);
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
                       setOpenProposalMenuId(null);
-                      onShowToast(`Link copiado para envio por SMS!`);
+                      const r = await openWithSignedProposalLink(
+                        prop.id,
+                        (url) => `sms:?&body=${encodeURIComponent(`Seta Telecom - Proposta Comercial ${showCode(prop)}: ${url}`)}`,
+                        true
+                      );
+                      onShowToast(r.ok ? `Link assinado copiado para envio por SMS!` : r.error);
                     }}
-                    className="block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700"
+                    className="w-full text-left block py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
                     Por SMS
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -1587,7 +1883,7 @@ export default function ErpGestaoClickTab({
                   <button
                     type="button"
                     onClick={() => handleGenerateFromProposalMenu(prop, "CONTRATO")}
-                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-emerald-800 cursor-pointer"
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-slate-800 cursor-pointer"
                   >
                     Contrato
                   </button>
@@ -1614,17 +1910,20 @@ export default function ErpGestaoClickTab({
             {/* Excluir */}
             <button
               type="button"
+              title={isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId }) ? 'Em uso' : 'Excluir'}
+              aria-disabled={isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId })}
               onClick={() => {
                 setOpenProposalMenuId(null);
-                handleDeleteProposal(prop);
+                const ref = { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId };
+                if (blockDeleteIfUsed('proposal', ref)) return;
+                void handleDeleteProposal(prop);
               }}
-              className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center gap-2.5 text-rose-600 font-semibold cursor-pointer text-left"
+              className={`w-full px-3.5 py-2 flex items-center gap-2.5 font-semibold text-left ${isRecordInUse('proposal', { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId }) ? 'text-slate-400 cursor-not-allowed' : 'hover:bg-rose-50 text-rose-600 cursor-pointer'}`}
             >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
               <span>Excluir</span>
             </button>
-          </div>
-        )}
+        </RowKebabMenu>
       </div>
     );
   };
@@ -1663,7 +1962,7 @@ export default function ErpGestaoClickTab({
 
       recordUpsertedProposal(restoredProposal);
       setStatusModalProposal(restoredProposal);
-      onShowToast(`Versão ${entry.version} restaurada com sucesso no orçamento ${prop.code}!`);
+      onShowToast(`Versão ${entry.version} restaurada com sucesso no orçamento ${showCode(prop)}!`);
       await onRefresh();
     } finally {
       setSavingProposalStatus(false);
@@ -1671,31 +1970,70 @@ export default function ErpGestaoClickTab({
   };
 
   const handleDeleteProposal = async (prop: ErpCommercialProposal) => {
-    await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
+    const ref = { id: prop.id, code: prop.code, convertedContractId: prop.convertedContractId, convertedInvoiceId: prop.convertedInvoiceId };
+    if (blockDeleteIfUsed('proposal', ref)) return;
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir a proposta ${showCode(prop)}?`)) return;
+    const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir a proposta.');
+      return;
+    }
     recordDeletedProposal(prop.id);
-    onShowToast(`Proposta ${prop.code} excluída.`);
+    onShowToast(`Proposta ${showCode(prop)} excluída.`);
     await onRefresh();
   };
 
-  const handleSaveEditedContract = async (updated: ErpRentalContract) => {
+  const handleSaveEditedContract = async (updated: ErpRentalContract): Promise<boolean> => {
     const isNew = !rentalContracts.some((c) => c.id === updated.id);
-    const res = await fetch(
-      isNew ? '/api/erp/rental-contracts' : `/api/erp/rental-contracts/${encodeURIComponent(updated.id)}`,
-      {
-        method: isNew ? 'POST' : 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      }
-    );
-    const saved: ErpRentalContract = res.ok ? (await res.json())?.data || updated : updated;
+    let res: Response;
+    try {
+      res = await fetch(
+        isNew ? '/api/erp/rental-contracts' : `/api/erp/rental-contracts/${encodeURIComponent(updated.id)}`,
+        {
+          method: isNew ? 'POST' : 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }
+      );
+    } catch {
+      onShowToast('Não foi possível salvar o contrato. Tente de novo.');
+      return false;
+    }
+    const json = (await res.json().catch(() => null)) as { data?: ErpRentalContract; error?: string } | null;
+    if (!res.ok) {
+      const serverError = typeof json?.error === 'string' ? json.error.trim() : '';
+      onShowToast(serverError || 'Não foi possível salvar o contrato. Tente de novo.');
+      return false;
+    }
+    const saved: ErpRentalContract = json?.data || updated;
     recordUpsertedContract(saved);
     setEditingContract(null);
     onShowToast(`Contrato ${saved.contractNumber} salvo com sucesso!`);
     await onRefresh();
+    return true;
   };
 
-  const handleDeleteContract = async (ctr: ErpRentalContract) => {
-    await fetch(`/api/erp/rental-contracts/${encodeURIComponent(ctr.id)}`, { method: 'DELETE' });
+  const handleDeleteContract = async (ctr: ErpRentalContract, opts?: { alreadyConfirmed?: boolean }) => {
+    const ref = { id: ctr.id, contractNumber: ctr.contractNumber };
+    if (blockDeleteIfUsed('rentalContract', ref)) return;
+    if (!opts?.alreadyConfirmed && typeof window !== 'undefined' && !window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) return;
+    const res = await fetch(`/api/erp/rental-contracts/${encodeURIComponent(ctr.id)}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir o contrato.');
+      return;
+    }
     recordDeletedContract(ctr.id);
     onShowToast(`Contrato ${ctr.contractNumber} excluído.`);
     await onRefresh();
@@ -1733,12 +2071,21 @@ export default function ErpGestaoClickTab({
       initialValues,
       fields,
       readOnly: options?.readOnly,
+      deleteInUse:
+        collection === 'bankAccounts' && options?.deleteId
+          ? isRecordInUse('bankAccount', { id: options.deleteId, name: options.deleteLabel || String(initialValues.name || '') })
+          : false,
+      deleteUsageText:
+        collection === 'bankAccounts' && options?.deleteId
+          ? usageTextFor('bankAccount', { id: options.deleteId, name: options.deleteLabel || String(initialValues.name || '') })
+          : undefined,
       onDelete: options?.deleteId
         ? async () => {
             await handleDeleteCollectionRecord(
               collection,
               options.deleteId!,
-              options.deleteLabel || title
+              options.deleteLabel || title,
+              { name: options.deleteLabel || String(initialValues.name || '') }
             );
             setGenericModal(null);
           }
@@ -1768,11 +2115,23 @@ export default function ErpGestaoClickTab({
   const handleDeleteCollectionRecord = async (
     collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
     id: string,
-    label: string
+    label: string,
+    extra?: { name?: string }
   ) => {
-    await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
+    if (collection === 'bankAccounts' && blockDeleteIfUsed('bankAccount', { id, name: extra?.name })) return;
+    const res = await fetch(`/api/erp/records/${collection}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+    const json = await res.json().catch(() => null);
+    const blocked = parseRecordInUseResponse(json);
+    if (blocked) {
+      setCannotDeleteText(blocked.usageText);
+      return;
+    }
+    if (!res.ok) {
+      onShowToast((json && json.error) || 'Não foi possível excluir o registro.');
+      return;
+    }
     if (collection === 'purchaseOrders') recordDeletedPurchaseOrder(id);
     if (collection === 'suppliers') recordDeletedSupplier(id);
     if (collection === 'employees') recordDeletedEmployee(id);
@@ -1786,7 +2145,7 @@ export default function ErpGestaoClickTab({
     { id: 'INICIO', label: 'Início', icon: Home },
     { id: 'CADASTROS', label: 'Cadastros', icon: Users, count: companies.length + suppliers.length + employees.length },
     { id: 'ITENS', label: 'Itens', icon: Package, count: catalog.length },
-    { id: 'ORCAMENTOS', label: 'Orçamentos / Propostas', icon: FileText, count: proposals.length, hot: true },
+    { id: 'ORCAMENTOS', label: 'Orçamentos / Propostas', icon: FileText, count: proposalsTableMode ? Number(erpData.proposalsTotal ?? proposalsPage?.counts.TODOS ?? 0) : proposals.length, hot: true },
     { id: 'VENDAS', label: 'Vendas', icon: ShoppingCart, count: salesOrders.length },
     { id: 'ORDENS_SERVICOS', label: 'Ordens de serviços', icon: Wrench, count: serviceOrders.length },
     { id: 'ESTOQUE', label: 'Estoque', icon: Boxes, count: catalog.length + purchaseOrders.length },
@@ -1827,6 +2186,8 @@ export default function ErpGestaoClickTab({
       contractNumber: `LOC-2026-${nextNum}`,
       title: prop.title || `Contrato de Locação — ${prop.companyName}`,
       modality: prop.modality === 'SERVICE' ? 'SERVICO' : prop.modality === 'HYBRID' ? 'HIBRIDO' : 'LOCACAO',
+      costCenter: prop.costCenter || '',
+      chartOfAccounts: prop.chartOfAccounts || '',
       companyId: prop.companyId || null,
       companyName: prop.companyName || '',
       companyCnpj: prop.companyCnpj || '',
@@ -1890,16 +2251,15 @@ export default function ErpGestaoClickTab({
     templateOverrides?: Partial<ErpCommercialProposal>
   ) => {
     const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : 'LOCACAO');
-    const nextNum = proposals.length + 1;
-
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
-      code: `PROP-2026-00${nextNum}`,
+      code: nextProposalCodeHint(),
       title: '',
       budgetType: inferredType,
       storeName: gestaoClickConfig.storeName || 'Matriz',
       salesChannel: '',
       costCenter: '',
+      chartOfAccounts: '',
       proposalDate: new Date().toISOString().slice(0, 10),
       deliveryLeadTime: '',
       deliveryForecast: '',
@@ -1992,7 +2352,7 @@ export default function ErpGestaoClickTab({
   };
 
   const handleNavigateToFiscalFromContract = (nfeNumberOrQuery: string) => {
-    setActiveSubId("FIS_TODOS");
+    setActiveSubId("FIS_TODAS");
     setInvoicesStatusFilter("TODOS");
     setInvoicesSearchQuery(nfeNumberOrQuery);
     setActiveSection("FISCAL");
@@ -2063,9 +2423,9 @@ export default function ErpGestaoClickTab({
       const q = normErp(proposalsSearch);
       const qDigits = proposalsSearch.replace(/\D+/g, '');
       const hay = normErp(
-        `${p.code} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
+        `${p.code} ${showCode(p)} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
       );
-      const digitsHay = `${p.code} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
+      const digitsHay = `${showCode(p)} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
       return hay.includes(q) || (qDigits.length >= 2 && digitsHay.includes(qDigits));
     });
 
@@ -2103,52 +2463,49 @@ export default function ErpGestaoClickTab({
     return (
       <div className="space-y-4">
         {/* CABEÇALHO E NAVEGAÇÃO DE SUB-MENUS DE ORÇAMENTOS (GESTÃOCLICK) */}
-        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3.5">
+        <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                Orçamentos &gt;{' '}
-                {effectiveOrcTab === 'ORC_PRODUTOS'
-                  ? 'Produtos e Equipamentos'
+            <h2 className="text-base font-semibold text-slate-900">
+              {effectiveOrcTab === 'ORC_PRODUTOS'
+                ? 'Orçamentos de produtos'
+                : effectiveOrcTab === 'ORC_LOCACAO'
+                  ? 'Orçamentos de locação'
                   : effectiveOrcTab === 'ORC_SERVICOS'
-                    ? 'Serviços Técnicos TI/Telecom'
+                    ? 'Orçamentos de serviços'
                     : effectiveOrcTab === 'ORC_AUXILIARES'
-                      ? 'Opções Auxiliares'
-                      : 'Todos os Orçamentos e Propostas'}
-              </span>
-              <h2 className="text-base font-extrabold text-slate-900">
-                Orçamentos &amp; Propostas Comerciais ({filteredProposals.length} de {proposals.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Gestão completa de orçamentos de Produtos (786 itens), Serviços (39 itens), frete, descontos, parcelas e link público PDF A4.
-              </p>
-            </div>
+                      ? 'Opções auxiliares'
+                      : 'Orçamentos'}
+            </h2>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-md border border-slate-300 bg-slate-50 p-0.5 text-xs">
+              {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+              <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5 text-xs" role="group" aria-label="Modo de visualização">
                 <button
                   type="button"
                   onClick={() => setProposalsViewMode('CARDS')}
-                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                  aria-pressed={proposalsViewMode === 'CARDS'}
+                  className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
                     proposalsViewMode === 'CARDS'
-                      ? 'bg-[#1e3a6e] text-white'
+                      ? 'bg-slate-100 text-[#1e3a6e]'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Visão Cards Executivos
+                  Cards
                 </button>
                 <button
                   type="button"
                   onClick={() => setProposalsViewMode('TABLE')}
-                  className={`px-2.5 py-1 rounded font-bold cursor-pointer ${
+                  aria-pressed={proposalsViewMode === 'TABLE'}
+                  className={`px-2.5 py-1 rounded font-medium cursor-pointer ${
                     proposalsViewMode === 'TABLE'
-                      ? 'bg-[#1e3a6e] text-white'
+                      ? 'bg-slate-100 text-[#1e3a6e]'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Visão Tabela GestãoClick
+                  Tabela
                 </button>
               </div>
+              )}
 
               <button
                 type="button"
@@ -2161,20 +2518,16 @@ export default function ErpGestaoClickTab({
                         : 'LOCACAO'
                   )
                 }
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> Novo Orçamento
+                <Plus className="w-4 h-4" /> Novo orçamento
               </button>
             </div>
           </div>
 
-          {/* BARRA DE SELEÇÃO E EDIÇÃO RÁPIDA DE ORÇAMENTOS (SUB-ITENS NA VERTICAL ESQUERDA) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <div className="flex flex-wrap items-center gap-2">
-              
-            </div>
-
-            {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+          {/* FILTROS (submódulos ficam só na sidebar, sem barra de abas) */}
+          {effectiveOrcTab !== 'ORC_AUXILIARES' && (
+          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -2190,15 +2543,15 @@ export default function ErpGestaoClickTab({
                   aria-label="Filtrar Orçamentos por Situação"
                   value={proposalsStatusFilter}
                   onChange={(e) => setProposalsStatusFilter(e.target.value)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                  className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-medium text-slate-700"
                 >
-                  <option value="TODOS">Situação: Todas ({tabFiltered.length})</option>
-                  <option value="RASCUNHO">Em Aberto ({tabFiltered.filter((p) => p.status === 'RASCUNHO').length})</option>
-                  <option value="ENVIADA">Enviado ({tabFiltered.filter((p) => p.status === 'ENVIADA').length})</option>
-                  <option value="EM_NEGOCIACAO">Em Negociação ({tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})</option>
-                  <option value="APROVADA">Aprovado ({tabFiltered.filter((p) => p.status === 'APROVADA').length})</option>
-                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato ({tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})</option>
-                  <option value="RECUSADA">Cancelado / Recusado ({tabFiltered.filter((p) => p.status === 'RECUSADA').length})</option>
+                  <option value="TODOS">Situação: Todas{proposalsTableMode ? '' : ` (${tabFiltered.length})`}</option>
+                  <option value="RASCUNHO">Em Aberto{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RASCUNHO').length})`}</option>
+                  <option value="ENVIADA">Enviado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'ENVIADA').length})`}</option>
+                  <option value="EM_NEGOCIACAO">Em Negociação{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})`}</option>
+                  <option value="APROVADA">Aprovado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'APROVADA').length})`}</option>
+                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})`}</option>
+                  <option value="RECUSADA">Cancelado / Recusado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RECUSADA').length})`}</option>
                 </select>
                 {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || effectiveOrcTab !== 'TODOS') && (
                   <button
@@ -2208,68 +2561,69 @@ export default function ErpGestaoClickTab({
                       setProposalsStatusFilter('TODOS');
                       setActiveSubId('ORC_TODOS');
                     }}
-                    className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                    className="px-1 py-1.5 text-xs text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
                   >
                     Limpar filtros
                   </button>
                 )}
+                {proposalsTableMode && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600" aria-live="polite">
+                    <span>
+                      {proposalsPageLoading
+                        ? 'Carregando…'
+                        : (proposalsPage?.total || 0) === 0
+                          ? 'Nenhum orçamento'
+                          : `${proposalsOffset + 1}–${Math.min(proposalsOffset + PROPOSALS_PAGE_SIZE, proposalsPage?.total || 0)} de ${proposalsPage?.total || 0}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={proposalsOffset === 0 || proposalsPageLoading}
+                      onClick={() => setProposalsOffset((o) => Math.max(0, o - PROPOSALS_PAGE_SIZE))}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={proposalsPageLoading || proposalsOffset + PROPOSALS_PAGE_SIZE >= (proposalsPage?.total || 0)}
+                      onClick={() => setProposalsOffset((o) => o + PROPOSALS_PAGE_SIZE)}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-            {[
-              { id: "ORC_TODOS", match: "TODOS", label: `Todos os Orçamentos (${proposals.length})` },
-              { id: "ORC_PRODUTOS", match: "ORC_PRODUTOS", label: `Propostas de Produtos (${proposals.filter(isProductsOnlyProp).length})` },
-              { id: "ORC_LOCACAO", match: "ORC_LOCACAO", label: `Propostas de Locação (${proposals.filter(isRentalProp).length})` },
-              { id: "ORC_SERVICOS", match: "ORC_SERVICOS", label: `Propostas de Serviços (${proposals.filter(hasServiceItem).length})` },
-              { id: "ORC_AUXILIARES", match: "ORC_AUXILIARES", label: "Opções Auxiliares & Templates" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveSubId(tab.id)}
-                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                  effectiveOrcTab === tab.match
-                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          )}
         </div>
 
         {/* PAINEL DE OPÇÕES AUXILIARES DE ORÇAMENTOS (ORC_AUXILIARES) */}
         {effectiveOrcTab === 'ORC_AUXILIARES' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <h3 className="text-sm font-extrabold text-slate-900">
-                Situações de Orçamento &amp; Canais de Venda (GestãoClick)
+              <h3 className="text-sm font-semibold text-slate-900">
+                Situações e canais de venda
               </h3>
-              <p className="text-xs text-slate-500">
-                Fluxo de aprovação comercial sincronizado com o Kanban de Negócios e Geração Automática de Contratos.
-              </p>
-              <div className="space-y-2 text-xs">
+              <div className="text-xs">
                 {[
                   { code: 'RASCUNHO', name: 'Em Aberto (Rascunho Comercial)', color: 'bg-slate-200 text-slate-800' },
-                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Público PDF Ativo)', color: 'bg-blue-100 text-blue-800' },
+                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Assinado)', color: 'bg-blue-100 text-blue-800' },
                   { code: 'EM_NEGOCIACAO', name: 'Em Negociação / Revisão de Escopo', color: 'bg-amber-100 text-amber-800' },
                   { code: 'APROVADA', name: 'Aprovado pelo Decisor', color: 'bg-emerald-100 text-emerald-800' },
-                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-600 text-white' },
+                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-100 text-emerald-900' },
                 ].map((st) => (
-                  <div key={st.code} className="flex items-center justify-between p-2 rounded border border-slate-200 bg-slate-50">
-                    <span className="font-semibold text-slate-800">{st.name}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${st.color}`}>
+                  <div key={st.code} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                    <span className="text-slate-800">{st.name}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.color}`}>
                       {proposals.filter((p) => p.status === st.code).length} orçamento(s)
                     </span>
                   </div>
                 ))}
               </div>
               <div className="pt-2 border-t border-slate-200">
-                <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
-                  Canais de Venda Habilitados na Loja Matriz #118887:
+                <span className="text-[11px] font-medium text-slate-700 block mb-1.5">
+                  Canais de venda habilitados
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
@@ -2280,7 +2634,7 @@ export default function ErpGestaoClickTab({
                     'Cliente Recorrente (Upsell)',
                     'E-commerce / Portal',
                   ].map((ch) => (
-                    <span key={ch} className="px-2.5 py-1 rounded-full bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[11px] font-bold">
+                    <span key={ch} className="px-2.5 py-1 rounded-full bg-white text-slate-700 border border-slate-200 text-[11px] font-medium">
                       {ch}
                     </span>
                   ))}
@@ -2289,181 +2643,127 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Seletor de Template Padrão A4 &amp; Modelos de Proposta
-                </h3>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">
-                  Padrão Ativo: {defaultProposalTemplateStyle}
-                </span>
-              </div>
-              <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <label className="block font-extrabold text-slate-800">
-                  Escolher Template Visual Padrão para Propostas (PDF A4):
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                      { id: "CLEAN_CORPORATE_LIGHT", label: "Opção 1 — Clean Corporate Light [Padrão]" },
-                      { id: "MINIMAL_SWISS_PAPER", label: "Opção 2 — Minimal Swiss Paper" },
-                      { id: "EXECUTIVE_SOFT_INDIGO", label: "Opção 3 — Executive Soft Indigo" },
-                    ].map((tpl) => {
-                      const isActive = defaultProposalTemplateStyle === tpl.id;
-                      return (
+              <h3 className="text-sm font-semibold text-slate-900">Modelos de proposta</h3>
+              <div className="text-xs border border-slate-200 rounded-md divide-y divide-slate-100">
+                {([
+                  {
+                    id: "CLEAN_CORPORATE_LIGHT",
+                    label: "Clean Corporate Light",
+                    exampleHref: "/proposta/prop-gc-4695",
+                    budgetType: "LOCACAO",
+                    preset: {
+                      title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
+                      templateStyle: "CLEAN_CORPORATE_LIGHT",
+                      slaTier: "CORPORATIVO_8X5_NBD",
+                      slaAvailabilityPercent: "99,50%",
+                      slaResponseHours: 4,
+                      deliveryLeadTime: "7 dias úteis após o aceite",
+                      deliveryForecast: "7 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Apresentamos nossa proposta comercial para fornecimento em regime de Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX) com cobertura de Spare Parts e suporte Seta Telecom.",
+                    },
+                  },
+                  {
+                    id: "MINIMAL_SWISS_PAPER",
+                    label: "Minimal Swiss Paper",
+                    exampleHref: "/proposta/prop-gc-4695",
+                    budgetType: "PRODUTOS",
+                    preset: {
+                      title: "Orçamento Comercial — Switching Corporativo, Firewalls NGFW & Wi-Fi 6",
+                      templateStyle: "MINIMAL_SWISS_PAPER",
+                      slaTier: "SEM_SLA_ESPECIFICO",
+                      deliveryLeadTime: "7 dias úteis após o aceite",
+                      deliveryForecast: "7 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Apresentamos a folha de orçamento comercial com especificações técnicas, valores mensais e condições de fornecimento Seta Telecom.",
+                    },
+                  },
+                  {
+                    id: "EXECUTIVE_SOFT_INDIGO",
+                    label: "Executive Soft Indigo",
+                    exampleHref: "/proposta/prop-gc-4695",
+                    budgetType: "CONJUNTO",
+                    preset: {
+                      title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
+                      templateStyle: "EXECUTIVE_SOFT_INDIGO",
+                      slaTier: "PADRAO_COMERCIAL_8H",
+                      slaAvailabilityPercent: "99,00%",
+                      slaResponseHours: 8,
+                      deliveryLeadTime: "10 dias úteis após o aceite",
+                      deliveryForecast: "10 dias úteis após o aceite",
+                      contractMonths: 24,
+                      introductionText:
+                        "Proposta técnico-consultiva contemplando infraestrutura de redes, segurança multi-vendor, suporte NOC 24/7 e locação HaaS.",
+                    },
+                  },
+                ] as const).map((tpl, idx) => {
+                  const isActive = defaultProposalTemplateStyle === tpl.id;
+                  const tplStyle = tpl.id as NonNullable<ErpCommercialProposal["templateStyle"]>;
+                  return (
+                    <div key={tpl.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900">
+                          {idx + 1}. {tpl.label}
+                        </span>
+                        {isActive && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-medium">
+                            Padrão
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        {!isActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDefaultProposalTemplateStyle(tplStyle);
+                              if (typeof window !== "undefined") {
+                                try {
+                                  window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
+                                } catch {
+                                  // ignore
+                                }
+                              }
+                              onShowToast(`Modelo padrão alterado para: ${tpl.label}`);
+                            }}
+                            className="text-[#1e3a6e] hover:underline cursor-pointer"
+                          >
+                            Definir como padrão
+                          </button>
+                        )}
                         <button
-                          key={tpl.id}
                           type="button"
                           onClick={() => {
-                            setDefaultProposalTemplateStyle(
-                              tpl.id as NonNullable<ErpCommercialProposal["templateStyle"]>
-                            );
-                            if (typeof window !== "undefined") {
-                              try {
-                                window.localStorage.setItem("stihub_default_proposal_template", tpl.id);
-                              } catch {
-                                // ignore
-                              }
-                            }
-                            onShowToast(`Layout padrão alterado para: ${tpl.label}`);
+                            setDefaultProposalTemplateStyle(tplStyle);
+                            openFullNewProposalModal(tpl.budgetType, { ...tpl.preset });
                           }}
-                          className={`px-2.5 py-2 rounded font-extrabold text-[11px] border cursor-pointer transition text-left ${
-                            isActive
-                              ? "bg-[#1e3a6e] text-white border-[#1e3a6e] shadow-2xs"
-                              : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                          }`}
+                          className="text-[#1e3a6e] hover:underline cursor-pointer"
                         >
-                          {isActive ? `[Ativo] ${tpl.label}` : tpl.label}
+                          Novo com este modelo
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="space-y-2.5 text-xs">
-                  <div className="p-3 rounded border border-blue-200 bg-blue-50/40 space-y-1.5">
-                    <div className="font-extrabold text-[#0d2b4e]">
-                      Opção 1: Clean Corporate Light (Azul Suave &amp; Ardósia Clara) [Padrão]
+                        <a
+                          href={tpl.exampleHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        >
+                          Ver exemplo
+                        </a>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-slate-700">
-                      Cabeçalho em azul-claro acetinado, tabelas leves em ardósia suave (#f8fafc), linhas finas de 1px, apresentação institucional da Seta Telecom no início e fluxo de contratação em 7 etapas no final.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("CLEAN_CORPORATE_LIGHT");
-                          openFullNewProposalModal("LOCACAO", {
-                            title: "Proposta Comercial — Locação de Equipamentos de TI (HaaS), Redes & NOC 24/7",
-                            templateStyle: "CLEAN_CORPORATE_LIGHT",
-                            slaTier: "CORPORATIVO_8X5_NBD",
-                            slaAvailabilityPercent: "99,50%",
-                            slaResponseHours: 4,
-                            deliveryLeadTime: "7 dias úteis após o aceite",
-                            deliveryForecast: "7 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Apresentamos nossa proposta comercial para fornecimento em regime de Locação de Equipamentos de TI (HaaS — CAPEX Zero / OPEX) com cobertura de Spare Parts e suporte Seta Telecom.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 1 (Clean Corporate Light)
-                      </button>
-                      <a
-                        href="/proposta/prop-seta-001"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-blue-300 bg-white text-[#1e3a6e] text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded border border-emerald-200 bg-emerald-50/40 space-y-1.5">
-                    <div className="font-extrabold text-emerald-950">
-                      Opção 2: Minimal Swiss Paper (Branco Puro &amp; Linhas Finas Cinza/Esmeralda)
-                    </div>
-                    <p className="text-[11px] text-emerald-900">
-                      Estética editorial 100% fundo branco, linhas horizontais ultra-finas (#e5e7eb), apresentação institucional Seta Telecom, fluxo em 7 etapas e máxima economia de impressão.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("MINIMAL_SWISS_PAPER");
-                          openFullNewProposalModal("PRODUTOS", {
-                            title: "Orçamento Comercial — Switching Corporativo, Firewalls NGFW & Wi-Fi 6",
-                            templateStyle: "MINIMAL_SWISS_PAPER",
-                            slaTier: "SEM_SLA_ESPECIFICO",
-                            deliveryLeadTime: "7 dias úteis após o aceite",
-                            deliveryForecast: "7 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Apresentamos a folha de orçamento comercial com especificações técnicas, valores mensais e condições de fornecimento Seta Telecom.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 2 (Minimal Swiss Paper)
-                      </button>
-                      <a
-                        href="/proposta/prop-gc-4695"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-emerald-600 bg-white text-emerald-900 text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded border border-indigo-200 bg-indigo-50/40 space-y-1.5">
-                    <div className="font-extrabold text-indigo-950">
-                      Opção 3: Executive Soft Indigo (Tons Pastéis de Índigo &amp; Tabelas Arejadas)
-                    </div>
-                    <p className="text-[11px] text-indigo-900">
-                      Design consultivo B2B em tons pastéis de índigo (#eef2ff), bordas suaves (#e0e7ff), apresentação institucional Seta Telecom e fluxo de contratação em 7 etapas.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDefaultProposalTemplateStyle("EXECUTIVE_SOFT_INDIGO");
-                          openFullNewProposalModal("CONJUNTO", {
-                            title: "Proposta Executiva — Servidores, Cybersecurity NGFW, Backup Imutável & NOC 24/7",
-                            templateStyle: "EXECUTIVE_SOFT_INDIGO",
-                            slaTier: "PADRAO_COMERCIAL_8H",
-                            slaAvailabilityPercent: "99,00%",
-                            slaResponseHours: 8,
-                            deliveryLeadTime: "10 dias úteis após o aceite",
-                            deliveryForecast: "10 dias úteis após o aceite",
-                            contractMonths: 24,
-                            introductionText:
-                              "Proposta técnico-consultiva contemplando infraestrutura de redes, segurança multi-vendor, suporte NOC 24/7 e locação HaaS.",
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-extrabold cursor-pointer"
-                      >
-                        + Usar Opção 3 (Executive Soft Indigo)
-                      </button>
-                      <a
-                        href="/proposta/prop-seta-002"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded border border-indigo-600 bg-white text-indigo-900 text-[11px] font-bold"
-                      >
-                        Ver Exemplo A4
-                      </a>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
+            </div>
             </div>
           )}
 
         {/* VISÃO TABELA GESTÃOCLICK */}
         {effectiveOrcTab !== "ORC_AUXILIARES" && proposalsViewMode === "TABLE" && (
-          <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
+          <div className="bg-white rounded-md border border-slate-200 shadow-xs overflow-visible">
+            <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full text-left text-xs">
                 <thead className="bg-[#1e3a6e] text-white uppercase text-[10px]">
                   <tr>
@@ -2500,8 +2800,8 @@ export default function ErpGestaoClickTab({
                   {filteredProposals.map((prop) => {
                     const isConverted =
                       prop.status === "CONVERTIDA_CONTRATO" || Boolean(prop.convertedContractId);
-                    const publicUrl = buildPublicProposalUrl(prop);
-                    const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+                    const publicUrl = buildInternalProposalUrl(prop);
+                    const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
                     const stBadge = getStatusBadge(prop);
                     const isProdProp = prop.budgetType === "PRODUTOS";
                     return (
@@ -2535,7 +2835,7 @@ export default function ErpGestaoClickTab({
                           className="py-2.5 px-3 whitespace-nowrap"
                         >
                           <div className="font-mono font-semibold text-[#1e3a6e] underline">
-                            {prop.code}
+                            {showCode(prop)}
                           </div>
                         </td>
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
@@ -2558,7 +2858,7 @@ export default function ErpGestaoClickTab({
                               CNPJ: {prop.companyCnpj} • A/C: {prop.careOf || prop.contactName}
                             </span>
                             {prop.serviceType && (
-                              <span className="text-indigo-700 font-semibold">
+                              <span className="text-slate-800 font-semibold">
                                 • {prop.serviceType}
                               </span>
                             )}
@@ -2571,7 +2871,7 @@ export default function ErpGestaoClickTab({
                                     prop.companyName
                                   )
                                 }
-                                className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono text-[9px] font-semibold hover:bg-emerald-100 cursor-pointer"
+                                className="px-1.5 py-0.2 rounded bg-slate-50 text-slate-800 border border-slate-200 font-mono text-[9px] font-semibold hover:bg-slate-50 cursor-pointer"
                                 title="Ir direto para o Contrato vinculado"
                               >
                                 Contrato &rarr;
@@ -2608,7 +2908,7 @@ export default function ErpGestaoClickTab({
                               {formatBRL(prop.totalContractValue || prop.monthlyRecurringTotal)}
                             </span>
                           ) : (
-                            <span className="font-semibold text-emerald-700">
+                            <span className="font-semibold text-slate-800">
                               {formatBRL(prop.monthlyRecurringTotal || prop.totalContractValue)}/mês
                             </span>
                           )}
@@ -2639,8 +2939,8 @@ export default function ErpGestaoClickTab({
             );
             const isHighlighted =
               highlightedProposalId === prop.id || highlightedProposalId === prop.code;
-            const publicUrl = buildPublicProposalUrl(prop);
-            const printUrl = buildPublicProposalUrl(prop, { autoPrint: true });
+            const publicUrl = buildInternalProposalUrl(prop);
+            const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
             const stBadge = getStatusBadge(prop);
 
             return (
@@ -2648,23 +2948,23 @@ export default function ErpGestaoClickTab({
                 key={prop.id}
                 className={`bg-white rounded-md border p-5 shadow-xs space-y-4 transition ${
                   isHighlighted
-                    ? 'border-2 border-[#ff7a59] ring-2 ring-[#ff7a59]/20'
+                    ? 'border border-[#1e3a6e] ring-2 ring-[#1e3a6e]/15'
                     : 'border-slate-200'
                 }`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded text-xs font-black bg-[#1e3a6e] text-white">
-                        {prop.code}
+                      <span className="px-2.5 py-0.5 rounded text-xs font-semibold bg-[#1e3a6e] text-white">
+                        {showCode(prop)}
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${stBadge.cls}`}>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${stBadge.cls}`}>
                         {stBadge.label}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-50 text-[#1e3a6e] border border-blue-200">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-50 text-[#1e3a6e] border border-slate-200">
                         {getBudgetTypeLabel(prop)}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-50 text-slate-800 border border-slate-200">
                         Reajuste: {prop.readjustmentIndex || 'IPCA'}
                       </span>
                       <span className="text-xs text-slate-500">
@@ -2672,7 +2972,7 @@ export default function ErpGestaoClickTab({
                         <strong>{prop.contractMonths} meses</strong>
                       </span>
                     </div>
-                    <h3 className="text-base font-extrabold text-slate-900 mt-1.5">{prop.title}</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mt-1.5">{prop.title}</h3>
                     <div className="text-xs text-slate-500 mt-0.5">
                       Cliente: <strong>{prop.companyName}</strong> (CNPJ: {prop.companyCnpj}) • Aos cuidados de:{' '}
                       <strong>{prop.careOf || prop.contactName}</strong>
@@ -2688,9 +2988,9 @@ export default function ErpGestaoClickTab({
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                        Mensalidade (MRR)
+                        Valor mensal
                       </span>
-                      <span className="text-base font-black text-emerald-700">
+                      <span className="text-base font-semibold text-slate-800">
                         {formatBRL(prop.monthlyRecurringTotal)}/mês
                       </span>
                       <span className="text-[11px] text-slate-500 block">
@@ -2702,9 +3002,9 @@ export default function ErpGestaoClickTab({
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                  <span className="text-emerald-900 truncate max-w-2xl">
-                    <strong>Link Público do Cliente (PDF A4):</strong>{' '}
+                <div className="p-2.5 rounded bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-800 truncate max-w-2xl">
+                    <strong>Visualização interna (exige login; para o cliente use o link assinado):</strong>{' '}
                     <a
                       href={publicUrl}
                       target="_blank"
@@ -2714,7 +3014,7 @@ export default function ErpGestaoClickTab({
                       {publicUrl.slice(0, 90)}...
                     </a>
                   </span>
-                  <span className="text-emerald-800 font-bold">
+                  <span className="text-slate-800 font-bold">
                     {Array.isArray(prop.installments) && prop.installments.length > 0
                       ? `${prop.installments.length} parcela(s) configurada(s)`
                       : 'Pronto para enviar por WhatsApp / E-mail'}
@@ -2748,7 +3048,7 @@ export default function ErpGestaoClickTab({
                               <span
                                 className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                   isSrv
-                                    ? 'bg-indigo-50 text-indigo-800'
+                                    ? 'bg-slate-50 text-slate-800'
                                     : 'bg-slate-100 text-slate-800'
                                 }`}
                               >
@@ -2827,6 +3127,8 @@ export default function ErpGestaoClickTab({
     function buildContractRowActions(ctr: ErpRentalContract, modality: ErpContractModality) {
       const renewLabel = modality === "SERVICO" ? "Renovar locação / contrato" : modality === "ASSINATURA" ? "Renovar locação / assinatura" : "Renovar locação";
       return [
+        { key: "VISUALIZAR", label: "Visualizar", icon: Search, run: () => { setEditingContractReadOnly(true); setEditingContractTab('DADOS_GERAIS'); setEditingContract(ctr); } },
+        { key: "EDITAR", label: "Editar", icon: Pencil, run: () => { setEditingContractReadOnly(false); setEditingContractTab('DADOS_GERAIS'); setEditingContract(ctr); } },
         { key: "LINK_COBRANCA", label: "Link de cobrança", icon: ExternalLink, run: async () => { const l = contractChargeLink(ctr); await copyText(l); onShowToast(`Link de cobrança do contrato ${ctr.contractNumber} copiado: ${l}`); } },
         { key: "IMPRIMIR_A4", label: "Imprimir A4", icon: Printer, run: () => handleOpenContractA4(ctr, modality) },
         { key: "ALTERAR_SITUACAO", label: "Alterar situação", icon: CheckCircle2, run: () => setContractStatusPickerFor(ctr) },
@@ -2848,8 +3150,12 @@ export default function ErpGestaoClickTab({
         { key: "AGENDAR", label: "Agendar compromisso", icon: Calendar, run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
         { key: "VER_FINANCEIRO", label: "Ver no financeiro", icon: Wallet, run: () => { setActiveSection("FINANCEIRO" as GestaoClickMenuSection); onShowToast(`Financeiro filtrado por ${ctr.companyName} / contrato ${ctr.contractNumber}.`); } },
         { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", icon: FileCheck2, run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil / Gov.br registrada. Link copiado: ${l}`); } },
-        { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, run: () => { if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr); } },
-      ] as { key: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean; run: () => unknown }[];
+        { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, disabled: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }), title: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }) ? 'Em uso' : 'Excluir', run: () => {
+          const ref = { id: ctr.id, contractNumber: ctr.contractNumber };
+          if (blockDeleteIfUsed('rentalContract', ref)) return;
+          if (typeof window === "undefined" || window.confirm(`Excluir o contrato ${ctr.contractNumber}?`)) void handleDeleteContract(ctr, { alreadyConfirmed: true });
+        } },
+      ] as { key: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean; disabled?: boolean; title?: string; run: () => unknown }[];
     }
     const effectiveTab: "TODOS" | "CTR_LOCACOES" | "CTR_SERVICOS" | "CTR_ASSINATURAS" | "CTR_AUXILIARES" =
       activeSubId === "CTR_TODOS"
@@ -2965,6 +3271,19 @@ export default function ErpGestaoClickTab({
     const ipcaContractsCount = rentalContracts.filter((c) => c.readjustmentIndex === "IPCA").length;
     const igpmContractsCount = rentalContracts.filter((c) => c.readjustmentIndex === "IGP-M").length;
 
+    // Seletor de período: mês corrente e os 11 anteriores + o próximo (sem mês fixo no código).
+    const contractsPeriodOptions = (() => {
+      const now = new Date();
+      const out: Array<{ value: string; label: string }> = [];
+      for (let offset = 1; offset >= -11; offset--) {
+        const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+        const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const month = d.toLocaleDateString("pt-BR", { month: "long" });
+        out.push({ value, label: `${month.charAt(0).toUpperCase()}${month.slice(1)} de ${d.getFullYear()}` });
+      }
+      return out;
+    })();
+
     const sectionTitleLabel =
       effectiveTab === "CTR_LOCACOES"
         ? "Locações"
@@ -2973,43 +3292,15 @@ export default function ErpGestaoClickTab({
           : effectiveTab === "CTR_ASSINATURAS"
             ? "Assinaturas"
             : effectiveTab === "CTR_AUXILIARES"
-              ? "Opções auxiliares & Minutas de Contrato"
-              : "Contratos";
+              ? "Opções auxiliares"
+              : "Todos os contratos";
 
     return (
       <div className="space-y-3">
-        {/* CABEÇALHO LIMPO PADRÃO GESTÃOCLICK (TÍTULO À ESQUERDA + ABAS + BREADCRUMB À DIREITA) */}
+        {/* CABEÇALHO LIMPO PADRÃO GESTÃOCLICK (TÍTULO À ESQUERDA + BREADCRUMB À DIREITA; SUBMÓDULOS SÓ NA SIDEBAR) */}
         <div className="bg-white rounded-md border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-extrabold text-slate-900">{sectionTitleLabel}</h2>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                { id: "CTR_LOCACOES", label: `Locações (${locacoesList.length})` },
-                { id: "CTR_SERVICOS", label: `Serviços (${servicosList.length})` },
-                { id: "CTR_ASSINATURAS", label: `Assinaturas (${assinaturasList.length})` },
-                { id: "TODOS", label: `Todos (${rentalContracts.length})` },
-                {
-                  id: "CTR_AUXILIARES",
-                  label: `Opções auxiliares & Minutas (${allAllocatedAssets.length} S/N)`,
-                },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setContractsSubFilter(tab.id as typeof contractsSubFilter);
-                    setActiveSubId(tab.id === "TODOS" ? "CTR_TODOS" : tab.id);
-                  }}
-                  className={`px-2.5 py-1 rounded text-xs font-extrabold transition cursor-pointer ${
-                    effectiveTab === tab.id
-                      ? "bg-[#1e3a6e] text-white shadow-2xs"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            <h2 className="text-lg font-semibold text-slate-900">{sectionTitleLabel}</h2>
           </div>
           <div className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
             <span>Início</span>
@@ -3027,7 +3318,7 @@ export default function ErpGestaoClickTab({
               <button
                 type="button"
                 onClick={() => openNewContractPreset(tabModalityOf())}
-                className="inline-flex items-center gap-1 px-3.5 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold cursor-pointer shadow-2xs"
+                className="inline-flex items-center gap-1 px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white font-semibold cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> + Adicionar
               </button>
@@ -3078,10 +3369,10 @@ export default function ErpGestaoClickTab({
                 onChange={(e) => setContractsPeriodFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-bold text-slate-700"
               >
-                <option value="TODOS">Outubro de 2026 ▾ (Todos)</option>
-                <option value="2026-10">Outubro de 2026</option>
-                <option value="2026-11">Novembro de 2026</option>
-                <option value="2026-09">Setembro de 2026</option>
+                <option value="TODOS">Todos os períodos</option>
+                {contractsPeriodOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
               <select
                 aria-label="Filtrar Contratos por Situação"
@@ -3114,9 +3405,9 @@ export default function ErpGestaoClickTab({
                     setContractsStatusFilter("TODOS");
                     setContractsPeriodFilter("TODOS");
                   }}
-                  className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                  className="px-1.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 underline cursor-pointer"
                 >
-                  Limpar
+                  Limpar filtros
                 </button>
               )}
             </div>
@@ -3124,21 +3415,21 @@ export default function ErpGestaoClickTab({
         )}
 
         {showContractReturnsPanel && effectiveTab !== "CTR_AUXILIARES" && (
-          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-xs space-y-1">
-            <div className="font-extrabold text-amber-900">Devoluções de Produtos / Equipamentos de Contratos</div>
+          <div className="bg-slate-50 border border-slate-200 rounded-md p-3 text-xs space-y-1">
+            <div className="font-semibold text-slate-800">Devoluções de Produtos / Equipamentos de Contratos</div>
             {displayedContracts.flatMap((c) => c.equipments.filter((e) => e.assetStatus === "DEVOLVIDO").map((e) => (
               <div key={`${c.id}-${e.id}`}>Contrato {c.contractNumber} — {c.companyName}: {e.description} (S/N {e.serialNumber})</div>
             )))}
-            <div className="text-amber-800">Use <strong>⋮ &gt; Devolução de produtos</strong> no final do contrato para registrar uma nova devolução.</div>
+            <div className="text-slate-800">Use <strong>⋮ &gt; Devolução de produtos</strong> no final do contrato para registrar uma nova devolução.</div>
           </div>
         )}
 
         {contractStatusPickerFor && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={() => setContractStatusPickerFor(null)}>
             <div className="bg-white rounded-md p-4 w-80 space-y-2 text-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="font-extrabold text-[#0d2b4e]">Alterar situação — Contrato {contractStatusPickerFor.contractNumber}</div>
+              <div className="font-semibold text-slate-900">Alterar situação — Contrato {contractStatusPickerFor.contractNumber}</div>
               {(["ATIVO", "FATURAMENTO", "EM_IMPLANTACAO", "RENOVACAO_PROXIMA", "SUSPENSO", "ENCERRADO"] as const).map((st) => (
-                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300 font-bold" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
+                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); const saved = await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); if (saved) onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300 font-bold" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
               ))}
             </div>
           </div>
@@ -3147,12 +3438,12 @@ export default function ErpGestaoClickTab({
         {contractReturnFor && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={() => setContractReturnFor(null)}>
             <div className="bg-white rounded-md p-4 w-[28rem] space-y-2 text-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="font-extrabold text-[#0d2b4e]">Devolução de produtos — Contrato {contractReturnFor.contractNumber}</div>
+              <div className="font-semibold text-slate-900">Devolução de produtos — Contrato {contractReturnFor.contractNumber}</div>
               {contractReturnFor.equipments.length === 0 && <div>Nenhum equipamento vinculado.</div>}
               {contractReturnFor.equipments.map((e) => (
                 <div key={e.id} className="flex items-center justify-between gap-2 border border-slate-200 rounded px-2 py-1">
                   <span>{e.description} (S/N {e.serialNumber}) — {e.assetStatus || "ALOCADO"}</span>
-                  <button type="button" disabled={e.assetStatus === "DEVOLVIDO"} onClick={async () => { const c = contractReturnFor; const updated = { ...c, equipments: c.equipments.map((x) => (x.id === e.id ? { ...x, assetStatus: "DEVOLVIDO" as const } : x)), updatedAt: new Date().toISOString() } as ErpRentalContract; setContractReturnFor(updated); await handleSaveEditedContract(updated); onShowToast(`Equipamento S/N ${e.serialNumber} devolvido (contrato ${c.contractNumber}).`); }} className="px-2 py-1 rounded bg-amber-600 text-white font-bold disabled:opacity-40 cursor-pointer">Devolver</button>
+                  <button type="button" disabled={e.assetStatus === "DEVOLVIDO"} onClick={async () => { const c = contractReturnFor; const updated = { ...c, equipments: c.equipments.map((x) => (x.id === e.id ? { ...x, assetStatus: "DEVOLVIDO" as const } : x)), updatedAt: new Date().toISOString() } as ErpRentalContract; setContractReturnFor(updated); const saved = await handleSaveEditedContract(updated); if (saved) onShowToast(`Equipamento S/N ${e.serialNumber} devolvido (contrato ${c.contractNumber}).`); }} className="px-2 py-1 rounded font-bold disabled:opacity-40 cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Devolver</button>
                 </div>
               ))}
               <button type="button" onClick={() => setContractReturnFor(null)} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer">Fechar</button>
@@ -3162,13 +3453,13 @@ export default function ErpGestaoClickTab({
 
         {contractA4PreviewModal && (
           <div data-testid="contract-a4-preview-modal" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setContractA4PreviewModal(null)}>
-            <div className="bg-white rounded-lg border border-slate-300 shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
-              <div className="px-4 py-3 bg-[#0d2b4e] text-white flex items-center justify-between gap-3">
+            <div className="bg-white rounded-lg border border-slate-300 shadow-md w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-4 py-3 bg-white border-b border-slate-200 text-slate-900 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-extrabold uppercase text-orange-300">
+                  <div className="text-xs text-slate-500">
                     Minuta Contratual A4 — {contractTypeLabel(contractA4PreviewModal.modality)}
                   </div>
-                  <div className="text-sm font-bold">
+                  <div className="text-sm font-semibold">
                     Contrato Nº {contractA4PreviewModal.contract.contractNumber} — {contractA4PreviewModal.contract.companyName}
                   </div>
                 </div>
@@ -3176,14 +3467,14 @@ export default function ErpGestaoClickTab({
                   <button
                     type="button"
                     onClick={() => printOrDownloadContractA4(contractA4PreviewModal.contract, contractA4PreviewModal.modality, getCustomClausesForModality(contractA4PreviewModal.modality))}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5" /> Imprimir / Salvar PDF A4
+                    <Printer className="w-3.5 h-3.5" /> Imprimir PDF
                   </button>
                   <button
                     type="button"
                     onClick={() => setContractA4PreviewModal(null)}
-                    className="px-2.5 py-1.5 rounded bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                   >
                     Fechar
                   </button>
@@ -3201,13 +3492,11 @@ export default function ErpGestaoClickTab({
         {effectiveTab === "CTR_AUXILIARES" ? (
           <div className="space-y-4">
             <div data-testid="contract-minutas-panel" className="bg-white p-4 rounded-md border border-slate-200 shadow-2xs space-y-3">
-              <div className="font-extrabold text-[#0d2b4e] text-sm">Modelos &amp; Minutas de Contrato por Tipo (Locações vs. Serviços Técnicos vs. Assinaturas)</div>
-              <p className="text-xs text-slate-600">
-                Cada modalidade possui minuta jurídica própria aplicada automaticamente em <strong>Imprimir A4</strong> nos 3 pontos (<strong>Locações</strong> = Locação de Bens Móveis SV 31 STF / CFOP 5.908; <strong>Serviços</strong> = Prestação de Serviços Técnicos LC 116 / NFS-e / SLA NOC; <strong>Assinaturas</strong> = Termo de Assinatura Recorrente SCM/Cloud).
-              </p>
+              <div className="font-semibold text-slate-900 text-sm">Modelos &amp; Minutas de Contrato por Tipo</div>
+              <p className="text-xs text-slate-500">Cada tipo de contrato usa a própria minuta ao imprimir em A4.</p>
               <div className="flex flex-wrap gap-2">
                 {(["LOCACAO", "SERVICO", "ASSINATURA"] as const).map((k) => (
-                  <button key={k} type="button" onClick={() => setContractMinutaPreviewKey(k)} className={`px-3 py-1.5 rounded text-xs font-bold border cursor-pointer ${contractMinutaPreviewKey === k ? "bg-[#0d2b4e] text-white border-[#0d2b4e]" : "bg-white border-slate-300 text-slate-700"}`}>
+                  <button key={k} type="button" onClick={() => setContractMinutaPreviewKey(k)} className={`px-3 py-1.5 rounded text-xs font-bold border cursor-pointer ${contractMinutaPreviewKey === k ? "bg-[#1e3a6e] text-white border-[#1e3a6e]" : "bg-white border-slate-300 text-slate-700"}`}>
                     {k === "LOCACAO" ? "Contrato de Locação de Equipamentos" : k === "SERVICO" ? "Contrato de Prestação de Serviços" : "Termo de Assinatura Recorrente"}
                   </button>
                 ))}
@@ -3236,7 +3525,7 @@ export default function ErpGestaoClickTab({
                     }
                     onShowToast(`Minuta de ${CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].title} salva com sucesso!`);
                   }}
-                  className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
                 >
                   Salvar Modelo de Minuta
                 </button>
@@ -3244,7 +3533,7 @@ export default function ErpGestaoClickTab({
                   const sample = rentalContracts.find((c) => inferContractModality(c) === contractMinutaPreviewKey) || rentalContracts[0];
                   if (!sample) { onShowToast("Cadastre um contrato para testar a impressão A4."); return; }
                   handleOpenContractA4(sample, contractMinutaPreviewKey);
-                }} className="px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer">Testar Imprimir A4</button>
+                }} className="px-3 py-1.5 rounded border border-[#1e3a6e] text-[#1e3a6e] hover:bg-slate-50 text-xs font-semibold cursor-pointer">Testar Imprimir A4</button>
                 <button type="button" onClick={() => {
                   const next = { ...contractMinutaDrafts, [contractMinutaPreviewKey]: CONTRACT_DOCUMENT_TEMPLATES[contractMinutaPreviewKey].clauses.join("\n\n") };
                   setContractMinutaDrafts(next);
@@ -3256,16 +3545,16 @@ export default function ErpGestaoClickTab({
                 <span className="text-[11px] text-slate-500">Periodicidades disponíveis: A cada 1 mês • A cada 3 meses • A cada 6 meses • A cada 12 meses</span>
               </div>
             </div>
-            <ContractAuxOptionsManager onShowToast={onShowToast} />
+            <ContractAuxOptionsManager onShowToast={onShowToast} usageSources={auxUsageSources} />
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-md border border-slate-200 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
                   Total Patrimônio Alocado em Clientes
                 </span>
-                <strong className="text-lg font-black text-slate-900">
+                <strong className="text-lg font-semibold text-slate-900">
                   {formatBRL(totalPatrimonyBrl)}
                 </strong>
-                <span className="text-[11px] text-emerald-700 font-semibold block">
+                <span className="text-[11px] text-slate-800 font-semibold block">
                   Ativo Imobilizado Seta Telecom em Locação
                 </span>
               </div>
@@ -3273,7 +3562,7 @@ export default function ErpGestaoClickTab({
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
                   Equipamentos &amp; S/N Rastreáveis
                 </span>
-                <strong className="text-lg font-black text-indigo-950">
+                <strong className="text-lg font-semibold text-slate-800">
                   {allAllocatedAssets.length} lotes S/N ({totalActiveUnits} un.)
                 </strong>
                 <span className="text-[11px] text-slate-500 block">
@@ -3285,7 +3574,7 @@ export default function ErpGestaoClickTab({
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
                   Cobertura NF-e de Remessa
                 </span>
-                <strong className="text-lg font-black text-emerald-800">
+                <strong className="text-lg font-semibold text-slate-800">
                   {totalRemessaContracts} / {rentalContracts.length} contratos
                 </strong>
                 <span className="text-[11px] text-slate-500 block">
@@ -3296,7 +3585,7 @@ export default function ErpGestaoClickTab({
                 <span className="text-[10px] font-bold uppercase text-slate-400 block">
                   Indexadores de Reajuste Anual
                 </span>
-                <strong className="text-lg font-black text-[#1e3a6e]">
+                <strong className="text-lg font-semibold text-[#1e3a6e]">
                   IPCA ({ipcaContractsCount}) • IGP-M ({igpmContractsCount})
                 </strong>
                 <span className="text-[11px] text-slate-500 block">
@@ -3308,12 +3597,9 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-extrabold text-slate-900">
-                    Inventário Geral de Parque Instalado &amp; Patrimônios por Número de Série (S/N)
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Parque instalado (S/N)
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    Pesquise qualquer equipamento locado por S/N, Tag de Patrimônio, SKU, NCM, Cliente ou Contrato e execute substituição expressa (RMA).
-                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative">
@@ -3333,7 +3619,7 @@ export default function ErpGestaoClickTab({
                       onClick={() => setAssetStatusFilter(st)}
                       className={`px-2.5 py-1.5 rounded text-[11px] font-bold cursor-pointer ${
                         assetStatusFilter === st
-                          ? "bg-indigo-950 text-white"
+                          ? "bg-[#1e3a6e] text-white"
                           : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       }`}
                     >
@@ -3367,7 +3653,7 @@ export default function ErpGestaoClickTab({
                     {filteredAssets.map((row) => (
                       <tr key={`${row.contract.id}-${row.equipment.id}`} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3">
-                          <div className="font-mono font-black text-indigo-950">
+                          <div className="font-mono font-semibold text-slate-800">
                             {row.equipment.serialNumber}
                           </div>
                           <div className="font-mono text-[10px] text-slate-500">
@@ -3396,7 +3682,7 @@ export default function ErpGestaoClickTab({
                         </td>
                         <td className="py-2.5 px-3">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                               row.assetStatus === "EM_CLIENTE"
                                 ? "bg-emerald-100 text-emerald-800"
                                 : row.assetStatus === "MANUTENCAO_RMA"
@@ -3414,7 +3700,7 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3 text-right font-bold text-slate-800">
                           {formatBRL(row.equipment.assetValueBrl)}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-black text-emerald-700">
+                        <td className="py-2.5 px-3 text-right font-semibold text-slate-800">
                           {formatBRL(row.equipment.quantity * row.equipment.unitMonthlyRent)}
                         </td>
                         <td className="py-2.5 px-3 text-right space-x-1">
@@ -3429,14 +3715,14 @@ export default function ErpGestaoClickTab({
                                 newStatus: row.assetStatus,
                               })
                             }
-                            className="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-900 text-white text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[11px] font-semibold cursor-pointer"
                           >
                             Substituir S/N (RMA)
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditingContract(row.contract)}
-                            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+                            className="px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                           >
                             Contrato
                           </button>
@@ -3449,12 +3735,24 @@ export default function ErpGestaoClickTab({
             </div>
           </div>
         ) : (
-          <div className={`bg-white rounded-md border border-slate-200 shadow-xs ${contractRowMenuId ? "pb-72" : ""}`}>
-            <div className="overflow-x-auto overflow-y-visible">
-              <table className="w-full min-w-[880px] text-left text-xs">
-                <thead className="bg-slate-100 text-slate-800 border-b border-slate-200 font-bold text-xs">
+          <div className="bg-white rounded-md border border-slate-200 shadow-xs">
+            <div className="overflow-x-auto overflow-y-visible max-w-full">
+              <table className="w-full table-fixed text-left text-xs min-w-[960px]">
+                <colgroup>
+                  <col className="w-8" />
+                  <col className="w-[9%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[7%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[8%]" />
+                  <col className="w-[170px]" />
+                </colgroup>
+                <thead className="bg-slate-100 text-slate-800 border-b border-slate-200 font-bold text-[11px]">
                   <tr>
-                    <th className="py-2.5 px-3 w-8">
+                    <th className="py-2 px-2 w-8">
                       <input
                         type="checkbox"
                         checked={displayedContracts.length > 0 && displayedContracts.every((c) => selectedContractIdsForBatch.includes(c.id))}
@@ -3468,15 +3766,15 @@ export default function ErpGestaoClickTab({
                         className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                       />
                     </th>
-                    <th className="py-2.5 px-3">Nº</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Tipo</th>
-                    <th className="py-2.5 px-3">Cliente</th>
-                    <th className="py-2.5 px-3">Data</th>
-                    <th className="py-2.5 px-3">Próximo vencimento</th>
-                    <th className="py-2.5 px-3">Periodicidade</th>
-                    <th className="py-2.5 px-3">Situação</th>
-                    <th className="py-2.5 px-3 text-right">Valor</th>
-                    <th className="py-2.5 px-3 text-right">Ações</th>
+                    <th className="py-2 px-2">Nº</th>
+                    <th className="py-2 px-2">Tipo</th>
+                    <th className="py-2 px-2">Cliente</th>
+                    <th className="py-2 px-2">Data</th>
+                    <th className="py-2 px-2">Vencimento</th>
+                    <th className="py-2 px-2">Periodicidade</th>
+                    <th className="py-2 px-2">Situação</th>
+                    <th className="py-2 px-2 text-right">Valor</th>
+                    <th className="py-2 px-2 text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_8px_-6px_rgba(0,0,0,0.15)]">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -3494,7 +3792,7 @@ export default function ErpGestaoClickTab({
                           setEditingContract(ctr);
                         }}
                         className={`cursor-pointer transition ${
-                          isChecked ? 'bg-blue-50/80 hover:bg-blue-100/60' : 'hover:bg-slate-50'
+                          isChecked ? 'bg-slate-50 hover:bg-slate-50' : 'hover:bg-slate-50'
                         }`}
                       >
                         <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
@@ -3513,69 +3811,65 @@ export default function ErpGestaoClickTab({
                             className="w-4 h-4 accent-[#1e3a6e] cursor-pointer"
                           />
                         </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          <div>{ctr.gestaoClickCode || ctr.contractNumber}</div>
-                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[9px] font-black">
+                        <td className="py-2 px-2 font-mono font-semibold text-slate-800">
+                          <div className="truncate" title={ctr.gestaoClickCode || ctr.contractNumber}>{ctr.gestaoClickCode || ctr.contractNumber}</div>
+                          <span className="inline-block mt-0.5 px-1 py-0.5 rounded bg-slate-50 text-slate-700 border border-slate-200 text-[9px] font-semibold">
                             {ctr.versionLabel || `v${ctr.version || 1}.0`}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-700">
-                          {contractTypeLabel(modality)}
+                        <td className="py-2 px-2 font-semibold text-slate-700">
+                          <span className="truncate block" title={contractTypeLabel(modality)}>{contractTypeLabel(modality)}</span>
                         </td>
-                        <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleOpenErpCustomerByCompany(ctr.companyId, ctr.companyName, ctr.companyCnpj)}
-                            className="font-bold text-blue-700 hover:underline text-left cursor-pointer block"
-                            title="Abrir cadastro do cliente (Navegação Cruzada)"
+                            className="font-semibold text-slate-800 hover:underline text-left cursor-pointer block max-w-full"
+                            title={ctr.companyName}
                           >
-                            <span className="text-blue-700 underline">{ctr.companyName}</span>
+                            <span className="truncate block">{ctr.companyName}</span>
                           </button>
-                          <div className="italic text-[11px] text-slate-600">({ctr.companyName})</div>
-                          {ctr.remessaNfeNumber && (
-                            <div className="font-mono text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                              <span>{ctr.companyCnpj || '—'}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
-                                className="px-1.5 py-0.2 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 font-mono text-[9px] font-extrabold hover:bg-blue-100 cursor-pointer"
-                                title="Ir para Nota Fiscal de Remessa / Fatura no módulo Fiscal"
-                              >
-                                NF {ctr.remessaNfeNumber} &rarr;
-                              </button>
-                            </div>
-                          )}
+                          <div className="font-mono text-[10px] text-slate-500 truncate mt-0.5" title={[ctr.companyCnpj, ctr.remessaNfeNumber ? `NF ${ctr.remessaNfeNumber}` : ''].filter(Boolean).join(' · ')}>
+                            {ctr.companyCnpj || '—'}
+                            {ctr.remessaNfeNumber ? (
+                              <>
+                                {' · '}
+                                <button
+                                  type="button"
+                                  onClick={() => handleNavigateToFiscalFromContract(ctr.remessaNfeNumber || ctr.companyName)}
+                                  className="text-[#1e3a6e] font-semibold hover:underline cursor-pointer"
+                                  title="Ir para Nota Fiscal de Remessa / Fatura no módulo Fiscal"
+                                >
+                                  NF {ctr.remessaNfeNumber}
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                        <td className="py-2 px-2 text-[11px] text-slate-700 whitespace-nowrap" title={fmtBrDate(ctr.startDate)}>
                           {fmtBrDate(ctr.startDate)}
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
-                          {fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}
-                          {ctr.customDueRuleEnabled && ctr.customDueRuleLabel && (<div className="text-[10px] text-amber-700 font-bold">{ctr.customDueRuleLabel}</div>)}
-                          {(ctr.customerPurchaseOrderNumber || ctr.measurementNumber) && (
-                            <div className="text-[10px] font-mono text-slate-500">
-                              {ctr.customerPurchaseOrderNumber ? `PO ${ctr.customerPurchaseOrderNumber}` : ''}
-                              {ctr.customerPurchaseOrderNumber && ctr.measurementNumber ? ' | ' : ''}
-                              {ctr.measurementNumber ? `BM ${ctr.measurementNumber}` : ''}
-                            </div>
-                          )}
+                        <td className="py-2 px-2 text-[11px] text-slate-700">
+                          <div className="truncate whitespace-nowrap" title={fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}>{fmtBrDate(ctr.nextBillingDate || ctr.nextDueDate)}</div>
+                          {ctr.customDueRuleEnabled && ctr.customDueRuleLabel && (<div className="text-[9px] text-slate-500 truncate" title={ctr.customDueRuleLabel}>{ctr.customDueRuleLabel}</div>)}
                         </td>
-                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">{ctr.periodicityLabel || "A cada 1 mês"}</td>
-                        <td className="py-2.5 px-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2 text-[11px] text-slate-700">
+                          <span className="truncate block" title={ctr.periodicityLabel || "A cada 1 mês"}>{ctr.periodicityLabel || "A cada 1 mês"}</span>
+                        </td>
+                        <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => openContractBilling(ctr)}
                             title="Abrir Faturamento do Contrato"
-                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold cursor-pointer ${statusMeta.cls}`}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer max-w-full truncate ${statusMeta.cls}`}
                           >
-                            • {statusMeta.label}
+                            {statusMeta.label}
                           </button>
-                          <button type="button" onClick={() => setContractStatusPickerFor(ctr)} className="ml-1 text-[10px] text-slate-500 underline cursor-pointer" title="Alterar situação">alterar</button>
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
+                        <td className="py-2 px-2 text-right font-semibold text-slate-900 whitespace-nowrap tabular-nums">
                           {(Number(ctr.monthlyValue) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-2 text-right whitespace-nowrap sticky right-0 bg-white z-[1] shadow-[-4px_0_8px_-6px_rgba(0,0,0,0.12)]" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
@@ -3583,7 +3877,7 @@ export default function ErpGestaoClickTab({
                               onClick={() =>
                                 setExpandedContractHistoryId((prev) => (prev === ctr.id ? null : ctr.id))
                               }
-                              className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold cursor-pointer"
+                              className="px-1.5 py-1 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-[10px] font-semibold cursor-pointer"
                             >
                               Faturas ({matchInvoicesForContract(ctr, invoices).length})
                             </button>
@@ -3591,65 +3885,37 @@ export default function ErpGestaoClickTab({
                               type="button"
                               title="Visualizar o recibo (rascunho) e então finalizar a Fatura de Locação do Mês"
                               onClick={() => setRowBillingPreviewContract(ctr)}
-                              className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer"
+                              className="px-1.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-[10px] font-semibold cursor-pointer"
                             >
                               + Faturar
                             </button>
-                            <button
-                              type="button"
-                              title="Consultar / Visualizar Contrato (6 Abas)"
-                              aria-label="Consultar Cadastro"
-                              onClick={() => {
-                                setEditingContractReadOnly(true);
-                                setEditingContractTab('DADOS_GERAIS');
-                                setEditingContract(ctr);
-                              }}
-                              className="w-8 h-8 rounded bg-[#17a2b8] hover:bg-[#138496] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
+                            <RowKebabMenu
+                              open={contractRowMenuId === ctr.id}
+                              onOpenChange={(next) => setContractRowMenuId(next ? ctr.id : null)}
+                              width={240}
+                              estimatedHeight={360}
+                              testId="contract-row-actions-menu"
+                              title="Mais ações do contrato"
+                              ariaLabel="Mais ações do contrato"
                             >
-                              <Search className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Editar Contrato / Renovar Vigência / Faturar / Reajustar"
-                              aria-label="Editar Cadastro"
-                              onClick={() => {
-                                setEditingContractReadOnly(false);
-                                setEditingContractTab('DADOS_GERAIS');
-                                setEditingContract(ctr);
-                              }}
-                              className="w-8 h-8 rounded bg-[#f39c12] hover:bg-[#d68910] text-white inline-flex items-center justify-center transition shadow-2xs cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <div className="relative">
-                              <button
-                                type="button"
-                                title="Mais ações do contrato"
-                                aria-label="Mais ações do contrato"
-                                onClick={() => setContractRowMenuId((id) => (id === ctr.id ? null : ctr.id))}
-                                className="w-8 h-8 rounded bg-[#2c3e50] hover:bg-[#1a252f] text-white inline-flex items-center justify-center font-black transition shadow-2xs cursor-pointer"
-                              >
-                                ⋮
-                              </button>
-                              {contractRowMenuId === ctr.id && (
-                                <div data-testid="contract-row-actions-menu" className="absolute right-0 top-9 z-50 w-60 bg-white border border-slate-200 rounded-md shadow-xl py-1.5 text-left">
-                                  {buildContractRowActions(ctr, modality).map((act) => {
-                                    const ActIcon = act.icon;
-                                    return (
-                                      <button
-                                        key={act.key}
-                                        type="button"
-                                        onClick={() => { setContractRowMenuId(null); void act.run(); }}
-                                        className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium cursor-pointer ${act.danger ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
-                                      >
-                                        <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
-                                        <span>{act.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
+                              {buildContractRowActions(ctr, modality).map((act) => {
+                                const ActIcon = act.icon;
+                                return (
+                                  <button
+                                    key={act.key}
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => { setContractRowMenuId(null); if (act.disabled) return; void act.run(); }}
+                                    title={act.title}
+                                    aria-disabled={Boolean(act.disabled)}
+                                    className={`w-full px-3.5 py-2 flex items-center gap-2.5 text-left text-xs font-medium ${act.disabled ? "text-slate-400 cursor-not-allowed" : "cursor-pointer"} ${act.danger && !act.disabled ? "text-rose-600 hover:bg-rose-50 font-bold border-t border-slate-100 mt-1 pt-2" : act.danger ? "border-t border-slate-100 mt-1 pt-2" : "text-slate-700 hover:bg-slate-50"}`}
+                                  >
+                                    <ActIcon className={`w-3.5 h-3.5 shrink-0 ${act.danger ? "text-rose-600" : "text-slate-500"}`} />
+                                    <span>{act.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </RowKebabMenu>
                           </div>
                         </td>
                       </tr>
@@ -3664,19 +3930,8 @@ export default function ErpGestaoClickTab({
                               onGenerateCustom={(opts) => handleGenerateContractInvoice(ctr.id, opts)}
                               onView={(inv) => setSelectedInvoiceForPrint(inv)}
                               onEdit={(inv) => setEditingInvoice(inv)}
-                              onEmail={(inv) =>
-                                setEmailModalPayload({
-                                  docType: inv.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
-                                  recipientName: ctr.companyName,
-                                  recipientEmail: (inv.billingRecipientEmails || ctr.billingRecipientEmails || []).join(', '),
-                                  companyName: ctr.companyName,
-                                  companyCnpj: ctr.companyCnpj,
-                                  documentCode: inv.documentNumber,
-                                  amountBrl: inv.netAmount,
-                                  pixCode: inv.pixCopyPaste,
-                                  boletoLine: inv.boletoDigitableLine,
-                                })
-                              }
+                              onEmail={(inv) => openIssuedInvoiceEmail(inv)}
+                              onGenerateLink={(inv) => { void handleGenerateInvoiceLink(inv); }}
                               onGoFiscal={(inv) => {
                                 setInvoicesSearchQuery(inv.documentNumber);
                                 setActiveSection('FISCAL');
@@ -3737,7 +3992,8 @@ export default function ErpGestaoClickTab({
     { key: "nfeAccessKey", label: "Chave de Acesso NF-e (44 dígitos)" },
   ];
 
-  const renderPurchasesTable = (breadcrumbLabel: string) => {
+  const renderPurchasesTable = (breadcrumbLabel: string, context: "FISCAL" | "ESTOQUE" = "ESTOQUE") => {
+    const isFiscalContext = context === "FISCAL";
     const totalComprasVal = purchaseOrders.reduce((s, p) => s + Number(p.totalAmount || 0), 0);
     const totalIcmsCred = purchaseOrders.reduce(
       (s, p) => s + Number(p.icmsCreditAmount ?? Math.round(Number(p.totalAmount || 0) * 0.18 * 100) / 100),
@@ -3748,30 +4004,37 @@ export default function ErpGestaoClickTab({
       0
     );
 
+    // Em Estoque > Compras a tela mostra só a lista de notas de compra; o upload de TXT/XML,
+    // a descrição de escrituração e os cards fiscais (Ativo Imobilizado, CIAP, PIS/COFINS)
+    // ficam apenas em Fiscal > Notas de compras.
+    const isEstoqueContext = breadcrumbLabel.startsWith('Estoque');
+
     return (
       <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          {isEstoqueContext ? (
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Notas de compras</h2>
+            </div>
+          ) : (
           <div>
-            <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-              {breadcrumbLabel}
-            </span>
-            <h2 className="text-base font-extrabold text-slate-900">
-              Notas Fiscais de Compras &amp; Entrada de Ativo Imobilizado ({purchaseOrders.length})
+            {/* No Fiscal o título já está no cabeçalho; o breadcrumb fica só na barra global */}
+            <h2 className="text-sm font-semibold text-slate-900" title={breadcrumbLabel}>
+              {isFiscalContext ? `${purchaseOrders.length} notas de compra` : "Notas de compras"}
             </h2>
-            <p className="text-xs text-slate-500">
-              Escrituração de NF-e de entrada de fornecedores: CAPEX Parque de Locação (CFOP 1.551 / 2.551) e Revenda de Hardware (CFOP 1.102).
-            </p>
           </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black cursor-pointer shadow-xs">
-              Enviar Arquivo .TXT / .XML (NF-e Importação)
-              <input
-                type="file"
-                accept=".txt,.xml,text/plain,text/xml,application/xml"
-                hidden
-                onChange={handleGlobalImportFileUpload}
-              />
-            </label>
+            {/* Fiscal > Notas de compras: o envio de TXT/XML fica aqui (o cabeçalho do Fiscal esconde o dele nesta subtela); em Estoque não aparece */}
+            {!isEstoqueContext && (
+              <ImportFilePicker
+                testId="upload-nfe-importacao-compras"
+                onFileSelected={handleGlobalImportFileUpload}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+              >
+                Importar XML
+              </ImportFilePicker>
+            )}
             <button
               type="button"
               onClick={() =>
@@ -3798,35 +4061,36 @@ export default function ErpGestaoClickTab({
                 purchaseOrderEditorFields
               )
             }
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> + Nova Nota de Compra (NF-e Entrada)
+            <Plus className="w-4 h-4" /> Nova nota de compra
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded border border-slate-200 bg-slate-50">
-            <span className="text-[10px] font-bold uppercase text-slate-500 block">Total NF-e de Compras</span>
-            <strong className="text-base font-black text-slate-900">{formatBRL(totalComprasVal)}</strong>
-            <span className="text-[11px] text-slate-500 block">{purchaseOrders.length} notas escrituradas</span>
+        {/* Totais de crédito (imobilizado / ICMS / PIS-COFINS) só em Fiscal > Notas de compras */}
+        {!isEstoqueContext && (
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">Total de compras</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalComprasVal)}</strong>
+              <span className="text-[11px] text-slate-500 block">{purchaseOrders.length} notas</span>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">Ativo imobilizado</span>
+              <strong className="text-sm font-semibold text-slate-900">CFOP 1.551 / 2.551</strong>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">ICMS nas entradas</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalIcmsCred)}</strong>
+              <span className="text-[11px] text-slate-500 block">CIAP / crédito de ICMS</span>
+            </div>
+            <div className="p-3 rounded border border-slate-200 bg-white">
+              <span className="text-[11px] text-slate-500 block">PIS/COFINS nas aquisições</span>
+              <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalPisCofinsCred)}</strong>
+            </div>
           </div>
-          <div className="p-3.5 rounded border border-indigo-200 bg-indigo-50/60">
-            <span className="text-[10px] font-bold uppercase text-indigo-700 block">Ativo Imobilizado Locação</span>
-            <strong className="text-base font-black text-indigo-900">CFOP 1.551 / 2.551</strong>
-            <span className="text-[11px] text-indigo-700 block">CAPEX Seta Telecom</span>
-          </div>
-          <div className="p-3.5 rounded border border-emerald-200 bg-emerald-50/60">
-            <span className="text-[10px] font-bold uppercase text-emerald-700 block">ICMS Destacado nas Entradas</span>
-            <strong className="text-base font-black text-emerald-900">{formatBRL(totalIcmsCred)}</strong>
-            <span className="text-[11px] text-emerald-700 block">CIAP / Crédito Fiscal ICMS</span>
-          </div>
-          <div className="p-3.5 rounded border border-amber-200 bg-amber-50/60">
-            <span className="text-[10px] font-bold uppercase text-amber-800 block">PIS/COFINS s/ Aquisições</span>
-            <strong className="text-base font-black text-amber-900">{formatBRL(totalPisCofinsCred)}</strong>
-            <span className="text-[11px] text-amber-800 block">Base de insumos / ativo</span>
-          </div>
-        </div>
+        )}
 
         <div className="overflow-x-auto border border-slate-200 rounded">
           <table className="w-full text-left text-xs">
@@ -3849,7 +4113,7 @@ export default function ErpGestaoClickTab({
                 return (
                   <tr key={po.id} className="hover:bg-slate-50">
                     <td className="py-2.5 px-3">
-                      <div className="font-mono font-black text-[#1e3a6e]">#{po.code}</div>
+                      <div className="font-mono font-semibold text-[#1e3a6e]">#{po.code}</div>
                       <div className="font-mono text-[11px] text-slate-600">NF-e {po.nfeNumber}</div>
                       <div className="text-[10px] text-slate-400">{po.issueDate}</div>
                     </td>
@@ -3858,7 +4122,7 @@ export default function ErpGestaoClickTab({
                       <div className="font-mono text-[11px] text-slate-500">CNPJ: {po.supplierCnpj || "68.993.641/0008-02"}</div>
                     </td>
                     <td className="py-2.5 px-3">
-                      <span className="inline-block px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 font-mono text-[10px] font-bold">
+                      <span className="inline-block px-2 py-0.5 rounded bg-slate-50 text-slate-800 border border-slate-200 font-mono text-[10px] font-bold">
                         {po.cfopEntrada || "1.551 — Ativo Imobilizado (Locação)"}
                       </span>
                       <div className="text-[11px] text-slate-500 mt-0.5">
@@ -3876,14 +4140,14 @@ export default function ErpGestaoClickTab({
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-[11px]">
-                      <div className="text-emerald-700 font-bold">ICMS: {formatBRL(icmsVal)}</div>
+                      <div className="text-slate-800 font-bold">ICMS: {formatBRL(icmsVal)}</div>
                       <div className="text-slate-500">PIS/COF: {formatBRL(pisCofinsVal)}</div>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900">
+                    <td className="py-2.5 px-3 text-right font-semibold text-slate-900">
                       {formatBRL(po.totalAmount)}
                     </td>
                     <td className="py-2.5 px-3">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                      <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold">
                         {po.status}
                       </span>
                     </td>
@@ -3920,7 +4184,7 @@ export default function ErpGestaoClickTab({
                           onShowToast(`NF-e ${po.nfeNumber} (#${po.code}) recebida no Almoxarifado! Saldo de estoque atualizado (+5 un).`);
                           await onRefresh();
                         }}
-                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold cursor-pointer"
+                        className="px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                         title="Confirmar recebimento físico da NF-e e incrementar saldo no catálogo"
                       >
                         Receber no Estoque
@@ -3943,7 +4207,7 @@ export default function ErpGestaoClickTab({
                             purchaseOrderEditorFields
                           )
                         }
-                        className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                        className="px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer bg-slate-100 text-slate-700"
                       >
                         Editar
                       </button>
@@ -3968,51 +4232,61 @@ export default function ErpGestaoClickTab({
   };
 
   const getDocTypeBadge = (docType: ErpFiscalDocumentType) => {
+    // Só rótulo curto e pílula neutra; a base legal fica em Fiscal > Opções auxiliares.
     switch (docType) {
       case "FATURA_LOCACAO":
         return {
-          label: "FATURA DE LOCAÇÃO (0% ISS — SV 31 STF)",
-          className: "bg-emerald-100 text-emerald-900 border border-emerald-300",
+          label: "Fatura de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFSE_SERVICO":
         return {
-          label: "NFS-e SERVIÇO (LC 116 01.07 • IRRF 1,5% + CSRF 4,65%)",
-          className: "bg-blue-100 text-blue-900 border border-blue-300",
+          label: "NFS-e",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_REMESSA_LOCACAO":
         return {
-          label: "NF-e REMESSA EM LOCAÇÃO (CFOP 5.908 / 6.908)",
-          className: "bg-indigo-100 text-indigo-900 border border-indigo-300",
+          label: "NF-e remessa de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_VENDA_PRODUTO":
         return {
-          label: "NF-e VENDA DE PRODUTO (MOD. 55 • CFOP 5.102)",
-          className: "bg-amber-100 text-amber-900 border border-amber-300",
+          label: "NF-e venda",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFCE_CONSUMIDOR":
         return {
-          label: "NFC-e CONSUMIDOR FINAL (MOD. 65 • BALCÃO)",
-          className: "bg-purple-100 text-purple-900 border border-purple-300",
+          label: "NFC-e",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFCOM_TELECOM":
         return {
-          label: "NFCom TELECOM (MOD. 62 • CFOP 5.303 SCM)",
-          className: "bg-cyan-100 text-cyan-900 border border-cyan-300",
+          label: "NFCom",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       case "NFE_IMPORTACAO":
         return {
-          label: "NF-e IMPORTAÇÃO SIMPLES NACIONAL (SEBRAE 4.01 • CSOSN 900)",
-          className: "bg-teal-100 text-teal-950 border border-teal-300",
+          label: "NF-e importação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
+        };
+      case "NFE_RETORNO_LOCACAO":
+        return {
+          label: "NF-e retorno de locação",
+          className: "bg-slate-100 text-slate-700 border border-slate-200",
         };
       default:
         return {
-          label: "NF-e RETORNO DE LOCAÇÃO (CFOP 5.909 / 6.909)",
+          label: "Documento fiscal",
           className: "bg-slate-100 text-slate-900 border border-slate-300",
         };
     }
   };
 
   const renderInvoicesList = () => {
+    // Fiscal > Configurações fiscais (NF-e / NFC-e / NFS-e / autXML / certificado)
+    if (activeSubId === "FIS_CONFIGURACOES") {
+      return <FiscalSettingsPanel onShowToast={onShowToast} />;
+    }
     const effectiveFiscalTab =
       activeSubId === "FIS_PRODUTOS" ||
       activeSubId === "FIS_SERVICOS" ||
@@ -4021,21 +4295,12 @@ export default function ErpGestaoClickTab({
       activeSubId === "FIS_COMPRAS" ||
       activeSubId === "FIS_AUXILIARES"
         ? activeSubId
-        : "FIS_TODOS";
-
-    const countProdutos = invoices.filter((i) =>
-      ["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)
-    ).length;
-    const countServicos = invoices.filter((i) =>
-      ["NFSE_SERVICO", "FATURA_LOCACAO"].includes(i.documentType)
-    ).length;
-    const countConsumidor = invoices.filter((i) => i.documentType === "NFCE_CONSUMIDOR").length;
-    const countImportacao = invoices.filter((i) => i.documentType === "NFE_IMPORTACAO").length;
+        : "FIS_TODAS";
 
     let filteredInvoices = invoices;
     if (effectiveFiscalTab === "FIS_PRODUTOS") {
       filteredInvoices = invoices.filter((i) => {
-        if (!["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)) {
+        if (!["NFE_VENDA_PRODUTO", "NFE_REMESSA_LOCACAO", "NFE_RETORNO_LOCACAO", "NFCOM_TELECOM"].includes(i.documentType)) {
           return false;
         }
         if (produtosSubFilter !== "TODOS" && i.documentType !== produtosSubFilter) {
@@ -4092,206 +4357,142 @@ export default function ErpGestaoClickTab({
 
     return (
       <div className="space-y-4">
-        {/* BARRA SUPERIOR DE SUB-ABAS DO MÓDULO FISCAL (SINCRONIZADA COM SIDEBAR) */}
+        {/* CABEÇALHO DO FISCAL: título curto + um único "+ Emitir nota ▾" e "Importar XML" */}
         <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                Módulo Fiscal &amp; Tributário Seta Telecom • Regime: {gestaoClickConfig.taxRegime}
-              </span>
-              <h2 className="text-base font-extrabold text-slate-900">
-                Central Fiscal GestãoClick — NF-e Produtos, Remessa CFOP 5.908, NFS-e, Locação SV 31 STF &amp; Compras
+              <h2 className="text-base font-semibold text-slate-900">
+                Fiscal <span className="text-slate-400 font-normal">/</span> {FISCAL_SUBSCREEN_TITLES[effectiveFiscalTab] || "Todas as notas e faturas"}
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("FATURA_LOCACAO")}
-                className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Fatura Locação (0% ISS)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("NFSE_SERVICO")}
-                className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Emitir NFS-e Serviço
-              </button>
-              <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-black shadow-sm cursor-pointer">
-                Enviar Arquivo .TXT / .XML (NF-e Importação)
-                <input
-                  type="file"
-                  accept=".txt,.xml,text/plain,text/xml,application/xml"
-                  hidden
-                  onChange={handleGlobalImportFileUpload}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => setActiveSubId("FIS_IMPORTACAO")}
-                className="px-3.5 py-2 rounded bg-indigo-950 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer"
-              >
-                Abrir Emissor Importação (Sebrae 4.0)
-              </button>
-              <button
-                type="button"
-                onClick={() => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO")}
-                className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
-              >
-                + Emitir NF-e / NFC-e
-              </button>
+              {effectiveFiscalTab !== "FIS_COMPRAS" && (
+                <ImportFilePicker
+                  testId="upload-nfe-importacao-fiscal"
+                  onFileSelected={handleGlobalImportFileUpload}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Importar XML
+                </ImportFilePicker>
+              )}
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={fiscalEmitMenuOpen}
+                  data-testid="fiscal-emitir-nota"
+                  onClick={() => setFiscalEmitMenuOpen((v) => !v)}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
+                >
+                  + Emitir nota <span aria-hidden="true">▾</span>
+                </button>
+                {fiscalEmitMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Fechar menu"
+                      className="fixed inset-0 z-30 cursor-default"
+                      onClick={() => setFiscalEmitMenuOpen(false)}
+                    />
+                    <div role="menu" className="absolute right-0 z-40 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 text-xs shadow-sm">
+                      {[
+                        { label: "NF-e de venda", run: () => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO") },
+                        { label: "NF-e de remessa de locação", run: () => openNewInvoiceWithPreset("NFE_REMESSA_LOCACAO") },
+                        { label: "NFS-e", run: () => openNewInvoiceWithPreset("NFSE_SERVICO") },
+                        { label: "Fatura de locação", run: () => openNewInvoiceWithPreset("FATURA_LOCACAO") },
+                        { label: "NFC-e", run: () => openNewInvoiceWithPreset("NFCE_CONSUMIDOR") },
+                        { label: "NF-e de importação", run: () => setActiveSubId("FIS_IMPORTACAO") },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setFiscalEmitMenuOpen(false);
+                            item.run();
+                          }}
+                          className="block w-full px-3 py-2 text-left text-slate-700 hover:bg-slate-50 hover:text-[#1e3a6e] cursor-pointer"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-            {[
-              { id: "FIS_TODOS", label: `Todos os Documentos (${invoices.length})` },
-              { id: "FIS_PRODUTOS", label: `Notas de Produtos (${countProdutos})` },
-              { id: "FIS_SERVICOS", label: `Notas de Serviços & Faturas Locação (${countServicos})` },
-              { id: "FIS_CONSUMIDOR", label: `Notas do Consumidor NFC-e (${countConsumidor})` },
-              { id: "FIS_IMPORTACAO", label: `NF-e Importação Sebrae 4.0 (${countImportacao})` },
-              { id: "FIS_COMPRAS", label: `Notas de Compras / Entrada (${purchaseOrders.length})` },
-              { id: "FIS_AUXILIARES", label: "Opções Auxiliares & Tabelas CFOP/ISS" },
-            ].map((tabItem) => (
-              <button
-                key={tabItem.id}
-                type="button"
-                onClick={() => setActiveSubId(tabItem.id)}
-                className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                  effectiveFiscalTab === tabItem.id
-                    ? "bg-[#1e3a6e] text-white shadow-2xs"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {tabItem.label}
-              </button>
-            ))}
-          </div>
+          {/* #22: a navegação entre sub-abas do Fiscal fica somente na sidebar (sem abas duplicadas nem contadores) */}
         </div>
 
-        {/* SUB-ABA 1: NOTAS DE PRODUTOS (NF-e Venda 5.102 + NF-e Remessa Locação 5.908/6.908 + NFCom) */}
+        {/* SUB-ABA 1: NOTAS DE PRODUTOS — só o filtro por espécie; emissão pelo "+ Emitir nota ▾" */}
         {effectiveFiscalTab === "FIS_PRODUTOS" && (
-          <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Fiscal &gt; Notas de Produtos (NF-e Modelo 55 — Venda CFOP 5.102/6.102 &amp; Remessa em Locação CFOP 5.908/6.908)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Remessas de locação circulam com suspensão/não-incidência de ICMS (CST 041) e PIS/COFINS (CST 08). Vendas de equipamentos destacam ICMS 18% e PIS/COFINS 3,65%.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFE_VENDA_PRODUTO", "5.102 — Venda de mercadoria adquirida ou recebida de terceiros")}
-                  className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NF-e Venda (CFOP 5.102)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFE_REMESSA_LOCACAO", "5.908 — Remessa de bem por conta de contrato de locação")}
-                  className="px-3 py-1.5 rounded bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NF-e Remessa Locação (CFOP 5.908 / 6.908)
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[
-                { id: "TODOS", label: "Todas NF-e de Produtos" },
-                { id: "NFE_VENDA_PRODUTO", label: "NF-e Venda de Equipamentos (CFOP 5.102 / 6.102)" },
-                { id: "NFE_REMESSA_LOCACAO", label: "NF-e Remessa em Locação (CFOP 5.908 / 6.908)" },
-                { id: "NFCOM_TELECOM", label: "NFCom Telecom Mod. 62 (CFOP 5.303)" },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setProdutosSubFilter(f.id as typeof produtosSubFilter)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer ${
-                    produtosSubFilter === f.id
-                      ? "bg-indigo-950 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+          <div className="bg-white rounded-md border border-slate-200 p-3 flex flex-wrap items-center gap-1.5">
+            {[
+              { id: "TODOS", label: "Todas" },
+              { id: "NFE_VENDA_PRODUTO", label: "Venda" },
+              { id: "NFE_REMESSA_LOCACAO", label: "Remessa de locação" },
+              { id: "NFE_RETORNO_LOCACAO", label: "Retorno de locação" },
+              { id: "NFCOM_TELECOM", label: "NFCom" },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setProdutosSubFilter(f.id as typeof produtosSubFilter)}
+                className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer ${
+                  produtosSubFilter === f.id
+                    ? "bg-[#1e3a6e] text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <span
+              className="ml-auto inline-flex items-center text-slate-400"
+              title="Venda: CFOP 5.102/6.102 (ICMS e PIS/COFINS destacados). Remessa de locação: CFOP 5.908/6.908, ICMS CST 041 e PIS/COFINS CST 08. Retorno: CFOP 1.909/2.909. NFCom: modelo 62, CFOP 5.303. Detalhes em Opções auxiliares."
+            >
+              <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de produtos" />
+            </span>
           </div>
         )}
 
-        {/* SUB-ABA 2: NOTAS DE SERVIÇOS & FATURAS DE LOCAÇÃO (NFS-e Retenções IRRF 1,5% + CSRF 4,65% e Locação 0% ISS) */}
+        {/* SUB-ABA 2: NOTAS DE SERVIÇOS & FATURAS DE LOCAÇÃO — totais em cartões brancos + filtro */}
         {effectiveFiscalTab === "FIS_SERVICOS" && (
           <div className="bg-white rounded-md border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">
-                  Fiscal &gt; Notas de Serviços (NFS-e LC 116 Item 01.07) &amp; Faturas de Locação (0% ISS — Súmula Vinculante 31 STF)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Segregação tributária automática: Locação Pura de Bens Móveis com dispensa de ISSQN (Veto 3.01 LC 116/03 + SV 31 STF) e Serviços Técnicos com retenção automática de IRRF (1,5%) e CSRF (4,65% — PIS 0,65% + COFINS 3,0% + CSLL 1,0%).
-                </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">Faturas de locação</span>
+                <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalLocacaoGross)}</strong>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("FATURA_LOCACAO")}
-                  className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir Fatura de Locação (0% ISS)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openNewInvoiceWithPreset("NFSE_SERVICO")}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  + Emitir NFS-e (Ret. IRRF 1,5% + CSRF 4,65%)
-                </button>
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">NFS-e de serviços</span>
+                <strong className="text-sm font-semibold text-slate-900">{formatBRL(totalNfseGross)}</strong>
+                <span className="text-[11px] text-slate-500 block">ISS {gestaoClickConfig.defaultIssRatePercent}%</span>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
-              <div className="p-3 rounded border border-emerald-200 bg-emerald-50/70">
-                <span className="text-[10px] font-bold uppercase text-emerald-800 block">Faturas Locação (0% ISS)</span>
-                <strong className="text-sm font-black text-emerald-950">{formatBRL(totalLocacaoGross)}</strong>
-                <span className="text-[10px] text-emerald-700 block">Súmula Vinculante 31 STF</span>
-              </div>
-              <div className="p-3 rounded border border-emerald-200 bg-emerald-50/40">
-                <span className="text-[10px] font-bold uppercase text-emerald-800 block">Economia Real de ISSQN</span>
-                <strong className="text-sm font-black text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong>
-                <span className="text-[10px] text-emerald-700 block">Veto Item 3.01 LC 116/2003</span>
-              </div>
-              <div className="p-3 rounded border border-blue-200 bg-blue-50/60">
-                <span className="text-[10px] font-bold uppercase text-blue-800 block">Faturamento NFS-e Serviços</span>
-                <strong className="text-sm font-black text-blue-950">{formatBRL(totalNfseGross)}</strong>
-                <span className="text-[10px] text-blue-700 block">ISS Municipal {gestaoClickConfig.defaultIssRatePercent}% (Item 01.07)</span>
-              </div>
-              <div className="p-3 rounded border border-amber-200 bg-amber-50/60">
-                <span className="text-[10px] font-bold uppercase text-amber-900 block">Retenções Federais (NFS-e)</span>
-                <strong className="text-sm font-black text-amber-950">
+              <div className="p-3 rounded border border-slate-200 bg-white">
+                <span className="text-[11px] text-slate-500 block">Retenções federais</span>
+                <strong className="text-sm font-semibold text-slate-900">
                   {formatBRL(totalIrrfWithheld + totalCsrfWithheld)}
                 </strong>
-                <span className="text-[10px] text-amber-800 block">
-                  IRRF 1,5%: {formatBRL(totalIrrfWithheld)} | CSRF 4,65%: {formatBRL(totalCsrfWithheld)}
+                <span className="text-[11px] text-slate-500 block">
+                  IRRF {formatBRL(totalIrrfWithheld)} · CSRF {formatBRL(totalCsrfWithheld)}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
               {[
-                { id: "TODOS", label: "Todos (Faturas de Locação + NFS-e Serviços)" },
-                { id: "FATURA_LOCACAO", label: "Apenas Faturas de Locação (0% ISS — SV 31 STF)" },
-                { id: "NFSE_SERVICO", label: "Apenas NFS-e Serviços (IRRF 1,5% + CSRF 4,65%)" },
+                { id: "TODOS", label: "Todos" },
+                { id: "FATURA_LOCACAO", label: "Faturas de locação" },
+                { id: "NFSE_SERVICO", label: "NFS-e" },
               ].map((f) => (
                 <button
                   key={f.id}
                   type="button"
                   onClick={() => setServicosSubFilter(f.id as typeof servicosSubFilter)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer ${
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer ${
                     servicosSubFilter === f.id
                       ? "bg-[#1e3a6e] text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -4300,30 +4501,17 @@ export default function ErpGestaoClickTab({
                   {f.label}
                 </button>
               ))}
+              <span
+                className="ml-auto inline-flex items-center text-slate-400"
+                title="Locação pura de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
+              >
+                <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de serviços" />
+              </span>
             </div>
           </div>
         )}
 
-        {/* SUB-ABA 3: NOTAS DO CONSUMIDOR (NFC-e Modelo 65) */}
-        {effectiveFiscalTab === "FIS_CONSUMIDOR" && (
-          <div className="bg-white rounded-md border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900">
-                Fiscal &gt; Notas do Consumidor (NFC-e Modelo 65 — Venda Balcão / PDV Matriz #118887)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Emissão instantânea de DANFE NFC-e (Ajuste SINIEF 19/16, CFOP 5.102) para vendas presenciais de cabos, fontes PoE, headsets e acessórios com cálculo IBPT (Lei 12.741/2012).
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => openNewInvoiceWithPreset("NFCE_CONSUMIDOR")}
-              className="px-4 py-2 rounded bg-purple-700 hover:bg-purple-800 text-white text-xs font-extrabold cursor-pointer"
-            >
-              + Emitir NFC-e Consumidor (Mod. 65)
-            </button>
-          </div>
-        )}
+        {/* SUB-ABA 3: NOTAS DO CONSUMIDOR (NFC-e) — emissão pelo "+ Emitir nota ▾"; só a lista abaixo */}
 
         {/* SUB-ABA: NF-E DE IMPORTAÇÃO (SIMPLES NACIONAL — EMISSOR SEBRAE 4.01 & FIREWALL FISCAL) */}
         {effectiveFiscalTab === "FIS_IMPORTACAO" && (
@@ -4343,23 +4531,21 @@ export default function ErpGestaoClickTab({
         )}
 
         {/* SUB-ABA 4: NOTAS DE COMPRAS / ENTRADA */}
-        {effectiveFiscalTab === "FIS_COMPRAS" && renderPurchasesTable("Fiscal > Notas de Compras / Entrada")}
+        {effectiveFiscalTab === "FIS_COMPRAS" && renderPurchasesTable("Fiscal > Notas de Compras / Entrada", "FISCAL")}
 
         {/* SUB-ABA 5: OPÇÕES AUXILIARES & PARÂMETROS TRIBUTÁRIOS */}
         {effectiveFiscalTab === "FIS_AUXILIARES" && (
           <div className="bg-white rounded-md border border-slate-200 p-5 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                  Fiscal &gt; Opções Auxiliares &amp; Regras Tributárias
-                </span>
-                <h3 className="text-base font-extrabold text-slate-900">
-                  Parâmetros Fiscais &amp; Matriz CFOP / LC 116 / Súmula Vinculante 31 STF — {gestaoClickConfig.companyLegalName}
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Parâmetros fiscais — {gestaoClickConfig.companyLegalName}
                 </h3>
                 <p className="text-xs text-slate-500">
                   CNPJ: {gestaoClickConfig.companyCnpj} • IM: {gestaoClickConfig.municipalRegistration} • IE: {gestaoClickConfig.stateRegistration}
                 </p>
               </div>
+              {canSyncGestaoClick ? (
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={gestaoClickConfig.taxRegime}
@@ -4390,61 +4576,76 @@ export default function ErpGestaoClickTab({
                         { key: "defaultIssRatePercent", label: "Alíquota ISSQN Padrão (%) - Serviços LC 116", type: "number" },
                       ],
                       onSave: async (vals) => {
-                        await fetch("/api/erp/gestaoclick/config", {
+                        const res = await fetch("/api/erp/gestaoclick/config", {
                           method: "PATCH",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(vals),
                         });
+                        if (!res.ok) {
+                          onShowToast(await gcConfigErrorMessage(res)); // Pacote I
+                          return;
+                        }
                         setGenericModal(null);
                         onShowToast("Parâmetros fiscais e alíquota de ISS atualizados!");
                         await onRefresh();
                       },
                     })
                   }
-                  className="px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
                   Editar Parâmetros Fiscais
                 </button>
               </div>
+              ) : (
+                <span data-testid="regime-somente-leitura" className="px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                  Regime: {gestaoClickConfig.taxRegime}
+                </span>
+              )}
             </div>
 
+            {/* Base legal e tabela CFOP: só aqui em Opções auxiliares, recolhidas */}
+            <details className="group border border-slate-200 rounded-md">
+              <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                Base legal e tabela de CFOP
+              </summary>
+              <div className="p-4 pt-2 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="p-4 rounded border border-emerald-200 bg-emerald-50/70 space-y-1">
-                <div className="font-extrabold text-emerald-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   1. Locação Pura de Bens Móveis (0% ISS)
                 </div>
-                <p className="text-emerald-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> Veto Presidencial ao item 3.01 da LC 116/2003 + Súmula Vinculante nº 31 do STF + Lei 8.846/1994 art. 1º.
                 </p>
-                <p className="text-emerald-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • ISSQN: <strong>0,00% (Não Incidência)</strong><br />
                   • Retenção IRRF / CSRF: <strong>0,00% (IN RFB 1.234/12)</strong><br />
                   • PIS (0,65%) + COFINS (3,00%) Cumulativo
                 </p>
               </div>
 
-              <div className="p-4 rounded border border-blue-200 bg-blue-50/70 space-y-1">
-                <div className="font-extrabold text-blue-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   2. Serviços Técnicos TI / NOC (NFS-e)
                 </div>
-                <p className="text-blue-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> LC 116/2003 Item 01.07 (Suporte técnico, instalação, configuração e manutenção) e Art. 30/31 da Lei 10.833/2003.
                 </p>
-                <p className="text-blue-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • ISSQN Municipal: <strong>{gestaoClickConfig.defaultIssRatePercent}%</strong><br />
                   • IRRF Retido na Fonte: <strong>1,50%</strong> (dispensa &lt; R$ 10,00)<br />
                   • CSRF Retida na Fonte: <strong>4,65%</strong> (PIS 0,65% + COFINS 3% + CSLL 1% p/ NF &gt; R$ 215,05)
                 </p>
               </div>
 
-              <div className="p-4 rounded border border-indigo-200 bg-indigo-50/70 space-y-1">
-                <div className="font-extrabold text-indigo-950 uppercase text-[11px]">
+              <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
+                <div className="font-semibold text-slate-900 text-xs">
                   3. Circulação de Equipamentos (NF-e Mod. 55)
                 </div>
-                <p className="text-indigo-900">
+                <p className="text-slate-700">
                   <strong>Base Legal:</strong> Art. 7º, IX do RICMS/SP (Remessa de Locação) e Tributação Comercial de Revenda.
                 </p>
-                <p className="text-indigo-800 text-[11px]">
+                <p className="text-slate-600 text-[11px]">
                   • Remessa Locação: <strong>CFOP 5.908 / 6.908</strong> (CST ICMS 041 / PIS-COFINS 08 — R$ 0 impostos)<br />
                   • Venda Equipamento: <strong>CFOP 5.102 / 6.102</strong> (ICMS 18% SP, IRPJ 1,20%, CSLL 1,08%)
                 </p>
@@ -4452,8 +4653,8 @@ export default function ErpGestaoClickTab({
             </div>
 
             <div className="border border-slate-200 rounded overflow-hidden">
-              <div className="bg-slate-900 text-white px-4 py-2.5 text-xs font-extrabold">
-                Tabela Oficial de CFOPs e Naturezas de Operação — Seta Telecom (GestãoClick #118887)
+              <div className="bg-slate-50 text-slate-700 border-b border-slate-200 px-4 py-2.5 text-xs font-semibold">
+                CFOPs e naturezas de operação
               </div>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
@@ -4468,7 +4669,7 @@ export default function ErpGestaoClickTab({
                 </thead>
                 <tbody className="divide-y">
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-indigo-800">5.908 / 6.908</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.908 / 6.908</td>
                     <td className="py-2 px-3 font-bold">NF-e Mod. 55</td>
                     <td className="py-2 px-3">Remessa de bem por conta de contrato de locação</td>
                     <td className="py-2 px-3">CST 041 (Não tributada)</td>
@@ -4476,56 +4677,58 @@ export default function ErpGestaoClickTab({
                     <td className="py-2 px-3 text-slate-600">Transporte Patrimonial (Sem cobrança)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-emerald-800">N/A (SV 31 STF)</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">N/A (SV 31 STF)</td>
                     <td className="py-2 px-3 font-bold">Fatura Locação</td>
                     <td className="py-2 px-3">Locação pura de bens móveis (Dispensa NFS-e — LC 116/03)</td>
                     <td className="py-2 px-3">0% ISSQN (SV 31 STF)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
-                    <td className="py-2 px-3 text-emerald-700 font-bold">Gera Contas a Receber MRR (100% Líquido)</td>
+                    <td className="py-2 px-3 text-slate-700">Gera contas a receber (valor líquido)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-blue-800">5.933 / 6.933</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.933 / 6.933</td>
                     <td className="py-2 px-3 font-bold">NFS-e Nacional</td>
                     <td className="py-2 px-3">Prestação de serviço técnico TI/Telecom (LC 116 Item 01.07)</td>
                     <td className="py-2 px-3">ISS {gestaoClickConfig.defaultIssRatePercent}%</td>
                     <td className="py-2 px-3">Ret. IRRF 1,5% + CSRF 4,65%</td>
-                    <td className="py-2 px-3 text-blue-700 font-bold">Gera Recebível Líquido (Bruto - 6,15%)</td>
+                    <td className="py-2 px-3 text-slate-700">Gera Recebível Líquido (Bruto - 6,15%)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-amber-800">5.102 / 6.102</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">5.102 / 6.102</td>
                     <td className="py-2 px-3 font-bold">NF-e / NFC-e</td>
                     <td className="py-2 px-3">Venda de mercadoria/equipamento adquirido de terceiros</td>
                     <td className="py-2 px-3">CST 000 (ICMS 18% / 12%)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
-                    <td className="py-2 px-3 text-amber-800 font-bold">Gera Contas a Receber Venda</td>
+                    <td className="py-2 px-3 text-slate-700">Gera Contas a Receber Venda</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-purple-800">1.551 / 2.551</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">1.551 / 2.551</td>
                     <td className="py-2 px-3 font-bold">NF-e Entrada</td>
                     <td className="py-2 px-3">Compra de bem para o Ativo Imobilizado (Parque de Locação)</td>
                     <td className="py-2 px-3">Crédito CIAP / ICMS</td>
                     <td className="py-2 px-3">CST 50 / 70 Entrada</td>
-                    <td className="py-2 px-3 text-rose-700 font-bold">CAPEX Contas a Pagar Fornecedor</td>
+                    <td className="py-2 px-3 text-slate-700">CAPEX Contas a Pagar Fornecedor</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3 font-mono font-black text-slate-800">1.102 / 2.102</td>
+                    <td className="py-2 px-3 font-mono font-semibold text-slate-800">1.102 / 2.102</td>
                     <td className="py-2 px-3 font-bold">NF-e Entrada</td>
                     <td className="py-2 px-3">Compra de mercadoria para comercialização / revenda</td>
                     <td className="py-2 px-3">Crédito ICMS 18%</td>
                     <td className="py-2 px-3">CST 50 / 70 Entrada</td>
-                    <td className="py-2 px-3 text-rose-700 font-bold">Estoque Comercialização</td>
+                    <td className="py-2 px-3 text-slate-700">Estoque Comercialização</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+              </div>
+            </details>
           </div>
         )}
 
         {/* BARRA DE BUSCA E FILTRO DE STATUS FISCAL */}
         {effectiveFiscalTab !== "FIS_COMPRAS" && effectiveFiscalTab !== "FIS_AUXILIARES" && (
           <div className="bg-white rounded-md border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-extrabold text-[#0d2b4e]">
-              Documentos Fiscais Exibidos ({filteredInvoices.length} de {invoices.length})
+            <span className="font-semibold text-slate-600">
+              {filteredInvoices.length} de {invoices.length} documentos
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -4545,16 +4748,17 @@ export default function ErpGestaoClickTab({
                 <option value="EMITIDA">Emitidas / Em Aberto ({invoices.filter((i) => i.status === "EMITIDA").length})</option>
                 <option value="PAGA">Pagas / Liquidadas ({invoices.filter((i) => i.status === "PAGA").length})</option>
                 <option value="VENCIDA">Vencidas ({invoices.filter((i) => i.status === "VENCIDA").length})</option>
+                <option value="ENTRADA_REGISTRADA">Notas de entrada registradas ({invoices.filter((i) => i.status === "ENTRADA_REGISTRADA").length})</option>
               </select>
-              {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODOS") && (
+              {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODAS") && (
                 <button
                   type="button"
                   onClick={() => {
                     setInvoicesSearchQuery("");
                     setInvoicesStatusFilter("TODOS");
-                    setActiveSubId("FIS_TODOS");
+                    setActiveSubId("FIS_TODAS");
                   }}
-                  className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                  className="px-1.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
                 >
                   Limpar filtros
                 </button>
@@ -4563,7 +4767,7 @@ export default function ErpGestaoClickTab({
           </div>
         )}
 
-        {/* LISTA DE DOCUMENTOS FISCAIS (PARA FIS_PRODUTOS, FIS_SERVICOS, FIS_CONSUMIDOR, FIS_TODOS) */}
+        {/* LISTA DE DOCUMENTOS FISCAIS (PARA FIS_PRODUTOS, FIS_SERVICOS, FIS_CONSUMIDOR, FIS_TODAS) */}
         {effectiveFiscalTab !== "FIS_COMPRAS" &&
           effectiveFiscalTab !== "FIS_IMPORTACAO" &&
           effectiveFiscalTab !== "FIS_AUXILIARES" &&
@@ -4574,26 +4778,30 @@ export default function ErpGestaoClickTab({
             return (
               <div
                 key={inv.id}
-                className="bg-white rounded-md border border-slate-200 p-5 shadow-xs space-y-3"
+                className="bg-white rounded-md border border-slate-200 p-4 space-y-3"
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 rounded text-xs font-black bg-slate-900 text-white font-mono">
+                      <span className="text-xs font-semibold text-slate-900 font-mono">
                         {inv.documentNumber}
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${badge.className}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${badge.className}`}>
                         {badge.label}
                       </span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                          isPaid ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-800"
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                          isPaid
+                            ? "bg-emerald-100 text-emerald-800"
+                            : inv.status === "ENTRADA_REGISTRADA"
+                              ? "bg-slate-200 text-slate-800"
+                              : "bg-amber-100 text-amber-800"
                         }`}
                       >
-                        {inv.status}
+                        {inv.status === "ENTRADA_REGISTRADA" ? "ENTRADA REGISTRADA" : inv.status}
                       </span>
                     </div>
-                    <h3 className="text-base font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => handleOpenErpCustomerByCompany(inv.companyId, inv.companyName, inv.companyCnpj)}
@@ -4603,7 +4811,7 @@ export default function ErpGestaoClickTab({
                         {inv.companyName}
                       </button>
                       <span>—</span>
-                      <span className="font-mono text-sm">CNPJ {inv.companyCnpj}</span>
+                      <span className="font-mono text-xs font-normal text-slate-500">CNPJ {inv.companyCnpj}</span>
                     </h3>
                     <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span>Competência: <strong>{inv.competenceMonth}</strong></span>
@@ -4621,7 +4829,7 @@ export default function ErpGestaoClickTab({
                           <button
                             type="button"
                             onClick={() => handleNavigateToContractFromDoc(linkedCtr.id, linkedCtr.companyName)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-[#1e3a6e] border border-indigo-200 font-mono text-[10px] font-extrabold cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline font-mono text-[11px] font-semibold cursor-pointer"
                             title="Abrir Contrato vinculado (Navegação Cruzada)"
                           >
                             Contrato {linkedCtr.contractNumber} &rarr;
@@ -4632,66 +4840,73 @@ export default function ErpGestaoClickTab({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
+                    <div className="text-right px-2 py-1">
                       <span className="text-[10px] text-slate-500 block">
                         Bruto: <strong>{formatBRL(inv.grossAmount)}</strong> | ISS: {tb.issRatePercent}% | ICMS: {tb.icmsRatePercent}%
                       </span>
                       {tb.totalWithheld > 0 && (
-                        <span className="text-[10px] text-amber-800 font-bold block">
+                        <span className="text-[10px] text-slate-800 font-bold block">
                           Retenções: IRRF {formatBRL(tb.irrfWithheldAmount)} + CSRF {formatBRL(tb.csrfWithheldAmount)}
                         </span>
                       )}
-                      <strong className="text-sm text-emerald-800">
+                      <strong className="text-sm font-semibold text-slate-900">
                         Líquido: {formatBRL(inv.netAmount)}
                       </strong>
                     </div>
+                    {!isIssuedInvoiceStatus(inv.status) && (
                     <button
                       type="button"
                       onClick={() => setEditingInvoice(inv)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" /> Editar
                     </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        setEmailModalPayload({
-                          docType: inv.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
-                          companyName: inv.companyName,
-                          companyCnpj: inv.companyCnpj,
-                          documentCode: inv.documentNumber,
-                          amountBrl: inv.netAmount,
-                          dueDate: inv.dueDate,
-                          boletoLine: inv.boletoDigitableLine,
-                          pixCode: inv.pixCopyPaste,
-                        })
-                      }
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold cursor-pointer"
+                      onClick={() => setSelectedInvoiceForPrint(inv)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
-                      <Mail className="w-3.5 h-3.5" /> Enviar p/ Cliente
+                      Visualizar
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => openIssuedInvoiceEmail(inv)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      <Mail className="w-3.5 h-3.5" /> Enviar
+                    </button>
+                    {isIssuedInvoiceStatus(inv.status) && (
+                    <button
+                      type="button"
+                      onClick={() => { void handleGenerateInvoiceLink(inv); }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      Gerar link
+                    </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleDeleteInvoice(inv)}
                       title="Excluir Documento Fiscal"
-                      className="p-2 rounded border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
+                      className="p-1.5 rounded border border-slate-300 bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-700 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setSelectedInvoiceForPrint(inv)}
-                      className="px-3.5 py-2 rounded bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
+                      <Printer className="w-3.5 h-3.5" /> Imprimir
                     </button>
-                    {!isPaid && inv.documentType !== "NFE_REMESSA_LOCACAO" && (
+                    {!isPaid && inv.status !== "ENTRADA_REGISTRADA" && inv.documentType !== "NFE_REMESSA_LOCACAO" && inv.documentType !== "NFE_RETORNO_LOCACAO" && (
                       <button
                         type="button"
                         onClick={() => handleMarkInvoicePaid(inv.id)}
-                        className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                        className="px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                       >
-                        Confirmar Recebimento
+                        Confirmar recebimento
                       </button>
                     )}
                   </div>
@@ -4722,14 +4937,14 @@ export default function ErpGestaoClickTab({
   };
 
   return (
-    <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8]">
+    <div className="rounded-lg overflow-hidden border border-slate-200 bg-[#f3f5f8]">
       {/* BARRA DE CONTEXTO ULTRACOMPACTA E BREADCRUMB VIVO DO ERP (SEM DUPLICAÇÃO DE TOPO) */}
       <div className="bg-white border-b border-slate-200 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 select-none">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setErpMobileDrawerOpen(true)}
-            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
             title="Abrir Menu ERP Mobile"
           >
             <Menu className="w-4 h-4" />
@@ -4750,12 +4965,12 @@ export default function ErpGestaoClickTab({
                 setActiveSection('INICIO');
                 setActiveSubId('INICIO');
               }}
-              className="font-extrabold text-[#1e3a6e] hover:underline cursor-pointer"
+              className="font-semibold text-[#1e3a6e] hover:underline cursor-pointer"
             >
               ERP
             </button>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-            <span className="font-bold text-slate-800">
+            <span className="font-semibold text-slate-800">
               {GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection)?.label || activeSection}
             </span>
             {(() => {
@@ -4764,24 +4979,19 @@ export default function ErpGestaoClickTab({
               return subObj ? (
                 <>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-semibold text-[#ff7a59]">{subObj.label}</span>
+                  <span className="font-semibold text-[#1e3a6e]">{subObj.label}</span>
                 </>
               ) : null;
             })()}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            API ERP-GROK • Loja {gestaoClickConfig.storeName || 'Matriz'} #{gestaoClickConfig.storeId || '118887'} • MCP {gestaoClickConfig.mcpStatus || 'ONLINE'}
-          </span>
-        </div>
       </div>
 
       {/* BARRA RÁPIDA MOBILE DO ERP (PERMITE ABRIR QUALQUER MÓDULO E SUBMÓDULO COM 1 TOQUE NO CELULAR) */}
       <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 space-y-1.5">
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {GESTAO_CLICK_MENU_TREE.map((grp) => {
+          {visibleMenuTree.map((grp) => {
             const isAct = activeSection === grp.id;
             return (
               <button
@@ -4793,9 +5003,9 @@ export default function ErpGestaoClickTab({
                   setActiveSubId(firstSub);
                   if (firstSub === 'CAD_CLIENTES') setCadastrosSubTab('CLIENTES');
                 }}
-                className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-extrabold transition cursor-pointer ${
+                className={`shrink-0 px-2.5 py-1.5 rounded text-[11px] font-semibold transition cursor-pointer ${
                   isAct
-                    ? 'bg-[#1e3a6e] text-white shadow-2xs'
+                    ? 'bg-[#1e3a6e] text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
@@ -4805,7 +5015,7 @@ export default function ErpGestaoClickTab({
           })}
         </div>
         {(() => {
-          const activeGrp = GESTAO_CLICK_MENU_TREE.find((g) => g.id === activeSection);
+          const activeGrp = visibleMenuTree.find((g) => g.id === activeSection);
           if (!activeGrp?.subItems || activeGrp.subItems.length === 0) return null;
           return (
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 border-t border-slate-100">
@@ -4835,10 +5045,10 @@ export default function ErpGestaoClickTab({
                         setContractsSubFilter(sub.id);
                       }
                     }}
-                    className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                    className={`shrink-0 px-2.5 py-1 rounded text-[11px] font-semibold transition cursor-pointer border ${
                       isSubAct
-                        ? 'bg-[#ff7a59] text-white'
-                        : 'bg-orange-50/70 text-[#0d2b4e] border border-orange-200/70'
+                        ? 'bg-white text-[#1e3a6e] border-[#1e3a6e]'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
                     {sub.label}
@@ -4854,21 +5064,10 @@ export default function ErpGestaoClickTab({
       <div className="flex flex-col md:flex-row min-h-[780px]">
         {!sidebarCollapsed && (
           <GestaoClickSidebar
+            menuTree={visibleMenuTree}
             activeSection={activeSection}
             activeSubId={activeSubId}
             onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-            moduleCounts={{
-              CADASTROS: companies.length + suppliers.length + employees.length,
-              ITENS: catalog.length,
-              ORCAMENTOS: proposals.length,
-              CONTRATOS: rentalContracts.length,
-              VENDAS: salesOrders.length,
-              ORDENS_SERVICOS: serviceOrders.length,
-              ESTOQUE: catalog.length + purchaseOrders.length,
-              FINANCEIRO: financialEntries.length,
-              FISCAL: invoices.length,
-              ATENDIMENTOS: serviceOrders.length,
-            }}
             mobileDrawerOpen={erpMobileDrawerOpen}
             onCloseMobileDrawer={() => setErpMobileDrawerOpen(false)}
             onSelect={(sec, subId) => {
@@ -4902,43 +5101,35 @@ export default function ErpGestaoClickTab({
         {/* CONTEÚDO PRINCIPAL */}
         <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-x-hidden">
 
-          {/* BANNER DE PROPOSTA RECÉM-CRIADA COM LINK PÚBLICO */}
+          {/* BANNER DE PROPOSTA RECÉM-CRIADA (visualização interna + link assinado p/ o cliente) */}
           {createdProposalBanner && (
-            <div className="bg-emerald-950 text-white rounded-md p-4 border border-emerald-500 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[10px] font-black uppercase">
-                    LINK DO CLIENTE PRONTO
-                  </span>
-                  <span className="font-mono text-xs font-extrabold text-emerald-300">
-                    {createdProposalBanner.proposal.code} — {createdProposalBanner.proposal.companyName}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-200">
-                  Link de Acesso Público p/ Imprimir PDF:{' '}
-                  <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="underline font-mono text-emerald-300">
-                    {createdProposalBanner.publicUrl.slice(0, 95)}...
-                  </a>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div
+              role="status"
+              className="bg-white text-slate-700 rounded-md px-3 py-2 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs"
+            >
+              <span className="min-w-0 truncate">
+                Orçamento <strong className="font-semibold text-slate-900">{showCode(createdProposalBanner.proposal)}</strong> salvo
+                {' — '}
+                {createdProposalBanner.proposal.companyName}. O link para o cliente está pronto.
+              </span>
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(createdProposalBanner.publicUrl);
-                    onShowToast('Link público copiado para a área de transferência!');
+                  onClick={async () => {
+                    const r = await copySignedProposalLink(createdProposalBanner.proposal.id);
+                    onShowToast(r.ok ? 'Link assinado para o cliente copiado para a área de transferência!' : r.error);
                   }}
-                  className="px-3 py-2 rounded bg-white text-slate-900 text-xs font-extrabold cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[#1e3a6e] font-medium hover:underline cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5 inline mr-1" /> Copiar Link p/ Cliente
+                  <Copy className="w-3.5 h-3.5" /> Copiar link para o cliente
                 </button>
-                <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded bg-emerald-600 text-white text-xs font-extrabold">
-                  <ExternalLink className="w-3.5 h-3.5 inline mr-1" /> Abrir Proposta
+                <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
+                  <ExternalLink className="w-3.5 h-3.5" /> Abrir
                 </a>
-                <a href={createdProposalBanner.printUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold">
-                  <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir PDF
+                <a href={createdProposalBanner.printUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
+                  <Printer className="w-3.5 h-3.5" /> Imprimir
                 </a>
-                <button type="button" onClick={() => setCreatedProposalBanner(null)} className="text-slate-400 hover:text-white">
+                <button type="button" onClick={() => setCreatedProposalBanner(null)} aria-label="Fechar aviso" className="text-slate-400 hover:text-slate-700 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -4965,7 +5156,7 @@ export default function ErpGestaoClickTab({
                 setActiveSection('ORCAMENTOS');
                 openFullNewProposalModal('LOCACAO');
               }}
-              onSync={handleSyncGestaoClick}
+              onSync={canSyncGestaoClick ? handleSyncGestaoClick : undefined}
               syncing={syncingGc}
               config={gestaoClickConfig}
               serviceOrdersUpcoming={serviceOrders}
@@ -4978,46 +5169,18 @@ export default function ErpGestaoClickTab({
 
           {activeSection === 'CADASTROS' && (
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-slate-100">
-                {[
-                  { id: 'CLIENTES', subId: 'CAD_CLIENTES', label: `Clientes (${companies.length})` },
-                  { id: 'FORNECEDORES', subId: 'CAD_FORNECEDORES', label: `Fornecedores (${suppliers.length})` },
-                  { id: 'FUNCIONARIOS', subId: 'CAD_FUNCIONARIOS', label: `Funcionários (${employees.length})` },
-                  { id: 'TRANSPORTADORAS', subId: 'CAD_TRANSPORTADORAS', label: 'Transportadoras' },
-                  { id: 'AUXILIARES', subId: 'CAD_AUXILIARES', label: 'Opções Auxiliares' },
-                ].map((tb) => (
-                  <button
-                    key={tb.id}
-                    type="button"
-                    onClick={() => {
-                      setCadastrosSubTab(tb.id as typeof cadastrosSubTab);
-                      setActiveSubId(tb.subId);
-                    }}
-                    className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                      cadastrosSubTab === tb.id
-                        ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    {tb.label}
-                  </button>
-                ))}
-              </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    ERP &gt; Cadastros &gt; {cadastrosSubTab}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">
+                  <h2 className="text-base font-semibold text-slate-900">
                     {cadastrosSubTab === 'CLIENTES'
-                      ? `Clientes do ERP (${companies.length} cadastrados • Base ERP Separada do CRM)`
+                      ? 'Clientes'
                       : cadastrosSubTab === 'FORNECEDORES'
-                        ? `Fornecedores do ERP (${suppliers.length})`
+                        ? 'Fornecedores'
                         : cadastrosSubTab === 'FUNCIONARIOS'
-                          ? `Funcionários Seta Telecom (${employees.length})`
+                          ? 'Funcionários'
                           : cadastrosSubTab === 'TRANSPORTADORAS'
-                            ? 'Transportadoras Homologadas'
-                            : 'Opções Auxiliares de Cadastros'}
+                            ? 'Transportadoras'
+                            : 'Opções auxiliares'}
                   </h2>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -5032,7 +5195,7 @@ export default function ErpGestaoClickTab({
                           onClick={() =>
                             setEditingCustomerModal({ company: selComp, isNew: false, readOnly: true })
                           }
-                          className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 shadow-2xs cursor-pointer"
+                          className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 shadow-2xs cursor-pointer"
                         >
                           <Search className="w-3.5 h-3.5" />
                         </button>
@@ -5043,9 +5206,9 @@ export default function ErpGestaoClickTab({
                           onClick={() =>
                             setEditingCustomerModal({ company: selComp, isNew: false, readOnly: false })
                           }
-                          className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white shadow-2xs cursor-pointer"
+                          className="inline-flex items-center justify-center p-2 rounded-md hover:bg-[#1e3a6e] cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
-                          <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                          <Pencil className="w-3.5 h-3.5 text-white" />
                         </button>
                       </div>
                     ) : null;
@@ -5059,9 +5222,9 @@ export default function ErpGestaoClickTab({
                           isNew: true,
                         })
                       }
-                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                     >
-                      + Novo Cadastro
+                      + Adicionar
                     </button>
                   )}
                   {cadastrosSubTab === 'FORNECEDORES' && (
@@ -5080,9 +5243,9 @@ export default function ErpGestaoClickTab({
                           ]
                         )
                       }
-                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                     >
-                      + Novo Fornecedor
+                      + Adicionar
                     </button>
                   )}
                   {cadastrosSubTab === 'FUNCIONARIOS' && (
@@ -5101,9 +5264,32 @@ export default function ErpGestaoClickTab({
                           ]
                         )
                       }
-                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                     >
-                      + Novo Funcionário
+                      + Adicionar
+                    </button>
+                  )}
+                  {cadastrosSubTab === 'TRANSPORTADORAS' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openCollectionEditor(
+                          'suppliers',
+                          'Nova Transportadora',
+                          { id: `trp-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', supplierType: 'TRANSPORTADORA', modalFrete: '', cityState: '', active: true },
+                          [
+                            { key: 'name', label: 'Razão Social / Transportadora *' },
+                            { key: 'cnpj', label: 'CNPJ' },
+                            { key: 'modalFrete', label: 'Modal / Registro ANTT' },
+                            { key: 'cityState', label: 'Cidade / UF' },
+                            { key: 'phone', label: 'Telefone' },
+                            { key: 'email', label: 'E-mail' },
+                          ]
+                        )
+                      }
+                      className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
+                    >
+                      + Adicionar
                     </button>
                   )}
                 </div>
@@ -5112,23 +5298,7 @@ export default function ErpGestaoClickTab({
               {cadastrosSubTab === 'CLIENTES' && (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditingCustomerModal({
-                            company: null,
-                            isNew: true,
-                          })
-                        }
-                        className="px-3.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-bold cursor-pointer"
-                      >
-                        + Adicionar Cliente (Novo Cadastro)
-                      </button>
-                      <span className="text-[11px] text-slate-500">
-                        Consulta integrada: <strong>Receita Federal (RFB)</strong> &amp; <strong>Serasa Experian Score</strong>
-                      </span>
-                    </div>
+                    <div />
                     <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
@@ -5155,7 +5325,7 @@ export default function ErpGestaoClickTab({
                             setCustomerSearchQuery('');
                             setCustomerStatusFilter('TODOS');
                           }}
-                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                          className="px-1 py-1.5 text-slate-500 hover:text-slate-800 underline text-xs font-medium cursor-pointer"
                         >
                           Limpar filtros
                         </button>
@@ -5218,7 +5388,7 @@ export default function ErpGestaoClickTab({
                               }
                               className={`cursor-pointer transition ${
                                 selectedCadastroId === c.id
-                                  ? 'bg-blue-50/80 hover:bg-blue-100/60'
+                                  ? 'bg-slate-50 hover:bg-slate-50'
                                   : 'hover:bg-slate-50'
                               }`}
                             >
@@ -5244,7 +5414,7 @@ export default function ErpGestaoClickTab({
                                 <span
                                   className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                     sit === 'Em dia' || sit === 'Ativo'
-                                      ? 'bg-emerald-500 text-white'
+                                      ? 'bg-slate-100 text-slate-700'
                                       : 'bg-slate-200 text-slate-700'
                                   }`}
                                 >
@@ -5261,7 +5431,7 @@ export default function ErpGestaoClickTab({
                                     onClick={() =>
                                       setEditingCustomerModal({ company: c, isNew: false, readOnly: true })
                                     }
-                                    className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition shadow-2xs cursor-pointer"
+                                    className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 transition shadow-2xs cursor-pointer"
                                   >
                                     <Search className="w-3.5 h-3.5" />
                                   </button>
@@ -5272,9 +5442,9 @@ export default function ErpGestaoClickTab({
                                     onClick={() =>
                                       setEditingCustomerModal({ company: c, isNew: false, readOnly: false })
                                     }
-                                    className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition shadow-2xs cursor-pointer"
+                                    className="inline-flex items-center justify-center p-2 rounded-md hover:bg-[#1e3a6e] transition cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                                   >
-                                    <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                                    <Pencil className="w-3.5 h-3.5 text-white" />
                                   </button>
                                 </div>
                               </td>
@@ -5328,7 +5498,7 @@ export default function ErpGestaoClickTab({
                             { key: 'email', label: 'E-mail' },
                           ])
                         }
-                        className="hover:bg-blue-50/60 cursor-pointer transition"
+                        className="hover:bg-slate-50 cursor-pointer transition"
                       >
                         <td className="py-2 px-3 font-bold text-[#1e3a6e] underline">{sup.name}</td>
                         <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
@@ -5354,7 +5524,7 @@ export default function ErpGestaoClickTab({
                                   { readOnly: true, deleteId: sup.id, deleteLabel: sup.name }
                                 )
                               }
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 transition cursor-pointer"
                             >
                               <Search className="w-3.5 h-3.5" />
                             </button>
@@ -5376,9 +5546,9 @@ export default function ErpGestaoClickTab({
                                   { readOnly: false, deleteId: sup.id, deleteLabel: sup.name }
                                 )
                               }
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                              className="inline-flex items-center justify-center p-2 rounded-md hover:bg-[#1e3a6e] transition cursor-pointer bg-slate-100 text-slate-700"
                             >
-                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                              <Pencil className="w-3.5 h-3.5 text-white" />
                             </button>
                           </div>
                         </td>
@@ -5406,7 +5576,7 @@ export default function ErpGestaoClickTab({
                             { key: 'phone', label: 'Telefone' },
                           ])
                         }
-                        className="hover:bg-blue-50/60 cursor-pointer transition"
+                        className="hover:bg-slate-50 cursor-pointer transition"
                       >
                         <td className="py-2 px-3 font-bold text-[#1e3a6e] underline">{emp.name}</td>
                         <td className="py-2 px-3">{emp.role}</td>
@@ -5432,7 +5602,7 @@ export default function ErpGestaoClickTab({
                                   { readOnly: true, deleteId: emp.id, deleteLabel: emp.name }
                                 )
                               }
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                              className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 transition cursor-pointer"
                             >
                               <Search className="w-3.5 h-3.5" />
                             </button>
@@ -5454,9 +5624,9 @@ export default function ErpGestaoClickTab({
                                   { readOnly: false, deleteId: emp.id, deleteLabel: emp.name }
                                 )
                               }
-                              className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                              className="inline-flex items-center justify-center p-2 rounded-md hover:bg-[#1e3a6e] transition cursor-pointer bg-slate-100 text-slate-700"
                             >
-                              <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                              <Pencil className="w-3.5 h-3.5 text-white" />
                             </button>
                           </div>
                         </td>
@@ -5467,33 +5637,6 @@ export default function ErpGestaoClickTab({
               )}
               {cadastrosSubTab === 'TRANSPORTADORAS' && (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded bg-slate-50 border border-slate-200 text-xs">
-                    <div>
-                      <strong className="text-slate-900">Transportadoras Homologadas — Remessas de Locação (CFOP 5.908 / 6.908)</strong>
-                      <p className="text-[11px] text-slate-500">Operadores logísticos cadastrados para despacho de equipamentos telecom com seguro RCTR-C.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openCollectionEditor(
-                          'suppliers',
-                          'Nova Transportadora Homologada',
-                          { id: `trp-${Date.now()}`, name: '', cnpj: '', phone: '', email: '', supplierType: 'TRANSPORTADORA', modalFrete: '', cityState: '', active: true },
-                          [
-                            { key: 'name', label: 'Razão Social / Transportadora *' },
-                            { key: 'cnpj', label: 'CNPJ' },
-                            { key: 'modalFrete', label: 'Modal / Registro ANTT' },
-                            { key: 'cityState', label: 'Cidade / UF' },
-                            { key: 'phone', label: 'Telefone' },
-                            { key: 'email', label: 'E-mail' },
-                          ]
-                        )
-                      }
-                      className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
-                    >
-                      + Nova Transportadora
-                    </button>
-                  </div>
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                       <tr><th className="py-2 px-3">Transportadora</th><th className="py-2 px-3">CNPJ</th><th className="py-2 px-3">Modal / ANTT</th><th className="py-2 px-3">Cidade/UF</th><th className="py-2 px-3">Contato</th><th className="py-2 px-3 text-right">Ações</th></tr>
@@ -5531,7 +5674,7 @@ export default function ErpGestaoClickTab({
                                     { readOnly: true, deleteId: trp.id, deleteLabel: trp.name }
                                   )
                                 }
-                                className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-[#0d2b4e] border border-slate-300 transition cursor-pointer"
+                                className="inline-flex items-center justify-center p-2 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 transition cursor-pointer"
                               >
                                 <Search className="w-3.5 h-3.5" />
                               </button>
@@ -5555,9 +5698,9 @@ export default function ErpGestaoClickTab({
                                     { readOnly: false, deleteId: trp.id, deleteLabel: trp.name }
                                   )
                                 }
-                                className="inline-flex items-center justify-center p-2 rounded-md bg-[#0d2b4e] hover:bg-[#1e3a6e] text-white transition cursor-pointer"
+                                className="inline-flex items-center justify-center p-2 rounded-md hover:bg-[#1e3a6e] transition cursor-pointer bg-slate-100 text-slate-700"
                               >
-                                <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                                <Pencil className="w-3.5 h-3.5 text-white" />
                               </button>
                             </div>
                           </td>
@@ -5571,22 +5714,21 @@ export default function ErpGestaoClickTab({
               {cadastrosSubTab === 'AUXILIARES' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
-                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Grupos de Clientes B2B</div>
-                    <div>• Contas Enterprise Locação Pura (0% ISS — SV 31 STF)</div>
-                    <div>• Indústria, Logística &amp; Varejo (CFOP 5.908 / 6.908)</div>
-                    <div>• Call Centers &amp; Operações Voz IP (SLA NOC 24x7)</div>
+                    <div className="font-semibold text-[#1e3a6e] text-[11px]">Grupos de Clientes B2B</div>
+                    <div>• Contas Enterprise Locação Pura</div>
+                    <div>• Indústria, Logística &amp; Varejo</div>
+                    <div>• Call Centers &amp; Operações Voz IP</div>
                   </div>
                   <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
-                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Cargos &amp; Equipes Seta Telecom</div>
+                    <div className="font-semibold text-[#1e3a6e] text-[11px]">Cargos &amp; Equipes Seta Telecom</div>
                     <div>• Diretoria &amp; Comercial: <strong>Marcelo Mira</strong></div>
                     <div>• Liderança Bancada / O.S.: <strong>Michelle da Rocha</strong></div>
                     <div>• Engenharia &amp; Contratos: <strong>Evelyn Ternero / Wesley Brito</strong></div>
                   </div>
                   <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
-                    <div className="font-extrabold text-[#1e3a6e] uppercase text-[11px]">Parâmetros Cadastrais</div>
-                    <div>• Consulta Receita Federal (CNPJ/CNAE): <strong className="text-emerald-700">ATIVA</strong></div>
-                    <div>• Score Serasa Experian B2B: <strong className="text-emerald-700">INTEGRADO</strong></div>
-                    <div>• Loja GestãoClick: <strong>Matriz #118887</strong></div>
+                    <div className="font-semibold text-[#1e3a6e] text-[11px]">Parâmetros Cadastrais</div>
+                    <div>• Consulta Receita Federal (CNPJ/CNAE): <strong className="text-slate-800">ATIVA</strong></div>
+                    <div>• Score Serasa Experian B2B: <strong className="text-slate-800">INTEGRADO</strong></div>
                   </div>
                 </div>
               )}
@@ -5707,14 +5849,18 @@ export default function ErpGestaoClickTab({
                   </div>
                 )}
 
+                {activeSection === 'ITENS' && (
                 <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                        {activeSection} &gt; {activeSubId}
-                      </span>
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Catálogo de Produtos, Serviços &amp; Estoque Locado ({filteredCatalogItems.length} de {catalog.length} itens)
+                      <h2 className="text-base font-semibold text-slate-900">
+                        {activeSubId === 'ITENS_PRODUTOS'
+                          ? 'Produtos'
+                          : activeSubId === 'ITENS_SERVICOS'
+                            ? 'Serviços'
+                            : activeSubId === 'ITENS_AUXILIARES'
+                              ? 'Opções auxiliares'
+                              : 'Itens'}
                       </h2>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -5752,9 +5898,9 @@ export default function ErpGestaoClickTab({
                             },
                           })
                         }
-                        className="px-3 py-2 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-extrabold cursor-pointer"
+                        className="px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold cursor-pointer"
                       >
-                        + Cadastro Rápido (SKU/CFOP)
+                        Cadastro rápido
                       </button>
                       <button
                         type="button"
@@ -5764,9 +5910,9 @@ export default function ErpGestaoClickTab({
                             isNew: true,
                           })
                         }
-                        className="px-3.5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-extrabold cursor-pointer"
+                        className="px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                       >
-                        + Novo Produto / Serviço (7 Abas)
+                        + Adicionar
                       </button>
                     </div>
                   </div>
@@ -5780,39 +5926,12 @@ export default function ErpGestaoClickTab({
                           <button
                             type="button"
                             onClick={() => setEditingProductModal({ item: selItem, isNew: false })}
-                            className="px-3.5 py-1.5 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                            className="px-3.5 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold cursor-pointer"
                           >
                             Editar Item Selecionado ({selItem.gestaoClickCode})
                           </button>
                         ) : null;
                       })()}
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[
-                          { id: 'ITENS_TODOS', label: `Todos os Itens (${catalog.length})` },
-                          { id: 'ITENS_PRODUTOS', label: `Produtos & Locação (${catalog.filter((i) => !isServiceCatItem(i)).length})` },
-                          { id: 'ITENS_SERVICOS', label: `Serviços LC 116 / SCM (${catalog.filter((i) => isServiceCatItem(i)).length})` },
-                          { id: 'ITENS_AUXILIARES', label: 'Opções Auxiliares' },
-                        ].map((tb) => {
-                          const isAct =
-                            tb.id === 'ITENS_TODOS'
-                              ? activeSubId !== 'ITENS_PRODUTOS' && activeSubId !== 'ITENS_SERVICOS' && activeSubId !== 'ITENS_AUXILIARES'
-                              : activeSubId === tb.id;
-                          return (
-                            <button
-                              key={tb.id}
-                              type="button"
-                              onClick={() => setActiveSubId(tb.id)}
-                              className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                                isAct
-                                  ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                              }`}
-                            >
-                              {tb.label}
-                            </button>
-                          );
-                        })}
-                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <input
@@ -5829,7 +5948,7 @@ export default function ErpGestaoClickTab({
                             setItensSearch('');
                             setActiveSubId('ITENS_TODOS');
                           }}
-                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                          className="px-1 py-1.5 text-slate-500 hover:text-slate-800 underline text-xs font-medium cursor-pointer"
                         >
                           Limpar filtros
                         </button>
@@ -5839,7 +5958,7 @@ export default function ErpGestaoClickTab({
 
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                      <tr><th className="py-2 px-3 w-8">Sel.</th><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição (Clique p/ Editar)</th><th className="py-2 px-3">Classificação Fiscal &amp; CFOP</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th><th className="py-2 px-3 text-right">Venda/Setup</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                      <tr><th className="py-2 px-3 w-8">Sel.</th><th className="py-2 px-3">SKU</th><th className="py-2 px-3">Descrição (Clique p/ Editar)</th><th className="py-2 px-3">NCM/CFOP</th><th className="py-2 px-3 text-right">Disp.</th><th className="py-2 px-3 text-right">Locados</th><th className="py-2 px-3 text-right">Locação/mês</th><th className="py-2 px-3 text-right">Venda/Setup</th><th className="py-2 px-3 text-right">Ações</th></tr>
                     </thead>
                     <tbody className="divide-y">
                       {filteredCatalogItems.map((it) => (
@@ -5850,7 +5969,7 @@ export default function ErpGestaoClickTab({
                           }
                           className={`cursor-pointer transition ${
                             selectedItemId === it.id
-                              ? 'bg-blue-50/80 hover:bg-blue-100/60'
+                              ? 'bg-slate-50 hover:bg-slate-50'
                               : 'hover:bg-slate-50'
                           }`}
                         >
@@ -5881,8 +6000,8 @@ export default function ErpGestaoClickTab({
                             <span className="font-mono text-[10px] text-slate-500">CFOP: {it.cfopDefault || '5.908'}</span>
                           </td>
                           <td className="py-2 px-3 text-right font-bold">{it.stockAvailable}</td>
-                          <td className="py-2 px-3 text-right font-bold text-indigo-700">{it.stockRentedInClients}</td>
-                          <td className="py-2 px-3 text-right font-extrabold text-emerald-700">{formatBRL(it.monthlyRentalPrice)}</td>
+                          <td className="py-2 px-3 text-right font-semibold text-slate-700">{it.stockRentedInClients}</td>
+                          <td className="py-2 px-3 text-right font-semibold text-slate-900">{formatBRL(it.monthlyRentalPrice)}</td>
                           <td className="py-2 px-3 text-right font-bold text-slate-700">{formatBRL(it.saleOrSetupPrice || 0)}</td>
                           <td className="py-2 px-3 text-right space-x-1">
                             <button
@@ -5908,26 +6027,41 @@ export default function ErpGestaoClickTab({
                                   },
                                 })
                               }
-                              className="px-2 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                              className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                             >
                               Rápido
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingProductModal({ item: it, isNew: false })}
-                              className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-bold cursor-pointer"
+                              className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-[11px] font-semibold cursor-pointer"
                             >
-                              Editar (7 Abas)
+                              Editar
                             </button>
                             <button
                               type="button"
+                              title={isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode }) ? 'Em uso' : 'Excluir'}
+                              aria-disabled={isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode })}
                               onClick={async () => {
-                                await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                                const ref = { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode };
+                                if (blockDeleteIfUsed('catalogItem', ref)) return;
+                                if (typeof window !== 'undefined' && !window.confirm(`Excluir o item ${it.gestaoClickCode}?`)) return;
+                                const res = await fetch(`/api/erp/catalog/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+                                const json = await res.json().catch(() => null);
+                                const blocked = parseRecordInUseResponse(json);
+                                if (blocked) {
+                                  setCannotDeleteText(blocked.usageText);
+                                  return;
+                                }
+                                if (!res.ok) {
+                                  onShowToast((json && json.error) || 'Não foi possível excluir o item.');
+                                  return;
+                                }
                                 recordDeletedCatalogItem(it.id);
                                 onShowToast(`Item ${it.gestaoClickCode} excluído.`);
                                 await onRefresh();
                               }}
-                              className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold cursor-pointer"
+                              className={`px-2 py-1 rounded border text-[11px] font-bold ${isRecordInUse('catalogItem', { id: it.id, name: it.name, sku: it.gestaoClickCode, gestaoClickCode: it.gestaoClickCode }) ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-rose-50 text-rose-700 border-rose-200 cursor-pointer'}`}
                             >
                               Excluir
                             </button>
@@ -5936,13 +6070,8 @@ export default function ErpGestaoClickTab({
                       ))}
                     </tbody>
                   </table>
-
-                  {activeSection === 'ESTOQUE' && activeSubId !== 'EST_COMPRAS' && (
-                    <div className="pt-4 border-t border-slate-200">
-                      {renderPurchasesTable('Estoque > Últimas Notas de Compras / Entradas CAPEX')}
-                    </div>
-                  )}
                 </div>
+                )}
               </div>
             );
           })()}
@@ -5977,35 +6106,7 @@ export default function ErpGestaoClickTab({
             return (
               <div className="space-y-4">
                 {activeSubId !== 'VENDAS_BALCAO' && (
-                  <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {[
-                        { id: 'VENDAS_TODAS', label: `Todas as Vendas (${salesOrders.filter((v) => !isReturnOrder(v)).length})` },
-                        { id: 'VENDAS_PRODUTOS', label: `Vendas de Produtos (${salesOrders.filter((v) => !isReturnOrder(v) && !isServiceSale(v)).length})` },
-                        { id: 'VENDAS_SERVICOS', label: `Vendas de Serviços (${salesOrders.filter((v) => !isReturnOrder(v) && isServiceSale(v)).length})` },
-                        { id: 'VENDAS_DEVOLUCOES', label: `Devoluções & Trocas (${salesOrders.filter((v) => isReturnOrder(v)).length})` },
-                        { id: 'VENDAS_BALCAO', label: 'Balcão (PDV)' },
-                      ].map((tb) => {
-                        const isAct =
-                          tb.id === 'VENDAS_TODAS'
-                            ? activeSubId !== 'VENDAS_PRODUTOS' && activeSubId !== 'VENDAS_SERVICOS' && activeSubId !== 'VENDAS_DEVOLUCOES' && activeSubId !== 'VENDAS_AUXILIARES'
-                            : activeSubId === tb.id;
-                        return (
-                          <button
-                            key={tb.id}
-                            type="button"
-                            onClick={() => setActiveSubId(tb.id)}
-                            className={`px-3 py-1.5 rounded text-xs font-extrabold transition cursor-pointer ${
-                              isAct
-                                ? 'bg-[#1e3a6e] text-white shadow-2xs'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            {tb.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="bg-white rounded-md border border-slate-200 p-3.5 flex flex-wrap items-center justify-end gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
@@ -6021,7 +6122,7 @@ export default function ErpGestaoClickTab({
                             setVendasSearch('');
                             setActiveSubId('VENDAS_TODAS');
                           }}
-                          className="px-2.5 py-1.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold cursor-pointer"
+                          className="px-1 py-1.5 text-slate-500 hover:text-slate-800 underline text-xs font-medium cursor-pointer"
                         >
                           Limpar filtros
                         </button>
@@ -6043,15 +6144,14 @@ export default function ErpGestaoClickTab({
                   <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                          Vendas &gt; {activeSubId}
-                        </span>
-                        <h2 className="text-base font-extrabold text-slate-900">
+                        <h2 className="text-base font-semibold text-slate-900">
                           {activeSubId === 'VENDAS_DEVOLUCOES'
-                            ? `Devoluções & Trocas de Vendas (${filteredSales.length})`
+                            ? 'Devoluções'
                             : activeSubId === 'VENDAS_SERVICOS'
-                              ? `Vendas de Serviços Técnicos (${filteredSales.length})`
-                              : `Pedidos de Venda Seta Telecom (${filteredSales.length})`}
+                              ? 'Vendas de serviços'
+                              : activeSubId === 'VENDAS_PRODUTOS'
+                                ? 'Vendas de produtos'
+                                : 'Vendas'}
                         </h2>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -6083,7 +6183,7 @@ export default function ErpGestaoClickTab({
                               ]
                             )
                           }
-                          className="px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold cursor-pointer"
+                          className="px-3 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold cursor-pointer"
                         >
                           + Registrar Devolução
                         </button>
@@ -6116,7 +6216,7 @@ export default function ErpGestaoClickTab({
                               ]
                             )
                           }
-                          className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                          className="px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                         >
                           + Nova Venda
                         </button>
@@ -6133,8 +6233,8 @@ export default function ErpGestaoClickTab({
                             <td className="py-2 px-3 font-semibold">{v.companyName}</td>
                             <td className="py-2 px-3">{v.sellerName}</td>
                             <td className="py-2 px-3">{v.date}</td>
-                            <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isReturnOrder(v) ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>{v.status}</span></td>
-                            <td className="py-2 px-3 text-right font-extrabold">{formatBRL(v.totalAmount)}</td>
+                            <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isReturnOrder(v) ? 'bg-rose-100 text-rose-800' : 'bg-slate-50 text-slate-800'}`}>{v.status}</span></td>
+                            <td className="py-2 px-3 text-right font-semibold">{formatBRL(v.totalAmount)}</td>
                             <td className="py-2 px-3 text-right space-x-1">
                               <button
                                 type="button"
@@ -6150,7 +6250,7 @@ export default function ErpGestaoClickTab({
                                     { key: 'totalAmount', label: 'Valor Total (R$)', type: 'number' },
                                   ])
                                 }
-                                className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                                className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                               >
                                 Editar
                               </button>
@@ -6236,11 +6336,8 @@ export default function ErpGestaoClickTab({
               <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                      {activeSection} &gt; {activeSubId}
-                    </span>
-                    <h2 className="text-base font-extrabold text-slate-900">
-                      Ordens de Serviços Técnicas &amp; Atendimentos ({filteredOs.length} de {serviceOrders.length})
+                    <h2 className="text-base font-semibold text-slate-900">
+                      {activeSection === 'ATENDIMENTOS' ? 'Atendimentos' : 'Ordens de serviço'}
                     </h2>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -6250,11 +6347,11 @@ export default function ErpGestaoClickTab({
                         setOsViewMode('LISTA');
                         setActiveSubId('OS_GERENCIAR');
                       }}
-                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                      className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition ${
                         !isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
-                      Gerenciar O.S. (Lista)
+                      Lista
                     </button>
                     <button
                       type="button"
@@ -6262,11 +6359,11 @@ export default function ErpGestaoClickTab({
                         setOsViewMode('PAINEL');
                         setActiveSubId('OS_PAINEL');
                       }}
-                      className={`px-3 py-1.5 rounded text-xs font-extrabold cursor-pointer transition ${
+                      className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition ${
                         isKanban ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
-                      Painel Kanban Técnico &amp; SLA
+                      Painel
                     </button>
                     <button
                       type="button"
@@ -6293,48 +6390,39 @@ export default function ErpGestaoClickTab({
                           osEditorFields
                         )
                       }
-                      className="px-3.5 py-2 rounded bg-[#ff7a59] text-white text-xs font-extrabold cursor-pointer"
+                      className="px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                     >
-                      + Nova O.S. / Atendimento
+                      + Nova O.S.
                     </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
-                  {techLoads.map((t) => {
-                    const selected = osTechFilter === t.key;
-                    return (
-                      <button
-                        key={t.label}
-                        type="button"
-                        onClick={() => setOsTechFilter(selected ? 'TODOS' : t.key)}
-                        className={`text-left p-3 rounded border transition cursor-pointer ${
-                          selected ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold">{t.label}</span>
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 text-[10px] font-black">
-                            {t.active} ativas / {t.total}
-                          </span>
-                        </div>
-                        <div className={`text-[11px] ${selected ? 'text-slate-200' : 'text-slate-500'}`}>{t.role}</div>
-                      </button>
-                    );
-                  })}
-                  <div className="p-3 rounded border border-slate-200 bg-slate-50 flex flex-col justify-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                     <input
                       type="text"
                       value={osSearch}
                       onChange={(e) => setOsSearch(e.target.value)}
                       placeholder="Buscar O.S., cliente, equipamento ou S/N..."
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs"
+                      className="px-3 py-1.5 rounded border border-slate-300 bg-white text-xs w-64"
                     />
+                    <select
+                      aria-label="Filtrar O.S. por Técnico"
+                      value={osTechFilter}
+                      onChange={(e) => setOsTechFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs text-slate-700"
+                    >
+                      <option value="TODOS">Técnico: Todos</option>
+                      {techLoads.map((t) => (
+                        <option key={t.key} value={t.key}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       aria-label="Filtrar O.S. por Situação"
                       value={osStatusFilter}
                       onChange={(e) => setOsStatusFilter(e.target.value)}
-                      className="w-full px-2.5 py-1 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700"
+                      className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs text-slate-700"
                     >
                       <option value="TODOS">Situação: Todas</option>
                       <option value="Aberta">Aberta</option>
@@ -6351,12 +6439,11 @@ export default function ErpGestaoClickTab({
                           setOsStatusFilter('TODOS');
                           setOsTechFilter('TODOS');
                         }}
-                        className="w-full px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-extrabold cursor-pointer"
+                        className="px-1 py-1.5 text-slate-500 hover:text-slate-800 underline text-xs font-medium cursor-pointer"
                       >
-                        Limpar filtros de O.S.
+                        Limpar filtros
                       </button>
                     )}
-                  </div>
                 </div>
 
                 {isKanban ? (
@@ -6370,8 +6457,8 @@ export default function ErpGestaoClickTab({
                       return (
                         <div key={col.status} className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2.5">
                           <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                            <span className="text-xs font-extrabold text-slate-900">{col.title}</span>
-                            <span className="px-2 py-0.5 rounded bg-white border text-[10px] font-black text-slate-700">
+                            <span className="text-xs font-semibold text-slate-900">{col.title}</span>
+                            <span className="px-2 py-0.5 rounded bg-white border text-[10px] font-semibold text-slate-700">
                               {cards.length}
                             </span>
                           </div>
@@ -6379,22 +6466,22 @@ export default function ErpGestaoClickTab({
                             {cards.map((os) => (
                               <div key={os.id} className="bg-white rounded border border-slate-200 p-3 shadow-2xs space-y-2 text-xs">
                                 <div className="flex items-center justify-between">
-                                  <span className="font-mono font-black text-[#1e3a6e]">O.S. #{os.code}</span>
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                  <span className="font-mono font-semibold text-[#1e3a6e]">O.S. #{os.code}</span>
+                                  <span className="text-[10px] text-slate-500">
                                     SLA {os.priority || 'NORMAL'}
                                   </span>
                                 </div>
                                 <div className="font-bold text-slate-900">{os.companyName}</div>
                                 <div className="p-2 rounded bg-slate-50 border border-slate-100 text-[11px] space-y-0.5">
                                   <div className="font-semibold text-slate-800">
-                                    {os.equipmentName || 'Appliance PABX IP / Switch PoE Seta'}
+                                    {os.equipmentName || '—'}
                                   </div>
-                                  <div className="font-mono text-[10px] text-indigo-800">
-                                    S/N: {os.serialNumber || `SN-SETA-${os.code}`}
+                                  <div className="font-mono text-[10px] text-slate-500">
+                                    S/N: {os.serialNumber || '—'}
                                   </div>
                                   <div className="text-slate-600">{os.description}</div>
                                   {os.technicalReport && (
-                                    <div className="text-emerald-800 font-medium pt-0.5">
+                                    <div className="text-slate-700 font-medium pt-0.5">
                                       Laudo: {os.technicalReport}
                                     </div>
                                   )}
@@ -6418,7 +6505,7 @@ export default function ErpGestaoClickTab({
                                         onShowToast(`O.S. #${os.code} avançada para ${col.nextStatus}!`);
                                         await onRefresh();
                                       }}
-                                      className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-extrabold cursor-pointer"
+                                      className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-[10px] font-semibold cursor-pointer"
                                     >
                                       {col.nextLabel}
                                     </button>
@@ -6432,16 +6519,13 @@ export default function ErpGestaoClickTab({
                                         'serviceOrders',
                                         `Editar O.S. #${os.code}`,
                                         {
-                                          equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
-                                          serialNumber: `SN-SETA-${os.code}`,
                                           priority: 'NORMAL',
-                                          technicalReport: 'Diagnóstico técnico NOC concluído.',
                                           ...os,
                                         } as unknown as Record<string, unknown>,
                                         osEditorFields
                                       )
                                     }
-                                    className="px-2 py-1 rounded bg-amber-500 text-white text-[10px] font-bold cursor-pointer"
+                                    className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold cursor-pointer"
                                   >
                                     Editar
                                   </button>
@@ -6464,13 +6548,13 @@ export default function ErpGestaoClickTab({
                           <td className="py-2 px-3 font-mono font-bold">#{os.code}</td>
                           <td className="py-2 px-3 font-semibold">{os.companyName}</td>
                           <td className="py-2 px-3">
-                            <div className="font-semibold text-slate-800">{os.equipmentName || os.description || 'Equipamento Telecom'}</div>
-                            <div className="font-mono text-[10px] text-slate-500">S/N: {os.serialNumber || `SN-SETA-${os.code}`}</div>
+                            <div className="font-semibold text-slate-800">{os.equipmentName || os.description || '—'}</div>
+                            <div className="font-mono text-[10px] text-slate-500">S/N: {os.serialNumber || '—'}</div>
                           </td>
                           <td className="py-2 px-3">{os.technicianName}</td>
                           <td className="py-2 px-3">{os.entryDate}</td>
-                          <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">{os.status}</span></td>
-                          <td className="py-2 px-3 text-right font-extrabold">{formatBRL(os.totalAmount)}</td>
+                          <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 text-[10px] font-bold">{os.status}</span></td>
+                          <td className="py-2 px-3 text-right font-semibold">{formatBRL(os.totalAmount)}</td>
                           <td className="py-2 px-3 text-right space-x-1">
                             <button
                               type="button"
@@ -6479,16 +6563,13 @@ export default function ErpGestaoClickTab({
                                   'serviceOrders',
                                   `Editar O.S. #${os.code}`,
                                   {
-                                    equipmentName: 'Central PABX IP Seta Cloud Appliance HA',
-                                    serialNumber: `SN-SETA-${os.code}`,
                                     priority: 'NORMAL',
-                                    technicalReport: 'Diagnóstico técnico NOC concluído.',
                                     ...os,
                                   } as unknown as Record<string, unknown>,
                                   osEditorFields
                                 )
                               }
-                              className="px-2.5 py-1 rounded bg-amber-500 text-white text-[11px] font-bold cursor-pointer"
+                              className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                             >
                               Editar
                             </button>
@@ -6550,84 +6631,38 @@ export default function ErpGestaoClickTab({
             />
           )}
 
-          {(activeSection === 'RELATORIOS' || activeSection === 'CONFIGURACOES') && (
-            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">
-                    {activeSection} &gt; {activeSubId}
-                  </span>
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    Configurações &amp; Relatórios GestãoClick ({gestaoClickConfig.credentialName || 'ERP-GROK'})
-                  </h2>
-                  <p className="text-xs text-slate-500">Loja {gestaoClickConfig.storeName} #{gestaoClickConfig.storeId} • CNPJ {gestaoClickConfig.companyCnpj}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGenericModal({
-                        title: 'Editar Dados da Empresa Seta Telecom',
-                        initialValues: {
-                          companyLegalName: gestaoClickConfig.companyLegalName,
-                          companyCnpj: gestaoClickConfig.companyCnpj,
-                          municipalRegistration: gestaoClickConfig.municipalRegistration,
-                          stateRegistration: gestaoClickConfig.stateRegistration,
-                          storeName: gestaoClickConfig.storeName || 'Matriz',
-                        },
-                        fields: [
-                          { key: 'companyLegalName', label: 'Razão Social' },
-                          { key: 'companyCnpj', label: 'CNPJ' },
-                          { key: 'municipalRegistration', label: 'Inscrição Municipal' },
-                          { key: 'stateRegistration', label: 'Inscrição Estadual' },
-                          { key: 'storeName', label: 'Nome da Loja / Unidade' },
-                        ],
-                        onSave: async (vals) => {
-                          await fetch('/api/erp/gestaoclick/config', {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(vals),
-                          });
-                          setGenericModal(null);
-                          onShowToast('Configurações da empresa salvas!');
-                          await onRefresh();
-                        },
-                      })
-                    }
-                    className="px-3.5 py-2 rounded bg-amber-500 text-white text-xs font-extrabold cursor-pointer"
-                  >
-                    Editar Dados da Empresa
-                  </button>
-                  <select
-                    value={gestaoClickConfig.taxRegime}
-                    onChange={(e) => handleChangeTaxRegime(e.target.value as ErpTaxRegime)}
-                    className="px-3 py-2 rounded border border-slate-300 text-xs font-bold bg-white"
-                  >
-                    <option value="LUCRO_PRESUMIDO">Lucro Presumido (PIS 0,65% / COFINS 3%)</option>
-                    <option value="LUCRO_REAL">Lucro Real (PIS 1,65% / COFINS 7,6%)</option>
-                    <option value="SIMPLES_NACIONAL">Simples Nacional</option>
-                  </select>
-                  <button type="button" onClick={handleSyncGestaoClick} disabled={syncingGc} className="px-4 py-2 rounded bg-emerald-600 text-white text-xs font-extrabold cursor-pointer">
-                    {syncingGc ? 'Sincronizando...' : 'Sincronizar Agora'}
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">MRR Locação: <strong>{formatBRL(kpis.monthlyRentalMrr)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('CONTRATOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-blue-50 border hover:border-[#1e3a6e] cursor-pointer">TCV Carteira: <strong>{formatBRL(kpis.totalContractedTcv)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('FISCAL')} className="text-left p-3 rounded bg-slate-50 hover:bg-emerald-50 border hover:border-emerald-600 cursor-pointer">Economia ISS SV 31: <strong className="text-emerald-700">{formatBRL(kpis.issSavedBySv31Stf)}</strong> →</button>
-                <button type="button" onClick={() => setActiveSection('ORCAMENTOS')} className="text-left p-3 rounded bg-slate-50 hover:bg-orange-50 border hover:border-[#ff7a59] cursor-pointer">Propostas: <strong>{proposals.length}</strong> →</button>
-              </div>
+          {/* Relatórios: só o título até existirem relatórios (decisão do Marcéllo 02/11). Sem KPIs, sem administração. */}
+          {activeSection === 'RELATORIOS' && reportsScreenAllowed && erpConfigAccess && (
+            <div data-testid="relatorios-somente-titulo" className="bg-white rounded-md border border-slate-200 p-5">
+              <h2 className="text-base font-semibold text-slate-900">
+                {erpReportTitle(activeSubId)}
+              </h2>
+            </div>
+          )}
 
+          {/* Configurações: cada aba mostra só o próprio conteúdo (sem cabeçalho, KPIs nem banner repetidos). */}
+          {activeSection === 'CONFIGURACOES' && cfgScreenAllowed && (
+            <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
+              {activeSubId === 'CFG_LOGS' && (
+                <p data-testid="status-integracao-gestaoclick" className="text-xs font-semibold text-slate-600">
+                  Integração GestãoClick: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
+                </p>
+              )}
               {rbacState && (
-                <div className="pt-3 border-t border-slate-200">
+                <div>
                   <StiHubAdminRbacPanel
+                    access={erpConfigAccess}
+                    hideTopBanner
                     rbacState={rbacState}
                     emailTemplates={emailTemplates}
                     initialSubView={
                       activeSubId === 'CFG_EMPRESA' || activeSubId === 'CFG_LOJAS' || activeSubId === 'CFG_MARCA'
                         ? 'COMPANY_EMITTER'
-                        : activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_PLANO'
+                        : activeSubId === 'CFG_CERTIFICADO'
+                          ? 'CERTIFICATE_A1'
+                        : activeSubId === 'CFG_GERAIS'
+                          ? 'ERP_GENERAL_SETTINGS'
+                        : activeSubId === 'CFG_PLANO'
                           ? 'CERTIFICATE_SERIES'
                           : activeSubId === 'CFG_EMAILS' || activeSubId === 'CFG_AVISOS'
                             ? 'EMAIL_TEMPLATES'
@@ -6641,6 +6676,9 @@ export default function ErpGestaoClickTab({
                     onSelectActiveUser={onSelectActiveUser}
                     onRefresh={onRefresh}
                     onShowToast={onShowToast}
+                    singleView={isDedicatedCfgScreen}
+                    numberingBase={erpNumberingBase}
+                    onOpenErpCertificate={() => setActiveSubId('CFG_CERTIFICADO')}
                   />
                 </div>
               )}
@@ -6649,11 +6687,17 @@ export default function ErpGestaoClickTab({
         </div>
       </div>
 
+      {cannotDeleteText && (
+        <CannotDeleteModal text={cannotDeleteText} onClose={() => setCannotDeleteText(null)} />
+      )}
       {emailModalPayload && (
         <ClientEmailComposerModal
           payload={emailModalPayload}
           onClose={() => setEmailModalPayload(null)}
-          onSentSuccess={(msg) => onShowToast(msg)}
+          onSentSuccess={(msg) => {
+            onShowToast(msg);
+            if (emailModalPayload.invoiceId) void onRefresh();
+          }}
         />
       )}
       {editingProposal && (
@@ -6689,13 +6733,16 @@ export default function ErpGestaoClickTab({
       )}
       {editingContract && (
         <ContractEditModal
+          key={editingContract.id}
           contract={editingContract}
           invoices={invoices}
           initialTab={editingContractTab}
           readOnly={editingContractReadOnly}
           onClose={() => setEditingContract(null)}
-          onSave={handleSaveEditedContract}
-          onDelete={handleDeleteContract}
+          onSave={async (updated) => { await handleSaveEditedContract(updated); }}
+          onDelete={(ctr) => handleDeleteContract(ctr, { alreadyConfirmed: true })}
+          deleteInUse={isRecordInUse('rentalContract', { id: editingContract.id, contractNumber: editingContract.contractNumber })}
+          deleteUsageText={usageTextFor('rentalContract', { id: editingContract.id, contractNumber: editingContract.contractNumber })}
           onGenerateInvoice={handleGenerateContractInvoice}
           onGenerateRemessaNfe={handleGenerateRemessaNfe}
           onOpenPartialReturn={(ctr) => setPartialReturnModalContract(ctr)}
@@ -6718,6 +6765,8 @@ export default function ErpGestaoClickTab({
           onClose={() => setGenericModal(null)}
           onSave={genericModal.onSave}
           onDelete={genericModal.onDelete}
+          deleteInUse={genericModal.deleteInUse}
+          deleteUsageText={genericModal.deleteUsageText}
         />
       )}
 
@@ -6752,12 +6801,35 @@ export default function ErpGestaoClickTab({
             );
             await onRefresh();
           }}
+          deleteInUse={
+            editingCustomerModal.company
+              ? isRecordInUse('company', { id: editingCustomerModal.company.id, name: editingCustomerModal.company.name, cnpj: editingCustomerModal.company.cnpj })
+              : false
+          }
+          deleteUsageText={
+            editingCustomerModal.company
+              ? usageTextFor('company', { id: editingCustomerModal.company.id, name: editingCustomerModal.company.name, cnpj: editingCustomerModal.company.cnpj })
+              : undefined
+          }
           onDelete={
             editingCustomerModal.company?.id && !editingCustomerModal.isNew
               ? async (companyId: string) => {
-                  await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
+                  const company = editingCustomerModal.company;
+                  const ref = { id: companyId, name: company?.name, cnpj: company?.cnpj };
+                  if (blockDeleteIfUsed('company', ref)) return;
+                  const res = await fetch(`/api/companies/${encodeURIComponent(companyId)}`, {
                     method: 'DELETE',
                   });
+                  const json = await res.json().catch(() => null);
+                  const blocked = parseRecordInUseResponse(json);
+                  if (blocked) {
+                    setCannotDeleteText(blocked.usageText);
+                    throw new Error(blocked.usageText);
+                  }
+                  if (!res.ok) {
+                    onShowToast((json && json.error) || 'Não foi possível excluir o cliente.');
+                    throw new Error('delete failed');
+                  }
                   recordDeletedCompany(companyId);
                   setEditingCustomerModal(null);
                   onShowToast(`Cliente ${editingCustomerModal.company?.name || ''} excluído após confirmação.`);
@@ -6813,7 +6885,7 @@ export default function ErpGestaoClickTab({
             if (proRataInvoice) recordUpsertedInvoice(proRataInvoice);
             setPartialReturnModalContract(null);
             onShowToast(
-              `Devolução parcial e Rateio Pro-Rata aplicados ao contrato ${updatedCtr.contractNumber} (mantido ATIVO)! Novo MRR: ${formatBRL(updatedCtr.monthlyValue)}/mês.`
+              `Devolução parcial e Rateio Pro-Rata aplicados ao contrato ${updatedCtr.contractNumber} (mantido ATIVO)! Novo valor mensal: ${formatBRL(updatedCtr.monthlyValue)}/mês.`
             );
             await onRefresh();
             if (proRataInvoice) {
@@ -6842,14 +6914,14 @@ export default function ErpGestaoClickTab({
       {readjustModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-accent text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-emerald-300" />
+                <TrendingUp className="w-5 h-5 text-slate-200" />
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                  <span className="text-[10px] font-semibold uppercase text-slate-200 block">
                     Motor de Correção Monetária Anual — Seta Telecom
                   </span>
-                  <h3 className="text-sm font-extrabold">
+                  <h3 className="text-sm font-semibold">
                     Reajustar Contrato {readjustModal.contract.contractNumber}
                   </h3>
                 </div>
@@ -6862,7 +6934,7 @@ export default function ErpGestaoClickTab({
               <div className="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
                 <div className="font-bold text-slate-900">{readjustModal.contract.title}</div>
                 <div className="text-slate-500">
-                  Cliente: <strong>{readjustModal.contract.companyName}</strong> • Mensalidade Atual:{" "}
+                  Cliente: <strong>{readjustModal.contract.companyName}</strong> • Valor mensal atual:{" "}
                   <strong className="text-slate-900">{formatBRL(readjustModal.contract.monthlyValue)}/mês</strong>
                 </div>
               </div>
@@ -6891,7 +6963,7 @@ export default function ErpGestaoClickTab({
                     required
                     value={readjustModal.percentage}
                     onChange={(e) => setReadjustModal({ ...readjustModal, percentage: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-extrabold text-indigo-950"
+                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
                   />
                 </div>
               </div>
@@ -6904,16 +6976,16 @@ export default function ErpGestaoClickTab({
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
-              <div className="p-3.5 rounded bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+              <div className="p-3.5 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-bold uppercase text-emerald-700 block">
-                    Nova Mensalidade Após Reajuste (+{Number(readjustModal.percentage || 0).toFixed(2)}%)
+                  <span className="text-[10px] font-bold uppercase text-slate-800 block">
+                    Novo valor mensal após reajuste (+{Number(readjustModal.percentage || 0).toFixed(2)}%)
                   </span>
-                  <strong className="text-base font-black text-emerald-900">
+                  <strong className="text-base font-semibold text-slate-800">
                     {formatBRL(Math.round(readjustModal.contract.monthlyValue * (1 + (Number(readjustModal.percentage) || 0) / 100) * 100) / 100)}/mês
                   </strong>
                 </div>
-                <div className="text-right text-[11px] text-emerald-800">
+                <div className="text-right text-[11px] text-slate-800">
                   <div>Anterior: {formatBRL(readjustModal.contract.monthlyValue)}</div>
                   <div>{readjustModal.contract.equipments.length} equipamento(s) reajustado(s)</div>
                 </div>
@@ -6922,7 +6994,7 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setReadjustModal(null)} className="px-4 py-2 rounded border font-bold cursor-pointer">
                   Cancelar
                 </button>
-                <button type="submit" className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer">
+                <button type="submit" className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer">
                   Confirmar &amp; Aplicar Reajuste
                 </button>
               </div>
@@ -6936,10 +7008,10 @@ export default function ErpGestaoClickTab({
           <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-md w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                <span className="text-[10px] font-semibold uppercase text-slate-200 block">
                   Controle de Patrimônio &amp; Advance Replacement (RMA)
                 </span>
-                <h3 className="text-sm font-extrabold">
+                <h3 className="text-sm font-semibold">
                   Atualizar S/N — {rmaModal.contract.contractNumber}
                 </h3>
               </div>
@@ -6961,7 +7033,7 @@ export default function ErpGestaoClickTab({
                   required
                   value={rmaModal.newSerialNumber}
                   onChange={(e) => setRmaModal({ ...rmaModal, newSerialNumber: e.target.value })}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-indigo-950"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-800"
                 />
               </div>
               <div>
@@ -6989,8 +7061,8 @@ export default function ErpGestaoClickTab({
                 <button type="button" onClick={() => setRmaModal(null)} className="px-4 py-2 rounded border font-bold cursor-pointer">
                   Cancelar
                 </button>
-                <button type="submit" className="px-5 py-2 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer">
-                  Salvar Patrimônio / S/N
+                <button type="submit" className="px-5 py-2 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white font-semibold cursor-pointer">
+                  Salvar S/N
                 </button>
               </div>
             </form>
@@ -7002,17 +7074,35 @@ export default function ErpGestaoClickTab({
       {selectedInvoiceForPrint && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-3xl w-full overflow-hidden my-8">
-            <div className="px-6 py-4 bg-[#0f172a] text-white flex items-center justify-between">
+            <div className="px-5 py-3 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                <span className="font-extrabold text-sm">
-                  Espelho Oficial do Documento Fiscal — {selectedInvoiceForPrint.documentNumber}
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[10px] font-black">
-                  Formato Compacto: 1 Página A4 Única
+                <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
+                <span className="font-semibold text-sm text-slate-900">
+                  Espelho · {selectedInvoiceForPrint.documentNumber}
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO' && (
+                  <>
+                    <ProposalTemplateSelect
+                      value={invoiceSheetTemplate}
+                      onChange={(id) => {
+                        setInvoiceSheetTemplate(id);
+                        saveReceiptTemplateStyle(id);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(selectedInvoiceForPrint.pixCopyPaste);
+                        onShowToast('Código PIX Copia-e-Cola copiado!');
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copiar PIX
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -7021,12 +7111,12 @@ export default function ErpGestaoClickTab({
                         c.id === selectedInvoiceForPrint.rentalContractId ||
                         c.contractNumber === selectedInvoiceForPrint.contractNumber
                     );
-                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT');
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'PRINT', invoiceSheetTemplate);
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-bold cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  Imprimir 1 Página A4 / Salvar PDF
+                  Imprimir
                 </button>
                 <button
                   type="button"
@@ -7036,12 +7126,29 @@ export default function ErpGestaoClickTab({
                         c.id === selectedInvoiceForPrint.rentalContractId ||
                         c.contractNumber === selectedInvoiceForPrint.contractNumber
                     );
-                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD');
+                    downloadInvoicePdfOnDemand(selectedInvoiceForPrint, linkedCtr, 'DOWNLOAD', invoiceSheetTemplate);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
-                  Baixar PDF / A4
+                  Baixar PDF
                 </button>
+                <button
+                  type="button"
+                  onClick={() => openIssuedInvoiceEmail(selectedInvoiceForPrint)}
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Enviar
+                </button>
+                {isIssuedInvoiceStatus(selectedInvoiceForPrint.status) && (
+                <button
+                  type="button"
+                  onClick={() => { void handleGenerateInvoiceLink(selectedInvoiceForPrint); }}
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Gerar link
+                </button>
+                )}
+                {!isIssuedInvoiceStatus(selectedInvoiceForPrint.status) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -7049,38 +7156,59 @@ export default function ErpGestaoClickTab({
                     setSelectedInvoiceForPrint(null);
                     setEditingInvoice(inv);
                   }}
-                  className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >
-                  Editar Fatura
+                  Editar
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedInvoiceForPrint(null)}
-                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
+            {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO' ? (
+              <div className="bg-slate-100 p-3">
+                <iframe
+                  title="Fatura / Recibo de Locação A4"
+                  data-testid="rental-invoice-sheet-preview"
+                  srcDoc={buildStandaloneInvoiceHtml(
+                    selectedInvoiceForPrint,
+                    rentalContracts.find(
+                      (c) =>
+                        c.id === selectedInvoiceForPrint.rentalContractId ||
+                        c.contractNumber === selectedInvoiceForPrint.contractNumber
+                    ),
+                    { templateStyle: invoiceSheetTemplate, embedded: true }
+                  )}
+                  className="w-full bg-white block border-0 rounded"
+                  style={{ height: '78vh' }}
+                />
+              </div>
+            ) : (
             <div className="p-6 space-y-5 text-xs text-slate-800">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-slate-900">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 pb-4 border-t-4 border-t-[#1e3a6e] border-b border-slate-200">
                 <div>
-                  <div className="text-base font-black text-[#33475b]">
+                  <div className="text-base font-black text-[#0d2b4e]">
                     {gestaoClickConfig.companyLegalName}
                   </div>
                   <div>CNPJ: {gestaoClickConfig.companyCnpj}</div>
+                  <div data-testid="doc-issuer-address">{defaultIssuerAddressLine()}</div>
                   <div>
                     Inscrição Municipal: {gestaoClickConfig.municipalRegistration} • IE:{' '}
                     {gestaoClickConfig.stateRegistration}
                   </div>
-                  <div className="text-[#516f90]">
+                  <div className="text-slate-500">
                     Regime Tributário: {selectedInvoiceForPrint.taxBreakdown.taxRegime}
                   </div>
                 </div>
-                <div className="text-right bg-slate-100 p-3 rounded-[4px] border border-[#cbd6e2]">
-                  <div className="text-[10px] font-bold uppercase text-[#516f90]">
-                    {selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO'
+                <div className="text-right">
+                  <div className="inline-block px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-bold uppercase text-[#1e3a6e]">
+                    {(selectedInvoiceForPrint.documentType as string) === 'FATURA_LOCACAO'
                       ? 'FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)'
                       : selectedInvoiceForPrint.documentType === 'NFSE_SERVICO'
                         ? 'NOTA FISCAL DE SERVIÇOS ELETRÔNICA (NFS-e PADRÃO NACIONAL)'
@@ -7094,7 +7222,7 @@ export default function ErpGestaoClickTab({
                                 ? 'DANFE — NF-e DE ENTRADA DE IMPORTAÇÃO (SEBRAE 4.01 • SIMPLES NACIONAL CSOSN 900)'
                                 : 'DANFE — NF-e DE REMESSA EM LOCAÇÃO (MOD. 55 • CFOP 5.908)'}
                   </div>
-                  <div className="text-lg font-black text-[#33475b]">
+                  <div className="text-lg font-black text-[#0d2b4e]">
                     Nº {selectedInvoiceForPrint.documentNumber}
                   </div>
                   <div>
@@ -7104,12 +7232,12 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-[4px] bg-[#f5f8fa] border border-[#cbd6e2] grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-3.5 rounded-[4px] bg-white border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">
                     Locatário / Tomador
                   </span>
-                  <strong className="text-sm text-[#33475b]">
+                  <strong className="text-sm text-slate-900">
                     {selectedInvoiceForPrint.companyName}
                   </strong>
                   <div>CNPJ: {selectedInvoiceForPrint.companyCnpj}</div>
@@ -7123,14 +7251,14 @@ export default function ErpGestaoClickTab({
                     Competência: <strong>{selectedInvoiceForPrint.competenceMonth}</strong>
                   </div>
                   {selectedInvoiceForPrint.customDueRuleLabel && (
-                    <div className="text-[11px] font-bold text-indigo-800">
+                    <div className="text-[11px] text-slate-500">
                       Regra de Vencimento: {selectedInvoiceForPrint.customDueRuleLabel}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="p-3 rounded-[4px] bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Contrato / Proposta</span><strong>{selectedInvoiceForPrint.contractNumber || '—'}</strong> • Prop: <strong>{selectedInvoiceForPrint.proposalNumber || '—'}</strong></div>
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">NF Remessa / Prazo</span><strong>{selectedInvoiceForPrint.remessaNfeNumber || '—'}</strong> • {selectedInvoiceForPrint.contractTermLabel || '24 meses'}</div>
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Pedido do Cliente (PO)</span><strong>{selectedInvoiceForPrint.customerPurchaseOrderNumber || '—'}</strong></div>
@@ -7141,15 +7269,15 @@ export default function ErpGestaoClickTab({
                 <div><span className="text-[10px] uppercase text-slate-400 font-bold block">Frete / Cidade Entrega</span><strong>{formatBRL(selectedInvoiceForPrint.freightValueBrl || 0)}</strong> ({selectedInvoiceForPrint.deliveryCity || 'São Paulo'})</div>
               </div>
 
-              <div className="border border-[#cbd6e2] rounded-[4px] overflow-hidden">
+              <div className="border border-slate-300 rounded-[4px] overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900 text-white text-[10px] uppercase">
+                  <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[10px] uppercase">
                     <tr>
-                      <th className="py-2 px-3">Descrição do Item / Equipamento Locado</th>
-                      <th className="py-2 px-3">Nº Série (S/N)</th>
-                      <th className="py-2 px-3 text-right">Qtd</th>
-                      <th className="py-2 px-3 text-right">Vlr. Unitário</th>
-                      <th className="py-2 px-3 text-right">Subtotal</th>
+                      <th className="py-2 px-3 font-extrabold">Equipamento</th>
+                      <th className="py-2 px-3 font-extrabold">Nº de Série</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Qtd.</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Vlr. Unitário</th>
+                      <th className="py-2 px-3 text-right font-extrabold">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -7168,14 +7296,14 @@ export default function ErpGestaoClickTab({
                 </table>
               </div>
 
-              <div className="p-4 rounded-[4px] bg-emerald-50/90 border border-emerald-300 space-y-2">
-                <div className="font-extrabold text-emerald-950 uppercase text-[11px]">
-                  Enquadramento Tributário &amp; Fundamentação Legal (Legislação Brasileira)
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 space-y-1.5">
+                <div className="font-bold text-[#1e3a6e] uppercase text-[10px] tracking-wide">
+                  Enquadramento tributário
                 </div>
-                <p className="text-emerald-900 leading-relaxed">
+                <p className="text-slate-600 text-[11px] leading-snug">
                   {selectedInvoiceForPrint.taxBreakdown.legalExemptionNotice}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-emerald-200 text-[11px]">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1.5 border-t border-slate-200 text-[11px]">
                   <div>
                     ISSQN:{' '}
                     <strong>{formatBRL(selectedInvoiceForPrint.taxBreakdown.issAmount)}</strong> (
@@ -7203,22 +7331,22 @@ export default function ErpGestaoClickTab({
                   </div>
                   <div>
                     Valor Líquido:{' '}
-                    <strong className="text-sm text-emerald-950">
+                    <strong className="text-sm text-[#0d2b4e]">
                       {formatBRL(selectedInvoiceForPrint.netAmount)}
                     </strong>
                   </div>
                 </div>
-                <div className="pt-1 text-[10px] text-emerald-900 font-mono flex flex-wrap gap-3">
+                <div className="text-[10px] text-slate-600 font-mono flex flex-wrap gap-3">
                   <span>CFOP: <strong>{selectedInvoiceForPrint.cfop || "N/A"}</strong></span>
                   <span>CST ICMS: <strong>{selectedInvoiceForPrint.cstIcms || "N/A"}</strong></span>
                   <span>CST PIS/COFINS: <strong>{selectedInvoiceForPrint.cstPisCofins || "01"}</strong></span>
                 </div>
               </div>
 
-              <div className="p-4 rounded-[4px] bg-slate-100 border border-[#cbd6e2] space-y-2">
+              <div className="p-3 rounded-[4px] bg-white border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-[#33475b] uppercase text-[11px]">
-                    Dados para Liquidação Financeira (Boleto Registrado &amp; PIX Copia-e-Cola)
+                  <span className="font-bold text-[#1e3a6e] uppercase text-[10px] tracking-wide">
+                    Pagamento — Boleto e Pix
                   </span>
                   <button
                     type="button"
@@ -7226,20 +7354,21 @@ export default function ErpGestaoClickTab({
                       navigator.clipboard?.writeText(selectedInvoiceForPrint.pixCopyPaste);
                       onShowToast('Código PIX Copia-e-Cola copiado!');
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-bold cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                   >
                     <Copy className="w-3 h-3" /> Copiar PIX
                   </button>
                 </div>
-                <div className="font-mono text-xs bg-white p-2.5 rounded border border-[#cbd6e2]">
+                <div className="font-mono text-xs bg-slate-50 p-2 rounded border border-slate-200">
                   <strong>Linha Digitável Boleto:</strong>{' '}
                   {selectedInvoiceForPrint.boletoDigitableLine}
                 </div>
-                <div className="font-mono text-[11px] bg-white p-2.5 rounded border border-[#cbd6e2] break-all">
+                <div className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 break-all">
                   <strong>PIX Copia e Cola:</strong> {selectedInvoiceForPrint.pixCopyPaste}
                 </div>
               </div>
             </div>
+            )}
           </div>
         </div>
       )}
@@ -7248,10 +7377,10 @@ export default function ErpGestaoClickTab({
       {selectedPurchaseForPrint && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-2xl w-full overflow-hidden my-8">
-            <div className="px-6 py-4 bg-indigo-950 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-accent text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-emerald-400" />
-                <span className="font-extrabold text-sm">
+                <Receipt className="w-5 h-5 text-slate-600" />
+                <span className="font-semibold text-sm">
                   Espelho de Escrituração — NF-e de Entrada Nº {selectedPurchaseForPrint.nfeNumber} (Compra #{selectedPurchaseForPrint.code})
                 </span>
               </div>
@@ -7259,7 +7388,7 @@ export default function ErpGestaoClickTab({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 rounded bg-[#ff7a59] text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white text-xs font-bold cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 inline mr-1" /> Imprimir Espelho
                 </button>
@@ -7286,8 +7415,8 @@ export default function ErpGestaoClickTab({
                 </div>
               </div>
 
-              <div className="p-3.5 rounded bg-indigo-50/70 border border-indigo-200 space-y-1">
-                <div className="font-extrabold text-indigo-950 uppercase text-[11px]">
+              <div className="p-3.5 rounded bg-slate-50 border border-slate-200 space-y-1">
+                <div className="font-semibold text-slate-800 uppercase text-[11px]">
                   Classificação Fiscal de Entrada &amp; Crédito Tributário
                 </div>
                 <div>
@@ -7312,22 +7441,22 @@ export default function ErpGestaoClickTab({
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 p-3.5 rounded bg-emerald-50 border border-emerald-200">
+              <div className="grid grid-cols-3 gap-3 p-3.5 rounded bg-slate-50 border border-slate-200">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-emerald-800 block">Crédito ICMS</span>
-                  <strong className="text-sm font-black text-emerald-950">
+                  <span className="text-[10px] uppercase font-bold text-slate-800 block">Crédito ICMS</span>
+                  <strong className="text-sm font-semibold text-slate-800">
                     {formatBRL(selectedPurchaseForPrint.icmsCreditAmount ?? Math.round(selectedPurchaseForPrint.totalAmount * 0.18 * 100) / 100)}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-emerald-800 block">Crédito PIS/COFINS</span>
-                  <strong className="text-sm font-black text-emerald-950">
+                  <span className="text-[10px] uppercase font-bold text-slate-800 block">Crédito PIS/COFINS</span>
+                  <strong className="text-sm font-semibold text-slate-800">
                     {formatBRL(selectedPurchaseForPrint.pisCofinsCreditAmount ?? Math.round(selectedPurchaseForPrint.totalAmount * 0.0365 * 100) / 100)}
                   </strong>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-emerald-800 block">Total da NF-e de Entrada</span>
-                  <strong className="text-base font-black text-emerald-950">
+                  <span className="text-[10px] uppercase font-bold text-slate-800 block">Total da NF-e de Entrada</span>
+                  <strong className="text-base font-semibold text-slate-800">
                     {formatBRL(selectedPurchaseForPrint.totalAmount)}
                   </strong>
                 </div>
@@ -7352,7 +7481,7 @@ export default function ErpGestaoClickTab({
               <div className="flex items-center gap-2.5">
                 <h3 className="text-base font-bold text-slate-900">Alterar situação</h3>
                 <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-xs font-bold">
-                  Orçamento #{statusModalProposal.code}
+                  Orçamento #{showCode(statusModalProposal)}
                 </span>
               </div>
               <button
@@ -7366,6 +7495,21 @@ export default function ErpGestaoClickTab({
 
             {/* Body */}
             <div className="p-6 space-y-5 text-xs text-slate-700 max-h-[78vh] overflow-y-auto">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#c7d2e8] bg-[#eef2fa] px-3 py-2">
+                <span className="text-[#1e3a6e]">Link curto assinado da versão atual, para enviar ao cliente.</span>
+                <button
+                  type="button"
+                  data-testid="status-modal-copy-client-link"
+                  onClick={async () => {
+                    const r = await copySignedProposalLink(statusModalProposal.id);
+                    onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copiar link do cliente
+                </button>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-800 mb-1.5">
@@ -7373,19 +7517,27 @@ export default function ErpGestaoClickTab({
                   </label>
                   <select
                     value={statusModalSelectedStatus}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setStatusModalError(null);
                       setStatusModalSelectedStatus(
                         e.target.value as ErpCommercialProposal["status"]
-                      )
-                    }
-                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:border-[#1b2559]"
+                      );
+                    }}
+                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:border-slate-200"
                   >
                     <option value="RASCUNHO">Em aberto</option>
                     <option value="EM_NEGOCIACAO">Em andamento</option>
                     <option value="ENVIADA">Enviado</option>
-                    <option value="APROVADA">Concretizado</option>
-                    <option value="CONVERTIDA_CONTRATO">
-                      Concretizado (Em Contrato / Faturamento)
+                    <option value="APROVADA">
+                      {statusModalProposal.status === "APROVADA"
+                        ? "Concretizado (aprovado)"
+                        : "Aprovado manualmente (exige justificativa)"}
+                    </option>
+                    <option
+                      value="CONVERTIDA_CONTRATO"
+                      disabled={statusModalProposal.status !== "CONVERTIDA_CONTRATO"}
+                    >
+                      Em Contrato / Faturamento (só pelo aceite do cliente)
                     </option>
                     <option value="RECUSADA">Cancelado</option>
                   </select>
@@ -7400,23 +7552,59 @@ export default function ErpGestaoClickTab({
                     value={statusModalObservation}
                     onChange={(e) => setStatusModalObservation(e.target.value)}
                     placeholder="Opcional: fica no histórico"
-                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#1b2559]"
+                    className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-200"
                   />
                 </div>
               </div>
 
-              {(statusModalSelectedStatus === "APROVADA" ||
-                statusModalSelectedStatus === "CONVERTIDA_CONTRATO") &&
-                isRentalProposal(statusModalProposal) && (
-                  <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2 text-[11px] font-medium">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      <strong>Regra Automática de Locação Seta Telecom:</strong> Ao confirmar a situação como{" "}
-                      <strong>Concretizado</strong>, este orçamento de locação gera automaticamente o{" "}
-                      <strong>Contrato de Locação</strong> e a <strong>Fatura</strong> para seguir com o faturamento.
-                    </span>
+              {statusModalSelectedStatus === "APROVADA" &&
+                statusModalProposal.status !== "APROVADA" && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-800">
+                      Justificativa da aprovação manual<span className="text-rose-600">*</span>
+                      <span className="ml-1 font-normal text-slate-500">(mínimo de 10 caracteres)</span>
+                    </label>
+                    <textarea
+                      value={statusModalJustification}
+                      onChange={(e) => {
+                        setStatusModalError(null);
+                        setStatusModalJustification(e.target.value);
+                      }}
+                      rows={2}
+                      maxLength={1000}
+                      placeholder="Ex.: Cliente aceitou por telefone com o diretor em 30/10"
+                      className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-slate-200"
+                    />
+                    <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-slate-800 flex items-center gap-2 text-[11px] font-medium">
+                      <CheckCircle2 className="w-4 h-4 text-slate-600 shrink-0" />
+                      <span>
+                        <strong>Aprovação manual</strong> (ex.: cliente aceitou por telefone): fica registrada com o seu
+                        nome e a justificativa, mas <strong>não gera Contrato nem Fatura</strong>. A conversão em
+                        contrato/faturamento acontece quando o cliente aceita pelo <strong>link assinado</strong> da
+                        proposta{isRentalProposal(statusModalProposal) ? " (inclusive para locação)" : ""}. Só
+                        administradores ou perfis com acesso total podem aprovar manualmente.
+                      </span>
+                    </div>
                   </div>
                 )}
+
+              {(statusModalProposal.status === "APROVADA" ||
+                statusModalProposal.status === "CONVERTIDA_CONTRATO") &&
+                statusModalSelectedStatus !== statusModalProposal.status && (
+                  <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-[11px] font-medium">
+                    Esta proposta já está aprovada/convertida: só um <strong>administrador</strong> pode mudar a
+                    situação, e a mudança fica registrada na auditoria.
+                  </div>
+                )}
+
+              {statusModalError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-md bg-rose-50 border border-rose-200 text-rose-900 text-[11px] font-semibold"
+                >
+                  {statusModalError}
+                </div>
+              )}
 
               {/* Acordeão 1: Histórico de situações */}
               {(() => {
@@ -7444,7 +7632,7 @@ export default function ErpGestaoClickTab({
                       <span className="inline-flex items-center gap-2">
                         <History className="w-4 h-4 text-slate-600" />
                         <span>Histórico de situações</span>
-                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-extrabold">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-semibold">
                           {statusEntries.length}
                         </span>
                       </span>
@@ -7500,7 +7688,7 @@ export default function ErpGestaoClickTab({
                 );
               })()}
 
-              {/* Acordeão 2: Histórico de versões da proposta (com os 3 botões diretos: Abrir Tela, PDF e Restaurar) */}
+              {/* Acordeão 2: Versões anteriores */}
               {(() => {
                 const versions: ErpProposalVersionEntry[] =
                   Array.isArray(statusModalProposal.versionHistory) &&
@@ -7531,8 +7719,8 @@ export default function ErpGestaoClickTab({
                     >
                       <span className="inline-flex items-center gap-2">
                         <FileText className="w-4 h-4 text-[#1e3a6e]" />
-                        <span>Histórico de versões da proposta</span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 text-[10px] font-extrabold">
+                        <span>Versões anteriores</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 border border-slate-200 text-[10px] font-semibold">
                           Versão Atual: Versão {latestVer} ({versions.length}{" "}
                           {versions.length === 1 ? "versão" : "versões"})
                         </span>
@@ -7550,8 +7738,8 @@ export default function ErpGestaoClickTab({
                           <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                             <tr>
                               <th className="py-2 px-3 w-32">Versão</th>
-                              <th className="py-2 px-3 w-40">Data &amp; Responsável</th>
-                              <th className="py-2 px-3">Valor Mensal / Resumo</th>
+                              <th className="py-2 px-3 w-40">Data e responsável</th>
+                              <th className="py-2 px-3">Valor mensal</th>
                               <th className="py-2 px-3 text-right">Ações</th>
                             </tr>
                           </thead>
@@ -7582,11 +7770,11 @@ export default function ErpGestaoClickTab({
                                 >
                                   <td className="py-2.5 px-3">
                                     <div className="flex items-center gap-1.5">
-                                      <span className="font-extrabold text-[#1e3a6e]">
+                                      <span className="font-semibold text-[#1e3a6e]">
                                         Versão {ver.version}
                                       </span>
                                       {isLatest ? (
-                                        <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-extrabold">
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-700">
                                           ATUAL
                                         </span>
                                       ) : (
@@ -7607,7 +7795,7 @@ export default function ErpGestaoClickTab({
                                     </div>
                                   </td>
                                   <td className="py-2.5 px-3">
-                                    <div className="font-bold text-emerald-700">
+                                    <div className="font-bold text-slate-800">
                                       {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
                                       {itemsCount === 1 ? "item" : "itens"} • {monthsVal}m
                                     </div>
@@ -7621,19 +7809,19 @@ export default function ErpGestaoClickTab({
                                         href={screenUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-[10px] font-extrabold"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold"
                                       >
                                         <ExternalLink className="w-3 h-3" />
-                                        <span>Abrir Tela da Versão</span>
+                                        <span>Abrir</span>
                                       </a>
                                       <a
                                         href={pdfUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-[10px] font-extrabold"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold"
                                       >
                                         <Printer className="w-3 h-3" />
-                                        <span>PDF</span>
+                                        <span>Gerar PDF</span>
                                       </a>
                                       {!isLatest ? (
                                         <button
@@ -7645,15 +7833,30 @@ export default function ErpGestaoClickTab({
                                               ver
                                             )
                                           }
-                                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[10px] font-extrabold cursor-pointer disabled:opacity-50"
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold cursor-pointer disabled:opacity-50"
                                         >
-                                          <RefreshCw className="w-3 h-3 text-emerald-300" />
+                                          <RefreshCw className="w-3 h-3" />
                                           <span>Restaurar</span>
                                         </button>
                                       ) : (
-                                        <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
-                                          Ativa
-                                        </span>
+                                        <>
+                                          <button
+                                            type="button"
+                                            data-testid="version-signed-link"
+                                            title="Copia o short link assinado desta versão para o cliente (abre sem login)"
+                                            onClick={async () => {
+                                              const r = await copySignedProposalVersionLink(statusModalProposal.id, ver.version);
+                                              onShowToast(r.ok ? `Link assinado da Versão ${ver.version} copiado (abre sem login).` : r.error);
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-[10px] font-semibold cursor-pointer"
+                                          >
+                                            <Copy className="w-3 h-3" />
+                                            <span>Link cliente</span>
+                                          </button>
+                                          <span className="px-2 py-1 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold">
+                                            Ativa
+                                          </span>
+                                        </>
                                       )}
                                     </div>
                                   </td>
@@ -7681,7 +7884,7 @@ export default function ErpGestaoClickTab({
 
               <div className="flex items-center gap-2">
                 <a
-                  href={buildPublicProposalUrl(statusModalProposal)}
+                  href={buildInternalProposalUrl(statusModalProposal)}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3.5 py-2 rounded-md border border-slate-300 bg-white hover:bg-slate-100 text-[#1e3a6e] text-xs font-bold inline-flex items-center gap-1.5"
@@ -7693,9 +7896,13 @@ export default function ErpGestaoClickTab({
                   type="button"
                   disabled={savingProposalStatus}
                   onClick={handleConfirmChangeProposalStatus}
-                  className="px-5 py-2 rounded-md bg-[#1b2559] hover:bg-[#11183b] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 rounded-md hover:bg-[#11183b] text-xs font-bold cursor-pointer disabled:opacity-50 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
                 >
-                  {savingProposalStatus ? "Salvando..." : "Alterar"}
+                  {savingProposalStatus
+                    ? "Salvando..."
+                    : statusModalSelectedStatus === "APROVADA" && statusModalProposal.status !== "APROVADA"
+                      ? "Aprovar manualmente"
+                      : "Alterar"}
                 </button>
               </div>
             </div>
@@ -7708,14 +7915,14 @@ export default function ErpGestaoClickTab({
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-3xl w-full overflow-hidden my-8">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
-              <span className="font-extrabold text-sm">
+              <span className="font-semibold text-sm">
                 Proposta Comercial Executiva — {selectedProposalForPrint.code}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 rounded-lg bg-[#ff7a59] text-white text-xs font-bold cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-[#1e3a6e] text-white text-xs font-bold cursor-pointer"
                 >
                   Imprimir PDF
                 </button>
@@ -7731,31 +7938,32 @@ export default function ErpGestaoClickTab({
             <div className="p-6 space-y-4 text-xs text-slate-800">
               <div className="flex justify-between border-b pb-3">
                 <div>
-                  <h3 className="text-base font-black text-[#33475b]">SETA TELECOM LTDA</h3>
-                  <p>CNPJ {gestaoClickConfig.companyCnpj} • HubSpot Portal 4369067</p>
+                  <h3 className="text-base font-semibold text-[#33475b]">SETA TELECOM LTDA</h3>
+                  <p className="text-[11px] text-slate-500" data-testid="doc-issuer-address">{defaultIssuerAddressLine()}</p>
+                  <p>CNPJ {gestaoClickConfig.companyCnpj}</p>
                   <p>Responsável Comercial: {selectedProposalForPrint.sellerName}</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-black">{selectedProposalForPrint.code}</div>
+                  <div className="text-sm font-semibold">{selectedProposalForPrint.code}</div>
                   <div>Cliente: {selectedProposalForPrint.companyName}</div>
                   <div>CNPJ: {selectedProposalForPrint.companyCnpj}</div>
                 </div>
               </div>
-              <h4 className="text-sm font-extrabold text-[#33475b]">
+              <h4 className="text-sm font-semibold text-[#33475b]">
                 {selectedProposalForPrint.title}
               </h4>
               <p className="text-[#516f90]">{selectedProposalForPrint.commercialNotes}</p>
               <p className="text-[#516f90]">
-                <strong>Cláusulas Técnicas &amp; SLA:</strong>{' '}
+                <strong>Cláusulas técnicas e SLA:</strong>{' '}
                 {selectedProposalForPrint.technicalClauses}
               </p>
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-[4px] flex justify-between items-center">
-                <span className="font-bold text-emerald-900">
-                  Mensalidade Recorrente (MRR):{' '}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-[4px] flex justify-between items-center">
+                <span className="font-bold text-slate-800">
+                  Valor mensal:{' '}
                   {formatBRL(selectedProposalForPrint.monthlyRecurringTotal)}/mês
                 </span>
-                <span className="font-black text-emerald-950 text-sm">
-                  Valor Global ({selectedProposalForPrint.contractMonths} meses):{' '}
+                <span className="font-semibold text-slate-800 text-sm">
+                  Valor total ({selectedProposalForPrint.contractMonths} meses):{' '}
                   {formatBRL(selectedProposalForPrint.totalContractValue)}
                 </span>
               </div>
@@ -7764,17 +7972,17 @@ export default function ErpGestaoClickTab({
         </div>
       )}
 
-      {/* MODAL: NOVA PROPOSTA COMERCIAL (COM LINK PÚBLICO DE PDF) */}
+      {/* MODAL: NOVA PROPOSTA COMERCIAL */}
       {showNewProposalModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-2xl w-full overflow-hidden my-8">
             <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-extrabold uppercase text-emerald-300 block">
+                <span className="text-[10px] font-semibold uppercase text-slate-200 block">
                   Seta Telecom • Orçamentos &amp; Propostas Comerciais
                 </span>
-                <h3 className="text-sm font-extrabold">
-                  Criar Nova Proposta Comercial (Gera Link Público de Impressão PDF A4)
+                <h3 className="text-sm font-semibold">
+                  Nova proposta comercial
                 </h3>
               </div>
               <button
@@ -7788,7 +7996,7 @@ export default function ErpGestaoClickTab({
             <form onSubmit={handleCreateProposalSubmit} className="p-6 space-y-3.5 text-xs">
               <div>
                 <label className="block font-bold text-[#33475b] mb-1">
-                  Título / Escopo da Proposta Comercial *
+                  Nome da proposta *
                 </label>
                 <input
                   type="text"
@@ -7803,7 +8011,7 @@ export default function ErpGestaoClickTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#33475b] mb-1">
-                    Selecionar Cliente Cadastrado (GestãoClick / CRM)
+                    Cliente
                   </label>
                   <select
                     value={propCompanyId}
@@ -7834,7 +8042,7 @@ export default function ErpGestaoClickTab({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-bold text-[#33475b] mb-1">CNPJ / CPF do Cliente</label>
+                  <label className="block font-bold text-[#33475b] mb-1">CNPJ ou CPF do Cliente</label>
                   <input
                     type="text"
                     value={propCustomCnpj}
@@ -7870,7 +8078,7 @@ export default function ErpGestaoClickTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#33475b] mb-1">
-                    Equipamento / Serviço Principal (Catálogo GestãoClick)
+                    Produto ou serviço
                   </label>
                   <select
                     value={propSku}
@@ -8081,9 +8289,9 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white font-extrabold cursor-pointer"
+                  className="px-5 py-2 rounded-[4px] bg-emerald-600 hover:bg-emerald-500 text-white font-semibold cursor-pointer"
                 >
-                  Criar Proposta &amp; Gerar Link PDF p/ Cliente
+                  Criar proposta
                 </button>
               </div>
             </form>
@@ -8096,7 +8304,7 @@ export default function ErpGestaoClickTab({
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-[6px] border border-[#cbd6e2] shadow-2xl max-w-lg w-full overflow-hidden">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <h3 className="text-sm font-extrabold">
+              <h3 className="text-sm font-semibold">
                 Emitir Fatura de Locação / NFS-e / NF-e Remessa
               </h3>
               <button
@@ -8221,7 +8429,7 @@ export default function ErpGestaoClickTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[4px] bg-[#ff7a59] text-white font-extrabold"
+                  className="px-5 py-2 rounded-[4px] bg-[#1e3a6e] text-white font-semibold"
                 >
                   Emitir Documento Fiscal
                 </button>
