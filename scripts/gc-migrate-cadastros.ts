@@ -96,6 +96,13 @@ function loadEnvLocal(): void {
     return;
   }
 }
+function assertGcGetOnly(method: string): void {
+  const normalized = String(method || 'GET').trim().toUpperCase() || 'GET';
+  if (normalized !== 'GET') {
+    throw new Error(`GestaoClick e somente leitura no STI-hub (direcao GC > STI-hub). O metodo ${normalized} foi recusado e nenhuma chamada de rede foi feita.`);
+  }
+}
+
 async function fetchAllGc(ep: string): Promise<Rec[]> {
   loadEnvLocal();
   const at = process.env.GESTAOCLICK_ACCESS_TOKEN, st = process.env.GESTAOCLICK_SECRET_ACCESS_TOKEN;
@@ -105,7 +112,10 @@ async function fetchAllGc(ep: string): Promise<Rec[]> {
   for (let page = 1; ; page++) {
     let json: Rec | null = null;
     for (let attempt = 0; attempt < 4 && !json; attempt++) {
+      const method = 'GET';
+      assertGcGetOnly(method);
       const res = await fetch(`${base}/${ep}?pagina=${page}&limite=100`, {
+        method,
         headers: { 'access-token': at, 'secret-access-token': st, Accept: 'application/json' },
       });
       if (res.ok) json = (await res.json()) as Rec;
