@@ -811,6 +811,13 @@ export interface ServiceTicket {
   legacyKey?: string | null;
   jiraKey?: string | null;
   jiraId?: string | null;
+  jiraProjectKey?: string | null;
+  jiraUrl?: string | null;
+  externalCreatedAt?: string | null;
+  externalUpdatedAt?: string | null;
+  externalResolvedAt?: string | null;
+  importedAt?: string | null;
+  importHash?: string | null;
   closedAt?: string | null;
 }
 

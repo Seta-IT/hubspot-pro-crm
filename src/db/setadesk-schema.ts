@@ -10,8 +10,53 @@ import type { Pool, PoolClient } from 'pg';
 
 export const SETADESK_TICKET_KEY_PREFIX = 'SD';
 export const SETADESK_TICKET_SEQUENCE = 'setadesk_ticket_seq';
+/** Projeto Jira importado na fase 1. DEV/AF ficam de fora: os numeros colidiriam com o STT. */
+export const SETADESK_JIRA_IMPORT_PROJECT = 'STT';
 /** Chave arbitraria (int8) do pg_advisory_xact_lock que serializa migracoes concorrentes. */
 const SETADESK_MIGRATION_LOCK_KEY = 794301120261029;
+
+/** Numero de uma chave PREFIX-n (SD-123, STT-123). Outros prefixos retornam null. */
+export function parseTicketKeyNumber(key: string | null | undefined, prefix: string): number | null {
+  const p = String(prefix || '').trim().toUpperCase();
+  if (!p) return null;
+  const m = String(key || '').trim().toUpperCase().match(new RegExp(`^${p}-([0-9]+)$`));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Maior numero reservado por um chamado: chave SD-n, jira_key STT-n
+ * ou chave STT-n (se o registro ainda estiver com a chave Jira).
+ * JSM-/DEV- sao ignorados de proposito.
+ */
+export function allocatedSetaDeskNumber(ticket: { key?: string | null; jiraKey?: string | null }): number {
+  return Math.max(
+    parseTicketKeyNumber(ticket.key, SETADESK_TICKET_KEY_PREFIX) || 0,
+    parseTicketKeyNumber(ticket.jiraKey, SETADESK_JIRA_IMPORT_PROJECT) || 0,
+    parseTicketKeyNumber(ticket.key, SETADESK_JIRA_IMPORT_PROJECT) || 0
+  );
+}
+
+export function maxAllocatedSetaDeskNumber(
+  tickets: Array<{ key?: string | null; jiraKey?: string | null }>
+): number {
+  let max = 0;
+  for (const t of tickets) max = Math.max(max, allocatedSetaDeskNumber(t));
+  return max;
+}
+
+/**
+ * Alinha setadesk_ticket_seq para max(SD-n, STT-n em jira_key, valor atual)+1.
+ * Idempotente (nunca reduz a sequencia). is_called=false: o proximo nextval devolve esse valor.
+ */
+export const SETADESK_ALIGN_SEQUENCE_SQL = `
+SELECT setval('${SETADESK_TICKET_SEQUENCE}', GREATEST(
+  (SELECT COALESCE(MAX((substring(key FROM '^${SETADESK_TICKET_KEY_PREFIX}-([0-9]+)$'))::bigint), 0) FROM setadesk_tickets),
+  (SELECT COALESCE(MAX((substring(jira_key FROM '^${SETADESK_JIRA_IMPORT_PROJECT}-([0-9]+)$'))::bigint), 0) FROM setadesk_tickets),
+  (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${SETADESK_TICKET_SEQUENCE}),
+  0) + 1, false)
+`;
 
 export interface SetaDeskMigration {
   id: string;
@@ -272,6 +317,12 @@ CREATE TABLE IF NOT EXISTS setadesk_mail_sync_state (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `,
+  },
+  {
+    id: '0002_align_seq_stt',
+    description:
+      'Sequencia de chamados novos comeca em max(SD-, STT- em jira_key)+1 para nao colidir com a importacao',
+    sql: SETADESK_ALIGN_SEQUENCE_SQL,
   },
 ];
 

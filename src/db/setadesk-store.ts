@@ -20,6 +20,7 @@ import type { Pool, PoolClient } from 'pg';
 import { getPostgresPool, isPostgresEnabled } from './postgres';
 import {
   applySetaDeskMigrations,
+  SETADESK_ALIGN_SEQUENCE_SQL,
   SETADESK_TICKET_KEY_PREFIX,
   SETADESK_TICKET_SEQUENCE,
 } from './setadesk-schema';
@@ -139,6 +140,13 @@ export function rowToServiceTicket(r: TicketRow, comments: TicketComment[]): Ser
     legacyKey: (r.legacy_key as string | null) ?? null,
     jiraKey: (r.jira_key as string | null) ?? null,
     jiraId: (r.jira_id as string | null) ?? null,
+    jiraProjectKey: (r.jira_project_key as string | null) ?? null,
+    jiraUrl: (r.jira_url as string | null) ?? null,
+    externalCreatedAt: iso(r.external_created_at),
+    externalUpdatedAt: iso(r.external_updated_at),
+    externalResolvedAt: iso(r.external_resolved_at),
+    importedAt: iso(r.imported_at),
+    importHash: (r.import_hash as string | null) ?? null,
     closedAt: iso(r.closed_at),
   };
   return t;
@@ -165,7 +173,9 @@ const TICKET_COLUMNS = [
   'contact_id', 'company_id', 'deal_id', 'contract_id', 'service_order_id', 'equipment_serial',
   'tags', 'resolution', 'sla_status', 'sla_first_response_due_at', 'sla_resolution_due_at',
   'sla_paused_at', 'total_paused_minutes', 'first_responded_at', 'resolved_at', 'closed_at',
-  'csat_score', 'jira_key', 'jira_id', 'created_at', 'updated_at',
+  'csat_score', 'jira_key', 'jira_id', 'jira_project_key', 'jira_url',
+  'external_created_at', 'external_updated_at', 'external_resolved_at',
+  'imported_at', 'import_hash', 'created_at', 'updated_at',
 ] as const;
 
 function ticketToParams(t: ServiceTicket): unknown[] {
@@ -207,6 +217,13 @@ function ticketToParams(t: ServiceTicket): unknown[] {
     t.csatScore ?? null,
     t.jiraKey ?? null,
     t.jiraId ?? null,
+    t.jiraProjectKey ?? null,
+    t.jiraUrl ?? null,
+    ts(t.externalCreatedAt) || ts(t.createdAt),
+    ts(t.externalUpdatedAt) || ts(t.updatedAt),
+    ts(t.externalResolvedAt) || null,
+    ts(t.importedAt),
+    t.importHash ?? null,
     ts(t.createdAt) || new Date().toISOString(),
     ts(t.updatedAt) || new Date().toISOString(),
   ];
@@ -294,14 +311,9 @@ async function reconcileFromLegacyState(
   return written;
 }
 
-/** Garante que a sequencia nunca emita uma chave SD- ja usada. */
-async function alignSequenceWithExistingKeys(client: PoolClient) {
-  await client.query(
-    `SELECT setval('${SETADESK_TICKET_SEQUENCE}', GREATEST(
-       (SELECT COALESCE(MAX((substring(key FROM '^${SETADESK_TICKET_KEY_PREFIX}-([0-9]+)$'))::bigint), 0) FROM setadesk_tickets),
-       (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${SETADESK_TICKET_SEQUENCE}),
-       0) + 1, false)`
-  );
+/** Garante que a sequencia nunca emita uma chave SD- ja usada (nem um numero STT importado). */
+export async function alignSequenceWithExistingKeys(client: PoolClient) {
+  await client.query(SETADESK_ALIGN_SEQUENCE_SQL);
 }
 
 /** Le todos os chamados (com comentarios) das tabelas SetaDesk. */

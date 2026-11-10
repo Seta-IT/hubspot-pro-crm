@@ -133,7 +133,7 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
-import { SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
+import { maxAllocatedSetaDeskNumber, SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
 import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
@@ -3612,8 +3612,9 @@ export class CrmRepository {
   // SetaDesk: geracao de chave SD-<n>
   // Com Postgres, a camada HTTP reserva chaves via sequencia propria
   // (setadesk_ticket_seq) antes da rota rodar; sem Postgres, usa o contador
-  // local `setaDeskTicketSeq`, considerando apenas chaves SD- (nunca o maior
-  // numero de qualquer chave, como JSM-/Jira).
+  // local `setaDeskTicketSeq`. A numeracao SD acompanha o STT importado
+  // (STT-123 -> SD-123); chamados novos comecam em max(SD-, STT-)+1.
+  // Prefixos JSM-/DEV- nao entram na sequencia (os numeros do DEV colidiriam).
   // --------------------------------------------------------------------------
   private reservedTicketKeys: string[] = [];
 
@@ -3645,12 +3646,8 @@ export class CrmRepository {
 
   private nextLocalSetaDeskTicketKey(): string {
     const prefix = `${SETADESK_TICKET_KEY_PREFIX}-`;
-    const re = new RegExp(`^${SETADESK_TICKET_KEY_PREFIX}-(\\d+)$`, 'i');
     let seq = Number.isFinite(this.state.setaDeskTicketSeq) ? Number(this.state.setaDeskTicketSeq) : 0;
-    for (const t of this.state.serviceTickets || []) {
-      const m = t.key.match(re);
-      if (m) seq = Math.max(seq, Number(m[1]));
-    }
+    seq = Math.max(seq, maxAllocatedSetaDeskNumber(this.state.serviceTickets || []));
     let key: string;
     do {
       seq += 1;

@@ -13,7 +13,13 @@ import {
   portalActionErrorMessage,
   PORTAL_UI_RATE_LIMIT_MESSAGE,
 } from '../src/app/portal/portal-feedback';
-import { SETADESK_MIGRATIONS, SETADESK_TICKET_KEY_PREFIX } from '../src/db/setadesk-schema';
+import {
+  SETADESK_ALIGN_SEQUENCE_SQL,
+  SETADESK_JIRA_IMPORT_PROJECT,
+  SETADESK_MIGRATIONS,
+  SETADESK_TICKET_KEY_PREFIX,
+  maxAllocatedSetaDeskNumber,
+} from '../src/db/setadesk-schema';
 import {
   buildBaseline,
   diffTicketsAgainstBaseline,
@@ -21,16 +27,25 @@ import {
 } from '../src/db/setadesk-store';
 
 describe('SetaDesk - geracao de chave SD- (fallback sem Postgres)', () => {
-  it('nao depende do maior numero de outras chaves (JSM-/Jira)', () => {
+  it('a numeracao SD acompanha o STT importado; JSM- e DEV- nao entram na sequencia', () => {
     const repo = createInMemoryRepository();
-    // Simula chamados legados/importados com numeros altos em outros prefixos.
-    repo.createServiceTicket({ subject: 'Legado Jira', key: 'STT-9876' });
+    repo.createServiceTicket({ subject: 'Importado', key: 'SD-123', jiraKey: 'STT-123' });
     repo.createServiceTicket({ subject: 'Legado JSM', key: 'JSM-5000' });
-    const a = repo.createServiceTicket({ subject: 'Primeiro SetaDesk' });
-    const b = repo.createServiceTicket({ subject: 'Segundo SetaDesk' });
+    repo.createServiceTicket({ subject: 'Projeto DEV fora do escopo', key: 'DEV-99' });
+    const a = repo.createServiceTicket({ subject: 'Primeiro novo' });
+    const b = repo.createServiceTicket({ subject: 'Segundo novo' });
     assert.equal(SETADESK_TICKET_KEY_PREFIX, 'SD');
-    assert.equal(a.key, 'SD-1');
-    assert.equal(b.key, 'SD-2');
+    assert.equal(SETADESK_JIRA_IMPORT_PROJECT, 'STT');
+    assert.equal(a.key, 'SD-124');
+    assert.equal(b.key, 'SD-125');
+  });
+
+  it('chave STT-n (ainda nao convertida) tambem reserva o numero SD-n', () => {
+    const repo = createInMemoryRepository();
+    repo.createServiceTicket({ subject: 'Legado com chave Jira', key: 'STT-248' });
+    const next = repo.createServiceTicket({ subject: 'Novo apos o maior STT' });
+    assert.equal(next.key, 'SD-249');
+    assert.equal(maxAllocatedSetaDeskNumber(repo.getState().serviceTickets || []), 249);
   });
 
   it('nao reutiliza numero apos exclusao (contador proprio monotono)', () => {
@@ -86,8 +101,12 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     const ids = SETADESK_MIGRATIONS.map((m) => m.id);
     assert.equal(new Set(ids).size, ids.length);
     for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
+      if (/^SELECT\s+setval\b/i.test(stmt)) continue;
       assert.match(stmt, /IF NOT EXISTS/i, `comando sem IF NOT EXISTS: ${stmt.slice(0, 80)}`);
     }
+    assert.match(SETADESK_ALIGN_SEQUENCE_SQL, /setval\('/);
+    assert.match(SETADESK_ALIGN_SEQUENCE_SQL, /jira_key FROM '\^STT-\(\[0-9\]\+\)\$/);
+    assert.equal(SETADESK_MIGRATIONS.some((m) => m.id === '0002_align_seq_stt'), true);
   });
 
   it('tem indices unicos de idempotencia (jira_key, jira_id, message_id, ids externos)', () => {
