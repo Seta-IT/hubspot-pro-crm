@@ -26,6 +26,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 import { calculateBrazilianTaxBreakdown } from './erp-tax-engine';
+import { gestaoClickFetch } from './gestaoclick-http';
 
 export interface GestaoClickCnpjEntity {
   id: string;
@@ -215,7 +216,7 @@ async function fetchGcEndpoint<T = Record<string, unknown>>(
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8500);
-    const res = await fetch(`${baseUrl}${cleanEp}`, {
+    const res = await gestaoClickFetch(`${baseUrl}${cleanEp}`, {
       method: 'GET',
       headers: {
         'access-token': creds.accessToken,
@@ -247,57 +248,13 @@ async function fetchGcEndpoint<T = Record<string, unknown>>(
   }
 }
 
-export async function probeGestaoClickMcp(creds: GestaoClickCredentials): Promise<{
+export async function probeGestaoClickMcp(_creds: GestaoClickCredentials): Promise<{
   online: boolean;
   serverInfo?: { name: string; version: string; instructions?: string };
 }> {
-  const mcpUrl = creds.mcpServerUrl || 'https://api.gestaoclick.com/v1/mcp';
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch(mcpUrl, {
-      method: 'POST',
-      headers: {
-        'access-token': creds.accessToken,
-        'secret-access-token': creds.secretAccessToken,
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'hubspot-pro-crm-erp-grok', version: '1.0.0' },
-        },
-      }),
-      signal: controller.signal,
-      cache: 'no-store',
-    });
-    clearTimeout(timer);
-    if (!res.ok) return { online: false };
-    const json = (await res.json()) as {
-      result?: {
-        serverInfo?: { name: string; version: string };
-        instructions?: string;
-      };
-    };
-    if (json?.result?.serverInfo) {
-      return {
-        online: true,
-        serverInfo: {
-          name: json.result.serverInfo.name,
-          version: json.result.serverInfo.version,
-          instructions: json.result.instructions,
-        },
-      };
-    }
-    return { online: true };
-  } catch {
-    return { online: false };
-  }
+  // O handshake MCP exigia POST em /v1/mcp (JSON-RPC initialize).
+  // Gravacao no GestaoClick e proibida (somente GC > STI-hub); o probe nao faz chamada de rede.
+  return { online: false };
 }
 
 function normalizeOwnerName(rawSeller: string | undefined): string {
@@ -358,11 +315,11 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     return cachedSnapshot;
   }
 
-  // Batch 1 (2 requests: lojas + usuarios + MCP probe)
-  const [lojasRes, usuariosRes, mcpProbe] = await Promise.all([
+  // Batch 1 (lojas + usuarios). A conectividade exibida na UI deixa de depender
+  // do handshake MCP (POST) e passa a ser inferida pelo GET da API REST.
+  const [lojasRes, usuariosRes] = await Promise.all([
     fetchGcEndpoint<Record<string, unknown>>('/lojas', creds),
     fetchGcEndpoint<Record<string, unknown>>('/usuarios', creds),
-    probeGestaoClickMcp(creds),
   ]);
 
   if (!lojasRes.ok && !usuariosRes.ok) {
@@ -1051,8 +1008,8 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   const snapshot: GestaoClickLiveSnapshot = {
     fetchedAt: new Date().toISOString(),
     liveConnected: true,
-    mcpStatus: mcpProbe.online ? 'ONLINE' : 'OFFLINE',
-    mcpServerInfo: mcpProbe.serverInfo,
+    mcpStatus: lojasRes.ok || usuariosRes.ok ? 'ONLINE' : 'OFFLINE',
+    mcpServerInfo: undefined,
     store,
     users,
     totals,
