@@ -68,6 +68,7 @@ import {
   downloadContractBillingHistoryReportOnDemand,
   type ContractBillingRunOptions,
 } from '../lib/contract-billing-utils';
+import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../modules/erp/billing-recipient-emails';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -2206,8 +2207,12 @@ export function ContractEditModal({
   // ===== Faturamento do Contrato (campos GestaoClick) =====
   const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
   const [recipientEmailsText, setRecipientEmailsText] = useState<string>(
-    (contract.billingRecipientEmails || []).join(', ')
+    billingRecipientEmailsText(contract.billingRecipientEmails)
   );
+  const draftWithRecipientEmails = (base: ErpRentalContract = draft): ErpRentalContract => ({
+    ...base,
+    billingRecipientEmails: parseBillingRecipientEmails(recipientEmailsText),
+  });
   const contractInvoices = matchInvoicesForContract(draft, invoices || []);
   const upcomingCycles = computeUpcomingRecurringCycles(draft, 4);
   const dueRulePreview = computeCustomDueDateClient({
@@ -2254,8 +2259,9 @@ export function ContractEditModal({
     if (!onGenerateInvoice) return;
     setBillingIssuing(true);
     try {
-      await onSave(draft);
-      await onGenerateInvoice(draft.id, { ...buildBillingRunOptions() });
+      const saved = draftWithRecipientEmails();
+      await onSave(saved);
+      await onGenerateInvoice(saved.id, { ...buildBillingRunOptions(), billingRecipientEmails: saved.billingRecipientEmails });
     } finally {
       setBillingIssuing(false);
     }
@@ -2369,7 +2375,7 @@ export function ContractEditModal({
         if (renewCheck.firstTab) setActiveTab(renewCheck.firstTab);
         return;
       }
-      await onSave(updatedContract);
+      await onSave(draftWithRecipientEmails(updatedContract));
       onShowToast?.(
         `Vigência do contrato ${updatedContract.contractNumber} renovada até ${updatedContract.endDate} e dados confirmados!`
       );
@@ -2401,8 +2407,9 @@ export function ContractEditModal({
         readjustmentHistory: [historyEntry, ...(draft.readjustmentHistory || [])],
         updatedAt: new Date().toISOString(),
       };
-      setDraft(updatedContract);
-      await onSave(updatedContract);
+      const saved = draftWithRecipientEmails(updatedContract);
+      setDraft(saved);
+      await onSave(saved);
       onShowToast?.(
         `Reajuste (${draft.readjustmentIndex} +${pct}%) confirmado e salvo no contrato ${updatedContract.contractNumber}!`
       );
@@ -2435,7 +2442,7 @@ export function ContractEditModal({
     if (!applyContractValidation()) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(draftWithRecipientEmails());
     } finally {
       setSaving(false);
     }
@@ -3107,7 +3114,7 @@ export function ContractEditModal({
                   </div>
                   <div>
                     <label className={lblCls}>Destinatários da fatura (e-mails separados por vírgula)</label>
-                    <textarea rows={4} value={recipientEmailsText} onChange={(e) => { setRecipientEmailsText(e.target.value); setDraft({ ...draft, billingRecipientEmails: e.target.value.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) }); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
+                    <textarea rows={4} value={recipientEmailsText} onChange={(e) => { const text = e.target.value; setRecipientEmailsText(text); setDraft((prev) => ({ ...prev, billingRecipientEmails: parseBillingRecipientEmails(text) })); }} placeholder="financeiro@cliente.com.br, contas.pagar@cliente.com.br" className={`${inpCls} font-mono`} />
                   </div>
                 </div>
               </div>
@@ -3187,7 +3194,7 @@ export function ContractEditModal({
                     onClick={async () => {
                       setBillingIssuing(true);
                       try {
-                        await onSave(draft);
+                        await onSave(draftWithRecipientEmails());
                         await onGenerateRemessaNfe(draft.id);
                       } finally {
                         setBillingIssuing(false);

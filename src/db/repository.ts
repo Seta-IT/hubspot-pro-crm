@@ -12,6 +12,7 @@ import {
 
 import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
+import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -4615,6 +4616,9 @@ export class CrmRepository {
         patch.contractMonths !== undefined ? Number(patch.contractMonths) : current.contractMonths,
       updatedAt: new Date().toISOString(),
     };
+    if (Object.prototype.hasOwnProperty.call(patch, 'billingRecipientEmails')) {
+      updated.billingRecipientEmails = parseBillingRecipientEmails(patch.billingRecipientEmails);
+    }
     appendContractVersionOnMutation(current, updated, undefined, savedBy);
     erp.rentalContracts[idx] = updated;
     if (patch.generateNextInvoiceOnSave === true) {
@@ -5297,24 +5301,28 @@ export class CrmRepository {
     const recipients: Array<{ contractNumber: string; companyName: string; email: string }> = [];
 
     for (const ctr of targetContracts) {
+      const savedEmails = parseBillingRecipientEmails(ctr.billingRecipientEmails);
       const matchedContact = ctr.contactId ? this.getContactById(ctr.contactId) : undefined;
-      const email =
-        ctr.lastEmailRecipient ||
-        matchedContact?.email ||
-        `financeiro@${ctr.companyName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14)}.com.br`;
+      const fallback = parseBillingRecipientEmails(
+        ctr.lastEmailRecipient || matchedContact?.email || ''
+      );
+      const emails = savedEmails.length > 0 ? savedEmails : fallback;
+      if (emails.length === 0) continue;
 
       ctr.lastEmailSentAt = nowIso;
-      ctr.lastEmailRecipient = email;
-      recipients.push({
-        contractNumber: ctr.contractNumber,
-        companyName: ctr.companyName,
-        email,
-      });
+      ctr.lastEmailRecipient = emails.join(', ');
+      for (const email of emails) {
+        recipients.push({
+          contractNumber: ctr.contractNumber,
+          companyName: ctr.companyName,
+          email,
+        });
+      }
 
       if (ctr.companyId || ctr.contactId || ctr.dealId) {
         this.createTimelineEvent({
           type: 'EMAIL',
-          title: `Disparo em massa: Fatura & Demonstrativo de Locação (${ctr.contractNumber}) -> ${email}`,
+          title: `Disparo em massa: Fatura & Demonstrativo de Locação (${ctr.contractNumber}) -> ${emails.join(', ')}`,
           body:
             input.customMessage ||
             `Enviado demonstrativo de equipamentos locados (${ctr.equipments.length} itens S/N), Fatura de Locação (0% ISS — SV 31 STF) e chave PIX/Boleto.`,
@@ -5778,9 +5786,7 @@ export class CrmRepository {
       billingRecurrence: input.billingRecurrence || 'MENSAL',
       paymentMethod: input.paymentMethod || 'Boleto Inter',
       emailAutomationMode: input.emailAutomationMode || 'Enviar lembrete de pagamento e boleto',
-      billingRecipientEmails: Array.isArray(input.billingRecipientEmails)
-        ? input.billingRecipientEmails
-        : [],
+      billingRecipientEmails: parseBillingRecipientEmails(input.billingRecipientEmails),
       autoGenerateInvoiceDaysBeforeDue:
         input.autoGenerateInvoiceDaysBeforeDue !== undefined
           ? Number(input.autoGenerateInvoiceDaysBeforeDue)

@@ -6587,6 +6587,7 @@ export default function ErpGestaoClickTab({
       )}
       {editingContract && (
         <ContractEditModal
+          key={editingContract.id}
           contract={editingContract}
           invoices={invoices}
           initialTab={editingContractTab}
