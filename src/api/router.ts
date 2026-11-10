@@ -3777,8 +3777,8 @@ export class CrmApiRouter {
       const isCronAuthorized =
         isHttpRequest &&
         query._cronAuthorized === "1" &&
-        cleanPath === "/api/erp/daily-sync" &&
-        method === "GET";
+        method === "GET" &&
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup");
       const requestSessionToken =
         query._sessionToken;
 

@@ -295,6 +295,62 @@ describe('Contencao: Vercel Cron (CRON_SECRET) preservado', () => {
   });
 });
 
+describe('Contencao: Vercel Cron GET /api/crm/proposal-followup (CRON_SECRET)', () => {
+  it('sem segredo => 401 generico; segredo certo => passa; caminhos parecidos e query nao liberam', async () => {
+    const prev = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = 'cron-secret-de-teste-com-32-caracteres-abc';
+    const secret = process.env.CRON_SECRET;
+    const origin = 'https://sti-hub.vercel.app';
+    try {
+      const none = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`));
+      assert.equal(none.status, 401);
+      const noneBody = await none.json();
+      assert.equal(noneBody.error, 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.');
+      assert.equal(JSON.stringify(noneBody).includes('CRON_SECRET'), false);
+
+      const bad = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: 'Bearer errado' } }));
+      assert.equal(bad.status, 401);
+
+      const ok = middleware(new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(ok.headers.get('x-stihub-auth-guard'), 'cron-secret-allowed');
+
+      const suffix = middleware(new NextRequest(`${origin}/api/crm/proposal-followup/x`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(suffix.status, 401);
+      assert.notEqual(suffix.headers.get('x-stihub-auth-guard'), 'cron-secret-allowed');
+
+      const prefix = middleware(new NextRequest(`${origin}/api/crm/proposal-followup-extra`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(prefix.status, 401);
+
+      const queryUnlock = middleware(new NextRequest(`${origin}/api/crm/proposal-followup/x?_cronAuthorized=1`, { headers: { authorization: `Bearer ${secret}` } }));
+      assert.equal(queryUnlock.status, 401);
+
+      const forgedQuery = await forwardToCrmRouter(new NextRequest(`${origin}/api/crm/proposal-followup?_cronAuthorized=1`));
+      assert.equal(forgedQuery.status, 401);
+
+      const viaBridge = await forwardToCrmRouter(
+        new NextRequest(`${origin}/api/crm/proposal-followup`, { headers: { authorization: `Bearer ${secret}` } })
+      );
+      assert.notEqual(viaBridge.status, 401);
+
+      const suffixBridge = await forwardToCrmRouter(
+        new NextRequest(`${origin}/api/crm/proposal-followup/x`, { headers: { authorization: `Bearer ${secret}` } })
+      );
+      assert.equal(suffixBridge.status, 401);
+
+      const router = new CrmApiRouter(createInMemoryRepository());
+      const r401 = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP } });
+      assert.equal(r401.status, 401);
+      const rOk = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP, _cronAuthorized: '1' } });
+      assert.notEqual(rOk.status, 401);
+      const rSuffix = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup/x', query: { ...HTTP, _cronAuthorized: '1' } });
+      assert.equal(rSuffix.status, 401);
+    } finally {
+      if (prev === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = prev;
+    }
+  });
+});
+
 describe('Contencao: fluxo do Marcéllo apos a rotacao (convite -> senha -> QR -> login em instancia fria)', () => {
   it('convite define senha propria, pareia QR e o login funciona em outra instancia via selo IAM', async () => {
     const { computeRfc6238Totp } = await import('../src/app/lib/auth');
