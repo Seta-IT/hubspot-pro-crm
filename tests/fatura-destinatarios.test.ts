@@ -235,3 +235,26 @@ describe('Modal de contrato aplica o texto dos destinatários ao salvar', () => 
     assert.doesNotMatch(block, /[\u{1F300}-\u{1FAFF}]/u);
   });
 });
+
+describe('handleSaveEditedContract não trata resposta não-ok como salvo', () => {
+  it('POST/PATCH com erro mostra a mensagem do servidor e não atualiza o estado local', () => {
+    const tab = src('src/app/components/ErpGestaoClickTab.tsx');
+    const start = tab.indexOf('const handleSaveEditedContract =');
+    const end = tab.indexOf('const handleDeleteContract =', start);
+    assert.ok(start > 0 && end > start);
+    const block = tab.slice(start, end);
+    assert.match(block, /if \(!res\.ok\)/);
+    assert.match(block, /json\?\.error/);
+    assert.match(block, /Não foi possível salvar o contrato/);
+    assert.match(block, /return false/);
+    const failAt = block.indexOf('if (!res.ok)');
+    const upsertAt = block.indexOf('recordUpsertedContract');
+    const successAt = block.indexOf('salvo com sucesso');
+    const refreshAt = block.indexOf('onRefresh()');
+    assert.ok(failAt >= 0 && failAt < upsertAt, 'recordUpsertedContract só depois do teste de erro');
+    assert.ok(failAt < successAt, 'toast de sucesso só depois do teste de erro');
+    assert.ok(failAt < refreshAt, 'onRefresh só depois do teste de erro');
+    assert.doesNotMatch(block, /res\.ok \? \(await res\.json\(\)\)\?\.data \|\| updated : updated/);
+    assert.doesNotMatch(block, /[\u{1F300}-\u{1FAFF}]/u);
+  });
+});

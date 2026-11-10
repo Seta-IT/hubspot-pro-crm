@@ -903,8 +903,8 @@ export default function ErpGestaoClickTab({
           status: 'ATIVO',
           updatedAt: new Date().toISOString(),
         };
-        await handleSaveEditedContract(updated);
-        onShowToast(`Vigência do contrato ${ctr.contractNumber} renovada por +${extraMonths} meses (até ${nextEnd})!`);
+        const saved = await handleSaveEditedContract(updated);
+        if (saved) onShowToast(`Vigência do contrato ${ctr.contractNumber} renovada por +${extraMonths} meses (até ${nextEnd})!`);
       }
     } finally {
       setBusyId(null);
@@ -968,7 +968,8 @@ export default function ErpGestaoClickTab({
           ],
           updatedAt: new Date().toISOString(),
         };
-        await handleSaveEditedContract(updated);
+        const saved = await handleSaveEditedContract(updated);
+        if (!saved) return;
         setReadjustModal(null);
         onShowToast(
           `Reajuste anual (${index} +${pctNum.toFixed(2)}%) aplicado ao contrato ${contract.contractNumber}!`
@@ -996,7 +997,8 @@ export default function ErpGestaoClickTab({
       equipments: nextEquipments,
       updatedAt: new Date().toISOString(),
     };
-    await handleSaveEditedContract(updated);
+    const saved = await handleSaveEditedContract(updated);
+    if (!saved) return;
     setRmaModal(null);
     onShowToast(
       `Patrimônio / S/N atualizado para ${newSerialNumber.trim()} (${newStatus}) no contrato ${contract.contractNumber}!`
@@ -1913,21 +1915,34 @@ export default function ErpGestaoClickTab({
     await onRefresh();
   };
 
-  const handleSaveEditedContract = async (updated: ErpRentalContract) => {
+  const handleSaveEditedContract = async (updated: ErpRentalContract): Promise<boolean> => {
     const isNew = !rentalContracts.some((c) => c.id === updated.id);
-    const res = await fetch(
-      isNew ? '/api/erp/rental-contracts' : `/api/erp/rental-contracts/${encodeURIComponent(updated.id)}`,
-      {
-        method: isNew ? 'POST' : 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      }
-    );
-    const saved: ErpRentalContract = res.ok ? (await res.json())?.data || updated : updated;
+    let res: Response;
+    try {
+      res = await fetch(
+        isNew ? '/api/erp/rental-contracts' : `/api/erp/rental-contracts/${encodeURIComponent(updated.id)}`,
+        {
+          method: isNew ? 'POST' : 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }
+      );
+    } catch {
+      onShowToast('Não foi possível salvar o contrato. Tente de novo.');
+      return false;
+    }
+    const json = (await res.json().catch(() => null)) as { data?: ErpRentalContract; error?: string } | null;
+    if (!res.ok) {
+      const serverError = typeof json?.error === 'string' ? json.error.trim() : '';
+      onShowToast(serverError || 'Não foi possível salvar o contrato. Tente de novo.');
+      return false;
+    }
+    const saved: ErpRentalContract = json?.data || updated;
     recordUpsertedContract(saved);
     setEditingContract(null);
     onShowToast(`Contrato ${saved.contractNumber} salvo com sucesso!`);
     await onRefresh();
+    return true;
   };
 
   const handleDeleteContract = async (ctr: ErpRentalContract) => {
@@ -3302,7 +3317,7 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md p-4 w-80 space-y-2 text-xs shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="font-semibold text-slate-900">Alterar situação — Contrato {contractStatusPickerFor.contractNumber}</div>
               {(["ATIVO", "FATURAMENTO", "EM_IMPLANTACAO", "RENOVACAO_PROXIMA", "SUSPENSO", "ENCERRADO"] as const).map((st) => (
-                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300 font-bold" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
+                <button key={st} type="button" onClick={async () => { const c = contractStatusPickerFor; setContractStatusPickerFor(null); const saved = await handleSaveEditedContract({ ...c, status: st, updatedAt: new Date().toISOString() } as ErpRentalContract); if (saved) onShowToast(`Situação do contrato ${c.contractNumber} alterada para ${getContractStatusBadgeMeta(st).label}.`); }} className={`block w-full text-left px-3 py-1.5 rounded border cursor-pointer ${contractStatusPickerFor.status === st ? "bg-blue-50 border-blue-300 font-bold" : "border-slate-200 hover:bg-slate-50"}`}>• {getContractStatusBadgeMeta(st).label}</button>
               ))}
             </div>
           </div>
@@ -3316,7 +3331,7 @@ export default function ErpGestaoClickTab({
               {contractReturnFor.equipments.map((e) => (
                 <div key={e.id} className="flex items-center justify-between gap-2 border border-slate-200 rounded px-2 py-1">
                   <span>{e.description} (S/N {e.serialNumber}) — {e.assetStatus || "ALOCADO"}</span>
-                  <button type="button" disabled={e.assetStatus === "DEVOLVIDO"} onClick={async () => { const c = contractReturnFor; const updated = { ...c, equipments: c.equipments.map((x) => (x.id === e.id ? { ...x, assetStatus: "DEVOLVIDO" as const } : x)), updatedAt: new Date().toISOString() } as ErpRentalContract; setContractReturnFor(updated); await handleSaveEditedContract(updated); onShowToast(`Equipamento S/N ${e.serialNumber} devolvido (contrato ${c.contractNumber}).`); }} className="px-2 py-1 rounded font-bold disabled:opacity-40 cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Devolver</button>
+                  <button type="button" disabled={e.assetStatus === "DEVOLVIDO"} onClick={async () => { const c = contractReturnFor; const updated = { ...c, equipments: c.equipments.map((x) => (x.id === e.id ? { ...x, assetStatus: "DEVOLVIDO" as const } : x)), updatedAt: new Date().toISOString() } as ErpRentalContract; setContractReturnFor(updated); const saved = await handleSaveEditedContract(updated); if (saved) onShowToast(`Equipamento S/N ${e.serialNumber} devolvido (contrato ${c.contractNumber}).`); }} className="px-2 py-1 rounded font-bold disabled:opacity-40 cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Devolver</button>
                 </div>
               ))}
               <button type="button" onClick={() => setContractReturnFor(null)} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer">Fechar</button>
@@ -6593,7 +6608,7 @@ export default function ErpGestaoClickTab({
           initialTab={editingContractTab}
           readOnly={editingContractReadOnly}
           onClose={() => setEditingContract(null)}
-          onSave={handleSaveEditedContract}
+          onSave={async (updated) => { await handleSaveEditedContract(updated); }}
           onDelete={handleDeleteContract}
           onGenerateInvoice={handleGenerateContractInvoice}
           onGenerateRemessaNfe={handleGenerateRemessaNfe}
