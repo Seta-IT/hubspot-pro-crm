@@ -246,6 +246,16 @@ import {
 } from './email-template-routes';
 import { handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
+import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
+import {
+  getFollowupStatus,
+  pauseFollowup,
+  processDueFollowups,
+  resumeFollowup,
+  stopFollowupForProposal,
+} from '../modules/deals/proposal-followup-service';
+import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
+
 import type { FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
@@ -3044,7 +3054,7 @@ export class CrmApiRouter {
     const found = this.findProposalExact(rec.proposalId);
     if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
     this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo short link (versao ${v.claims.ver})`, undefined, v.claims.jti);
-
+    try { stopFollowupForProposal(this.repo, found, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
     return {
       status: 200,
       body: { kind: 'proposal', data: toPublicProposalDto(found), proposalId: found.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -3261,6 +3271,7 @@ export class CrmApiRouter {
     const found = this.findProposalExact(pathId);
     if (!found || Math.max(1, Number(found.version || 1)) !== v.claims.ver) return proposalNotFoundResponse();
     this.proposalLinkAudit('PROPOSAL_PUBLIC_VIEW', 'SUCCESS', ip, found.id, `visualizacao pelo link (versao ${v.claims.ver})`, undefined, v.claims.jti);
+    try { stopFollowupForProposal(this.repo, found, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
     return {
       status: 200,
       body: { data: toPublicProposalDto(found), issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -3493,6 +3504,7 @@ export class CrmApiRouter {
       trusted ? { name: 'Sistema STI-hub (interno)', role: 'SYSTEM', email: 'sistema@sti-hub' } : undefined,
       jti
     );
+    try { stopFollowupForProposal(this.repo, res.proposal, 'PROPOSAL_ACCEPT'); } catch { /* parada nunca altera o aceite */ }
     if (trusted) return { status: 200, body: { data: res } };
     return {
       status: 200,
@@ -4443,7 +4455,44 @@ export class CrmApiRouter {
         }
       }
 
-      const dealIdMatch = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
+      if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
+        const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+        if (!ctx.trustedInternal && !cronOk) {
+          return { status: query._sessionToken ? 403 : 401, body: { error: 'A execução da sequência de follow-up exige o cron (CRON_SECRET) ou contexto interno.', code: 'FOLLOWUP_CRON_FORBIDDEN' } };
+        }
+        const result = await processDueFollowups(
+          this.repo,
+          createOutlookFollowupSendDeps({ repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter }, String(query._origin || ''))
+        );
+        return { status: 200, body: { data: result } };
+      }
+
+      const followupMatch = cleanPath.match(/^\/api\/deals\/([^/]+)\/proposal-followup$/);
+      if (followupMatch) {
+        const dealId = decodeURIComponent(followupMatch[1]);
+        const deal = this.repo.getDealById(dealId);
+        if (!deal) return { status: 404, body: { error: 'Negócio não encontrado.' } };
+        if (method === 'GET') {
+          return { status: 200, body: { data: getFollowupStatus(this.repo, dealId) } };
+        }
+        if (method === 'POST') {
+          const action = String((body as { action?: string })?.action || '').toLowerCase();
+          if (action === 'pause') {
+            const enr = pauseFollowup(this.repo, dealId);
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr } };
+          }
+          if (action === 'resume') {
+            if (!isProposalFollowupEnabled()) {
+              return { status: 409, body: { error: 'A sequência de follow-up está desligada (FOLLOWUP_SEQUENCE_ENABLED).', code: 'FOLLOWUP_DISABLED' } };
+            }
+            const enr = resumeFollowup(this.repo, dealId);
+            return { status: 200, body: { data: getFollowupStatus(this.repo, dealId), enrollment: enr } };
+          }
+          return { status: 400, body: { error: 'Informe action: "pause" ou "resume".', code: 'FOLLOWUP_ACTION_INVALID' } };
+        }
+      }
+
+            const dealIdMatch = cleanPath.match(/^\/api\/deals\/([^/]+)$/);
       if (dealIdMatch) {
         const id = dealIdMatch[1];
         if (method === 'GET') {
@@ -4473,7 +4522,7 @@ export class CrmApiRouter {
             );
           return {
             status: 200,
-            body: { data: { ...deal, contact, company, timeline, proposals, rentalContracts } },
+            body: { data: { ...deal, contact, company, timeline, proposals, rentalContracts, proposalFollowup: getFollowupStatus(this.repo, id) } },
           };
         }
 

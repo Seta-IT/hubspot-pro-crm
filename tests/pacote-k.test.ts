@@ -200,15 +200,22 @@ describe('Pacote K (D-I2): generateNextInvoiceOnSave exige a alcada fiscal de /g
     assert.equal(invCount(repo), n0 + 1);
   });
 
-  it('cron: a sincronizacao diaria (unico cron do vercel.json) nao gera fatura/NF', async () => {
+  it('cron: a sincronizacao diaria e o follow-up da proposta (allowlist do vercel.json) nao geram fatura/NF', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const n0 = invCount(repo);
     const cron = await router.dispatch({ method: 'GET', path: '/api/erp/daily-sync', query: { ...HTTP, _cronAuthorized: '1' } });
     assert.equal(cron.status, 200);
     assert.equal(invCount(repo), n0);
+    const followup = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP, _cronAuthorized: '1' } });
+    assert.ok([200, 401, 403].includes(followup.status), `follow-up cron status inesperado: ${followup.status}`);
+    assert.equal(invCount(repo), n0, 'follow-up da proposta nao gera fatura/NF');
     const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8')) as { crons?: Array<{ path: string }> };
-    assert.deepEqual((vercel.crons || []).map((c) => c.path), ['/api/erp/daily-sync'], 'novo cron precisa passar pela alcada fiscal/flag');
+    assert.deepEqual(
+      (vercel.crons || []).map((c) => c.path).sort(),
+      ['/api/crm/proposal-followup', '/api/erp/daily-sync'].sort(),
+      'novo cron alem desta allowlist precisa passar pela alcada fiscal/flag'
+    );
   });
 });
 

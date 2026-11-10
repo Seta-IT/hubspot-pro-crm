@@ -7,6 +7,10 @@
     {
       "path": "/api/erp/daily-sync",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/crm/proposal-followup",
+      "schedule": "0 11-21 * * 1-5"
     }
   ]
 }

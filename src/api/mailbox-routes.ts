@@ -1,3 +1,4 @@
+import { stopFollowupForDeal } from '../modules/deals/proposal-followup-service';
 // ============================================================================
 // STI-hub — E-mail individual do CRM pela caixa Outlook 365 do proprio usuario (04/11/2026).
 //   GET    /api/mailbox/status                 -> recurso ligado?, minhas caixas, minha assinatura
@@ -332,8 +333,12 @@ export async function syncMailboxes(deps: MailboxDeps, accounts: MailboxAccount[
           createdAt: new Date().toISOString(),
         };
         if (await deps.store.insertMessage(rec)) {
-          if (folder === 'inbox') out.received++;
-          else out.sent++;
+          if (folder === 'inbox') {
+            out.received++;
+            if (dealId) {
+              try { stopFollowupForDeal(deps.repo, dealId, 'EMAIL_REPLY'); } catch { /* parada nunca derruba o sync */ }
+            }
+          } else out.sent++;
         }
       }
       await deps.store.updateAccount(acc.id, { [sinceField]: maxAt } as Partial<MailboxAccount>);

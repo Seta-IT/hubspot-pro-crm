@@ -2178,6 +2178,56 @@ export interface StiHubServiceAccountRecord {
   deactivatedBy?: string | null;
 }
 
+
+export type FollowupEnrollmentStatus = 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'COMPLETED';
+export type FollowupStopReason =
+  | 'EMAIL_REPLY'
+  | 'EMAIL_CLICK'
+  | 'PROPOSAL_VIEW'
+  | 'PROPOSAL_ACCEPT'
+  | 'STAGE_CHANGED'
+  | 'DEAL_WON'
+  | 'DEAL_LOST'
+  | 'MANUAL_PAUSE'
+  | 'UNSUBSCRIBED'
+  | 'NO_VALID_EMAIL'
+  | 'COMPLETED';
+
+export interface FollowupSentStep {
+  stepIndex: number;
+  offsetDays: number;
+  templateId: string;
+  sentAt: string;
+  to: string;
+  subject: string;
+  mailboxId?: string;
+  trackingId?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+}
+
+/** Inscrição da sequência automática de follow-up da etapa Proposta Enviada. */
+export interface ProposalFollowupEnrollment {
+  id: string;
+  dealId: string;
+  contactId: string | null;
+  companyId: string | null;
+  pipelineId: string;
+  triggerStageId: string;
+  enteredAt: string;
+  status: FollowupEnrollmentStatus;
+  sentCount: number;
+  nextStepIndex: number;
+  nextSendAt: string | null;
+  stopReason: FollowupStopReason | null;
+  stopDetail: string | null;
+  stoppedAt: string | null;
+  lastError: string | null;
+  sentSteps: FollowupSentStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmDatabaseState {
   contacts: Contact[];
   companies: Company[];
@@ -2194,6 +2244,7 @@ export interface CrmDatabaseState {
   serviceTickets: ServiceTicket[];
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
+  proposalFollowupEnrollments?: ProposalFollowupEnrollment[];
   snippets?: CrmSnippet[];
   marketingEmails?: MarketingEmailBroadcast[];
   marketingCampaigns?: MarketingCampaign[];

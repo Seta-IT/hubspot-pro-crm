@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { FollowupStatusView } from '../../modules/deals/proposal-followup-service';
 import {
   Building2,
   CalendarDays,
@@ -270,6 +271,40 @@ export default function DealRecordDrawer({
   const [emailOpen, setEmailOpen] = useState(false);
   const [showAllAbout, setShowAllAbout] = useState(false);
   const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
+
+  const [followup, setFollowup] = useState<FollowupStatusView | null>(null);
+  const [followupBusy, setFollowupBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/deals/${deal.id}/proposal-followup`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setFollowup(json.data || null);
+      } catch {
+        if (!cancelled) setFollowup(null);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [deal.id, deal.stageId, deal.status]);
+  const runFollowupAction = async (action: 'pause' | 'resume') => {
+    setFollowupBusy(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/proposal-followup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setFollowup(json.data || null);
+      else onShowToast?.(json.error || 'Não foi possível atualizar a sequência.');
+    } finally {
+      setFollowupBusy(false);
+    }
+  };
+
 
 
   const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
@@ -672,6 +707,30 @@ export default function DealRecordDrawer({
                 </select>
               </div>
             </div>
+
+            {followup && (followup.enrollment || followup.canPause || followup.canResume || followup.statusLabel === 'Ativa') && (
+              <section data-testid="proposal-followup-status" className="rounded-lg border border-slate-200 p-3 space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Sequência de follow-up</div>
+                <div className="text-xs font-semibold text-slate-900">{followup.statusLabel}</div>
+                {followup.sentLabel && <div className="text-[11px] text-slate-600">{followup.sentLabel}</div>}
+                {followup.statusLabel === 'Ativa' && followup.nextSendLabel && (
+                  <div className="text-[11px] text-slate-600">Próximo envio: {followup.nextSendLabel}</div>
+                )}
+                {followup.stopLabel && (
+                  <div className="text-[11px] text-slate-600">Motivo: {followup.stopLabel}</div>
+                )}
+                {(followup.canPause || followup.canResume) && (
+                  <button
+                    type="button"
+                    disabled={followupBusy}
+                    onClick={() => runFollowupAction(followup.canPause ? 'pause' : 'resume')}
+                    className="mt-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-slate-800 hover:border-accent cursor-pointer disabled:opacity-50"
+                  >
+                    {followupBusy ? 'Salvando...' : followup.canPause ? 'Pausar' : 'Retomar'}
+                  </button>
+                )}
+              </section>
+            )}
 
             <div className="flex items-start justify-between gap-1 pt-1">
               {actionButtons.map((btn) => (

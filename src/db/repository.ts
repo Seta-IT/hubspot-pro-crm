@@ -24,6 +24,7 @@ import {
   CrmDatabaseState,
   DataHealthIssue,
   Deal,
+  ProposalFollowupEnrollment,
   EmailSequence,
   FormSubmission,
   Pipeline,
@@ -894,6 +895,7 @@ export class CrmRepository {
         workflowExecutions: [],
         sequences: [],
         sequenceEnrollments: [],
+        proposalFollowupEnrollments: [],
         dataHealthIssues: [],
         webForms: [],
         formSubmissions: [],
@@ -1019,6 +1021,9 @@ export class CrmRepository {
         Array.isArray(parsed.tasks) && parsed.tasks.length > 0
           ? parsed.tasks
           : seedFallback.tasks || [],
+      proposalFollowupEnrollments: Array.isArray(parsed.proposalFollowupEnrollments)
+        ? parsed.proposalFollowupEnrollments
+        : [],
       emailTemplates:
         Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length > 0
           ? parsed.emailTemplates
@@ -2387,6 +2392,13 @@ export class CrmRepository {
       });
     }
 
+    try {
+      const { syncProposalFollowupOnDealChange } = require('../modules/deals/proposal-followup-service') as typeof import('../modules/deals/proposal-followup-service');
+      syncProposalFollowupOnDealChange(this, existing, updated);
+    } catch {
+      // a sequência nunca impede a gravação do negócio
+    }
+
     this.save();
     return updated;
   }
@@ -2721,6 +2733,52 @@ export class CrmRepository {
     this.save();
     return enrollment;
   }
+
+  listProposalFollowupEnrollments(): ProposalFollowupEnrollment[] {
+    if (!Array.isArray(this.state.proposalFollowupEnrollments)) this.state.proposalFollowupEnrollments = [];
+    return this.state.proposalFollowupEnrollments;
+  }
+
+  getLatestProposalFollowup(dealId: string) {
+    const list = this.listProposalFollowupEnrollments().filter((e) => e.dealId === dealId);
+    return list.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] || undefined;
+  }
+
+  getActiveProposalFollowup(dealId: string) {
+    return this.listProposalFollowupEnrollments().find((e) => e.dealId === dealId && (e.status === 'ACTIVE' || e.status === 'PAUSED'));
+  }
+
+  saveProposalFollowupEnrollment(enrollment: ProposalFollowupEnrollment) {
+    if (!Array.isArray(this.state.proposalFollowupEnrollments)) this.state.proposalFollowupEnrollments = [];
+    const idx = this.state.proposalFollowupEnrollments.findIndex((e) => e.id === enrollment.id);
+    if (idx === -1) this.state.proposalFollowupEnrollments.unshift(enrollment);
+    else this.state.proposalFollowupEnrollments[idx] = enrollment;
+    this.save();
+    return enrollment;
+  }
+
+  incrementEmailTemplateUsage(id: string): void {
+    this.ensureTasksAndTemplates();
+    const tpl = (this.state.emailTemplates || []).find((t) => t.id === id);
+    if (!tpl) return;
+    tpl.usageCount = (tpl.usageCount || 0) + 1;
+    this.save();
+  }
+
+  resolveDealOwnerUser(deal: { ownerId?: string | null; ownerName?: string | null }): { email: string; name: string } | null {
+    const users = this.ensureRbacState().users || [];
+    if (deal.ownerId) {
+      const byId = users.find((u) => u.hubspotOwnerId === deal.ownerId || u.id === deal.ownerId);
+      if (byId?.email) return { email: byId.email, name: byId.name };
+    }
+    if (deal.ownerName) {
+      const n = deal.ownerName.toLowerCase();
+      const byName = users.find((u) => u.name.toLowerCase() === n || u.name.toLowerCase().includes(n) || n.includes(u.name.toLowerCase()));
+      if (byName?.email) return { email: byName.email, name: byName.name };
+    }
+    return null;
+  }
+
 
   // ==========================================================================
   // DATA HEALTH ISSUES
