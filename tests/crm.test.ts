@@ -479,9 +479,10 @@ describe('7. Cobertura Completa de Endpoints REST (/api/companies, /api/deals, /
     // 1. Pipelines Kanban
     const pipeRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/pipelines' });
     assert.equal(pipeRes.status, 200);
-    const pipes = (pipeRes.body as { data: Array<{ stages: unknown[] }> }).data;
+    const pipes = (pipeRes.body as { data: Array<{ id?: string; stages: unknown[] }> }).data;
     assert.ok(pipes.length >= 3);
-    assert.equal(pipes[0].stages.length, 7);
+    const salesPipe = pipes.find((p) => p.id === 'pipe-enterprise-b2b') || pipes[0];
+    assert.equal(salesPipe.stages.length, 9);
 
     // 2. Criar Empresa
     const compRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,

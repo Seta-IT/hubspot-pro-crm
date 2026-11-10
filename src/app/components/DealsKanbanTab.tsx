@@ -1404,7 +1404,7 @@ export default function DealsKanbanTab({
             className="text-left bg-emerald-50/60 hover:bg-emerald-100/60 hover:border-emerald-500 rounded-xl p-3 border border-emerald-200/70 transition cursor-pointer"
           >
             <span className="text-[11px] font-semibold uppercase text-emerald-700 block">
-              Fechado Ganho (Won)
+              Ganho
             </span>
             <div className="text-base font-semibold text-emerald-700 mt-0.5">
               {formatBRL(pipeWonValue)}

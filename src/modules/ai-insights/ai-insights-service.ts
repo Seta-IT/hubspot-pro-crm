@@ -466,7 +466,7 @@ export class AiInsightsService {
           reason: repliedEnrollment
             ? `Respondeu positivamente à cadência ("${repliedEnrollment.replySnippet?.slice(0, 65)}...") e possui Score ${contact.leadScore}/100, mas ainda não tem Deal criado.`
             : `Decisor (${contact.jobTitle || 'C-Level'}) com Lead Score ${contact.leadScore}/100 sem oportunidade ativa no pipeline.`,
-          suggestedAction: 'Criar negócio automaticamente na etapa "Qualificação Executiva (SQL)" e agendar reunião.',
+          suggestedAction: 'Criar negócio automaticamente na etapa "Reunião Agendada" e agendar reunião.',
         });
       }
     }

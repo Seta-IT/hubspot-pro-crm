@@ -122,10 +122,10 @@ export default function OverviewAiCopilotTab({
   const weightedForecast = report?.revenueForecast.weightedPipelineValue ?? 1194550;
   const wonRevenue = report?.revenueForecast.closedWonValue ?? 420000;
   const stages = report?.funnelBottlenecks ?? [
-    { stageId: '1', stageName: 'Prospecção & Descoberta', totalValue: 115000, dealCount: 1 },
-    { stageId: '2', stageName: 'Qualificação Executiva (SQL)', totalValue: 280000, dealCount: 3 },
-    { stageId: '3', stageName: 'Demonstração & Diagnóstico', totalValue: 520000, dealCount: 4 },
-    { stageId: '4', stageName: 'Negociação & Fechamento', totalValue: 797600, dealCount: 5 },
+    { stageId: '1', stageName: 'Lead Gerado', totalValue: 115000, dealCount: 1 },
+    { stageId: '2', stageName: 'Reunião Agendada', totalValue: 280000, dealCount: 3 },
+    { stageId: '3', stageName: 'Aguardando Proposta', totalValue: 520000, dealCount: 4 },
+    { stageId: '4', stageName: 'Negociação', totalValue: 797600, dealCount: 5 },
   ];
 
   const crmMonthlyTrend = [

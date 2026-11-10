@@ -133,6 +133,7 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
+import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
@@ -853,6 +854,7 @@ export class CrmRepository {
         const parsed = JSON.parse(raw) as CrmDatabaseState;
         this.state = this.hydrateParsedState(parsed);
         this.lastLoadedMtimeMs = stat.mtimeMs;
+        const salesStagesMigrated = applySalesPipelineStageMigration(this.state).applied;
         const needsContactBackfill = (parsed.contacts || []).some(
           (c) => !c.ownerName || !c.buyingRole
         );
@@ -867,6 +869,7 @@ export class CrmRepository {
           !Array.isArray(parsed.snippets) ||
           parsed.snippets.length === 0;
         if (
+          salesStagesMigrated ||
           (parsed.pipelines?.length || 0) < this.state.pipelines.length ||
           (parsed.deals?.length || 0) < this.state.deals.length ||
           needsContactBackfill ||
@@ -999,7 +1002,7 @@ export class CrmRepository {
       };
     });
 
-    return {
+    const hydratedState: CrmDatabaseState = {
       ...seedFallback,
       ...parsed,
       contacts: hydratedContacts,
@@ -1129,6 +1132,7 @@ export class CrmRepository {
         };
       })(),
     };
+    return hydratedState;
   }
 
   syncFromDisk(): void {
@@ -1157,6 +1161,9 @@ export class CrmRepository {
         this.state = this.hydrateParsedState(parsed);
         this.persistPath = candidatePath;
         this.lastLoadedMtimeMs = stat.mtimeMs;
+        if (applySalesPipelineStageMigration(this.state).applied) {
+          this.save();
+        }
       }
     } catch {
       // Ignore transient disk read errors

@@ -14,6 +14,7 @@ import {
   SequenceExitRuleTrigger,
   SequenceStep,
 } from '../../db/types';
+import { SEQUENCE_REPLY_ADVANCE_STAGE } from '../deals/sales-pipeline-stages';
 
 export const OFFICIAL_10_CADENCE_STATES_CATALOG: Array<{
   state: CanonicalSequenceEnrollmentState;
@@ -1370,14 +1371,7 @@ export class SequenceService {
     ) {
       const linkedDeal = repo.getDealById(enrollment.dealId);
       if (linkedDeal && linkedDeal.status === 'OPEN') {
-        const proposalToNegotiationMap: Record<string, string> = {
-          'stage-proposal': 'stage-negotiation',
-          'stage-demo': 'stage-negotiation',
-          'stage-loc-simulacao': 'stage-loc-minuta',
-          'stage-loc-levantamento': 'stage-loc-minuta',
-          'stage-exp-proposta': 'stage-exp-aprovacao',
-        };
-        const targetNegotiationStage = proposalToNegotiationMap[linkedDeal.stageId];
+        const targetNegotiationStage = SEQUENCE_REPLY_ADVANCE_STAGE[linkedDeal.stageId];
         if (targetNegotiationStage) {
           const moved = repo.updateDeal(linkedDeal.id, {
             stageId: targetNegotiationStage,
@@ -1585,14 +1579,7 @@ export class SequenceService {
       if (enrollment.dealId) {
         const linkedDeal = repo.getDealById(enrollment.dealId);
         if (linkedDeal && linkedDeal.status === 'OPEN') {
-          const proposalToNegotiationMap: Record<string, string> = {
-            'stage-proposal': 'stage-negotiation',
-            'stage-demo': 'stage-negotiation',
-            'stage-loc-simulacao': 'stage-loc-minuta',
-            'stage-loc-levantamento': 'stage-loc-minuta',
-            'stage-exp-proposta': 'stage-exp-aprovacao',
-          };
-          const targetNegotiationStage = proposalToNegotiationMap[linkedDeal.stageId];
+          const targetNegotiationStage = SEQUENCE_REPLY_ADVANCE_STAGE[linkedDeal.stageId];
           if (targetNegotiationStage) {
             const moved = repo.updateDeal(linkedDeal.id, {
               stageId: targetNegotiationStage,

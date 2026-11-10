@@ -5,6 +5,7 @@
 import { CrmDatabaseState } from './types';
 import { createSeedErpState } from '../modules/erp/erp-seed';
 import { createSeedRbacState } from '../modules/erp/rbac-seed';
+import { buildEnterpriseSalesStages } from '../modules/deals/sales-pipeline-stages';
 
 function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -476,7 +477,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       nextBestAction: {
         actionType: 'PROPOSAL',
         title: 'Revisar escopo técnico da POC Enterprise',
-        reason: 'CTO engajado na etapa de Demonstração & Diagnóstico.',
+        reason: 'CTO engajado na etapa de Aguardando Proposta.',
         priority: 'HIGH',
         suggestedDueInDays: 2,
       },
@@ -558,7 +559,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       nextBestAction: {
         actionType: 'CALL',
         title: 'Ligar urgente para destravar minuta jurídica',
-        reason: 'Negócio de R$ 340.000 estagnado há 24 dias em Negociação & Jurídico.',
+        reason: 'Negócio de R$ 340.000 estagnado há 24 dias em Negociação.',
         priority: 'HIGH',
         suggestedDueInDays: 1,
       },
@@ -784,78 +785,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       currency: 'BRL',
       createdAt: daysAgoIso(90),
       updatedAt: daysAgoIso(1),
-      stages: [
-        {
-          id: 'stage-discovery',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Prospecção & Descoberta',
-          order: 1,
-          defaultProbability: 15,
-          dealRottingDays: 10,
-          isClosed: false,
-          isWon: false,
-        },
-        {
-          id: 'stage-sql',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Qualificação Executiva (SQL)',
-          order: 2,
-          defaultProbability: 30,
-          dealRottingDays: 12,
-          isClosed: false,
-          isWon: false,
-        },
-        {
-          id: 'stage-demo',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Demonstração & Diagnóstico',
-          order: 3,
-          defaultProbability: 50,
-          dealRottingDays: 14,
-          isClosed: false,
-          isWon: false,
-        },
-        {
-          id: 'stage-proposal',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Proposta Comercial Enviada',
-          order: 4,
-          defaultProbability: 70,
-          dealRottingDays: 10,
-          isClosed: false,
-          isWon: false,
-        },
-        {
-          id: 'stage-negotiation',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Negociação & Jurídico',
-          order: 5,
-          defaultProbability: 85,
-          dealRottingDays: 7,
-          isClosed: false,
-          isWon: false,
-        },
-        {
-          id: 'stage-won',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Fechado Ganho (Won)',
-          order: 6,
-          defaultProbability: 100,
-          dealRottingDays: 999,
-          isClosed: true,
-          isWon: true,
-        },
-        {
-          id: 'stage-lost',
-          pipelineId: 'pipe-enterprise-b2b',
-          name: 'Fechado Perdido (Lost)',
-          order: 7,
-          defaultProbability: 0,
-          dealRottingDays: 999,
-          isClosed: true,
-          isWon: false,
-        },
-      ],
+      stages: buildEnterpriseSalesStages(),
     },
     {
       id: 'pipeline-locacao-equipamentos',
@@ -1111,7 +1041,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       nextBestAction: {
         actionType: 'CALL',
         title: 'Escalar contato executivo com CFO (Negócio Estagnado há 24 dias)',
-        reason: 'Risco crítico de perda por inércia na etapa de Negociação & Jurídico.',
+        reason: 'Risco crítico de perda por inércia na etapa de Negociação.',
         priority: 'HIGH',
         suggestedDueInDays: 1,
       },
@@ -1513,7 +1443,7 @@ export function createInitialSeedState(): CrmDatabaseState {
     {
       id: 'evt-5',
       type: 'STAGE_CHANGE',
-      title: 'Negócio RD Station movido para Fechado Ganho (Won)',
+      title: 'Negócio RD Station movido para Ganho',
       body: 'Contrato anual assinado no valor de R$ 168.000.',
       metadata: { fromStage: 'stage-negotiation', toStage: 'stage-won', value: 168000 },
       contactId: 'cont-rafael',
@@ -1614,9 +1544,9 @@ export function createInitialSeedState(): CrmDatabaseState {
     },
     {
       id: 'wf-deal-proposal-followup',
-      name: 'Follow-up Automático de Proposta Comercial Enviada',
+      name: 'Follow-up Automático de Proposta Enviada',
       description:
-        'Quando um negócio entra em Proposta Comercial Enviada, cria tarefa de follow-up executivo e notifica o proprietário.',
+        'Quando um negócio entra em Proposta Enviada, cria tarefa de follow-up executivo e notifica o proprietário.',
       isActive: true,
       triggerType: 'DEAL_STAGE_CHANGED',
       triggerConfig: { targetStageId: 'stage-proposal' },
@@ -2070,7 +2000,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       assignedSellers: ['Marcelo Lopes Mira', 'Evelyn Ternero Seta Telecom'],
       name: 'Cadência de Destravamento de Propostas Comerciais',
       description:
-        'Acionada para negócios na etapa de Proposta Comercial sem interação há mais de 7 dias.',
+        'Acionada para negócios na etapa de Proposta Enviada sem interação há mais de 7 dias.',
       category: 'FOLLOW_UP',
       isActive: true,
       enrolledCount: 24,
@@ -2708,7 +2638,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
       id: "task-seed-1",
       title: "Ligar para Juliana Rocha (CFO Creditas) para destravar minuta jurídica",
       notes:
-        "Negócio de R$ 340.000 estagnado há 24 dias em Negociação & Jurídico. Validar cláusula de SLA e isenção de ISS (SV 31 STF).",
+        "Negócio de R$ 340.000 estagnado há 24 dias em Negociação. Validar cláusula de SLA e isenção de ISS (SV 31 STF).",
       type: "CALL",
       priority: "HIGH",
       status: "NOT_STARTED",
