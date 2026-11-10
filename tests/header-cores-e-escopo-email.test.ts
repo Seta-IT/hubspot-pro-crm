@@ -22,14 +22,14 @@ function contrastWhite(h: string) {
 }
 
 describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
-  it('CRM: degradê com base escura AA + ponta clara; Chamados verde; ERP azul', () => {
-    assert.match(css, /--sti-header-crm:\s*linear-gradient\(90deg, #9a3412/);
+  it('CRM: degradê baseado em #F47B3C; Chamados verde; ERP azul', () => {
+    assert.match(css, /--sti-header-crm:\s*linear-gradient\(90deg, #DC6A2E/i);
     assert.match(css, /--sti-header-service:\s*linear-gradient\(90deg, #065f46/);
     assert.match(css, /--sti-header-erp:\s*linear-gradient\(90deg, #1e3a6e/);
-    assert.ok(css.includes('#ea580c')); // ponta decorativa do degradê CRM
+    assert.match(css, /#F47B3C/i);
     assert.ok(css.includes('#047857')); // accent/botões Chamados
   });
-  for (const sys of ['crm', 'erp', 'service']) {
+  for (const sys of ['erp', 'service']) {
     it(`token --sti-header-${sys}: texto branco font-semibold com contraste >= 3:1`, () => {
       const m = css.match(new RegExp(`--sti-header-${sys}:\\s*([^;]+);`));
       assert.ok(m);
@@ -38,8 +38,20 @@ describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
       for (const h of hexes) assert.ok(contrastWhite(h) >= 3, `${sys} ${h} = ${contrastWhite(h).toFixed(2)}`);
     });
   }
-  it('accent por data-system: CRM laranja AA (#c2410c), Chamados verde (#047857), ERP azul', () => {
-    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#c2410c/);
+  it('token --sti-header-crm: #DC6A2E e #F47B3C; branco em #F47B3C fica ~2,71:1 (cor pedida)', () => {
+    const m = css.match(/--sti-header-crm:\s*([^;]+);/);
+    assert.ok(m);
+    const hexes = (m![1].match(/#[0-9a-f]{6}/gi) || []).map((h) => h.toUpperCase());
+    assert.ok(hexes.includes('#DC6A2E'));
+    assert.ok(hexes.includes('#F47B3C'));
+    assert.ok(contrastWhite('#DC6A2E') >= 3, `hover ${contrastWhite('#DC6A2E').toFixed(2)}`);
+    // Cor pedida pelo usuario (t207u). Texto branco no estilo HubSpot, mesmo abaixo de AA.
+    assert.ok(contrastWhite('#F47B3C') >= 2.6 && contrastWhite('#F47B3C') < 3);
+  });
+  it('accent por data-system: CRM #F47B3C, Chamados verde (#047857), ERP azul', () => {
+    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#F47B3C/i);
+    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent-hover:\s*#DC6A2E/i);
+    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent-soft:\s*#FEF1EA/i);
     assert.match(css, /\[data-system="service"\][\s\S]*?--sti-accent:\s*#047857/);
     assert.match(css, /\[data-system="erp"\][\s\S]*?--sti-accent:\s*#1e3a6e/);
     assert.match(tw, /DEFAULT: 'var\(--sti-accent\)'/);
@@ -59,10 +71,11 @@ describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
     assert.ok(!serviceDesk.includes('text-[#1e3a6e]'));
     assert.ok(!serviceDesk.includes('bg-[#0d2b4e] hover:bg-[#1e3a6e]'));
   });
-  it('botao accent CRM (#c2410c) e Chamados (#047857) com AA para texto branco', () => {
-    assert.ok(contrastWhite('#c2410c') >= 4.5);
+  it('botao accent: CRM #F47B3C com branco ~2,71:1 (cor pedida); Chamados AA', () => {
+    const crm = contrastWhite('#F47B3C');
+    assert.ok(crm >= 2.6 && crm < 3, `CRM ${crm.toFixed(2)}`);
     assert.ok(contrastWhite('#047857') >= 4.5);
-    assert.ok(contrastWhite('#ea580c') >= 3); // ponta do degradê: so texto grande/bold
+    assert.ok(contrastWhite('#DC6A2E') >= 3);
   });
 });
 

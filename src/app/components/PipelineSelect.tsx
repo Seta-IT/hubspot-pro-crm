@@ -68,7 +68,7 @@ export default function PipelineSelect({
         aria-controls={listId}
         aria-label={`Pipeline: ${selectedLabel}`}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-2 max-w-[min(100vw-2rem,360px)] px-3 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs font-semibold text-slate-800 hover:border-[color:var(--sti-accent,#ff7a59)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sti-accent,#ff7a59)]/40 cursor-pointer"
+        className="inline-flex items-center gap-2 max-w-[min(100vw-2rem,360px)] px-3 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs font-semibold text-slate-800 hover:border-[color:var(--sti-accent)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sti-accent)]/40 cursor-pointer"
       >
         <span className="truncate font-semibold">{selectedLabel || 'Pipeline'}</span>
         <span className="shrink-0 text-slate-500 font-semibold tabular-nums">{selectedCount}</span>
@@ -104,7 +104,7 @@ export default function PipelineSelect({
                 >
                   <span
                     className={`w-4 h-4 shrink-0 flex items-center justify-center ${
-                      isSelected ? 'text-[color:var(--sti-accent,#ff7a59)]' : 'text-transparent'
+                      isSelected ? 'text-[color:var(--sti-accent)]' : 'text-transparent'
                     }`}
                     aria-hidden
                   >

@@ -488,7 +488,7 @@ function GestaoClickCompanyModalForm({
               <button
                 type="button"
                 onClick={() => setIsReadOnly(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-xs cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 <span>Habilitar Edição</span>
@@ -1293,7 +1293,7 @@ function GestaoClickCompanyModalForm({
                 <button
                   type="button"
                   onClick={() => setIsReadOnly(false)}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                   <span>Editar Cadastro</span>

@@ -475,7 +475,7 @@ export function HubSpotCardEmailComposer({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
-              <FileText className="w-3 h-3 text-[#ff7a59]" />
+              <FileText className="w-3 h-3 text-accent" />
               Templates de E-mail HubSpot ({templates.length})
             </label>
             {canManageEmailTemplates && (
@@ -563,7 +563,7 @@ export function HubSpotCardEmailComposer({
               type="button"
               disabled={savingTpl}
               onClick={handleSaveCurrentAsTemplate}
-              className="px-3 py-1.5 rounded-lg bg-[#ff7a59] text-white font-semibold text-xs cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-accent text-white font-semibold text-xs cursor-pointer"
             >
               {savingTpl ? 'Salvando...' : 'Salvar Template'}
             </button>
@@ -714,9 +714,9 @@ export function HubSpotCardEmailComposer({
                 type="checkbox"
                 checked={createFollowUpTask}
                 onChange={(e) => setCreateFollowUpTask(e.target.checked)}
-                className="rounded border-slate-300 text-[#ff7a59] focus:ring-[#ff7a59]"
+                className="rounded border-slate-300 text-accent focus:ring-accent"
               />
-              <CalendarClock className="w-4 h-4 text-[#ff7a59]" />
+              <CalendarClock className="w-4 h-4 text-accent" />
               <span>Criar uma tarefa de follow-up se não houver resposta</span>
             </label>
 
@@ -800,7 +800,7 @@ export function HubSpotCardEmailComposer({
             <button
               type="submit"
               disabled={sending}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
               {sending
@@ -977,7 +977,7 @@ export function HubSpotRecordTasksSection({
         <button
           type="button"
           onClick={() => setShowCreateForm((v) => !v)}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           {showCreateForm ? 'Fechar' : 'Criar Tarefa'}

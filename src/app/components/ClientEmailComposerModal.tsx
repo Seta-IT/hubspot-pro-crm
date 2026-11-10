@@ -745,7 +745,7 @@ export default function ClientEmailComposerModal({
                   type="submit"
                   disabled={sending || !linkGate.ok}
                   title={linkGate.ok ? undefined : linkGate.error}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold shadow-sm cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded bg-accent hover:bg-accent-hover text-white font-semibold shadow-sm cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {sending ? 'Enviando E-mail...' : 'Enviar E-mail Agora'}

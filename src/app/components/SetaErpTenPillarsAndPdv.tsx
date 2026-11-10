@@ -91,7 +91,7 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
     section: 'ORCAMENTOS',
     subId: 'ORC_PRODUTOS',
     icon: FileText,
-    accent: 'border-l-[#ff7a59]',
+    accent: 'border-l-orange-500',
   },
   {
     num: 4,
@@ -756,7 +756,7 @@ export function SetaErpPdvPosView({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-2 rounded bg-[#ff7a59] text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
+                  className="px-3 py-2 rounded bg-accent text-white text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
                 >
                   <Printer className="w-3.5 h-3.5" /> Imprimir Cupom
                 </button>

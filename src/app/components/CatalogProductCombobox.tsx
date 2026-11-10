@@ -140,7 +140,7 @@ export function CatalogProductCombobox({
         }}
         className={`w-full px-2 py-1.5 rounded border text-xs font-semibold ${
           invalid ? 'border-rose-500' : 'border-slate-300'
-        } bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--sti-accent,#ff7a59)]/40`}
+        } bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--sti-accent)]/40`}
       />
       {showList && (
         <ul

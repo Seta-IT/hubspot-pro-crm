@@ -7,10 +7,10 @@
   --sti-accent: #1e3a6e;
   --sti-accent-hover: #162d57;
   --sti-accent-soft: #eef2f8;
-  /* Cabecalho por sistema (t139u/t140u/t141u): CRM laranja mais claro, Chamados verde, ERP azul.
-     Texto branco font-semibold: contraste >= 3:1 (texto grande/bold) em todas as paradas. */
+  /* Cabecalho por sistema: CRM #F47B3C, Chamados verde, ERP azul.
+     Texto branco font-semibold no cabecalho. CRM #F47B3C com branco ~2,71:1 (cor pedida). */
   --sti-header-erp: linear-gradient(90deg, #1e3a6e 0%, #2b4c86 55%, #3a5f9c 100%);
-  --sti-header-crm: linear-gradient(90deg, #9a3412 0%, #c2410c 55%, #ea580c 100%);
+  --sti-header-crm: linear-gradient(90deg, #DC6A2E 0%, #F47B3C 55%, #F47B3C 100%);
   --sti-header-service: linear-gradient(90deg, #065f46 0%, #047857 55%, #059669 100%);
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
@@ -28,10 +28,11 @@
 
 /* Tema por sistema ativo (header + accent): CRM laranja, Chamados verde, ERP azul. */
 [data-system="crm"] {
-  /* #c2410c ~5,2:1 com branco (AA texto normal); hover mais escuro nos botoes. */
-  --sti-accent: #c2410c;
-  --sti-accent-hover: #9a3412;
-  --sti-accent-soft: #fff7ed;
+  /* #F47B3C escolhida pelo usuario (t207u). Texto branco nos botoes, no estilo HubSpot.
+     Contraste com branco ~2,71:1 (abaixo de AA). Hover #DC6A2E ~3,42:1. */
+  --sti-accent: #F47B3C;
+  --sti-accent-hover: #DC6A2E;
+  --sti-accent-soft: #FEF1EA;
 }
 [data-system="service"] {
   --sti-accent: #047857;

@@ -427,7 +427,7 @@ export default function FormsBuilderTab({
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <span className="text-xs font-semibold text-slate-500">Leads &amp; Chamados Convertidos</span>
-          <div className="text-2xl font-semibold text-[#ff7a59] mt-1">
+          <div className="text-2xl font-semibold text-accent mt-1">
             {summary.totalSubmissions.toLocaleString('pt-BR')}
           </div>
           <span className="text-[11px] text-slate-500">Submissões auditadas na Timeline</span>
@@ -452,7 +452,7 @@ export default function FormsBuilderTab({
             onClick={() => setSubTab('PREVIEW_SIMULATOR')}
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
               subTab === 'PREVIEW_SIMULATOR'
-                ? 'bg-[#ff7a59] text-white shadow-sm'
+                ? 'bg-accent text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -465,7 +465,7 @@ export default function FormsBuilderTab({
             onClick={() => setSubTab('EMBED_CODE')}
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
               subTab === 'EMBED_CODE'
-                ? 'bg-[#ff7a59] text-white shadow-sm'
+                ? 'bg-accent text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -478,7 +478,7 @@ export default function FormsBuilderTab({
             onClick={() => setSubTab('SUBMISSIONS')}
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
               subTab === 'SUBMISSIONS'
-                ? 'bg-[#ff7a59] text-white shadow-sm'
+                ? 'bg-accent text-white shadow-sm'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -505,7 +505,7 @@ export default function FormsBuilderTab({
           onClick={() => setShowCreateModal(true)}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition"
         >
-          <Plus className="w-4 h-4 text-[#ff7a59]" />
+          <Plus className="w-4 h-4 text-accent" />
           Criar Novo Formulário
         </button>
       </div>
@@ -549,7 +549,7 @@ export default function FormsBuilderTab({
                   type="checkbox"
                   checked={hsAutoClean}
                   onChange={(e) => setHsAutoClean(e.target.checked)}
-                  className="rounded border-slate-300 text-[#ff7a59]"
+                  className="rounded border-slate-300 text-accent"
                 />
                 Executar Motor de Data Health &amp; Deduplicação Automática após importar
               </label>
@@ -558,7 +558,7 @@ export default function FormsBuilderTab({
                 type="button"
                 disabled={migratingHs}
                 onClick={handleRunMigration}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 ${migratingHs ? 'animate-spin' : ''}`} />
                 {migratingHs
@@ -808,7 +808,7 @@ export default function FormsBuilderTab({
                   }}
                   className={`p-4 rounded-2xl border cursor-pointer transition space-y-2.5 ${
                     isSelected
-                      ? 'bg-orange-50/70 border-[#ff7a59] shadow-sm'
+                      ? 'bg-orange-50/70 border-accent shadow-sm'
                       : 'bg-white border-slate-200 hover:border-slate-300'
                   }`}
                 >
@@ -819,7 +819,7 @@ export default function FormsBuilderTab({
                           form.targetType === 'SUPPORT_TICKET'
                             ? 'bg-purple-100 text-purple-800'
                             : form.targetType === 'DEMO_REQUEST'
-                              ? 'bg-orange-100 text-[#e05835]'
+                              ? 'bg-orange-100 text-accent'
                               : 'bg-blue-100 text-blue-800'
                         }`}
                       >
@@ -858,7 +858,7 @@ export default function FormsBuilderTab({
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
                   <div>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#ff7a59]">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-accent">
                       Simulador Interativo Conectado à API Real
                     </span>
                     <h3 className="text-base font-semibold text-slate-900 mt-0.5">
@@ -881,7 +881,7 @@ export default function FormsBuilderTab({
                       key={preset.label}
                       type="button"
                       onClick={() => setSimValues(preset.values)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-[#e05835] text-[11px] font-semibold text-slate-700 border border-slate-200 transition cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-orange-50 hover:text-accent text-[11px] font-semibold text-slate-700 border border-slate-200 transition cursor-pointer"
                     >
                       {preset.label}
                     </button>
@@ -908,7 +908,7 @@ export default function FormsBuilderTab({
                               setSimValues((prev) => ({ ...prev, [field.name]: e.target.value }))
                             }
                             placeholder={field.placeholder}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#ff7a59]"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-accent"
                           />
                         ) : field.type === 'SELECT' ? (
                           <select
@@ -916,7 +916,7 @@ export default function FormsBuilderTab({
                             onChange={(e) =>
                               setSimValues((prev) => ({ ...prev, [field.name]: e.target.value }))
                             }
-                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:border-[#ff7a59]"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:border-accent"
                           >
                             {(field.options || ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).map((opt) => (
                               <option key={opt} value={opt}>
@@ -933,7 +933,7 @@ export default function FormsBuilderTab({
                               setSimValues((prev) => ({ ...prev, [field.name]: e.target.value }))
                             }
                             placeholder={field.placeholder}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#ff7a59]"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-accent"
                           />
                         )}
                       </div>
@@ -1004,7 +1004,7 @@ export default function FormsBuilderTab({
                             lgpdConsent: e.target.checked ? 'true' : 'false',
                           }))
                         }
-                        className="mt-0.5 rounded border-slate-300 text-[#ff7a59]"
+                        className="mt-0.5 rounded border-slate-300 text-accent"
                       />
                       <span>
                         <strong>Consentimento LGPD (Opt-in):</strong> Autorizo o tratamento dos meus dados corporativos pela Seta Telecom LTDA para contato comercial e envio de conteúdos técnicos, com direito de gerenciar preferências ou descadastrar a qualquer momento.
@@ -1015,7 +1015,7 @@ export default function FormsBuilderTab({
                   <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold">
-                        <Sparkles className="w-3.5 h-3.5 text-[#ff7a59]" />
+                        <Sparkles className="w-3.5 h-3.5 text-accent" />
                         Auto-Enriquecimento + Workflows Ativos
                       </span>
                       {selectedForm.autoCreateDeal && (
@@ -1036,7 +1036,7 @@ export default function FormsBuilderTab({
                     <button
                       type="submit"
                       disabled={submittingSim}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                     >
                       <Send className="w-3.5 h-3.5" />
                       {submittingSim ? 'Processando Submissão...' : selectedForm.submitButtonText}
@@ -1064,7 +1064,7 @@ export default function FormsBuilderTab({
                             <button
                               type="button"
                               onClick={onNavigateToDeals}
-                              className="inline-flex items-center gap-1 text-[#e05835] font-semibold hover:underline"
+                              className="inline-flex items-center gap-1 text-accent font-semibold hover:underline"
                             >
                               Ver no Kanban <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
@@ -1113,7 +1113,7 @@ export default function FormsBuilderTab({
                     onClick={handleCopyEmbed}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition"
                   >
-                    <Copy className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    <Copy className="w-3.5 h-3.5 text-accent" />
                     {copiedEmbed ? 'Código Copiado!' : 'Copiar Snippet'}
                   </button>
                 </div>
@@ -1163,7 +1163,7 @@ export default function FormsBuilderTab({
                       onClick={handleExportSubmissionsCsv}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition cursor-pointer"
                     >
-                      <Download className="w-3.5 h-3.5 text-[#ff7a59]" />
+                      <Download className="w-3.5 h-3.5 text-accent" />
                       Exportar CSV
                     </button>
                   </div>
@@ -1399,7 +1399,7 @@ export default function FormsBuilderTab({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#ff7a59] text-white text-xs font-semibold"
+                  className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-semibold"
                 >
                   Publicar Formulário
                 </button>

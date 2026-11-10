@@ -208,7 +208,7 @@ export default function ContactDetailDrawer({
       <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
         <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-[#ff7a59] text-white font-semibold flex items-center justify-center text-sm shrink-0">
+            <div className="w-11 h-11 rounded-full bg-accent text-white font-semibold flex items-center justify-center text-sm shrink-0">
               {contactDetail?.firstName?.charAt(0) || 'C'}
               {contactDetail?.lastName?.charAt(0) || ''}
             </div>
@@ -254,7 +254,7 @@ export default function ContactDetailDrawer({
                   type="button"
                   disabled={enrichingId === contactDetail.id}
                   onClick={() => onSingleEnrich(contactDetail.id)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold transition disabled:opacity-50"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   {enrichingId === contactDetail.id ? 'Enriquecendo...' : 'Enriquecer'}
@@ -291,11 +291,11 @@ export default function ContactDetailDrawer({
               {isEditing && (
                 <form
                   onSubmit={handleSaveEdit}
-                  className="p-5 rounded-2xl border-2 border-[#ff7a59] bg-orange-50/30 space-y-4 shadow-sm"
+                  className="p-5 rounded-2xl border-2 border-accent bg-orange-50/30 space-y-4 shadow-sm"
                 >
                   <div className="flex items-center justify-between border-b border-orange-200/70 pb-3">
                     <div className="flex items-center gap-2">
-                      <Pencil className="w-4 h-4 text-[#ff7a59]" />
+                      <Pencil className="w-4 h-4 text-accent" />
                       <h4 className="text-sm font-semibold text-slate-900">
                         Editar Dados do Contato &amp; Papel ABM
                       </h4>
@@ -315,7 +315,7 @@ export default function ContactDetailDrawer({
                         required
                         value={firstName}
                         onChange={(e) => setFirstName(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                     <div>
@@ -326,7 +326,7 @@ export default function ContactDetailDrawer({
                         type="text"
                         value={lastName}
                         onChange={(e) => setLastName(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                   </div>
@@ -341,7 +341,7 @@ export default function ContactDetailDrawer({
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                     <div>
@@ -353,7 +353,7 @@ export default function ContactDetailDrawer({
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="(11) 98888-7766"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                   </div>
@@ -368,7 +368,7 @@ export default function ContactDetailDrawer({
                         value={jobTitle}
                         onChange={(e) => setJobTitle(e.target.value)}
                         placeholder="Ex: Diretor de TI / CTO"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                     <div>
@@ -378,7 +378,7 @@ export default function ContactDetailDrawer({
                       <select
                         value={companyId}
                         onChange={(e) => setCompanyId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       >
                         <option value="">Sem empresa vinculada</option>
                         {companies.map((comp) => (
@@ -398,7 +398,7 @@ export default function ContactDetailDrawer({
                       <select
                         value={buyingRole}
                         onChange={(e) => setBuyingRole(e.target.value as BuyingRoleType)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-accent"
                       >
                         {BUYING_ROLE_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -416,7 +416,7 @@ export default function ContactDetailDrawer({
                         list="seta-owners-drawer-list"
                         value={ownerName}
                         onChange={(e) => setOwnerName(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                       <datalist id="seta-owners-drawer-list">
                         {SETA_OWNER_OPTIONS.map((ow) => (
@@ -434,7 +434,7 @@ export default function ContactDetailDrawer({
                       <select
                         value={lifecycleStage}
                         onChange={(e) => setLifecycleStage(e.target.value as LifecycleStage)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       >
                         <option value="SUBSCRIBER">Assinante</option>
                         <option value="LEAD">Lead</option>
@@ -452,7 +452,7 @@ export default function ContactDetailDrawer({
                       <select
                         value={leadStatus}
                         onChange={(e) => setLeadStatus(e.target.value as LeadStatus)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       >
                         <option value="NEW">Novo</option>
                         <option value="OPEN">Aberto</option>
@@ -476,7 +476,7 @@ export default function ContactDetailDrawer({
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
                         placeholder="São Paulo"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                     <div>
@@ -488,7 +488,7 @@ export default function ContactDetailDrawer({
                         value={stateUf}
                         onChange={(e) => setStateUf(e.target.value)}
                         placeholder="SP"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
                     <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50/70 text-xs font-semibold text-amber-950 cursor-pointer">
@@ -496,7 +496,7 @@ export default function ContactDetailDrawer({
                         type="checkbox"
                         checked={isUnworked}
                         onChange={(e) => setIsUnworked(e.target.checked)}
-                        className="rounded border-amber-400 text-[#ff7a59] focus:ring-[#ff7a59]"
+                        className="rounded border-amber-400 text-accent focus:ring-accent"
                       />
                       <span>Lead Intocado (Unworked)</span>
                     </label>
@@ -555,7 +555,7 @@ export default function ContactDetailDrawer({
                       <button
                         type="submit"
                         disabled={savingEdit}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                       >
                         <Save className="w-3.5 h-3.5" />
                         {savingEdit ? 'Salvando...' : 'Salvar Alterações'}
@@ -615,15 +615,15 @@ export default function ContactDetailDrawer({
 
               {contactDetail.nextBestAction && (
                 <div className="p-4 rounded-xl bg-gradient-to-r from-orange-50 via-amber-50/60 to-white border border-orange-200 flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-[#ff7a59] text-white shrink-0">
+                  <div className="p-2 rounded-lg bg-accent text-white shrink-0">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#e05835]">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-accent">
                         Próxima Melhor Ação Recomendada (Next Best Action)
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-[#e05835]">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-accent">
                         Prioridade {contactDetail.nextBestAction.priority} • Prazo:{' '}
                         {contactDetail.nextBestAction.suggestedDueInDays}d
                       </span>
@@ -645,7 +645,7 @@ export default function ContactDetailDrawer({
                     <button
                       type="button"
                       onClick={() => setIsEditing(true)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 text-xs font-semibold transition"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-accent border border-orange-200 text-xs font-semibold transition"
                     >
                       <Pencil className="w-3 h-3" />
                       Editar Campos
@@ -724,7 +724,7 @@ export default function ContactDetailDrawer({
                     {contactDetail.company && (
                       <div className="flex flex-wrap items-center gap-1 mt-0.5">
                         {contactDetail.company.isTargetAccount && (
-                          <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#e05835] border border-orange-200 text-[10px] font-semibold">
+                          <span className="px-1.5 py-0.5 rounded bg-orange-50 text-accent border border-orange-200 text-[10px] font-semibold">
                             Conta Alvo ABM
                           </span>
                         )}
@@ -874,7 +874,7 @@ export default function ContactDetailDrawer({
                   <button
                     type="submit"
                     disabled={savingActivity}
-                    className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition"
+                    className="px-4 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold transition"
                   >
                     {savingActivity ? 'Salvando...' : 'Adicionar à Timeline'}
                   </button>

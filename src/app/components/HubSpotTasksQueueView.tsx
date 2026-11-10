@@ -263,7 +263,7 @@ export default function HubSpotTasksQueueView({
           <button
             type="button"
             onClick={() => setShowNewTaskModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             Criar Tarefa
@@ -582,7 +582,7 @@ export default function HubSpotTasksQueueView({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CheckSquare className="w-5 h-5 text-[#ff7a59]" />
+                <CheckSquare className="w-5 h-5 text-accent" />
                 <h3 className="text-base font-semibold">Nova Tarefa de Follow-up (Padrão HubSpot)</h3>
               </div>
               <button
@@ -772,7 +772,7 @@ export default function HubSpotTasksQueueView({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold shadow-sm transition cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold shadow-sm transition cursor-pointer"
                 >
                   {saving ? 'Criando...' : 'Criar Tarefa'}
                 </button>
