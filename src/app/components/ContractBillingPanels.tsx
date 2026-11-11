@@ -737,7 +737,6 @@ export function InvoiceExtraFieldsPanel({ draft, setDraft }: { draft: ErpFiscalI
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {field('Contrato n.', 'contractNumber')}
         {field('Proposta', 'proposalNumber')}
-        {field('NF de Remessa', 'remessaNfeNumber')}
         {field('Prazo do Contrato', 'contractTermLabel')}
         {field('Vendedor', 'sellerName')}
         {field('Centro de custo', 'costCenter')}

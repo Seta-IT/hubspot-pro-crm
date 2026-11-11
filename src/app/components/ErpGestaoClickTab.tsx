@@ -107,6 +107,8 @@ import {
   saveReceiptTemplateStyle,
   matchInvoicesForContract,
   printOrDownloadContractA4,
+  receiptInvoiceReferenceLabel,
+  receiptItemDescription,
 } from '../lib/contract-billing-utils';
 import {
   ContractAuxOptionsManager,
@@ -4995,7 +4997,10 @@ export default function ErpGestaoClickTab({
                 {/* RESUMO DE ENQUADRAMENTO E ITENS DO DOCUMENTO FISCAL */}
                 <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
                   <div className="truncate max-w-3xl">
-                    <strong>Item Principal:</strong> {inv.itemsDescription[0]?.description || "—"}
+                    <strong>Item Principal:</strong>{' '}
+                    {inv.documentType === 'FATURA_LOCACAO'
+                      ? (receiptInvoiceReferenceLabel(inv.contractNumber, inv.itemsDescription[0]?.description) || receiptItemDescription(inv.itemsDescription[0]?.description) || '—')
+                      : (inv.itemsDescription[0]?.description || '—')}
                     {inv.itemsDescription.length > 1 && ` (+${inv.itemsDescription.length - 1} itens)`}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
@@ -7302,7 +7307,7 @@ export default function ErpGestaoClickTab({
                 <div className="text-right">
                   <div className="inline-block px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-semibold uppercase text-[#1e3a6e]">
                     {(selectedInvoiceForPrint.documentType as string) === 'FATURA_LOCACAO'
-                      ? 'FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)'
+                      ? 'FATURA / RECIBO DE LOCAÇÃO'
                       : selectedInvoiceForPrint.documentType === 'NFSE_SERVICO'
                         ? 'NOTA FISCAL DE SERVIÇOS ELETRÔNICA (NFS-e PADRÃO NACIONAL)'
                         : selectedInvoiceForPrint.documentType === 'NFE_VENDA_PRODUTO'
@@ -7376,7 +7381,7 @@ export default function ErpGestaoClickTab({
                   <tbody className="divide-y divide-slate-200">
                     {selectedInvoiceForPrint.itemsDescription.map((it, idx) => (
                       <tr key={idx}>
-                        <td className="py-2.5 px-3 font-semibold">{it.description}</td>
+                        <td className="py-2.5 px-3 font-semibold">{selectedInvoiceForPrint.documentType === 'FATURA_LOCACAO' ? receiptItemDescription(it.description) : it.description}</td>
                         <td className="py-2.5 px-3 font-mono">{it.serialNumber || '—'}</td>
                         <td className="py-2.5 px-3 text-right">{it.quantity}</td>
                         <td className="py-2.5 px-3 text-right">{formatBRL(it.unitValue)}</td>

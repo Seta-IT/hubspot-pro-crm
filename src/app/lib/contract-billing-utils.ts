@@ -7,6 +7,7 @@ import {
   cclSummaryHtml,
 } from './proposal-sheet-theme';
 import { defaultIssuerAddressLine } from './company-issuer-address';
+import { setaBankTransferLine } from './company-bank-details';
 import {
   PROPOSAL_TEMPLATE_STYLE_OPTIONS,
   resolveProposalLayoutKind,
@@ -398,6 +399,35 @@ export function omitLocacaoPuraLabel(text: string): string {
   return String(text || '').replace(/loca[cç][aã]o\s+pura/gi, (chunk) => chunk.split(/\s+/)[0] || chunk);
 }
 
+/** Remove o prefixo "Locação Mensal:" e o sufixo "(Contrato …)" só na folha do recibo (o texto gravado permanece). */
+export function receiptItemDescription(raw: string | null | undefined): string {
+  const text = String(raw ?? '').trim();
+  const stripped = text
+    .replace(/^\s*loca[cç][aã]o\s+mensal(?:\s+integral)?(?:\s*\([^)]*\))?\s*:\s*/i, '')
+    .replace(/\s*\(\s*contrato\s+[^)]+\)\s*$/i, '')
+    .trim();
+  return stripped || text;
+}
+
+/** Rótulo do contrato no cabeçalho/referência do recibo: "Contrato de Locação Nº LOC-…". */
+export function receiptContractHeaderLabel(contractNumber: string | null | undefined): string {
+  const raw = String(contractNumber ?? '').trim();
+  if (!raw) return '';
+  const num = raw.replace(/^(contrato\s+de\s+loca[cç][aã]o\s+n[ºo°]?\s*|contrato\s+)/i, '').trim();
+  return num ? `Contrato de Locação Nº ${num}` : '';
+}
+
+/** Linha de referência da fatura de locação (painel/resumo): só o contrato, nunca "Locação Mensal: …". */
+export function receiptInvoiceReferenceLabel(
+  contractNumber?: string | null,
+  itemDescription?: string | null
+): string {
+  const fromField = receiptContractHeaderLabel(contractNumber);
+  if (fromField) return fromField;
+  const match = String(itemDescription || '').match(/\(\s*contrato\s+([^)]+?)\s*\)/i);
+  return match ? receiptContractHeaderLabel(match[1]) : '';
+}
+
 /** CFOP na folha do recibo: omite referência à NF de remessa. */
 function compactReceiptCfop(cfop: string | null | undefined): string | null {
   const raw = String(cfop || '').trim();
@@ -420,8 +450,7 @@ export function buildStandaloneInvoiceHtml(
   htmlOptions?: StandaloneInvoiceHtmlOptions
 ): string {
   const isDraft = Boolean(htmlOptions?.draft);
-  const paymentMethod =
-    invoice.paymentMethodLabel || contract?.paymentMethod || invoice.paymentMethod || 'Boleto Inter';
+  const contractHeader = receiptContractHeaderLabel(invoice.contractNumber || contract?.contractNumber);
   const dueRule =
     invoice.customDueRuleLabel ||
     contract?.customDueRuleLabel ||
@@ -449,7 +478,7 @@ export function buildStandaloneInvoiceHtml(
     .map(
       (it) => `
         <tr>
-          <td><div class="ccl-td-desc">${it.description}</div></td>
+          <td><div class="ccl-td-desc">${receiptItemDescription(it.description)}</div></td>
           <td class="ccl-td-qty">${Number(it.quantity).toFixed(2).replace('.', ',')}</td>
           <td class="ccl-td-num">${formatMoneyBr(it.unitValue)}</td>
           <td class="ccl-td-total">${formatMoneyBr(it.totalValue)}</td>
@@ -523,11 +552,12 @@ ${CCL_SHEET_CSS}
       companyLine: `CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}`,
       companyAddress: htmlOptions?.issuerAddress || defaultIssuerAddressLine(),
       metaLinesHtml: [
+        ...(contractHeader ? [`<strong>${escHtml(contractHeader)}</strong>`] : []),
         `Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong>`,
         `Vencimento: <strong>${invoice.dueDate}</strong> • ${dueRule}`,
       ],
-      contactHtml: `<span>Forma de pagamento: <strong>${paymentMethod}</strong></span>`,
-      chipsHtml: `<span class="ccl-chip ccl-chip-accent">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)</span>`,
+      contactHtml: '',
+      chipsHtml: `<span class="ccl-chip ccl-chip-accent">FATURA / RECIBO DE LOCAÇÃO</span>`,
     })}
     <div class="ccl-content">
       <div class="ccl-section">
@@ -571,11 +601,12 @@ ${CCL_SHEET_CSS}
           <p class="ccl-text ccl-mono" style="margin-top:3px;font-size:9.5px;color:#334155;">${fiscalLine}</p>
         </div>
         <div class="ccl-section ccl-section-white">
-          <div class="ccl-section-title">Pagamento — ${paymentMethod}</div>
+          <div class="ccl-section-title">Pagamento</div>
           ${isDraft
             ? `<p class="ccl-text" style="color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</p>`
-            : `${receiptCopyField('Linha Digitável', invoice.boletoDigitableLine)}
-          ${receiptCopyField('PIX Copia e Cola', invoice.pixCopyPaste)}`}
+            : `${receiptCopyField('Boleto', invoice.boletoDigitableLine)}
+          ${receiptCopyField('Pix', invoice.pixCopyPaste)}`}
+          ${receiptCopyField('Transferência', setaBankTransferLine())}
         </div>
       </div>
     </div>
