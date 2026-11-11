@@ -373,6 +373,7 @@ describe('Visão interna: sem observações e com PDF', () => {
     const model = toInternalProposalSummary(baseProposal({
       id: 'prop-via-italia-loc-20261106',
       code: '4711',
+      title: 'Locação FortiGate — Via Itália',
       budgetType: 'LOCACAO',
       companyName: 'Via Itália',
       companyCnpj: '07.638.845/0001-56',
@@ -386,19 +387,81 @@ describe('Visão interna: sem observações e com PDF', () => {
       ],
     }), { origin: 'https://sti-hub.vercel.app' });
     assert.equal(internalProposalPdfFileName(model.codeLabel, model.companyName), 'Proposta-4711-ViaItalia.pdf');
-    const html = buildInternalProposalPrintHtml(model);
+    const html = buildInternalProposalPrintHtml(model).replace(/\u00A0/g, ' ');
     assert.doesNotMatch(html, /Observações internas/);
     assert.doesNotMatch(html, /Empresa não encontrada/);
-    assert.match(html, /4711/);
+    assert.match(html, /Visão interna do orçamento/);
+    assert.match(html, /Locação/);
     assert.match(html, /Via Itália/);
-    const pdf = Buffer.from(buildInternalProposalPdf(model)).toString('latin1');
-    assert.match(pdf, /^%PDF-1\.4/);
-    assert.doesNotMatch(pdf, /Observações internas/);
-    assert.doesNotMatch(pdf, /Empresa não encontrada/);
-    assert.match(pdf, /4711/);
-    assert.match(pdf, /Via Itália/);
+    assert.match(html, /R\$ 4\.490,00/);
+    const pdfBytes = buildInternalProposalPdf(model);
+    const extracted = extractPdfText(Buffer.from(pdfBytes));
+    assert.match(extracted, /Visão interna do orçamento/);
+    assert.match(extracted, /Locação/);
+    assert.match(extracted, /Via Itália/);
+    assert.match(extracted, /R\$ 4\.490,00/);
+    assert.doesNotMatch(extracted, /Observações internas/);
+    assert.doesNotMatch(extracted, /Empresa não encontrada/);
+    assert.match(Buffer.from(pdfBytes).toString('latin1'), /\/Encoding \/WinAnsiEncoding/);
+    assert.match(Buffer.from(pdfBytes).toString('latin1'), / re S/);
   });
 });
+
+/** Lê o texto do PDF como o visualizador: WinAnsi se a fonte declarar, senão StandardEncoding. */
+function extractPdfText(pdf: Buffer): string {
+  const raw = pdf.toString('latin1');
+  const winAnsi = /\/Encoding\s*\/WinAnsiEncoding/.test(raw);
+  let out = '';
+  const re = /\(((?:\\.|[^\\)])*)\)\s*Tj/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) out += `${decodePdfLiteral(m[1], winAnsi)} `;
+  return out;
+}
+
+function decodePdfLiteral(body: string, winAnsi: boolean): string {
+  let out = '';
+  for (let i = 0; i < body.length; i++) {
+    let code: number;
+    if (body[i] === '\\') {
+      const n = body[i + 1] || '';
+      if (n === 'n') { out += '\n'; i++; continue; }
+      if (n === 'r' || n === 't') { out += ' '; i++; continue; }
+      if (n === '(' || n === ')' || n === '\\') { out += n; i++; continue; }
+      if (/[0-7]/.test(n)) {
+        let oct = n;
+        let j = 0;
+        while (j < 2 && /[0-7]/.test(body[i + 2 + j] || '')) {
+          oct += body[i + 2 + j];
+          j++;
+        }
+        code = parseInt(oct, 8);
+        i += 1 + j;
+      } else {
+        code = n.charCodeAt(0);
+        i++;
+      }
+    } else {
+      code = body.charCodeAt(i) & 0xff;
+    }
+    out += winAnsi ? winAnsiChar(code) : standardEncodingChar(code);
+  }
+  return out;
+}
+
+function winAnsiChar(code: number): string {
+  const special: Record<number, string> = {
+    0x80: '€', 0x96: '–', 0x97: '—', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•',
+  };
+  if (special[code]) return special[code];
+  if (code === 0xa0) return ' ';
+  return code >= 32 && code <= 255 ? String.fromCharCode(code) : '';
+}
+
+function standardEncodingChar(code: number): string {
+  const standard: Record<number, string> = { 0xe1: 'Æ', 0xe3: 'º', 0xe7: '' };
+  if (standard[code] !== undefined) return standard[code];
+  return code >= 32 && code <= 126 ? String.fromCharCode(code) : '';
+}
 
 describe('Link interno: botão ao lado de Copiar link do cliente', () => {
   it('a barra da proposta copia a URL estável e não mexe no link assinado do cliente', async () => {

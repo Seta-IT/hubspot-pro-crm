@@ -130,13 +130,61 @@ const NAVY = '0.118 0.227 0.431';
 const SLATE = '0.392 0.455 0.545';
 const INK = '0.118 0.161 0.231';
 
+/** Bytes WinAnsi que não coincidem com o ponto Unicode (travessão, aspas, euro). */
+const WINANSI_EXTRA: Record<string, number> = {
+  '\u20AC': 0x80,
+  '\u201A': 0x82,
+  '\u0192': 0x83,
+  '\u201E': 0x84,
+  '\u2026': 0x85,
+  '\u2020': 0x86,
+  '\u2021': 0x87,
+  '\u02C6': 0x88,
+  '\u2030': 0x89,
+  '\u0160': 0x8a,
+  '\u2039': 0x8b,
+  '\u0152': 0x8c,
+  '\u017D': 0x8e,
+  '\u2018': 0x91,
+  '\u2019': 0x92,
+  '\u201C': 0x93,
+  '\u201D': 0x94,
+  '\u2022': 0x95,
+  '\u2013': 0x96,
+  '\u2014': 0x97,
+  '\u02DC': 0x98,
+  '\u2122': 0x99,
+  '\u0161': 0x9a,
+  '\u203A': 0x9b,
+  '\u0153': 0x9c,
+  '\u017E': 0x9e,
+  '\u0178': 0x9f,
+};
+
+/**
+ * Helvetica padrão só desenha acentos se o dicionário da fonte declarar
+ * WinAnsiEncoding. Sem isso o leitor usa StandardEncoding e á/ã/ç viram Æ, º etc.
+ * O espaço de "R$ 4.490,00" no pt-BR é U+00A0; aqui vira espaço comum para o texto extraído.
+ */
 function winAnsi(value: string): string {
-  return String(value || '')
+  const src = String(value || '')
     .normalize('NFC')
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/[^\x09\x0a\x0d\x20-\xff]/g, '?');
+    .replace(/[\u00A0\u202F]/g, ' ');
+  let out = '';
+  for (const ch of src) {
+    if (ch === '\\' || ch === '(' || ch === ')') {
+      out += `\\${ch}`;
+      continue;
+    }
+    const cp = ch.codePointAt(0) || 0;
+    if (cp >= 32 && cp <= 255) {
+      out += ch;
+      continue;
+    }
+    const mapped = WINANSI_EXTRA[ch];
+    out += mapped === undefined ? '?' : String.fromCharCode(mapped);
+  }
+  return out;
 }
 
 function wrap(text: string, size: number, width: number): string[] {
@@ -225,16 +273,24 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
     y -= h;
   }
   if (model.oneTimeRows.length) {
-    gap(8);
-    text(left, y, 8, 'VALORES ÚNICOS', 'F2', SLATE);
-    gap(12);
-    text(left, y, 8, model.oneTimeCaption, 'F1', SLATE);
-    gap(12);
-    for (const row of model.oneTimeRows) {
-      text(left, y, 9, row.label, 'F1', SLATE);
-      text(left + 420, y, 9, row.value, 'F2', INK);
-      gap(14);
+    gap(14);
+    const caption = wrap(model.oneTimeCaption, 8, width - 24);
+    const boxH = 18 + caption.length * 11 + 8 + model.oneTimeRows.length * 16 + 12;
+    const boxBottom = y - boxH + 14;
+    ops.push(`0.886 0.910 0.941 RG 0.9 w ${left.toFixed(2)} ${boxBottom.toFixed(2)} ${width.toFixed(2)} ${boxH.toFixed(2)} re S`);
+    text(left + 10, y, 8, 'VALORES ÚNICOS', 'F2', SLATE);
+    gap(13);
+    for (const line of caption) {
+      text(left + 10, y, 8, line, 'F1', SLATE);
+      gap(11);
     }
+    gap(4);
+    for (const row of model.oneTimeRows) {
+      text(left + 10, y, 9, row.label, 'F1', SLATE);
+      text(left + width - 88, y, 9, row.value, 'F2', INK);
+      gap(16);
+    }
+    y = Math.min(y, boxBottom - 10);
   }
   gap(8);
   text(left, y, 8, 'CONDIÇÕES', 'F2', SLATE);
@@ -269,8 +325,8 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
     '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
     '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj\n',
     `4 0 obj << /Length ${latin1Bytes(stream).length} >> stream\n`,
-    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n',
-    '6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n',
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n',
+    '6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n',
   ];
   const chunks: Uint8Array[] = [latin1Bytes('%PDF-1.4\n')];
   const offsets: number[] = [0];
