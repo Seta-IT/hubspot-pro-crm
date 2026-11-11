@@ -59,6 +59,7 @@ import {
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
+import { copyInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 
@@ -106,6 +107,7 @@ function PublicProposalPrintContent() {
   const [restoredBannerMsg, setRestoredBannerMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState(false);
+  const [internalCopied, setInternalCopied] = useState(false);
 
   // Full In-Page Editor State
   const [isEditing, setIsEditing] = useState(false);
@@ -991,6 +993,21 @@ function PublicProposalPrintContent() {
                 {copyLinkBusy ? "Gerando link..." : "Copiar link do cliente"}
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            data-testid="copy-internal-link"
+            title="Copia o link interno estável desta proposta, para colar no contrato"
+            onClick={async () => {
+              await copyInternalProposalLink(proposal.id);
+              setInternalCopied(true);
+              setTimeout(() => setInternalCopied(false), 3000);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-white hover:bg-[#eef2fa] text-[#1e3a6e] text-xs font-semibold transition cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            {internalCopied ? "Link interno copiado" : "Copiar link interno"}
           </button>
 
           <button

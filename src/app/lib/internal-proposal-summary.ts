@@ -97,6 +97,18 @@ export function buildStableInternalProposalUrl(proposalId: string, origin?: stri
   return `${base}${buildStableInternalProposalPath(proposalId)}`;
 }
 
+/** Copia a URL interna estável (sem token e sem versão). Não emite o link do cliente. */
+export async function copyInternalProposalLink(proposalId: string): Promise<string> {
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const url = buildStableInternalProposalUrl(proposalId, origin);
+  try {
+    if (typeof navigator !== 'undefined') await navigator.clipboard?.writeText(url);
+  } catch {
+    // Sem permissão de área de transferência: o chamador ainda pode mostrar a URL.
+  }
+  return url;
+}
+
 export function formatBrl(value: number): string {
   const n = Number.isFinite(value) ? value : 0;
   return new Intl.NumberFormat('pt-BR', {

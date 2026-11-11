@@ -44,6 +44,7 @@ import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
+import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 import PipelineSelect from './PipelineSelect';
 import { formatPipelineDisplayName } from '../lib/pipeline-display';
@@ -685,6 +686,18 @@ export default function DealsKanbanTab({
             >
               <Copy className="w-3.5 h-3.5 text-emerald-700" />
               Copiar link para o cliente
+            </button>
+            <button
+              type="button"
+              data-testid="kanban-copy-internal-link"
+              onClick={async () => {
+                const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
+                onShowToast?.(url ? "Link interno da proposta copiado." : "Não foi possível copiar o link interno.");
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] border border-white/40 text-white hover:bg-white/10 text-xs font-semibold cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar link interno
             </button>
             <a
               href={createdProposalBanner.publicUrl}
