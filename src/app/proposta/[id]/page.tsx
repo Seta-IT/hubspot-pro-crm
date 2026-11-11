@@ -659,7 +659,7 @@ function PublicProposalPrintContent() {
             "Não foi possível registrar o aceite neste momento. Atualize a página e tente novamente; se o problema continuar, fale com o seu consultor Seta Telecom."
           );
         } else if (res.status === 404) {
-          setApprovalError("Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom.");
+          setApprovalError("Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom.");
         } else if (res.status === 429) {
           setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
         } else {
@@ -770,7 +770,7 @@ function PublicProposalPrintContent() {
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
             {publicLinkInvalid
-              ? "Este link de proposta é inválido, expirou ou a proposta foi atualizada. Solicite um novo link ao seu consultor Seta Telecom."
+              ? "Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
           {!linkToken && !isInternalUser && (
