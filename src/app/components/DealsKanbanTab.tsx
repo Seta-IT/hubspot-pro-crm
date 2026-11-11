@@ -141,6 +141,7 @@ interface DealsKanbanTabProps {
   onDeleteDeal?: (dealId: string) => Promise<void>;
   canEditDeal?: boolean;
   canDeleteDeal?: boolean;
+  canSendEmail?: boolean;
   ownerOptions?: Array<{ id: string; name: string }>;
   onNavigateToErp?: () => void;
   onOpenNewProposalFromDeal?: (deal: EnrichedDeal) => void;
@@ -195,6 +196,7 @@ export default function DealsKanbanTab({
   onDeleteDeal,
   canEditDeal = false,
   canDeleteDeal = false,
+  canSendEmail = false,
   ownerOptions = [],
   onNavigateToErp,
   onOpenNewProposalFromDeal,
@@ -1936,6 +1938,7 @@ export default function DealsKanbanTab({
           }
           canEditDeal={canEditDeal}
           canDeleteDeal={Boolean(canDeleteDeal && onDeleteDeal)}
+          canSendEmail={canSendEmail}
           ownerOptions={(() => {
             const map = new Map<string, { id: string; name: string }>();
             for (const o of ownerOptions) map.set(o.id, o);

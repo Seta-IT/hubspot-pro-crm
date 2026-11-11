@@ -62,6 +62,7 @@ import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types
 import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
 import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
+import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
   loadDurableJournal,
@@ -1110,6 +1111,9 @@ export default function HubSpotProCrmApp() {
   const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
   const canEditDealDrawer = canEditDealsFromPermissions(activeRbacUser);
   const canDeleteDealDrawer = canDeleteDealsFromPermissions(activeRbacUser);
+  const canSendDealEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'deal');
+  const canSendContactEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'contact');
+  const canSendCompanyEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'company');
   const dealOwnerOptions = (rbacState?.users || [])
     .filter((u) => u.active)
     .map((u) => ({ id: u.id, name: u.name }));
@@ -2453,6 +2457,7 @@ export default function HubSpotProCrmApp() {
                     onDeleteDeal={handleDeleteDeal}
                     canEditDeal={canEditDealDrawer}
                     canDeleteDeal={canDeleteDealDrawer}
+                    canSendEmail={canSendDealEmail}
                     ownerOptions={dealOwnerOptions}
                     onNavigateToErp={() => {
                       setErpInitialSection('INICIO');
@@ -2489,6 +2494,8 @@ export default function HubSpotProCrmApp() {
                     onEnrichCompany={handleEnrichCompany}
                     onBatchEnrichAll={handleBatchEnrichAll}
                     onAddContactActivity={handleAddContactActivity}
+                    canSendContactEmail={canSendContactEmail}
+                    canSendCompanyEmail={canSendCompanyEmail}
                   />
                 )}
 

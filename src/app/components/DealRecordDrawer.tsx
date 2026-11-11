@@ -230,6 +230,7 @@ export interface DealRecordDrawerProps {
   onDelete?: () => Promise<void>;
   canEditDeal?: boolean;
   canDeleteDeal?: boolean;
+  canSendEmail?: boolean;
   ownerOptions?: DealOwnerOption[];
   onGenerateProposal: () => void;
   onAddNote: (title: string, body: string, type: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK') => Promise<void>;
@@ -261,6 +262,7 @@ export default function DealRecordDrawer({
   onDelete,
   canEditDeal = false,
   canDeleteDeal = false,
+  canSendEmail = false,
   ownerOptions = [],
   onGenerateProposal,
   onAddNote,
@@ -541,6 +543,8 @@ export default function DealRecordDrawer({
     label: string;
     icon: React.ReactNode;
     onClick: () => void;
+    disabled?: boolean;
+    title?: string;
   }> = [
     {
       id: 'note',
@@ -555,7 +559,10 @@ export default function DealRecordDrawer({
       id: 'email',
       label: 'E-mail',
       icon: <Mail className="w-4 h-4" />,
+      disabled: !canSendEmail,
+      title: canSendEmail ? 'Escrever e-mail' : 'Seu perfil não tem permissão para enviar e-mail do CRM.',
       onClick: () => {
+        if (!canSendEmail) return;
         setEmailOpen(true);
         setCenterTab('ACTIVITIES');
       },
@@ -759,7 +766,9 @@ export default function DealRecordDrawer({
                   key={btn.id}
                   type="button"
                   onClick={btn.onClick}
-                  className="flex flex-col items-center gap-1 flex-1 min-w-0 cursor-pointer group"
+                  disabled={btn.disabled}
+                  title={btn.title}
+                  className="flex flex-col items-center gap-1 flex-1 min-w-0 cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center group-hover:border-accent group-hover:text-accent">
                     {btn.icon}
@@ -1153,9 +1162,15 @@ export default function DealRecordDrawer({
                   {emailOpen && (
                     <CrmEmailComposerModal
                       record={{ dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }}
+                      recordKind="deal"
                       defaultTo={deal.contact?.email || ''}
-                      suggestions={contacts.filter((c) => c.companyId === deal.companyId).map((c) => c.email).filter(Boolean) as string[]}
+                      suggestions={associatedContacts.map((c) => c.email).filter(Boolean) as string[]}
                       recordLabel={deal.title}
+                      contact={deal.contact ? { id: deal.contact.id, email: deal.contact.email, firstName: deal.contact.firstName, lastName: deal.contact.lastName, companyId: deal.contact.companyId } : null}
+                      company={deal.company ? { id: deal.company.id, name: deal.company.name, domain: deal.company.domain } : companies.find((c) => c.id === deal.companyId) || null}
+                      deal={{ id: deal.id, title: deal.title, value: deal.value }}
+                      associatedContacts={associatedContacts}
+                      canSendEmail={canSendEmail}
                       onClose={() => setEmailOpen(false)}
                       onSent={() => setEmailOpen(false)}
                     />

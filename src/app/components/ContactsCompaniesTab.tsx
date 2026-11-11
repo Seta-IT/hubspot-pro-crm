@@ -118,6 +118,8 @@ interface ContactsCompaniesTabProps {
     title: string;
     body?: string;
   }) => Promise<void>;
+  canSendContactEmail?: boolean;
+  canSendCompanyEmail?: boolean;
 }
 
 export default function ContactsCompaniesTab({
@@ -142,6 +144,8 @@ export default function ContactsCompaniesTab({
   onEnrichCompany,
   onBatchEnrichAll,
   onAddContactActivity,
+  canSendContactEmail = false,
+  canSendCompanyEmail = false,
 }: ContactsCompaniesTabProps) {
   const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>(initialSubView || 'CONTACTS');
   const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
@@ -1213,6 +1217,7 @@ export default function ContactsCompaniesTab({
             await onAddContactActivity(payload);
             await fetchContactDetail(payload.contactId);
           }}
+          canSendEmail={canSendContactEmail}
         />
       )}
 
@@ -1555,9 +1560,19 @@ export default function ContactsCompaniesTab({
                       companyId: companyDetail.id,
                       contactId: companyDetail.contacts?.[0]?.id || null,
                     }}
+                    recordKind="company"
                     defaultTo={companyDetail.contacts?.[0]?.email || ''}
                     recordLabel={companyDetail.name}
                     suggestions={(companyDetail.contacts || []).map((c) => c.email)}
+                    contact={companyDetail.contacts?.[0] ? {
+                      id: companyDetail.contacts[0].id,
+                      email: companyDetail.contacts[0].email,
+                      firstName: companyDetail.contacts[0].firstName,
+                      lastName: companyDetail.contacts[0].lastName,
+                    } : null}
+                    company={{ id: companyDetail.id, name: companyDetail.name, domain: companyDetail.domain }}
+                    associatedContacts={companyDetail.contacts || []}
+                    canSendEmail={canSendCompanyEmail}
                   />
 
                   {/* HUBSPOT TASKS & FOLLOW-UPS FOR THIS COMPANY */}

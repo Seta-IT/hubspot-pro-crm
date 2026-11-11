@@ -488,7 +488,7 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
   });
 
   it('compositor mostra motivo do Enviar desabilitado e erros com role=alert', () => {
-    const s = readSrc('src/app/components/email/CrmRecordEmailSection.tsx');
+    const s = readSrc('src/app/components/email/CrmEmailComposerModal.tsx');
     assert.match(s, /mailboxSendDisabledReason/);
     assert.match(s, /data-testid="crm-mail-send-reason"/);
     assert.match(s, /role="alert"/);
@@ -514,6 +514,7 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
     const deal = readSrc('src/app/components/DealRecordDrawer.tsx');
     assert.match(deal, /dealId: deal\.id/);
     assert.match(deal, /defaultTo=\{deal\.contact\?\.email/);
-    assert.match(deal, /suggestions=\{contacts/);
+    assert.match(deal, /associatedContacts=\{associatedContacts\}/);
+    assert.match(deal, /canSendEmail=\{canSendEmail\}/);
   });
 });

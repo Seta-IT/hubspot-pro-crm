@@ -59,6 +59,7 @@ interface ContactDetailDrawerProps {
     title: string;
     body?: string;
   }) => Promise<void>;
+  canSendEmail?: boolean;
 }
 
 export default function ContactDetailDrawer({
@@ -77,6 +78,7 @@ export default function ContactDetailDrawer({
   deleteInUse = false,
   deleteUsageText,
   onAddContactActivity,
+  canSendEmail = false,
 }: ContactDetailDrawerProps) {
   const [isEditing, setIsEditing] = useState(initialEditMode);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -813,6 +815,7 @@ export default function ContactDetailDrawer({
               {/* E-MAILS DA CAIXA OUTLOOK DO USUARIO (ENVIO, RESPOSTAS, ABERTURAS E CLIQUES) */}
               <CrmRecordEmailSection
                 record={{ contactId: contactDetail.id, companyId: contactDetail.companyId || null }}
+                recordKind="contact"
                 defaultTo={contactDetail.email}
                 recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
                 suggestions={
@@ -820,6 +823,20 @@ export default function ContactDetailDrawer({
                     ? allContacts.filter((c) => c.companyId === contactDetail.companyId).map((c) => c.email)
                     : []
                 }
+                contact={{
+                  id: contactDetail.id,
+                  email: contactDetail.email,
+                  firstName: contactDetail.firstName,
+                  lastName: contactDetail.lastName,
+                  companyId: contactDetail.companyId,
+                }}
+                company={contactDetail.company ? { id: contactDetail.company.id, name: contactDetail.company.name, domain: contactDetail.company.domain } : null}
+                associatedContacts={
+                  contactDetail.companyId
+                    ? allContacts.filter((c) => c.companyId === contactDetail.companyId)
+                    : []
+                }
+                canSendEmail={canSendEmail}
               />
 
               {/* HUBSPOT TASKS & FOLLOW-UP SECTION FOR THIS CONTACT */}
