@@ -862,7 +862,7 @@ export default function DealsKanbanTab({
               aria-label="Classificar por"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as DealSortKey)}
-              className="px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b] focus:outline-none focus:border-[#0091ae] cursor-pointer"
+              className="px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] focus:outline-none focus:border-[#0091ae] cursor-pointer"
             >
               <option value="createdAt">Classificar por: Data de criação</option>
               <option value="expectedCloseDate">Classificar por: Data de fechamento</option>
@@ -1231,7 +1231,7 @@ export default function DealsKanbanTab({
                           aria-label={`Etapa de ${deal.title}`}
                           value={deal.stageId}
                           onChange={(e) => handleStageChange(deal.id, e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-accent text-xs"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white text-accent text-xs"
                         >
                           {stages.map((s) => (
                             <option key={s.id} value={s.id}>

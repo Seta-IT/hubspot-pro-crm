@@ -545,7 +545,7 @@ export function MarketingHubSuiteTop({
             <select
               value={newCmpProvider}
               onChange={(e) => setNewCmpProvider(e.target.value as 'MARKETING_ESP' | 'OUTLOOK_M365')}
-              className="px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+              className="px-3 py-2 rounded border border-slate-300 bg-white"
             >
               <option value="MARKETING_ESP">Motor: Provedor Marketing ESP</option>
               <option value="OUTLOOK_M365">Motor: Outlook / M365 Vendas 1:1</option>

@@ -801,7 +801,7 @@ export default function ContactsCompaniesTab({
                           {contact.firstName} {contact.lastName}
                         </div>
                         <div className="text-xs text-slate-500 truncate">{contact.email}</div>
-                        <div className="text-xs font-medium text-slate-700 truncate">
+                        <div className="text-xs font-semibold text-slate-700 truncate">
                           {contact.jobTitle || 'Sem cargo'} • {contact.company?.name || 'Sem empresa'}
                         </div>
                       </div>
@@ -1432,7 +1432,7 @@ export default function ContactsCompaniesTab({
                         <select
                           value={editCompIcpTier}
                           onChange={(e) => setEditCompIcpTier(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-accent"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         >
                           <option value="">Sem Tier ICP definido</option>
                           {ICP_TIER_OPTIONS.map((opt) => (
@@ -1792,7 +1792,7 @@ export default function ContactsCompaniesTab({
                   <select
                     value={cBuyingRole}
                     onChange={(e) => setCBuyingRole(e.target.value as BuyingRoleType)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
                   >
                     {BUYING_ROLE_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1809,7 +1809,7 @@ export default function ContactsCompaniesTab({
                   <select
                     value={cOwnerName}
                     onChange={(e) => setCOwnerName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
                   >
                     {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                       <option key={ow} value={ow}>

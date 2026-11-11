@@ -400,7 +400,7 @@ export default function ContactDetailDrawer({
                       <select
                         value={buyingRole}
                         onChange={(e) => setBuyingRole(e.target.value as BuyingRoleType)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-accent"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       >
                         {BUYING_ROLE_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -759,7 +759,7 @@ export default function ContactDetailDrawer({
                       {Object.entries(contactDetail.customProperties).map(([k, v]) => (
                         <span
                           key={k}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium"
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-semibold"
                         >
                           <strong>{k}:</strong> {String(v)}
                         </span>
@@ -863,7 +863,7 @@ export default function ContactDetailDrawer({
                     onChange={(e) =>
                       setActType(e.target.value as 'NOTE' | 'CALL' | 'EMAIL' | 'MEETING' | 'TASK')
                     }
-                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                    className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs text-slate-700"
                   >
                     <option value="NOTE">Nota</option>
                     <option value="CALL">Ligação</option>

@@ -649,7 +649,7 @@ export function GestaoClickCustomerEditModal({
                   type="text"
                   value={legalName}
                   onChange={(e) => setLegalName(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
 
@@ -1798,7 +1798,7 @@ export function GestaoClickProductEditModal({
                         <tbody className="divide-y divide-slate-200">
                           {nfeReferences.map((ref, idx) => (
                             <tr key={idx}>
-                              <td className="py-2.5 px-3 font-medium text-slate-700">{ref}</td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-700">{ref}</td>
                               <td className="py-2.5 px-3 text-center">
                                 <button
                                   type="button"
@@ -1952,7 +1952,7 @@ export function GestaoClickProductEditModal({
                       <select
                         value={controlsSerialNumber ? 'Sim' : 'Não'}
                         onChange={(e) => setControlsSerialNumber(e.target.value === 'Sim')}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                       >
                         <option value="Sim">Sim (Rastrear S/N &amp; Patrimônio)</option>
                         <option value="Não">Não</option>
@@ -2007,7 +2007,7 @@ export function GestaoClickProductEditModal({
                         step="0.1"
                         value={profitMarginPercent}
                         onChange={(e) => setProfitMarginPercent(Number(e.target.value) || 0)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 text-slate-800"
                       />
                     </div>
                   </div>
@@ -2085,7 +2085,7 @@ export function GestaoClickProductEditModal({
                         type="number"
                         value={stockAvailable}
                         onChange={(e) => setStockAvailable(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-200 bg-white font-semibold text-slate-800"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-200 bg-white text-slate-800"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
@@ -2096,7 +2096,7 @@ export function GestaoClickProductEditModal({
                         type="number"
                         value={stockRentedInClients}
                         onChange={(e) => setStockRentedInClients(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-200 bg-white font-semibold text-slate-800"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-200 bg-white text-slate-800"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
@@ -2107,7 +2107,7 @@ export function GestaoClickProductEditModal({
                         type="number"
                         value={minStock}
                         onChange={(e) => setMinStock(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200">
@@ -2118,7 +2118,7 @@ export function GestaoClickProductEditModal({
                         type="number"
                         value={maxStock}
                         onChange={(e) => setMaxStock(Number(e.target.value) || 0)}
-                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
                       />
                     </div>
                     <div className="p-3 rounded bg-slate-50 border border-slate-200 col-span-2 sm:col-span-1">
@@ -2154,7 +2154,7 @@ export function GestaoClickProductEditModal({
                                 | 'RETORNO_LOCACAO'
                             )
                           }
-                          className="w-full px-2.5 py-1.5 rounded border bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded border bg-white"
                         >
                           <option value="ENTRADA">Entrada de Compra (NF-e)</option>
                           <option value="SAIDA">Saída / Baixa de Venda</option>
@@ -2169,7 +2169,7 @@ export function GestaoClickProductEditModal({
                           min={1}
                           value={newMovQty}
                           onChange={(e) => setNewMovQty(Number(e.target.value) || 1)}
-                          className="w-full px-2.5 py-1.5 rounded border bg-white font-semibold"
+                          className="w-full px-2.5 py-1.5 rounded border bg-white"
                         />
                       </div>
                       <div className="sm:col-span-3">
@@ -2290,7 +2290,7 @@ export function GestaoClickProductEditModal({
                       <select
                         value={fiscalNature}
                         onChange={(e) => setFiscalNature(e.target.value as ErpFiscalNature)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                       >
                         <option value="LOCACAO_BENS_MOVEIS">
                           Locação de Bens Móveis (0% ISS — SV 31 STF)
@@ -2314,7 +2314,7 @@ export function GestaoClickProductEditModal({
                         type="text"
                         value={ncmOrLc116}
                         onChange={(e) => setNcmOrLc116(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                       />
                     </div>
                     <div>
@@ -2359,7 +2359,7 @@ export function GestaoClickProductEditModal({
                         type="text"
                         value={cfopDefault}
                         onChange={(e) => setCfopDefault(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -2370,7 +2370,7 @@ export function GestaoClickProductEditModal({
                         type="text"
                         value={cfopRemessaLocacao}
                         onChange={(e) => setCfopRemessaLocacao(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-slate-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-slate-800"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -2381,7 +2381,7 @@ export function GestaoClickProductEditModal({
                         type="text"
                         value={cfopRetornoLocacao}
                         onChange={(e) => setCfopRetornoLocacao(e.target.value)}
-                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-slate-800"
+                        className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-slate-800"
                       />
                     </div>
                   </div>
@@ -2473,7 +2473,7 @@ export function GestaoClickProductEditModal({
                               copy[idx] = { ...copy[idx], supplierName: e.target.value };
                               setSuppliersList(copy);
                             }}
-                            className="w-full px-2.5 py-1.5 rounded border bg-white font-semibold"
+                            className="w-full px-2.5 py-1.5 rounded border bg-white"
                           />
                         </div>
                         <div className="sm:col-span-3">
@@ -2743,7 +2743,7 @@ export function PartialEquipmentReturnProRataModal({
                 max={30}
                 value={cycleDaysUsed}
                 onChange={(e) => setCycleDaysUsed(Number(e.target.value) || 15)}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-800"
+                className="w-full px-3 py-2 rounded border border-slate-300 text-slate-800"
               />
             </div>
             <div>
@@ -2758,7 +2758,7 @@ export function PartialEquipmentReturnProRataModal({
                     ? '2.909 — Entrada: Retorno Interestadual de Locação (NF-e emitida pela locadora)'
                     : '1.909 — Entrada: Retorno Estadual de Locação (NF-e emitida pela locadora)'
                 }
-                className="w-full px-3 py-2 rounded border border-slate-200 bg-slate-50 font-mono font-semibold text-slate-700"
+                className="w-full px-3 py-2 rounded border border-slate-200 bg-slate-50 font-mono text-slate-700"
               />
             </div>
           </div>
@@ -2821,7 +2821,7 @@ export function PartialEquipmentReturnProRataModal({
                               ),
                             })
                           }
-                          className="w-20 px-2 py-1 rounded border border-slate-200 text-center font-semibold text-slate-800 bg-slate-50"
+                          className="w-20 px-2 py-1 rounded border border-slate-200 text-center text-slate-800 bg-slate-50"
                         />
                       </td>
                       <td className="py-2.5 px-3 text-right font-semibold text-slate-800">
@@ -3130,7 +3130,7 @@ export function BatchRentalBillingAndEmailModal({
                 type="text"
                 value={competenceMonth}
                 onChange={(e) => setCompetenceMonth(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-mono font-semibold text-slate-800"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-mono text-slate-800"
               />
             </div>
 

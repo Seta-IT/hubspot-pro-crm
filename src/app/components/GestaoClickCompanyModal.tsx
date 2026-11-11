@@ -567,7 +567,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={personType}
                     onChange={(e) => handlePersonTypeChange(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="Pessoa Jurídica">Pessoa Jurídica (PJ)</option>
                     <option value="Pessoa Física">Pessoa Física (PF)</option>
@@ -581,7 +581,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={situation}
                     onChange={(e) => setSituation(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="Ativo">Ativo</option>
                     <option value="Inativo">Inativo</option>
@@ -642,7 +642,7 @@ function GestaoClickCompanyModalForm({
                       }
                     }}
                     placeholder={isPf ? '000.000.000-00' : '00.000.000/0000-00'}
-                    className={`w-full px-3 py-2 rounded border font-mono font-semibold transition ${
+                    className={`w-full px-3 py-2 rounded border font-mono transition ${
                       !docFeedback.isEmpty && !docFeedback.isValid
                         ? 'border-rose-500 bg-rose-50/40 text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-500/30'
                         : !docFeedback.isEmpty && docFeedback.isValid
@@ -688,7 +688,7 @@ function GestaoClickCompanyModalForm({
                     value={legalName}
                     onChange={(e) => setLegalName(e.target.value)}
                     placeholder={isPf ? 'Digite o nome completo' : 'Digite a razão social da empresa'}
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                   />
                 </div>
 
@@ -712,7 +712,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="">Selecione o responsável</option>
                     <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
@@ -789,7 +789,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={taxRegime}
                     onChange={(e) => setTaxRegime(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="">Selecione...</option>
                     <option value="Lucro Real">Lucro Real</option>
@@ -862,7 +862,7 @@ function GestaoClickCompanyModalForm({
                     value={shareCapital}
                     onChange={(e) => setShareCapital(e.target.value)}
                     placeholder="0,00"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
               </div>
@@ -892,7 +892,7 @@ function GestaoClickCompanyModalForm({
                     }
                   }}
                   placeholder="00000-000"
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                 />
               </div>
               <div className="sm:col-span-5">
@@ -943,7 +943,7 @@ function GestaoClickCompanyModalForm({
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   placeholder="Município"
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
               <div className="sm:col-span-1">
@@ -954,7 +954,7 @@ function GestaoClickCompanyModalForm({
                   value={uf}
                   onChange={(e) => setUf(e.target.value.toUpperCase())}
                   placeholder="UF"
-                  className="w-full px-2.5 py-2 rounded border border-slate-300 font-semibold text-center"
+                  className="w-full px-2.5 py-2 rounded border border-slate-300 text-center"
                 />
               </div>
               <div className="sm:col-span-3">
@@ -1144,7 +1144,7 @@ function GestaoClickCompanyModalForm({
                     value={creditLimitBrl}
                     onChange={(e) => setCreditLimitBrl(e.target.value)}
                     placeholder="0,00"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-emerald-700"
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-emerald-700"
                   />
                 </div>
                 <div>
@@ -1154,7 +1154,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={defaultPaymentCondition}
                     onChange={(e) => setDefaultPaymentCondition(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="">Selecione...</option>
                     <option value="Boleto 15 DDL">Boleto 15 DDL</option>
@@ -1170,7 +1170,7 @@ function GestaoClickCompanyModalForm({
                   <select
                     value={preferredBank}
                     onChange={(e) => setPreferredBank(e.target.value)}
-                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="">Selecione...</option>
                     <option value="Banco Inter">Banco Inter (#237906)</option>
@@ -1189,7 +1189,7 @@ function GestaoClickCompanyModalForm({
                     value={billingDueDay}
                     onChange={(e) => setBillingDueDay(e.target.value)}
                     placeholder="Ex.: 10"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
                 <div>
@@ -1376,7 +1376,7 @@ export default function GestaoClickCompanyModal(props: GestaoClickCompanyModalPr
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
         <div className="rounded-md bg-white px-6 py-4 text-sm text-slate-700 shadow-xl">
           <p>Nao foi possivel carregar o cadastro completo desta empresa. Tente novamente.</p>
-          <button type="button" onClick={props.onClose} className="mt-3 rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">
+          <button type="button" onClick={props.onClose} className="font-semibold mt-3 rounded border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50">
             Fechar
           </button>
         </div>

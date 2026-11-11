@@ -134,7 +134,7 @@ export default function DealInlineProperty({
               if (status !== 'saving') void commit();
             }}
             onKeyDown={onKeyDown}
-            className="w-full px-2 py-1 rounded-md border border-accent bg-white text-xs font-semibold text-slate-800"
+            className="w-full px-2 py-1 rounded-md border border-accent bg-white text-xs text-slate-800"
           >
             {(options || []).map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -150,7 +150,7 @@ export default function DealInlineProperty({
             onBlur={() => void commit()}
             onKeyDown={onKeyDown}
             rows={3}
-            className="w-full px-2 py-1 rounded-md border border-accent bg-white text-xs font-semibold text-slate-800 resize-y"
+            className="w-full px-2 py-1 rounded-md border border-accent bg-white text-xs text-slate-800 resize-y"
           />
         ) : (
           <input

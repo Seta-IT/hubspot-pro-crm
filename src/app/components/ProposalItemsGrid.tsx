@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
-import { Menu, Package, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Menu, Package, Pencil, Trash2, Wrench } from 'lucide-react';
 import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { CatalogItemPicker, CATALOG_GRID_INPUT } from './CatalogItemPicker';
+import { catalogPriceFor, isServiceCatalogItem } from '../lib/catalog-search';
 import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
 
@@ -27,18 +29,9 @@ export interface ProposalItemsGridProps {
   onItemsChange: (items: ErpProposalItem[]) => void;
 }
 
-const inputBase =
-  'w-full h-8 px-2 rounded-[3px] border border-[#ced4da] bg-[#e9ecef] text-[12px] text-slate-800 focus:outline-none focus:border-[#1b2559] focus:bg-white';
+const inputBase = CATALOG_GRID_INPUT;
 
-const SERVICE_NATURES = new Set(['SERVICO_TECNICO_TI_TELECOM', 'SERVICO_COMUNICACAO_SCM_SVA']);
-
-export function isServiceCatalogItem(c: ErpCatalogItem): boolean {
-  return (
-    SERVICE_NATURES.has(String(c.fiscalNature)) ||
-    c.category === 'SERVICO_TECNICO_LC116' ||
-    c.category === 'TELECOM_SCM_SVA'
-  );
-}
+export { isServiceCatalogItem } from '../lib/catalog-search';
 
 /** Tipo de servico das linhas = tipo de servico definido no topo da proposta (chips). */
 function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], serviceType?: string): string {
@@ -48,13 +41,6 @@ function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], se
 /** Locacao (MRR) para LOCACAO/SERVICOS/CONJUNTO; venda de equipamento para PRODUTOS. */
 function isRentalBudget(budgetType?: ErpCommercialProposal['budgetType']): boolean {
   return budgetType !== 'PRODUTOS';
-}
-
-function catalogPriceFor(found: ErpCatalogItem, kind: GridKind, rental: boolean): number {
-  if (kind === 'SERVICE') return found.monthlyRentalPrice || found.saleOrSetupPrice || 0;
-  return rental
-    ? found.monthlyRentalPrice || found.saleOrSetupPrice || 0
-    : found.saleOrSetupPrice || found.monthlyRentalPrice || 0;
 }
 
 /**
@@ -150,12 +136,8 @@ export function ProposalItemsGrid({
   subtotal,
   onItemsChange,
 }: ProposalItemsGridProps) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingRemoveIdx, setPendingRemoveIdx] = useState<number | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const isProduct = kind === 'PRODUCT';
   const defaultRental = isRentalBudget(budgetType);
@@ -169,16 +151,6 @@ export function ProposalItemsGrid({
     () => catalog.filter((c) => c.isActive !== false && (isProduct ? !isServiceCatalogItem(c) : isServiceCatalogItem(c))),
     [catalog, isProduct]
   );
-
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = q
-      ? pool.filter(
-          (c) => c.gestaoClickCode.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
-        )
-      : pool;
-    return list.slice(0, 8);
-  }, [pool, query]);
 
   const patchRow = (idx: number, patch: Partial<ProposalGridItem>) => {
     const copy = [...items];
@@ -230,15 +202,10 @@ export function ProposalItemsGrid({
     return item;
   };
 
-  const appendItem = (found: ErpCatalogItem | null) => {
-    const text = query.trim();
+  // Mesma funcao de adicionar do contrato: o CatalogItemPicker chama com o item do catalogo ou o texto livre.
+  const appendItem = (found: ErpCatalogItem | null, text: string) => {
     if (!found && !text) return;
     onItemsChange([...items, buildItem(found, text)]);
-    setQuery('');
-    setOpen(false);
-    setHighlight(0);
-    // Nova linha vazia ja fica pronta com o foco para o proximo item.
-    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const removeRow = (idx: number) => onItemsChange(items.filter((_, i) => i !== idx));
@@ -407,81 +374,13 @@ export function ProposalItemsGrid({
 
             {/* Linha vazia sempre pronta (autocomplete do catalogo) */}
             <tr>
-              <td className={`${td} relative`}>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={query}
-                  data-testid={`proposal-grid-${noun}-search`}
-                  placeholder="Digite para buscar"
-                  onFocus={() => setOpen(true)}
-                  onBlur={() => setTimeout(() => setOpen(false), 150)}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setHighlight(0);
-                    setOpen(true);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setHighlight((h) => Math.min(h + 1, Math.max(0, matches.length - 1)));
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setHighlight((h) => Math.max(0, h - 1));
-                    } else if (e.key === 'Enter') {
-                      e.preventDefault();
-                      appendItem(matches[highlight] || null);
-                    } else if (e.key === 'Escape') {
-                      setOpen(false);
-                    }
-                  }}
-                  className={inputBase}
+              <td className={td}>
+                <CatalogItemPicker
+                  catalog={pool}
+                  testIdPrefix={`proposal-grid-${noun}`}
+                  priceFor={(c) => catalogPriceFor(c, kind, isProduct ? defaultRental : true)}
+                  onAdd={appendItem}
                 />
-                {open && (query.trim() || matches.length > 0) && (
-                  <div
-                    data-testid={`proposal-grid-${noun}-dropdown`}
-                    className="absolute left-1.5 top-full mt-0.5 z-50 w-[min(560px,80vw)] bg-white border border-[#ced4da] rounded-[3px] shadow-lg"
-                  >
-                    <ul className="max-h-72 overflow-y-auto py-0.5">
-                      {matches.length === 0 && (
-                        <li className="px-3 py-2 text-[12px] text-slate-500">Nenhum item do catálogo encontrado.</li>
-                      )}
-                      {matches.map((c, i) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onMouseEnter={() => setHighlight(i)}
-                            onClick={() => appendItem(c)}
-                            className={`w-full text-left px-3 py-1.5 cursor-pointer ${
-                              i === highlight ? 'bg-[#1b2559] text-white' : 'text-slate-800 hover:bg-slate-100'
-                            }`}
-                          >
-                            <div className="text-[13px] leading-snug truncate">
-                              {c.gestaoClickCode} - {c.name}
-                            </div>
-                            <div className={`text-[10.5px] leading-tight ${i === highlight ? 'text-white/75' : 'text-slate-500'}`}>
-                              {c.gestaoClickCode}
-                              {' • '}
-                              {formatBRL(catalogPriceFor(c, kind, isProduct ? defaultRental : true))}
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="p-1.5 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => appendItem(null)}
-                        disabled={!query.trim()}
-                        className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-[3px] bg-[#28a745] hover:bg-[#218838] disabled:opacity-60 text-white text-[12px] font-semibold cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Adicionar novo
-                      </button>
-                    </div>
-                  </div>
-                )}
               </td>
               <td className={td}>
                 <input type="text" disabled placeholder="Detalhes" className={`${inputBase} opacity-70`} />

@@ -5,7 +5,9 @@ import {
   isValidContractProduct,
   validateRentalContractForm,
 } from '../src/modules/erp/contract-form-validation';
-import { filterCatalogProducts } from '../src/app/components/CatalogProductCombobox';
+import fs from 'node:fs';
+import path from 'node:path';
+import { filterCatalogProducts, isServiceCatalogItem } from '../src/app/lib/catalog-search';
 import { computeFixedMenuPosition } from '../src/app/components/FixedPortalMenu';
 import type { ErpCatalogItem } from '../src/db/types';
 
@@ -165,6 +167,85 @@ describe('Busca de produtos semelhantes no catálogo', () => {
 
     const inactive = filterCatalogProducts(catalog, 'inativo');
     assert.equal(inactive.length, 0);
+  });
+
+  it('busca "cisco" no contrato devolve os mesmos resultados da busca dos orçamentos (nome, código e marca)', () => {
+    const withBrand: ErpCatalogItem[] = [
+      ...catalog,
+      {
+        id: '4',
+        gestaoClickCode: 'SL-44-SEC-K9',
+        name: 'Licença Cisco ISR 4400 Series Security License',
+        category: 'VENDA_HARDWARE',
+        fiscalNature: 'VENDA_EQUIPAMENTO',
+        ncmOrLc116: '8517.62.59',
+        cfopDefault: '5.102',
+        stockAvailable: 8,
+        stockRentedInClients: 0,
+        monthlyRentalPrice: 4500,
+        saleOrSetupPrice: 4500,
+        isActive: true,
+      },
+      {
+        id: '5',
+        gestaoClickCode: 'WS-C3850-48F-S',
+        name: 'WS-C3850-48F-S - Stackable 48 10/100/1000 Ethernet PoE+ port',
+        category: 'EQUIPAMENTO_LOCACAO',
+        fiscalNature: 'LOCACAO_BENS_MOVEIS',
+        ncmOrLc116: '8517.62.59',
+        cfopDefault: '5.908',
+        stockAvailable: 4,
+        stockRentedInClients: 6,
+        monthlyRentalPrice: 375,
+        saleOrSetupPrice: 7800,
+        isActive: true,
+        brand: 'Cisco Systems',
+      },
+      {
+        id: '6',
+        gestaoClickCode: 'SRV-CISCO',
+        name: 'Instalação Cisco on-site',
+        category: 'SERVICO_TECNICO_LC116',
+        fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+        ncmOrLc116: 'LC 116/03',
+        cfopDefault: '5.932',
+        stockAvailable: 0,
+        stockRentedInClients: 0,
+        monthlyRentalPrice: 800,
+        saleOrSetupPrice: 800,
+        isActive: true,
+      },
+    ];
+
+    const byBrand = filterCatalogProducts(withBrand, 'cisco');
+    assert.ok(byBrand.some((c) => c.gestaoClickCode === 'WS-C3850-48F-S'), 'acha o switch pela marca Cisco');
+    assert.ok(byBrand.some((c) => c.gestaoClickCode === 'SL-44-SEC-K9'), 'acha a licença pelo nome');
+    assert.ok(byBrand.some((c) => c.gestaoClickCode === 'WS-C3850'), 'acha o item cujo nome contém Cisco');
+
+    const productPool = withBrand.filter((c) => c.isActive !== false && !isServiceCatalogItem(c));
+    const contractResults = filterCatalogProducts(productPool, 'cisco', 8);
+    const quoteResults = filterCatalogProducts(productPool, 'cisco', 8);
+    assert.deepEqual(
+      contractResults.map((c) => c.gestaoClickCode),
+      quoteResults.map((c) => c.gestaoClickCode)
+    );
+    assert.ok(contractResults.length >= 3);
+    assert.equal(contractResults.some((c) => c.gestaoClickCode === 'SRV-CISCO'), false, 'serviço Cisco fica de fora da aba Produtos');
+  });
+
+  it('o modal do contrato recebe o catálogo e a grade de orçamentos reutiliza a mesma busca', () => {
+    const root = process.cwd();
+    const tabSrc = fs.readFileSync(path.join(root, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
+    const modalStart = tabSrc.indexOf('<ContractEditModal');
+    const modalEnd = tabSrc.indexOf('/>', modalStart);
+    const modalSlice = tabSrc.slice(modalStart, modalEnd);
+    assert.ok(modalSlice.includes('catalog={catalog}'), 'ContractEditModal precisa receber catalog={catalog}');
+
+    const gridSrc = fs.readFileSync(path.join(root, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
+    assert.ok(gridSrc.includes('<CatalogItemPicker'));
+
+    const modalSrc = fs.readFileSync(path.join(root, 'src/app/components/ErpEditModals.tsx'), 'utf8');
+    assert.ok(modalSrc.includes('catalog={productCatalog}'));
   });
 });
 

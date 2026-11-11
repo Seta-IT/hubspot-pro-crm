@@ -98,9 +98,18 @@ async function tokenRequest(cfg: MsGraphConfig, fetchFn: FetchLike, params: Reco
 }
 
 export class GraphError extends Error {
-  constructor(readonly code: string, readonly status: number) {
+  constructor(readonly code: string, readonly status: number, readonly graphCode: string | null = null) {
     super(code);
   }
+}
+
+/** Código do Graph (`error.code`) sem a mensagem, que pode trazer e-mails ou nomes. */
+export function parseGraphErrorCode(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const err = (raw as { error?: { code?: unknown } }).error;
+  const code = err && typeof err.code === 'string' ? err.code.trim() : '';
+  if (!code || code.length > 120 || !/^[A-Za-z0-9._-]+$/.test(code)) return null;
+  return code;
 }
 
 export function exchangeAuthCode(cfg: MsGraphConfig, fetchFn: FetchLike, code: string, verifier: string): Promise<GraphTokens> {
@@ -117,17 +126,35 @@ export function refreshGraphTokens(cfg: MsGraphConfig, fetchFn: FetchLike, refre
   return tokenRequest(cfg, fetchFn, { grant_type: 'refresh_token', refresh_token: refreshToken, scope: GRAPH_SCOPES.join(' ') });
 }
 
+/** Cabeçalhos do Graph. POST sem corpo (ex.: /messages/{id}/send) exige Content-Length 0 e não deve levar Content-Type JSON. */
+export function buildGraphRequestHeaders(method: string, hasBody: boolean): Record<string, string> {
+  const headers: Record<string, string> = { Authorization: 'Bearer <redacted>' };
+  const m = (method || 'GET').toUpperCase();
+  if (m === 'GET') headers.Prefer = 'IdType="ImmutableId", outlook.body-content-type="text"';
+  else headers.Prefer = 'IdType="ImmutableId"';
+  if (hasBody) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
 async function graph(fetchFn: FetchLike, accessToken: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<any> {
+  const method = init.method || 'GET';
+  const hasBody = init.body !== undefined;
+  const headers = buildGraphRequestHeaders(method, hasBody);
+  headers.Authorization = `Bearer ${accessToken}`;
   const res = await fetchFn(`${GRAPH_BASE}${path}`, {
-    method: init.method || 'GET',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      Prefer: 'IdType="ImmutableId", outlook.body-content-type="text"',
-    },
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    method,
+    headers,
+    body: hasBody ? JSON.stringify(init.body) : undefined,
   });
-  if (!res.ok) throw new GraphError(res.status === 401 ? 'GRAPH_UNAUTHORIZED' : 'GRAPH_REQUEST_FAILED', res.status);
+  if (!res.ok) {
+    let graphCode: string | null = null;
+    try {
+      graphCode = parseGraphErrorCode(await res.json());
+    } catch {
+      graphCode = null;
+    }
+    throw new GraphError(res.status === 401 ? 'GRAPH_UNAUTHORIZED' : 'GRAPH_REQUEST_FAILED', res.status, graphCode);
+  }
   if (res.status === 202 || res.status === 204) return null;
   return res.json();
 }

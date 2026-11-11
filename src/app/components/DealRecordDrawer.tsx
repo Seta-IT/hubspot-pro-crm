@@ -722,7 +722,7 @@ export default function DealRecordDrawer({
                   <select
                     value={deal.stageId}
                     onChange={(e) => void saveStage(e.target.value)}
-                    className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white font-semibold text-slate-800 text-[11px]"
+                    className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-800 text-[11px]"
                   >
                     {stages.map((st) => (
                       <option key={st.id} value={st.id}>
@@ -1078,10 +1078,10 @@ export default function DealRecordDrawer({
                         value={activitySearch}
                         onChange={(e) => setActivitySearch(e.target.value)}
                         placeholder="Pesquisar atividades"
-                        className="w-full pl-8 pr-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
+                        className="w-full pl-8 pr-3 py-1.5 rounded-md border border-slate-200 text-xs"
                       />
                     </div>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ALL" aria-label="Atividade">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ALL" aria-label="Atividade">
                       <option value="ALL">Atividade</option>
                       <option value="NOTE">Observação</option>
                       <option value="EMAIL">E-mail</option>
@@ -1089,12 +1089,12 @@ export default function DealRecordDrawer({
                       <option value="TASK">Tarefa</option>
                       <option value="MEETING">Reunião</option>
                     </select>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ANY" aria-label="Data da atividade">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ANY" aria-label="Data da atividade">
                       <option value="ANY">Data da atividade</option>
                       <option value="7">Últimos 7 dias</option>
                       <option value="30">Últimos 30 dias</option>
                     </select>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ANY" aria-label="Atividade atribuída a">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ANY" aria-label="Atividade atribuída a">
                       <option value="ANY">Atividade atribuída a</option>
                       <option value="ME">Eu</option>
                     </select>
@@ -1113,7 +1113,7 @@ export default function DealRecordDrawer({
                         value={noteTitle}
                         onChange={(e) => setNoteTitle(e.target.value)}
                         placeholder="Assunto"
-                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
                       />
                       <textarea
                         rows={3}

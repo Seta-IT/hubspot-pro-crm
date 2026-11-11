@@ -761,7 +761,7 @@ export default function ClientEmailComposerModal({
                     setSubjectDirty(true);
                     setSubject(e.target.value);
                   }}
-                  className="w-full outline-none bg-transparent font-semibold text-slate-900 py-1"
+                  className="w-full outline-none bg-transparent text-slate-900 py-1"
                 />
               </div>
             </div>
@@ -792,7 +792,7 @@ export default function ClientEmailComposerModal({
                         }));
                         setSignedInvoiceUrl(null);
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-slate-800"
                     >
                       {(payload.invoiceChoices || []).map((choice) => (
                         <option key={choice.id} value={choice.id}>{choice.label}</option>

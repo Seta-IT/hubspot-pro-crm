@@ -186,7 +186,7 @@ export default function EmailRecipientField({
                 removeChip(chips.length - 1);
               }
             }}
-            className="flex-1 min-w-[160px] outline-none bg-transparent text-xs text-slate-900 py-1 font-semibold placeholder:font-semibold placeholder:text-slate-400"
+            className="flex-1 min-w-[160px] outline-none bg-transparent text-xs text-slate-900 py-1 placeholder:text-slate-400"
           />
         </div>
       </div>

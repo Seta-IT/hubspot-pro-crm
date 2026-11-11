@@ -61,11 +61,61 @@ export const MAILBOX_SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Textos para o usuario (sem detalhes tecnicos). */
 export const MAILBOX_MESSAGES = Object.freeze({
   disabled: 'A conexão de caixas de e-mail ainda não foi liberada pelo administrador.',
-  reconnect: 'Sua caixa de e-mail precisa ser conectada novamente.',
-  noAccount: 'Conecte sua caixa de e-mail em Minha Conta para enviar pelo seu endereço.',
+  reconnect: 'Sessão do Outlook expirou. Reconecte sua caixa em Minha Conta.',
+  noAccount: 'Conecte sua caixa do Outlook em Minha Conta para enviar pelo seu endereço.',
   sendFailed: 'Não foi possível enviar o e-mail agora. Tente novamente em instantes.',
+  sendForbidden: 'Sua caixa do Outlook não tem permissão para enviar. Reconecte a caixa e aceite a permissão de envio.',
+  invalidRecipients: 'Verifique os endereços de e-mail dos destinatários e tente de novo.',
+  sendTooLarge: 'O e-mail ficou grande demais para o Outlook. Remova anexos ou reduza o conteúdo.',
+  mailboxNotEnabled: 'A caixa do Outlook não está habilitada para envio. Fale com o administrador ou reconecte a caixa.',
   connectFailed: 'Não foi possível concluir a conexão com a Microsoft. Tente novamente.',
 });
+
+function normGraphCode(code: string | null | undefined): string {
+  return String(code || '').trim().toLowerCase();
+}
+
+/** Traduz falha do Graph para mensagem segura ao usuário, sem vazar detalhe interno. */
+export function userFacingMailboxSendFailure(err: unknown): { status: number; error: string; code: string } {
+  if (!(err instanceof GraphError)) {
+    return { status: 502, error: MAILBOX_MESSAGES.sendFailed, code: 'MAILBOX_SEND_FAILED' };
+  }
+  const g = normGraphCode(err.graphCode);
+  if (err.status === 401 || err.code === 'GRAPH_UNAUTHORIZED') {
+    return { status: 409, error: MAILBOX_MESSAGES.reconnect, code: 'MAILBOX_RECONNECT' };
+  }
+  if (
+    err.status === 403
+    || g === 'erroraccessdenied'
+    || g === 'accessdenied'
+    || g === 'authorization_requestdenied'
+    || g === 'forbidden'
+  ) {
+    return { status: 403, error: MAILBOX_MESSAGES.sendForbidden, code: 'MAILBOX_SEND_FORBIDDEN' };
+  }
+  if (g === 'errorinvalidrecipients' || g === 'errorinvalidrecipient' || g === 'invalidrecipients') {
+    return { status: 400, error: MAILBOX_MESSAGES.invalidRecipients, code: 'MAILBOX_INVALID_RECIPIENTS' };
+  }
+  if (
+    err.status === 413
+    || g === 'errorattachmentsizelimitexceeded'
+    || g === 'errormessagesizeexceeded'
+    || g === 'requestentitytoolarge'
+  ) {
+    return { status: 413, error: MAILBOX_MESSAGES.sendTooLarge, code: 'MAILBOX_SEND_TOO_LARGE' };
+  }
+  if (err.status === 429 || g === 'applicationthrottled' || g === 'activitylimitreached') {
+    return { status: 429, error: 'Muitos e-mails em pouco tempo. Aguarde alguns minutos.', code: 'MAILBOX_RATE_LIMITED' };
+  }
+  if (
+    g === 'mailboxnotenabledforrestapi'
+    || g === 'errormailboxnotenabledforrestapi'
+    || g === 'mailboxnotenablederror'
+  ) {
+    return { status: 409, error: MAILBOX_MESSAGES.mailboxNotEnabled, code: 'MAILBOX_NOT_ENABLED' };
+  }
+  return { status: 502, error: MAILBOX_MESSAGES.sendFailed, code: 'MAILBOX_SEND_FAILED' };
+}
 
 type Query = Record<string, string | undefined>;
 type Ctx = { trustedInternal: boolean; serviceAccount?: boolean };
@@ -578,9 +628,16 @@ export async function handleMailboxRoute(
         to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: inlined.html, text: built.text, attachments: graphAtts,
       });
     } catch (e) {
-      if (e instanceof GraphError && e.status === 401) await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
-      audit(deps.repo, actor, query, 'MAILBOX_SEND_FAILED', `${m} ${cleanPath}`, 'BLOCKED', `Falha no envio pela caixa ${account.mailboxAddress}.`);
-      return { status: 502, body: { error: MAILBOX_MESSAGES.sendFailed, code: 'MAILBOX_SEND_FAILED' } };
+      if (e instanceof GraphError && (e.status === 401 || e.code === 'GRAPH_UNAUTHORIZED')) {
+        await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
+      }
+      const mapped = userFacingMailboxSendFailure(e);
+      const graphStatus = e instanceof GraphError ? e.status : 0;
+      const graphCode = e instanceof GraphError ? (e.graphCode || e.code) : 'SEND_EXCEPTION';
+      console.warn('[mailbox] Graph send failed', { status: graphStatus, graphCode });
+      audit(deps.repo, actor, query, 'MAILBOX_SEND_FAILED', `${m} ${cleanPath}`, 'BLOCKED',
+        `Falha no envio pela caixa ${account.mailboxAddress} (HTTP ${graphStatus}, ${graphCode}).`);
+      return { status: mapped.status, body: { error: mapped.error, code: mapped.code } };
     }
     let item = null;
     if (logIt) {

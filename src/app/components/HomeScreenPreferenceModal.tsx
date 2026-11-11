@@ -57,7 +57,7 @@ export default function HomeScreenPreferenceModal({
               <Home className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h2 className="text-sm font-bold">Tela inicial padrão</h2>
+              <h2 className="text-sm font-semibold">Tela inicial padrão</h2>
               <p className="text-[11px] text-slate-300 font-semibold">
                 Escolha o sistema e a tela que abrem ao entrar no STI-hub, {userName}.
               </p>
@@ -90,7 +90,7 @@ export default function HomeScreenPreferenceModal({
           ) : (
             <>
               <div className="space-y-2">
-                <h3 className="text-[11px] uppercase tracking-wide font-bold text-slate-500">1. Sistema</h3>
+                <h3 className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">1. Sistema</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {HOME_SYSTEMS.filter((s) => allowedSystems.includes(s.id)).map((sys) => {
                     const Icon = SYSTEM_ICONS[sys.id];
@@ -124,7 +124,7 @@ export default function HomeScreenPreferenceModal({
 
               {selectedSystem && (
                 <div className="space-y-2">
-                  <h3 className="text-[11px] uppercase tracking-wide font-bold text-slate-500">2. Tela</h3>
+                  <h3 className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">2. Tela</h3>
                   <div className="space-y-1.5">
                     {screens.map((scr) => {
                       const active = selectedScreen === scr.id;
