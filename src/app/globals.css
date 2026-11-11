@@ -9,9 +9,9 @@
   --sti-accent-soft: #eef2f8;
   /* Cabecalho por sistema: CRM #F47B3C, Chamados verde, ERP azul.
      Texto branco font-semibold no cabecalho. CRM #F47B3C com branco ~2,71:1 (cor pedida). */
-  --sti-header-erp: linear-gradient(90deg, #1e3a6e 0%, #2b4c86 55%, #3a5f9c 100%);
-  --sti-header-crm: linear-gradient(90deg, #DC6A2E 0%, #F47B3C 55%, #F47B3C 100%);
-  --sti-header-service: linear-gradient(90deg, #065f46 0%, #047857 55%, #059669 100%);
+  --sti-header-erp: linear-gradient(#1e3a6e, #1e3a6e);
+  --sti-header-crm: linear-gradient(#F47B3C, #F47B3C);
+  --sti-header-service: linear-gradient(#047857, #047857);
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
   --hs-battleship: #516f90;

@@ -22,10 +22,15 @@ function contrastWhite(h: string) {
 }
 
 describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
-  it('CRM: degradê baseado em #F47B3C; Chamados verde; ERP azul', () => {
-    assert.match(css, /--sti-header-crm:\s*linear-gradient\(90deg, #DC6A2E/i);
-    assert.match(css, /--sti-header-service:\s*linear-gradient\(90deg, #065f46/);
-    assert.match(css, /--sti-header-erp:\s*linear-gradient\(90deg, #1e3a6e/);
+  it('cores sólidas sem degradê (t215u): CRM #F47B3C; Chamados verde; ERP azul', () => {
+    assert.match(css, /--sti-header-crm:\s*linear-gradient\(#F47B3C, #F47B3C\)/i);
+    assert.match(css, /--sti-header-service:\s*linear-gradient\(#047857, #047857\)/);
+    assert.match(css, /--sti-header-erp:\s*linear-gradient\(#1e3a6e, #1e3a6e\)/);
+    for (const sys of ['crm', 'service', 'erp']) {
+      const m = css.match(new RegExp(`--sti-header-${sys}:\\s*([^;]+);`));
+      const hexes = new Set((m![1].match(/#[0-9a-f]{6}/gi) || []).map((h) => h.toUpperCase()));
+      assert.equal(hexes.size, 1, `${sys} deve ser cor sólida`);
+    }
     assert.match(css, /#F47B3C/i);
     assert.ok(css.includes('#047857')); // accent/botões Chamados
   });
@@ -38,11 +43,10 @@ describe('Cabecalho e menu por sistema (t139u/t140u/t141u)', () => {
       for (const h of hexes) assert.ok(contrastWhite(h) >= 3, `${sys} ${h} = ${contrastWhite(h).toFixed(2)}`);
     });
   }
-  it('token --sti-header-crm: #DC6A2E e #F47B3C; branco em #F47B3C fica ~2,71:1 (cor pedida)', () => {
+  it('token --sti-header-crm: #F47B3C sólido; branco em #F47B3C fica ~2,71:1 (cor pedida)', () => {
     const m = css.match(/--sti-header-crm:\s*([^;]+);/);
     assert.ok(m);
     const hexes = (m![1].match(/#[0-9a-f]{6}/gi) || []).map((h) => h.toUpperCase());
-    assert.ok(hexes.includes('#DC6A2E'));
     assert.ok(hexes.includes('#F47B3C'));
     assert.ok(contrastWhite('#DC6A2E') >= 3, `hover ${contrastWhite('#DC6A2E').toFixed(2)}`);
     // Cor pedida pelo usuario (t207u). Texto branco no estilo HubSpot, mesmo abaixo de AA.
