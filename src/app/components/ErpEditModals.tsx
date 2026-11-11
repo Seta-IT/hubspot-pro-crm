@@ -24,6 +24,7 @@ import {
   Printer,
   ExternalLink,
   Eye,
+  Package,
 } from 'lucide-react';
 import {
   Company,
@@ -51,7 +52,8 @@ import {
   ReceiptDraftPreviewButton,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
-import { CatalogProductCombobox, catalogRentalPrice, isServiceCatalogItem } from './CatalogProductCombobox';
+import { CatalogItemPicker, CATALOG_GRID_INPUT } from './CatalogItemPicker';
+import { buildContractEquipmentFromCatalog, catalogRentalPrice, isServiceCatalogItem } from '../lib/catalog-search';
 import { countValidContractProducts, validateRentalContractForm, type ContractFieldError } from '../../modules/erp/contract-form-validation';
 import {
   formatBrPhoneMask,
@@ -3345,141 +3347,175 @@ export function ContractEditModal({
 
           {(activeTab === 'PRODUTOS' || activeTab === 'EQUIPAMENTOS_PATRIMONIO') && (
             <div
-              className={`border rounded-lg p-4 bg-slate-50 space-y-3 ${
+              className={`bg-white rounded-md border shadow-2xs ${
                 tabHasError('PRODUTOS') ? 'border-rose-400 ring-2 ring-rose-200' : 'border-slate-200'
               }`}
               data-testid="contract-products-tab"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-semibold text-slate-800 text-sm block">
-                    Produtos ({draft.equipments.length})
-                  </span>
+              <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2.5">
+                <Package className="w-5 h-5 text-slate-600" />
+                <div className="text-[15px] font-semibold text-slate-900">
+                  Produtos ({(draft.equipments || []).length})
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const eq: ErpRentalEquipmentItem = {
-                      id: `eq-${Date.now()}`,
-                      skuGestaoClick: '',
-                      description: '',
-                      serialNumber: '',
-                      assetTag: '',
-                      assetStatus: 'EM_CLIENTE',
-                      ncm: '8517.62.59',
-                      quantity: 1,
-                      unitMonthlyRent: 0,
-                      assetValueBrl: 0,
-                      remessaCfop: draft.remessaCfop || '5.908',
-                      remessaNfeKey: '',
-                    };
-                    updateEquipments([...(draft.equipments || []), eq]);
-                  }}
-                  className="px-3 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d56] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Adicionar produto
-                </button>
               </div>
               {fieldError('equipments') && (
-                <div data-testid="contract-products-error" className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-800">
+                <div data-testid="contract-products-error" className="mx-3 mt-2 rounded border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-800">
                   {fieldError('equipments')}
                 </div>
               )}
 
-              <div className="space-y-2">
-                {(draft.equipments || []).map((eq, idx) => (
-                  <div
-                    key={eq.id || idx}
-                    className="bg-white p-3 rounded border border-slate-200 space-y-2"
-                  >
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
-                      <div className="sm:col-span-5">
-                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Produto</label>
-                        <CatalogProductCombobox
-                          catalog={productCatalog}
-                          maxResults={8}
-                          value={eq.skuGestaoClick ? `${eq.skuGestaoClick} - ${eq.description}` : (eq.description || '')}
-                          placeholder="Digite para buscar"
-                          invalid={Boolean(fieldError('equipments') && !(eq.skuGestaoClick || eq.description))}
-                          onChangeText={(text) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], description: text, skuGestaoClick: copy[idx].skuGestaoClick && text.includes(copy[idx].skuGestaoClick) ? copy[idx].skuGestaoClick : '' };
-                            updateEquipments(copy);
-                          }}
-                          onSelect={(item) => {
-                            const copy = [...draft.equipments];
-                            const ncmMatch = String(item.ncmOrLc116 || '').match(/\d{4}\.\d{2}\.\d{2}/);
-                            copy[idx] = {
-                              ...copy[idx],
-                              skuGestaoClick: item.gestaoClickCode,
-                              description: item.name,
-                              unitMonthlyRent: catalogRentalPrice(item),
-                              ncm: ncmMatch ? ncmMatch[0] : copy[idx].ncm,
-                              stockAvailable: item.stockAvailable,
-                              variationDetails: copy[idx].variationDetails || item.unitOfMeasure || '',
-                            };
-                            updateEquipments(copy);
-                          }}
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">S/N</label>
-                        <input
-                          type="text"
-                          value={eq.serialNumber}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], serialNumber: e.target.value };
-                            updateEquipments(copy);
-                          }}
-                          className="w-full px-2 py-1.5 rounded border border-slate-300 font-mono text-xs"
-                        />
-                      </div>
-                      <div className="sm:col-span-1">
-                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Qtd. <span className="text-rose-600">*</span></label>
-                        <input
-                          type="number"
-                          min={1}
-                          step="1"
-                          value={eq.quantity}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], quantity: Number(e.target.value) };
-                            updateEquipments(copy);
-                          }}
-                          className={`w-full px-2 py-1.5 rounded border text-xs text-right ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : 'border-slate-300'}`}
-                        />
-                        {fieldError(`equipments.${idx}.quantity`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.quantity`)}</span>}
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="text-[10px] font-semibold text-slate-600 block mb-1">Valor mensal (R$)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={eq.unitMonthlyRent}
-                          onChange={(e) => {
-                            const copy = [...draft.equipments];
-                            copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
-                            updateEquipments(copy);
-                          }}
-                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.unitMonthlyRent`) ? 'border-rose-500' : 'border-slate-300'}`}
-                        />
-                        {fieldError(`equipments.${idx}.unitMonthlyRent`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.unitMonthlyRent`)}</span>}
-                      </div>
-                      <div className="sm:col-span-1 flex items-center justify-end">
-                        <button
-                          type="button"
-                          aria-label="Excluir produto"
-                          onClick={() => setProductToDeleteIdx(idx)}
-                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="px-3 py-2">
+                <table className="w-full text-[12px]" data-testid="contract-products-grid">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[44%] min-w-[240px]">Produto<span className="text-rose-600">*</span></th>
+                      <th className="py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[18%] min-w-[120px]">S/N</th>
+                      <th className="py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[70px]">Qtd.<span className="text-rose-600">*</span></th>
+                      <th className="py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[130px]">Valor mensal<span className="text-rose-600">*</span></th>
+                      <th className="py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[120px]">Subtotal</th>
+                      <th className="py-1.5 px-1.5 text-center text-[12px] font-semibold text-slate-700 whitespace-nowrap w-[56px]">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(draft.equipments || []).map((eq, idx) => {
+                      const prefix = eq.skuGestaoClick && !String(eq.description || '').startsWith(eq.skuGestaoClick) ? `${eq.skuGestaoClick} - ` : '';
+                      return (
+                        <tr key={eq.id || idx} className="border-b border-slate-100" data-testid="contract-product-row">
+                          <td className="py-1 px-1.5 align-top">
+                            <input
+                              type="text"
+                              value={`${prefix}${eq.description || ''}`}
+                              title={eq.description}
+                              disabled={isReadOnly}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                const copy = [...draft.equipments];
+                                copy[idx] = { ...copy[idx], description: prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v };
+                                updateEquipments(copy);
+                              }}
+                              className={`${CATALOG_GRID_INPUT} ${fieldError('equipments') && !(eq.skuGestaoClick || eq.description) ? 'border-rose-500' : ''}`}
+                            />
+                          </td>
+                          <td className="py-1 px-1.5 align-top">
+                            <input
+                              type="text"
+                              value={eq.serialNumber}
+                              placeholder="S/N"
+                              disabled={isReadOnly}
+                              onChange={(e) => {
+                                const copy = [...draft.equipments];
+                                copy[idx] = { ...copy[idx], serialNumber: e.target.value };
+                                updateEquipments(copy);
+                              }}
+                              className={`${CATALOG_GRID_INPUT} font-mono`}
+                            />
+                          </td>
+                          <td className="py-1 px-1.5 align-top">
+                            <input
+                              type="number"
+                              min={1}
+                              step="1"
+                              value={eq.quantity}
+                              disabled={isReadOnly}
+                              onChange={(e) => {
+                                const copy = [...draft.equipments];
+                                copy[idx] = { ...copy[idx], quantity: Number(e.target.value) };
+                                updateEquipments(copy);
+                              }}
+                              className={`${CATALOG_GRID_INPUT} text-center ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : ''}`}
+                            />
+                            {fieldError(`equipments.${idx}.quantity`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.quantity`)}</span>}
+                          </td>
+                          <td className="py-1 px-1.5 align-top">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={eq.unitMonthlyRent}
+                              disabled={isReadOnly}
+                              onChange={(e) => {
+                                const copy = [...draft.equipments];
+                                copy[idx] = { ...copy[idx], unitMonthlyRent: Number(e.target.value) || 0 };
+                                updateEquipments(copy);
+                              }}
+                              className={`${CATALOG_GRID_INPUT} text-right ${fieldError(`equipments.${idx}.unitMonthlyRent`) ? 'border-rose-500' : ''}`}
+                            />
+                            {fieldError(`equipments.${idx}.unitMonthlyRent`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.unitMonthlyRent`)}</span>}
+                          </td>
+                          <td className="py-1 px-1.5 align-top">
+                            <input
+                              type="text"
+                              readOnly
+                              tabIndex={-1}
+                              value={formatBRL((Number(eq.quantity) || 0) * (Number(eq.unitMonthlyRent) || 0))}
+                              className={`${CATALOG_GRID_INPUT} text-right text-slate-600 cursor-default`}
+                            />
+                          </td>
+                          <td className="py-1 px-1.5 align-top text-center">
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                aria-label="Excluir produto"
+                                title="Remover"
+                                onClick={() => setProductToDeleteIdx(idx)}
+                                className="p-1.5 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Linha vazia sempre pronta: mesmo campo e mesma função de adicionar dos orçamentos */}
+                    {!isReadOnly && (
+                      <tr>
+                        <td className="py-1 px-1.5 align-top">
+                          <CatalogItemPicker
+                            catalog={productCatalog}
+                            testIdPrefix="contract-products"
+                            priceFor={catalogRentalPrice}
+                            invalid={Boolean(fieldError('equipments')) && (draft.equipments || []).length === 0}
+                            onAdd={(found, text) =>
+                              updateEquipments([
+                                ...(draft.equipments || []),
+                                buildContractEquipmentFromCatalog(found, text, { remessaCfop: draft.remessaCfop || '5.908' }),
+                              ])
+                            }
+                          />
+                        </td>
+                        <td className="py-1 px-1.5 align-top">
+                          <input type="text" disabled placeholder="S/N" className={`${CATALOG_GRID_INPUT} opacity-70`} />
+                        </td>
+                        <td className="py-1 px-1.5 align-top">
+                          <input type="text" disabled className={`${CATALOG_GRID_INPUT} opacity-70`} />
+                        </td>
+                        <td className="py-1 px-1.5 align-top">
+                          <input type="text" disabled placeholder="R$" className={`${CATALOG_GRID_INPUT} opacity-70`} />
+                        </td>
+                        <td className="py-1 px-1.5 align-top">
+                          <input type="text" disabled className={`${CATALOG_GRID_INPUT} opacity-70`} />
+                        </td>
+                        <td className="py-1 px-1.5 align-top" />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+                <div className="flex justify-end pt-2 mt-1 border-t border-slate-100 text-[12px] text-slate-600">
+                  <span>
+                    Subtotal produtos ({(draft.equipments || []).length}):{' '}
+                    <span className="font-semibold text-[#1b2559] text-[13px]">
+                      {formatBRL(
+                        (draft.equipments || []).reduce(
+                          (acc, eq) => acc + (Number(eq.quantity) || 0) * (Number(eq.unitMonthlyRent) || 0),
+                          0
+                        )
+                      )}
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
           )}

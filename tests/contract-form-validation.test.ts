@@ -7,7 +7,7 @@ import {
 } from '../src/modules/erp/contract-form-validation';
 import fs from 'node:fs';
 import path from 'node:path';
-import { filterCatalogProducts, isServiceCatalogItem } from '../src/app/components/CatalogProductCombobox';
+import { filterCatalogProducts, isServiceCatalogItem } from '../src/app/lib/catalog-search';
 import { computeFixedMenuPosition } from '../src/app/components/FixedPortalMenu';
 import type { ErpCatalogItem } from '../src/db/types';
 
@@ -242,12 +242,10 @@ describe('Busca de produtos semelhantes no catálogo', () => {
     assert.ok(modalSlice.includes('catalog={catalog}'), 'ContractEditModal precisa receber catalog={catalog}');
 
     const gridSrc = fs.readFileSync(path.join(root, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
-    assert.ok(gridSrc.includes("from './CatalogProductCombobox'"));
-    assert.ok(gridSrc.includes('filterCatalogProducts(pool, q, 8)'));
+    assert.ok(gridSrc.includes('<CatalogItemPicker'));
 
     const modalSrc = fs.readFileSync(path.join(root, 'src/app/components/ErpEditModals.tsx'), 'utf8');
     assert.ok(modalSrc.includes('catalog={productCatalog}'));
-    assert.ok(modalSrc.includes('maxResults={8}'));
   });
 });
 

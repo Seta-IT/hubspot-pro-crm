@@ -2265,7 +2265,10 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
   it('grade de produtos/servicos igual ao GestaoClick: colunas, autocomplete navy, + Adicionar novo e linha vazia pronta', () => {
     const rootDir = process.cwd();
     const modalsSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ErpEditModals.tsx'), 'utf8');
-    const gridSrc = fs.readFileSync(path.join(rootDir, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
+    // Campo de busca/adicionar fica no CatalogItemPicker, compartilhado com o contrato.
+    const gridSrc =
+      fs.readFileSync(path.join(rootDir, 'src/app/components/ProposalItemsGrid.tsx'), 'utf8') +
+      fs.readFileSync(path.join(rootDir, 'src/app/components/CatalogItemPicker.tsx'), 'utf8');
     assert.equal(modalsSrc.includes('-- Escolher produto do catálogo --'), false, 'combo antigo removido');
     assert.equal(modalsSrc.includes('+ Adicionar Produto'), false);
     assert.ok(modalsSrc.includes('kind="PRODUCT"') && modalsSrc.includes('kind="SERVICE"'));
