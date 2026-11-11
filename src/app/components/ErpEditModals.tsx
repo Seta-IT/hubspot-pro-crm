@@ -2,7 +2,7 @@
 
 import { CannotDeleteModal } from './CannotDeleteModal';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -51,7 +51,7 @@ import {
   ReceiptDraftPreviewButton,
   ReceiptDraftPreviewModal,
 } from './ContractBillingPanels';
-import { CatalogProductCombobox, catalogRentalPrice } from './CatalogProductCombobox';
+import { CatalogProductCombobox, catalogRentalPrice, isServiceCatalogItem } from './CatalogProductCombobox';
 import { countValidContractProducts, validateRentalContractForm, type ContractFieldError } from '../../modules/erp/contract-form-validation';
 import {
   formatBrPhoneMask,
@@ -2194,6 +2194,10 @@ export function ContractEditModal({
   const [contractFormError, setContractFormError] = useState<string | null>(null);
   const [contractFieldErrors, setContractFieldErrors] = useState<ContractFieldError[]>([]);
   const [productToDeleteIdx, setProductToDeleteIdx] = useState<number | null>(null);
+  const productCatalog = useMemo(
+    () => (catalog || []).filter((c) => c.isActive !== false && !isServiceCatalogItem(c)),
+    [catalog]
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showInUseModal, setShowInUseModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -3392,7 +3396,8 @@ export function ContractEditModal({
                       <div className="sm:col-span-5">
                         <label className="text-[10px] font-semibold text-slate-600 block mb-1">Produto</label>
                         <CatalogProductCombobox
-                          catalog={catalog}
+                          catalog={productCatalog}
+                          maxResults={8}
                           value={eq.skuGestaoClick ? `${eq.skuGestaoClick} - ${eq.description}` : (eq.description || '')}
                           placeholder="Digite para buscar"
                           invalid={Boolean(fieldError('equipments') && !(eq.skuGestaoClick || eq.description))}

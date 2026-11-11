@@ -6803,6 +6803,7 @@ export default function ErpGestaoClickTab({
         <ContractEditModal
           key={editingContract.id}
           contract={editingContract}
+          catalog={catalog}
           invoices={invoices}
           initialTab={editingContractTab}
           readOnly={editingContractReadOnly}

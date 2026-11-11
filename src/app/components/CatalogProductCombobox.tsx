@@ -12,6 +12,17 @@ function foldQuery(value: string): string {
     .trim();
 }
 
+const SERVICE_NATURES = new Set(['SERVICO_TECNICO_TI_TELECOM', 'SERVICO_COMUNICACAO_SCM_SVA']);
+
+export function isServiceCatalogItem(c: ErpCatalogItem): boolean {
+  return (
+    SERVICE_NATURES.has(String(c.fiscalNature)) ||
+    c.category === 'SERVICO_TECNICO_LC116' ||
+    c.category === 'TELECOM_SCM_SVA'
+  );
+}
+
+/** Mesma busca dos orçamentos: nome, código, marca e código de barras, sem acento e sem diferenciar maiúsculas. */
 export function filterCatalogProducts(
   catalog: ErpCatalogItem[],
   query: string,
@@ -25,7 +36,8 @@ export function filterCatalogProducts(
       const code = foldQuery(c.gestaoClickCode || '');
       const name = foldQuery(c.name || '');
       const barcode = foldQuery(c.barcodeEan || '');
-      return code.includes(q) || name.includes(q) || barcode.includes(q);
+      const brand = foldQuery(c.brand || '');
+      return code.includes(q) || name.includes(q) || barcode.includes(q) || brand.includes(q);
     })
     .slice(0, maxResults);
 }
@@ -49,7 +61,7 @@ export interface CatalogProductComboboxProps {
 }
 
 /**
- * Combobox de produtos no padrão HubSpot: lista branca, busca por nome/código
+ * Combobox de produtos no padrão HubSpot: lista branca, busca por nome, código e marca
  * sem acento e sem diferenciar maiúsculas, a partir de 1 caractere.
  */
 export function CatalogProductCombobox({
@@ -147,7 +159,7 @@ export function CatalogProductCombobox({
           id={listId}
           role="listbox"
           data-testid="catalog-product-dropdown"
-          className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-[6px] border border-[#cbd6e2] bg-white shadow-lg py-1"
+          className="absolute left-0 z-50 mt-1 w-[min(560px,80vw)] max-h-72 overflow-y-auto rounded-[6px] border border-[#cbd6e2] bg-white shadow-lg py-1"
         >
           {matches.length === 0 ? (
             <li className="px-3 py-2 text-xs text-slate-500">Nenhum produto encontrado.</li>
@@ -165,7 +177,9 @@ export function CatalogProductCombobox({
                       active ? 'bg-[#fff4f0] text-slate-900' : 'text-slate-700 hover:bg-[#f5f8fa]'
                     }`}
                   >
-                    <div className="text-xs font-semibold leading-snug truncate">{item.name}</div>
+                    <div className="text-xs font-semibold leading-snug truncate">
+                      {item.gestaoClickCode} - {item.name}
+                    </div>
                     <div className="text-[10px] font-semibold text-slate-500 leading-tight">
                       {item.gestaoClickCode}
                       {' • '}

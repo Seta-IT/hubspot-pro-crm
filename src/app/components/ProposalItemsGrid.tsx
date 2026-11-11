@@ -4,6 +4,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Menu, Package, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
 import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { filterCatalogProducts, isServiceCatalogItem } from './CatalogProductCombobox';
 import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
 
@@ -30,15 +31,7 @@ export interface ProposalItemsGridProps {
 const inputBase =
   'w-full h-8 px-2 rounded-[3px] border border-[#ced4da] bg-[#e9ecef] text-[12px] text-slate-800 focus:outline-none focus:border-[#1b2559] focus:bg-white';
 
-const SERVICE_NATURES = new Set(['SERVICO_TECNICO_TI_TELECOM', 'SERVICO_COMUNICACAO_SCM_SVA']);
-
-export function isServiceCatalogItem(c: ErpCatalogItem): boolean {
-  return (
-    SERVICE_NATURES.has(String(c.fiscalNature)) ||
-    c.category === 'SERVICO_TECNICO_LC116' ||
-    c.category === 'TELECOM_SCM_SVA'
-  );
-}
+export { isServiceCatalogItem } from './CatalogProductCombobox';
 
 /** Tipo de servico das linhas = tipo de servico definido no topo da proposta (chips). */
 function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], serviceType?: string): string {
@@ -171,13 +164,10 @@ export function ProposalItemsGrid({
   );
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = q
-      ? pool.filter(
-          (c) => c.gestaoClickCode.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
-        )
-      : pool;
-    return list.slice(0, 8);
+    const q = query.trim();
+    if (!q) return pool.slice(0, 8);
+    // Mesma busca do contrato (nome, código, marca; sem acento e sem diferenciar maiúsculas).
+    return filterCatalogProducts(pool, q, 8);
   }, [pool, query]);
 
   const patchRow = (idx: number, patch: Partial<ProposalGridItem>) => {
