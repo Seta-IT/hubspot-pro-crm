@@ -4,7 +4,6 @@ import {
   CCL_SHEET_CSS,
   cclItemsTableHtml,
   cclLetterheadHtml,
-  cclSignatureFooterHtml,
   cclSummaryHtml,
 } from './proposal-sheet-theme';
 import { defaultIssuerAddressLine } from './company-issuer-address';
@@ -393,29 +392,34 @@ export function saveReceiptTemplateStyle(id: string): void {
 
 export const RECEIPT_DRAFT_BANNER_TEXT = 'RASCUNHO — NÃO É DOCUMENTO FISCAL / pré-visualização';
 
+
+/** Troca "Locação Pura" por "Locação" só na exibição do recibo (dados originais permanecem). */
+export function omitLocacaoPuraLabel(text: string): string {
+  return String(text || '').replace(/loca[cç][aã]o\s+pura/gi, (chunk) => chunk.split(/\s+/)[0] || chunk);
+}
+
+/** CFOP na folha do recibo: omite referência à NF de remessa. */
+function compactReceiptCfop(cfop: string | null | undefined): string | null {
+  const raw = String(cfop || '').trim();
+  if (!raw) return null;
+  if (/remessa/i.test(raw)) return null;
+  return raw;
+}
+
+function receiptCopyField(label: string, value: string | null | undefined): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const safe = escHtml(raw);
+  return `<span class="ccl-label">${label}<em class="receipt-copy-hint">clique para copiar</em></span>
+          <div class="receipt-copy ccl-mono" role="button" tabindex="0" title="Clique para copiar" data-copy="${safe}" style="font-size:10px;color:#0f172a;word-break:break-all;margin-bottom:4px;position:relative;">${safe}<span class="receipt-copy-feedback" aria-live="polite"></span></div>`;
+}
+
 export function buildStandaloneInvoiceHtml(
   invoice: ErpFiscalInvoice,
   contract?: ErpRentalContract | null,
   htmlOptions?: StandaloneInvoiceHtmlOptions
 ): string {
   const isDraft = Boolean(htmlOptions?.draft);
-  const ctrNum = invoice.contractNumber || contract?.contractNumber || 'LOC-SETA';
-  const propNum = invoice.proposalNumber || contract?.proposalNumber || '—';
-  const remNfe = invoice.remessaNfeNumber || contract?.remessaNfeNumber || '—';
-  const termLabel =
-    invoice.contractTermLabel ||
-    contract?.contractTermLabel ||
-    (contract?.contractMonths ? `${contract.contractMonths} meses` : '24 meses');
-  const seller = invoice.sellerName || contract?.sellerName || 'Marcelo Mira';
-  const costCenter = invoice.costCenter || contract?.costCenter || 'LOCAÇÃO DE EQUIPAMENTO';
-  const chartOfAccounts =
-    invoice.chartOfAccounts || contract?.chartOfAccounts || 'Locação de equipamento';
-  const poNum =
-    invoice.customerPurchaseOrderNumber || contract?.customerPurchaseOrderNumber || '—';
-  const bmNum = invoice.measurementNumber || contract?.measurementNumber || '—';
-  const bmPeriod =
-    invoice.measurementPeriod || contract?.measurementPeriod || invoice.competenceMonth;
-  const bmNotes = invoice.measurementNotes || contract?.measurementNotes || '';
   const paymentMethod =
     invoice.paymentMethodLabel || contract?.paymentMethod || invoice.paymentMethod || 'Boleto Inter';
   const dueRule =
@@ -433,21 +437,18 @@ export function buildStandaloneInvoiceHtml(
   const discountBrl = invoice.discountAmount ?? contract?.discountValueBrl ?? 0;
   const discountPct = invoice.discountPercent ?? contract?.discountPercent ?? 0;
   const freightBrl = invoice.freightValueBrl ?? contract?.freightValueBrl ?? 0;
-  const deliveryCity = invoice.deliveryCity || contract?.deliveryCity || 'São Paulo';
-  const deliveryAddress =
-    invoice.deliveryAddress || contract?.deliveryAddress || invoice.companyAddress;
-  const deliveryCarrier =
-    invoice.deliveryCarrier || contract?.deliveryCarrier || 'Frota / Transportadora Credenciada';
-  const deliveryDate = invoice.deliveryDate || contract?.deliveryDate || '—';
-  const pickupDate = invoice.pickupDate || contract?.pickupDate || '—';
-  const notes = invoice.contractNotes || contract?.contractNotes || '';
+  const poNum =
+    invoice.customerPurchaseOrderNumber || contract?.customerPurchaseOrderNumber || '—';
+  const bmNum = invoice.measurementNumber || contract?.measurementNumber || '—';
+  const bmPeriod =
+    invoice.measurementPeriod || contract?.measurementPeriod || invoice.competenceMonth;
+  const bmNotes = invoice.measurementNotes || contract?.measurementNotes || '';
 
   const templateId = resolveProposalLayoutKind(htmlOptions?.templateStyle || undefined);
   const rowsHtml = (invoice.itemsDescription || [])
     .map(
       (it) => `
         <tr>
-          <td class="ccl-td-sku">${it.serialNumber || '—'}</td>
           <td><div class="ccl-td-desc">${it.description}</div></td>
           <td class="ccl-td-qty">${Number(it.quantity).toFixed(2).replace('.', ',')}</td>
           <td class="ccl-td-num">${formatMoneyBr(it.unitValue)}</td>
@@ -458,6 +459,16 @@ export function buildStandaloneInvoiceHtml(
   const templateOptionsHtml = PROPOSAL_TEMPLATE_STYLE_OPTIONS.map(
     (o) => `<option value="${o.id}"${o.id === templateId ? ' selected' : ''}>Modelo: ${o.shortLabel}</option>`
   ).join('');
+
+  const cstIcms = invoice.cstIcms || '41';
+  const cfopDisplay = compactReceiptCfop(invoice.cfop);
+  const fiscalLine = [
+    'ISS: R$ 0,00 (0%)',
+    cfopDisplay ? `CFOP: ${cfopDisplay}` : '',
+    `CST ICMS: ${cstIcms}`,
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
   // Folha no template da proposta (módulo comum proposal-sheet-theme): mesmo cabeçalho
   // timbrado, mesma tabela de itens, mesmos totais e mesmo rodapé; modelo via data-template.
@@ -473,6 +484,11 @@ export function buildStandaloneInvoiceHtml(
     .page { width: 196mm; max-height: 282mm; margin: 0 auto; overflow: hidden; page-break-after: avoid; page-break-inside: avoid; break-inside: avoid; box-sizing: border-box; }
     .no-print { max-width: 196mm; margin: 0 auto 8px auto; }
     .ccl-topbar select { padding: 5px 9px; border-radius: 6px; background: #fff; color: #334155; font-size: 12px; font-weight: 500; border: 1px solid #cbd5e1; cursor: pointer; font-family: inherit; }
+    .receipt-copy { cursor: pointer; position: relative; }
+    .receipt-copy:hover, .receipt-copy:focus { outline: 1px dashed #1e3a6e; background: #f8fafc; }
+    .receipt-copy-hint { font-style: normal; font-weight: 500; text-transform: none; color: #1e3a6e; margin-left: 4px; font-size: 9px; letter-spacing: 0; }
+    .receipt-copy-feedback { display: none; position: absolute; top: -15px; right: 0; background: #1e3a6e; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .2px; padding: 1px 6px; border-radius: 4px; font-family: inherit; }
+    .receipt-copy.is-copied .receipt-copy-feedback { display: inline-block; }
 ${CCL_SHEET_CSS}
     @media print {
       .no-print { display: none !important; }
@@ -480,6 +496,8 @@ ${CCL_SHEET_CSS}
       .page { width: 196mm; max-height: 282mm; }
       .ccl-sheet { border: 0; border-radius: 0; }
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .receipt-copy { cursor: default; outline: none !important; background: transparent !important; }
+      .receipt-copy-hint, .receipt-copy-feedback { display: none !important; }
     }${isDraft ? `
     .page { position: relative; }
     .draft-band { border: 2px dashed #b91c1c; background: #fef2f2; color: #b91c1c; font-weight: 900; text-align: center; font-size: 11px; letter-spacing: .3px; padding: 4px 6px; margin-bottom: 6px; text-transform: uppercase; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -508,7 +526,7 @@ ${CCL_SHEET_CSS}
         `Competência: <strong>${invoice.competenceMonth}</strong> • Emissão: <strong>${invoice.issueDate}</strong>`,
         `Vencimento: <strong>${invoice.dueDate}</strong> • ${dueRule}`,
       ],
-      contactHtml: `<span>Vendedor / Responsável: <strong>${seller}</strong></span><span>Forma de pagamento: <strong>${paymentMethod}</strong></span>`,
+      contactHtml: `<span>Forma de pagamento: <strong>${paymentMethod}</strong></span>`,
       chipsHtml: `<span class="ccl-chip ccl-chip-accent">FATURA / RECIBO DE LOCAÇÃO DE BENS MÓVEIS (0% ISS — SV 31 STF)</span>`,
     })}
     <div class="ccl-content">
@@ -524,29 +542,10 @@ ${CCL_SHEET_CSS}
         ${!htmlOptions?.publicClient && emails.length > 0 ? `<p class="ccl-text" style="margin-top:3px;"><strong>Destinatários de E-mail (${emails.length}):</strong> ${emails.join(', ')}</p>` : ''}
       </div>
 
-      <div class="ccl-section">
-        <div class="ccl-section-title">Contrato e logística</div>
-        <div class="ccl-grid ccl-grid-4">
-          <div><span class="ccl-label">Contrato n.</span><span class="ccl-value">${ctrNum} (${contract?.versionLabel || 'v1.0'})</span></div>
-          <div><span class="ccl-label">Proposta</span><span class="ccl-value">${propNum}</span></div>
-          <div><span class="ccl-label">Nota Fiscal de Remessa</span><span class="ccl-value">${remNfe}</span></div>
-          <div><span class="ccl-label">Prazo do Contrato</span><span class="ccl-value">${termLabel}</span></div>
-          <div><span class="ccl-label">Vendedor</span><span class="ccl-value">${seller}</span></div>
-          ${htmlOptions?.publicClient ? '' : `<div><span class="ccl-label">Centro de Custo</span><span class="ccl-value">${costCenter}</span></div>
-          <div><span class="ccl-label">Plano de Contas</span><span class="ccl-value">${chartOfAccounts}</span></div>`}
-          <div><span class="ccl-label">Forma de Pagamento</span><span class="ccl-value">${paymentMethod}</span></div>
-          <div><span class="ccl-label">Cidade Entrega</span><span class="ccl-value">${deliveryCity}</span></div>
-          <div><span class="ccl-label">Transportadora</span><span class="ccl-value">${deliveryCarrier}</span></div>
-          <div><span class="ccl-label">Entrega / Retirada</span><span class="ccl-value">${deliveryDate} / ${pickupDate}</span></div>
-          <div><span class="ccl-label">Endereço</span><span class="ccl-value">${deliveryAddress}</span></div>
-        </div>
-      </div>
-
       ${cclItemsTableHtml({
         title: 'ESPECIFICAÇÃO DOS EQUIPAMENTOS LOCADOS',
         rightTitle: 'VALORES EM REAIS (BRL)',
         columns: [
-          { label: 'Nº de Série', width: '16%' },
           { label: 'Descrição do Item' },
           { label: 'Quantidade', align: 'center', width: '11%' },
           { label: 'Vlr. Unitário', align: 'right', width: '13%' },
@@ -568,29 +567,67 @@ ${CCL_SHEET_CSS}
       <div class="ccl-grid ccl-grid-2" style="grid-template-columns: 3fr 2fr; gap: 8px;">
         <div class="ccl-fiscal">
           <div class="ccl-fiscal-title">Fiscal — 0% ISS (SV 31 STF)</div>
-          <p class="ccl-text" style="color:#334155;">${invoice.taxBreakdown?.legalExemptionNotice || 'Locação pura de bens móveis sem incidência de ISSQN conforme Súmula Vinculante 31 do STF e Veto ao Item 3.01 da LC 116/2003.'}</p>
-          <p class="ccl-text ccl-mono" style="margin-top:3px;font-size:9.5px;color:#334155;">ISS: R$ 0,00 (0%) • CFOP: ${invoice.cfop || 'N/A'} • CST ICMS: ${invoice.cstIcms || '41'}</p>
-          ${notes ? `<p class="ccl-text" style="margin-top:3px;"><strong>Obs.:</strong> ${notes}</p>` : ''}
+          <p class="ccl-text" style="color:#334155;">Locação de bens móveis — não incidência de ISSQN (SV 31 STF).</p>
+          <p class="ccl-text ccl-mono" style="margin-top:3px;font-size:9.5px;color:#334155;">${fiscalLine}</p>
         </div>
         <div class="ccl-section ccl-section-white">
           <div class="ccl-section-title">Pagamento — ${paymentMethod}</div>
           ${isDraft
             ? `<p class="ccl-text" style="color:#b91c1c;font-weight:700;">Boleto e PIX serão gerados somente ao finalizar o faturamento (rascunho sem registro bancário).</p>`
-            : `<span class="ccl-label">Linha Digitável</span>
-          <div class="ccl-mono" style="font-size:10px;color:#0f172a;word-break:break-all;margin-bottom:4px;">${invoice.boletoDigitableLine}</div>
-          <span class="ccl-label">PIX Copia e Cola</span>
-          <div class="ccl-mono" style="font-size:9px;color:#334155;word-break:break-all;">${invoice.pixCopyPaste}</div>`}
+            : `${receiptCopyField('Linha Digitável', invoice.boletoDigitableLine)}
+          ${receiptCopyField('PIX Copia e Cola', invoice.pixCopyPaste)}`}
         </div>
       </div>
-
-      ${cclSignatureFooterHtml({
-        title: `Recebimento — Fatura ${invoice.documentNumber}`,
-        left: { name: 'SETA TELECOM LTDA', detail: `${seller} • CNPJ 14.806.925/0001-32` },
-        right: { name: invoice.companyName, detail: `CNPJ ${invoice.companyCnpj} (Assinatura / Carimbo)` },
-      })}
     </div>
     </div>
   </div>
+  ${isDraft ? '' : `<script>
+(function () {
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function flash(el) {
+    var tip = el.querySelector('.receipt-copy-feedback');
+    if (tip) tip.textContent = 'Copiado';
+    el.classList.add('is-copied');
+    clearTimeout(el._copyTimer);
+    el._copyTimer = setTimeout(function () { el.classList.remove('is-copied'); }, 1600);
+  }
+  function copyFrom(el) {
+    var text = el.getAttribute('data-copy') || '';
+    if (!text) return;
+    var done = function (ok) { if (ok) flash(el); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(fallbackCopy(text)); });
+    } else {
+      done(fallbackCopy(text));
+    }
+  }
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    var el = t && t.closest ? t.closest('.receipt-copy') : null;
+    if (el) copyFrom(el);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var t = ev.target;
+    var el = t && t.closest ? t.closest('.receipt-copy') : null;
+    if (!el) return;
+    ev.preventDefault();
+    copyFrom(el);
+  });
+})();
+</script>`}
 </body>
 </html>`;
 }
