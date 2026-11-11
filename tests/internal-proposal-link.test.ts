@@ -14,6 +14,7 @@ import {
   resolveInternalProposalKind,
   toInternalProposalSummary,
 } from '../src/app/lib/internal-proposal-summary';
+import { getProposalsByRefs, proposalRouteLookupRefs, type PgQ } from '../src/db/proposal-store';
 import type { ErpCommercialProposal } from '../src/db/types';
 
 const src = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
@@ -258,6 +259,95 @@ describe('Link interno: locação, serviço, produtos e URL estável', () => {
     assert.notEqual(after.versionLabel, before.versionLabel);
     assert.equal(after.title, 'Locação corrigida');
     assert.equal(after.internalNotes, 'depois');
+  });
+});
+
+describe('Link interno no modo tabela (erp_proposals)', () => {
+  function stored(over: Record<string, unknown>) {
+    return {
+      id: String(over.id),
+      code: String(over.code || ''),
+      title: String(over.title || 'Proposta'),
+      companyId: null,
+      companyName: 'Cliente',
+      companyCnpj: '07.638.845/0001-56',
+      contactId: null,
+      contactName: '',
+      dealId: null,
+      sellerName: 'Marcelo Lopes Mira',
+      status: 'ENVIADA',
+      budgetType: over.budgetType,
+      contractMonths: 36,
+      paymentCondition: 'Mensalidade via boleto',
+      validUntil: '2026-11-13',
+      items: [],
+      monthlyRecurringTotal: 100,
+      oneTimeSetupTotal: 0,
+      totalContractValue: 3600,
+      commercialNotes: '',
+      technicalClauses: '',
+      internalNotes: 'nota da tabela',
+      createdAt: '2026-11-06T00:00:00.000Z',
+      updatedAt: '2026-11-06T00:00:00.000Z',
+      version: 1,
+      ...over,
+    };
+  }
+
+  function table(rows: Array<ReturnType<typeof stored> & { code_num?: number | null }>): PgQ {
+    return {
+      async query(_sql: string, params?: unknown[]) {
+        const lowers = ((params?.[0] as string[]) || []).map((v) => String(v).toLowerCase());
+        const nums = (params?.[1] as number[]) || [];
+        const hit = rows.filter((r) => {
+          const codeNum = r.code_num ?? null;
+          return (
+            lowers.includes(String(r.id).toLowerCase()) ||
+            (r.code && lowers.includes(String(r.code).toLowerCase())) ||
+            (codeNum !== null && nums.includes(codeNum))
+          );
+        });
+        return { rows: hit.map((r) => ({ data: r, row_version: 1 })) };
+      },
+    };
+  }
+
+  /** Hidratação antiga: só /api/erp/proposals. A rota interna ficava de fora e a memória vazia virava 404. */
+  function legacyHydrationRefs(cleanPath: string): string[] {
+    const m = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
+    return m ? [m[1]] : [];
+  }
+
+  it('sem carregar a tabela, o link interno não acha a proposta; com a rota, acha hub, GC, locação, serviço e produtos', async () => {
+    const rows = [
+      stored({ id: 'prop-sti-loc', code: '4801', code_num: 4801, budgetType: 'LOCACAO', title: 'Locação criada no STI-hub' }),
+      stored({ id: 'prop-gc-9001', code: '4711', code_num: 4711, budgetType: 'LOCACAO', title: 'Locação importada do GestãoClick' }),
+      stored({ id: 'prop-gc-9002', code: '4713', code_num: 4713, budgetType: 'SERVICOS', serviceType: 'Suporte N1/N2', title: 'Serviço importado do GestãoClick' }),
+      stored({ id: 'prop-sti-prod', code: '4714', code_num: 4714, budgetType: 'PRODUTOS', title: 'Venda criada no STI-hub' }),
+    ];
+    const db = table(rows);
+    for (const id of ['prop-sti-loc', 'prop-gc-9001', 'prop-gc-9002', 'prop-sti-prod']) {
+      const path = `/api/interno/proposta/${id}`;
+      assert.deepEqual(legacyHydrationRefs(path), [], id);
+      assert.equal((await getProposalsByRefs(db, legacyHydrationRefs(path))).length, 0, id);
+      const refs = proposalRouteLookupRefs('GET', path);
+      assert.deepEqual(refs, [id], id);
+      const found = await getProposalsByRefs(db, refs);
+      assert.equal(found.length, 1, id);
+      assert.equal(found[0].proposal.id, id);
+      assert.equal(found[0].proposal.internalNotes, 'nota da tabela');
+    }
+    const kinds = ['LOCACAO', 'LOCACAO', 'SERVICO', 'PRODUTOS'];
+    for (let i = 0; i < rows.length; i++) {
+      assert.equal(toInternalProposalSummary(rows[i] as unknown as ErpCommercialProposal).kind, kinds[i]);
+    }
+    const byHash = await getProposalsByRefs(db, proposalRouteLookupRefs('GET', '/api/interno/proposta/%234711'));
+    assert.equal(byHash[0]?.proposal.id, 'prop-gc-9001');
+    const byGc = await getProposalsByRefs(db, proposalRouteLookupRefs('GET', '/api/interno/proposta/GC-ORC-4713'));
+    assert.equal(byGc[0]?.proposal.id, 'prop-gc-9002');
+    assert.deepEqual(proposalRouteLookupRefs('GET', '/api/erp/proposals/prop-gc-9001'), ['prop-gc-9001']);
+    assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /Proposta comercial não encontrada\./);
+    assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /Voltar ao STI-hub/);
   });
 });
 
