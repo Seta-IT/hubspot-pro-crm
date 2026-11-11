@@ -162,8 +162,10 @@ import {
 import {
   rankRecipientSuggestions,
   toPublicRecipientSuggestion,
+  RECIPIENT_SEARCH_MAX_LENGTH,
   type RecipientSuggestion,
 } from '../modules/erp/email-recipients';
+import { invoiceBelongsToRentalContract } from '../modules/erp/contract-email-compose';
 import { buildServerInvoiceEmailAttachments } from '../app/lib/invoice-email-server';
 import {
   countRecordUsage,
@@ -7905,7 +7907,42 @@ export class CrmApiRouter {
       // Contatos cadastrados + usuários internos (nome e e-mail apenas).
       // ======================================================================
       if (cleanPath === '/api/communications/recipients' && method === 'GET') {
-        const q = String(query.q || query.search || '').trim();
+        if (!ctx.trustedInternal) {
+          const sess = this.repo.resolveSessionFromToken(query._sessionToken);
+          const hasCrm = Boolean(sess.authenticated && sess.moduleAccess.crm);
+          const hasErp = Boolean(sess.authenticated && sess.moduleAccess.erp);
+          if (!hasCrm && !hasErp) {
+            if (sess.authenticated) {
+              this.repo.appendSecurityAuditLog({
+                actorEmail: sess.user.email,
+                actorName: sess.user.name,
+                actorRole: sess.role.id,
+                action: 'IAM_MODULE_CRM_OR_ERP_BLOCKED',
+                module: 'IAM_RBAC',
+                resource: `${method} ${cleanPath}`,
+                status: 'BLOCKED',
+                details: `Acesso negado à busca de destinatários para ${sess.user.email} (módulos habilitados: [${sess.enabledModules.join(', ')}]).`,
+              });
+              return {
+                status: 403,
+                body: {
+                  error: `Acesso bloqueado pela política IAM: o usuário ${sess.user.email} não possui o módulo CRM ou ERP habilitado.`,
+                  code: 'MODULE_CRM_OR_ERP_FORBIDDEN',
+                  requiredModule: 'CRM_OR_ERP',
+                  enabledModules: sess.enabledModules,
+                },
+              };
+            }
+            return {
+              status: 401,
+              body: {
+                error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
+                code: 'MFA_AUTH_REQUIRED',
+              },
+            };
+          }
+        }
+        const q = String(query.q || query.search || '').trim().slice(0, RECIPIENT_SEARCH_MAX_LENGTH);
         const companyId = String(query.companyId || '').trim();
         const contacts = this.repo.listContacts({
           search: q || undefined,
@@ -7928,6 +7965,7 @@ export class CrmApiRouter {
             })
           );
         }
+        // Internos só para quem passou no gate CRM/ERP acima (Chamados isolado não chega aqui).
         if (q) {
           const needle = q.toLowerCase();
           for (const user of this.repo.getRbacState().users) {
@@ -7980,6 +8018,51 @@ export class CrmApiRouter {
         const to = recipients.to.join(', ');
         const ccJoined = recipients.cc.length ? recipients.cc.join(', ') : '';
         const invoiceId = body.invoiceId ? String(body.invoiceId).trim() : '';
+        const contractId = String(body.contractId || rawMail.contractId || '').trim();
+        const requestedContract = contractId
+          ? this.repo.listRentalContracts().find((c) => c.id === contractId || c.contractNumber === contractId)
+          : undefined;
+        if (contractId) {
+          if (!ctx.trustedInternal && !ctx.serviceAccount) {
+            const sess = this.repo.resolveSessionFromToken(query._sessionToken);
+            if (!sess.authenticated || !sess.moduleAccess.erp) {
+              if (sess.authenticated) {
+                this.repo.appendSecurityAuditLog({
+                  actorEmail: sess.user.email,
+                  actorName: sess.user.name,
+                  actorRole: sess.role.id,
+                  action: 'IAM_MODULE_ERP_BLOCKED',
+                  module: 'ERP',
+                  resource: `${method} ${cleanPath}`,
+                  status: 'BLOCKED',
+                  details: `Acesso negado ao envio de anexos do contrato para ${sess.user.email} (módulos habilitados: [${sess.enabledModules.join(', ')}]).`,
+                });
+              }
+              return {
+                status: 403,
+                body: {
+                  error: sess.authenticated
+                    ? `Acesso bloqueado pela política IAM: o usuário ${sess.user.email} não possui o módulo ERP habilitado.`
+                    : 'Acesso bloqueado pela política IAM: é necessário o módulo ERP para enviar anexos do contrato.',
+                  code: 'MODULE_ERP_FORBIDDEN',
+                  requiredModule: 'ERP',
+                },
+              };
+            }
+          }
+          if (!requestedContract) {
+            return { status: 404, body: { error: 'Contrato não encontrado.' } };
+          }
+          if (clientProvidedAttachmentPayload(rawMail) || clientProvidedAttachmentPayload(body)) {
+            return {
+              status: 400,
+              body: {
+                error: 'Os anexos do contrato são montados no servidor. Não envie content, URL ou path.',
+                code: 'INVOICE_ATTACHMENT_CLIENT_FORBIDDEN',
+              },
+            };
+          }
+        }
         let serverInvoiceAttachments: Array<{ filename: string; content: string; content_type: string }> = [];
         if (invoiceId) {
           if (clientProvidedAttachmentPayload(rawMail) || clientProvidedAttachmentPayload(body)) {
@@ -8014,13 +8097,21 @@ export class CrmApiRouter {
           if (!invoice || !isIssuedInvoiceStatus(invoice.status) || !this.isInvoiceVisibleToSession(invoice, query, ctx)) {
             return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
           }
+          if (requestedContract && !invoiceBelongsToRentalContract(invoice, requestedContract)) {
+            return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
+          }
           const contract =
-            invoice.rentalContractId || invoice.contractNumber
+            requestedContract ||
+            (invoice.rentalContractId || invoice.contractNumber
               ? this.repo
                   .listRentalContracts()
                   .find((c) => c.id === invoice.rentalContractId || c.contractNumber === invoice.contractNumber)
-              : undefined;
-          const remessaDocs = this.repo.listInvoices().filter((i) => i.documentType === 'NFE_REMESSA_LOCACAO');
+              : undefined);
+          const remessaDocs = this.repo.listInvoices().filter((i) => {
+            if (i.documentType !== 'NFE_REMESSA_LOCACAO') return false;
+            if (requestedContract) return invoiceBelongsToRentalContract(i, requestedContract);
+            return true;
+          });
           serverInvoiceAttachments = buildServerInvoiceEmailAttachments(invoice, {
             contract,
             remessaDocs,

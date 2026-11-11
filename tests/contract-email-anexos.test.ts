@@ -129,7 +129,7 @@ function sampleInvoice(overrides: Partial<ErpFiscalInvoice> = {}): ErpFiscalInvo
   };
 }
 
-const tokFor = (repo: CrmRepository, uid = 'usr-seta-01') => {
+const tokFor = (repo: CrmRepository, uid = 'usr-seta-01', extra: Record<string, unknown> = {}) => {
   const r = repo.findRbacUserRecord(uid, '')!;
   return signStiHubSessionToken({
     uid: r.id,
@@ -143,7 +143,30 @@ const tokFor = (repo: CrmRepository, uid = 'usr-seta-01') => {
     mfaMethod: 'TOTP_AUTHENTICATOR',
     iat: Date.now() - 1000,
     exp: Date.now() + 3_600_000,
+    ...extra,
   } as Parameters<typeof signStiHubSessionToken>[0]);
+};
+
+async function withResend<T>(fn: (calls: Array<Record<string, unknown>>) => Promise<T>): Promise<T> {
+  const prevFetch = globalThis.fetch;
+  const prevKey = process.env.RESEND_API_KEY;
+  const prevFrom = process.env.RESEND_FROM_EMAIL;
+  const calls: Array<Record<string, unknown>> = [];
+  process.env.RESEND_API_KEY = 're_test_dummy_key_nao_real';
+  process.env.RESEND_FROM_EMAIL = 'STI-hub <no-reply@notificacoes.setatelecom.com.br>';
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    calls.push(JSON.parse(String(init?.body || '{}')));
+    return new Response(JSON.stringify({ id: 'email-test' }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    return await fn(calls);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevKey === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = prevKey;
+    if (prevFrom === undefined) delete process.env.RESEND_FROM_EMAIL;
+    else process.env.RESEND_FROM_EMAIL = prevFrom;
+  }
 };
 
 describe('t211u anexos do e-mail do contrato', () => {
@@ -273,6 +296,8 @@ describe('t211u anexos do e-mail do contrato', () => {
     assert.match(composer, /email-recipient-to/);
     assert.match(composer, /label="Cco"/);
     assert.match(composer, /contractEmailWantsProposalLink/);
+    assert.match(composer, /contractId: isContractSend/);
+    assert.equal(composer.includes('dangerouslySetInnerHTML'), false);
     assert.match(opener, /buildContractEmailPayload/);
     assert.doesNotMatch(
       opener.slice(opener.indexOf('ENVIAR_EMAIL'), opener.indexOf('ENVIAR_EMAIL') + 700),
@@ -357,5 +382,206 @@ describe('GET /api/communications/recipients', () => {
     assert.equal(JSON.stringify(internalHits.body).includes('totpSecret'), false);
     assert.equal(JSON.stringify(internalHits.body).includes('passwordHash'), false);
     assert.equal(JSON.stringify(internalHits.body).includes('roleId'), false);
+  });
+
+  it('sem módulo CRM ou ERP responde 403 e não lista contatos nem usuários internos', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    repo.createContact({ firstName: 'Ana', lastName: 'Cliente', email: 'ana.cliente@mundivox.example' });
+    repo.upsertRbacUser({
+      email: 'interno.lote@setatelecom.com.br',
+      name: 'Interno Lote',
+      roleId: 'VENDEDOR_SALES',
+    } as Parameters<typeof repo.upsertRbacUser>[0]);
+
+    const chamadosOnly = await router.dispatch({
+      method: 'GET',
+      path: '/api/communications/recipients',
+      query: {
+        ...HTTP,
+        q: 'ana',
+        _clientIp: '198.51.100.91',
+        _sessionToken: tokFor(repo, 'usr-seta-05', {
+          enabledModules: ['CHAMADOS'],
+          moduleAccess: { crm: false, erp: false, chamados: true },
+        }),
+      },
+    });
+    assert.equal(chamadosOnly.status, 403, JSON.stringify(chamadosOnly.body));
+    assert.equal((chamadosOnly.body as { code: string }).code, 'MODULE_CRM_OR_ERP_FORBIDDEN');
+    assert.equal('data' in (chamadosOnly.body as object), false);
+    assert.equal(JSON.stringify(chamadosOnly.body).includes('ana.cliente@mundivox.example'), false);
+    assert.equal(JSON.stringify(chamadosOnly.body).includes('interno.lote@setatelecom.com.br'), false);
+
+    const crmOnly = await router.dispatch({
+      method: 'GET',
+      path: '/api/communications/recipients',
+      query: {
+        ...HTTP,
+        q: 'interno.lote',
+        _clientIp: '198.51.100.92',
+        _sessionToken: tokFor(repo, 'usr-seta-03', {
+          enabledModules: ['CRM'],
+          moduleAccess: { crm: true, erp: false, chamados: false },
+        }),
+      },
+    });
+    assert.equal(crmOnly.status, 200, JSON.stringify(crmOnly.body));
+    const crmData = (crmOnly.body as { data: Array<Record<string, unknown>> }).data;
+    assert.ok(crmData.some((row) => row.email === 'interno.lote@setatelecom.com.br' && row.source === 'internal'));
+
+    const erpOnly = await router.dispatch({
+      method: 'GET',
+      path: '/api/communications/recipients',
+      query: {
+        ...HTTP,
+        q: 'interno.lote',
+        _clientIp: '198.51.100.93',
+        _sessionToken: tokFor(repo, 'usr-seta-04', {
+          enabledModules: ['ERP'],
+          moduleAccess: { crm: false, erp: true, chamados: false },
+        }),
+      },
+    });
+    assert.equal(erpOnly.status, 200, JSON.stringify(erpOnly.body));
+    const erpData = (erpOnly.body as { data: Array<Record<string, unknown>> }).data;
+    assert.ok(erpData.some((row) => row.email === 'interno.lote@setatelecom.com.br' && row.source === 'internal'));
+  });
+});
+
+describe('CISO — anexos do e-mail do contrato sem IDOR', () => {
+  it('recusa invoiceId de outro contrato e só anexa documentos ligados ao contrato informado', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const suffix = `ciso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const contractA = repo.createRentalContract({
+      id: `ctr-ciso-a-${suffix}`,
+      contractNumber: `LOC-CISO-A-${suffix}`,
+      title: 'Contrato A CISO',
+      companyName: 'Cliente A CISO LTDA',
+      companyCnpj: '11.111.111/0001-11',
+      monthlyValue: 150,
+    });
+    const contractB = repo.createRentalContract({
+      id: `ctr-ciso-b-${suffix}`,
+      contractNumber: `LOC-CISO-B-${suffix}`,
+      title: 'Contrato B CISO',
+      companyName: 'Cliente B CISO LTDA',
+      companyCnpj: '22.222.222/0001-22',
+      monthlyValue: 9999,
+    });
+    const invA = repo.createInvoice({
+      id: `inv-ciso-a-${suffix}`,
+      companyName: 'Cliente A CISO LTDA',
+      companyCnpj: '11.111.111/0001-11',
+      grossAmount: 150,
+      documentType: 'FATURA_LOCACAO',
+      rentalContractId: contractA.id,
+      status: 'EMITIDA',
+    });
+    const invB = repo.createInvoice({
+      id: `inv-ciso-b-${suffix}`,
+      companyName: 'Cliente B CISO LTDA',
+      companyCnpj: '22.222.222/0001-22',
+      grossAmount: 9999,
+      documentType: 'FATURA_LOCACAO',
+      rentalContractId: contractB.id,
+      status: 'EMITIDA',
+    });
+    repo.createInvoice({
+      id: `inv-ciso-rem-b-${suffix}`,
+      companyName: 'Cliente B CISO LTDA',
+      companyCnpj: '22.222.222/0001-22',
+      grossAmount: 1,
+      documentType: 'NFE_REMESSA_LOCACAO',
+      rentalContractId: contractB.id,
+      documentNumber: `NFE-REM-B-${suffix}`,
+      status: 'EMITIDA',
+    });
+
+    const q = () => ({
+      ...HTTP,
+      _clientIp: `198.51.100.${40 + Math.floor(Math.random() * 50)}`,
+      _sessionToken: tokFor(repo),
+    });
+
+    await withResend(async (calls) => {
+      const forged = await router.dispatch({
+        method: 'POST',
+        path: '/api/communications/send-email',
+        query: q(),
+        body: {
+          to: 'cliente@exemplo.invalid',
+          subject: 'Contrato A',
+          body: 'Segue o contrato A.',
+          docType: 'RENTAL_RECEIPT',
+          contractId: contractA.id,
+          invoiceId: invB.id,
+          selectedAttachments: ['receipt', 'boleto', 'pix', 'remessa'],
+        },
+      });
+      assert.equal(forged.status, 404, JSON.stringify(forged.body));
+      assert.equal(calls.length, 0);
+      assert.equal(JSON.stringify(forged.body).includes('Cliente B CISO LTDA'), false);
+      assert.equal(JSON.stringify(forged.body).includes(invB.id), false);
+    });
+
+    const vendDenied = await router.dispatch({
+      method: 'POST',
+      path: '/api/communications/send-email',
+      query: {
+        ...HTTP,
+        _clientIp: '198.51.100.94',
+        _sessionToken: tokFor(repo, 'usr-seta-03'),
+      },
+      body: {
+        to: 'cliente@exemplo.invalid',
+        subject: 'Contrato A',
+        body: 'Segue o contrato A.',
+        docType: 'RENTAL_RECEIPT',
+        contractId: contractA.id,
+        invoiceId: invA.id,
+        selectedAttachments: ['receipt'],
+      },
+    });
+    assert.equal(vendDenied.status, 403, JSON.stringify(vendDenied.body));
+    assert.equal((vendDenied.body as { code: string }).code, 'INVOICE_EMAIL_FORBIDDEN');
+
+    await withResend(async (calls) => {
+      const sent = await router.dispatch({
+        method: 'POST',
+        path: '/api/communications/send-email',
+        query: q(),
+        body: {
+          to: 'cliente@exemplo.invalid',
+          cc: 'copia@exemplo.invalid',
+          bcc: 'oculto@exemplo.invalid',
+          subject: 'Contrato A',
+          body: 'Segue o contrato A.',
+          docType: 'RENTAL_RECEIPT',
+          contractId: contractA.id,
+          invoiceId: invA.id,
+          selectedAttachments: ['receipt', 'boleto', 'pix'],
+        },
+      });
+      assert.equal(sent.status, 200, JSON.stringify(sent.body));
+      assert.equal(calls.length, 1);
+      const atts = (calls[0].attachments || []) as Array<{ filename: string; content: string }>;
+      assert.ok(atts.length >= 1 && atts.length <= 4);
+      assert.ok(atts.every((a) => a.content && a.filename));
+      const decoded = atts.map((a) => Buffer.from(a.content, 'base64').toString('utf8')).join('\n');
+      const names = atts.map((a) => a.filename).join(',');
+      assert.match(decoded, /Cliente A CISO LTDA/);
+      assert.equal(decoded.includes('Cliente B CISO LTDA'), false);
+      assert.equal(decoded.includes(`NFE-REM-B-${suffix}`), false);
+      assert.equal(names.includes(`NFE-REM-B-${suffix}`), false);
+      const stored = repo.listInvoices().find((i) => i.id === invA.id)!;
+      const last = (stored.emailHistory || [])[(stored.emailHistory || []).length - 1];
+      assert.ok(last);
+      assert.equal(last.to, 'cliente@exemplo.invalid');
+      assert.equal(last.cc, 'copia@exemplo.invalid');
+      assert.equal('bcc' in last, false);
+      assert.equal(JSON.stringify(last).includes('oculto@exemplo.invalid'), false);
+    });
   });
 });

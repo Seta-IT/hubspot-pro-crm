@@ -44,6 +44,18 @@ function clean(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/** Vínculo explícito com o contrato (id ou número). Não usa CNPJ nem proposta — isso abriria IDOR. */
+export function invoiceBelongsToRentalContract(
+  invoice: { rentalContractId?: string | null; contractNumber?: string | null },
+  contract: { id?: string | null; contractNumber?: string | null }
+): boolean {
+  const keys = [String(contract.id || '').trim(), String(contract.contractNumber || '').trim()].filter(Boolean);
+  if (!keys.length) return false;
+  const rentalId = String(invoice.rentalContractId || '').trim();
+  const number = String(invoice.contractNumber || '').trim();
+  return Boolean((rentalId && keys.includes(rentalId)) || (number && keys.includes(number)));
+}
+
 export function isChargeIssuedInvoice(inv: { documentType?: string | null; status?: unknown }): boolean {
   if (!isIssuedInvoiceStatus(inv.status)) return false;
   const type = String(inv.documentType || '');

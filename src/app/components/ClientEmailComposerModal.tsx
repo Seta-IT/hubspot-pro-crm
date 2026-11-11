@@ -572,6 +572,7 @@ export default function ClientEmailComposerModal({
           ticketId: payload.ticketId,
           proposalId: payload.proposalId,
           invoiceId: sendInvoiceId || undefined,
+          contractId: isContractSend ? payload.contractId || undefined : undefined,
           selectedAttachments,
         }),
       });

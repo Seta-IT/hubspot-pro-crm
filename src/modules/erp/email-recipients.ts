@@ -18,6 +18,8 @@ export type RecipientSuggestion = {
   companyName: string | null;
 };
 
+export const RECIPIENT_SEARCH_MAX_LENGTH = 80;
+
 const SOURCE_RANK: Record<RecipientSuggestionSource, number> = {
   company_contact: 0,
   contact: 1,
