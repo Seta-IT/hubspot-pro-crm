@@ -71,6 +71,7 @@ import {
   type ContractBillingRunOptions,
 } from '../lib/contract-billing-utils';
 import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../modules/erp/billing-recipient-emails';
+import { focusProposalValidityField } from '../lib/proposal-validity-return';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -85,6 +86,7 @@ export function ProposalEditModal({
   contacts = [],
   deals = [],
   isNew = false,
+  focusField = null,
 }: {
   proposal: ErpCommercialProposal;
   onClose: () => void;
@@ -97,6 +99,8 @@ export function ProposalEditModal({
   contacts?: Contact[];
   deals?: Deal[];
   isNew?: boolean;
+  /** Aberto a partir de "Atualizar validade": rola, foca e destaca o campo Validade. */
+  focusField?: 'validUntil' | null;
 }) {
   const [draft, setDraft] = useState<ErpCommercialProposal>(() =>
     computeProposalTotals({
@@ -218,6 +222,13 @@ export function ProposalEditModal({
     if (isNew && !proposal.validUntil) return '';
     return '15 dias';
   });
+  const validityInputRef = React.useRef<HTMLInputElement>(null);
+  const [validityHighlight, setValidityHighlight] = useState(false);
+  React.useEffect(() => {
+    if (focusField !== 'validUntil') return;
+    if (!focusProposalValidityField(validityInputRef.current)) return;
+    setValidityHighlight(true);
+  }, [focusField]);
   const [coverText, setCoverText] = useState<string>(() =>
     String((proposal as unknown as Record<string, unknown>).coverText || '')
   );
@@ -813,11 +824,15 @@ export function ProposalEditModal({
 
                 {/* Coluna 4: Validade */}
                 <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
+                  <label htmlFor="proposal-valid-until" className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
                   <input
+                    id="proposal-valid-until"
+                    ref={validityInputRef}
+                    data-testid="proposal-valid-until"
                     type="text"
                     placeholder="Ex.: 10 dias"
                     value={validityDaysInput}
+                    aria-describedby={validityHighlight ? 'proposal-valid-until-hint' : undefined}
                     onChange={(e) => {
                       const val = e.target.value;
                       setValidityDaysInput(val);
@@ -829,8 +844,13 @@ export function ProposalEditModal({
                         updateDraft({ validUntil: dt });
                       }
                     }}
-                    className="w-full px-3 py-2 rounded border border-slate-300"
+                    className={`w-full px-3 py-2 rounded border ${validityHighlight ? 'border-[#1e3a6e] ring-2 ring-[#1e3a6e] bg-[#eef3fa]' : 'border-slate-300'}`}
                   />
+                  {validityHighlight && (
+                    <p id="proposal-valid-until-hint" className="mt-1 text-[11px] font-semibold text-[#1e3a6e]">
+                      Atualize a validade e salve para voltar ao envio do e-mail.
+                    </p>
+                  )}
                 </div>
 
                 {/* Coluna 5: Prazo de Entrega */}

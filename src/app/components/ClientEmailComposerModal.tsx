@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { buildClientEmailGreeting } from '../lib/client-email-greeting';
 import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
+import { assignInternalFlowHref, signedLinkRecovery } from '../lib/proposal-validity-return';
 import { requestSignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildContractEmailBody, buildContractEmailSubject } from '../lib/contract-email-payload';
 import {
@@ -387,7 +388,7 @@ export default function ClientEmailComposerModal({
     requestSignedProposalLink(payload.proposalId || '').then((r) => {
       if (!active) return;
       if (!r.ok) {
-        setSignedLink({ status: 'error', error: r.error });
+        setSignedLink({ status: 'error', error: r.error, code: r.code });
         return;
       }
       setSignedProposalUrl(r.url);
@@ -490,6 +491,13 @@ export default function ClientEmailComposerModal({
     state: signedLink,
     body,
     unsignedUrl: alreadySigned ? undefined : defaultProposalPdfLink(payload),
+  });
+  // Validade vencida: só o code PROPOSAL_EXPIRED (não o texto) troca o retry
+  // pelo botão que abre a edição com foco no campo e volta ao envio depois de salvar.
+  const linkRecovery = signedLinkRecovery({
+    code: signedLink.status === 'error' ? signedLink.code : undefined,
+    proposalId: payload.proposalId,
+    contractId: payload.contractId,
   });
 
   const handleSwitchDocType = (nextType: StiHubEmailDocType) => {
@@ -896,9 +904,20 @@ export default function ClientEmailComposerModal({
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{gateError || linkGate.error}</span>
                 </span>
-                {signedLink.status === 'error' && (
+                {signedLink.status === 'error' && linkRecovery.kind === 'update-validity' && (
                   <button
                     type="button"
+                    data-testid="update-proposal-validity"
+                    onClick={() => assignInternalFlowHref(linkRecovery.href)}
+                    className="px-3 py-1.5 rounded bg-[#1e3a6e] text-white font-semibold cursor-pointer shrink-0"
+                  >
+                    Atualizar validade
+                  </button>
+                )}
+                {signedLink.status === 'error' && linkRecovery.kind === 'retry' && (
+                  <button
+                    type="button"
+                    data-testid="retry-signed-proposal-link"
                     onClick={() => { setGateError(null); setLinkAttempt((n) => n + 1); }}
                     className="px-3 py-1.5 rounded border border-red-300 bg-white text-red-800 font-semibold cursor-pointer shrink-0"
                   >
