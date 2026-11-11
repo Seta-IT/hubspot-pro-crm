@@ -39,6 +39,18 @@ import {
   syncStateToPostgres,
 } from '../db/postgres';
 import {
+  createSetaDeskPipeline,
+  isSetaDeskPostgresEnabled,
+  listSetaDeskPipelines,
+  loadSetaDeskTickets,
+  reserveSetaDeskTicketKeys,
+  syncSetaDeskTickets,
+  ticketKeysNeededForRoute,
+  updateSetaDeskPipeline,
+  type SetaDeskBaseline,
+} from '../db/setadesk-store';
+import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
+import {
   countProposals,
   diffHydratedProposals,
   getProposalsByDealOrCompany,
@@ -508,6 +520,16 @@ export interface ApiRequest {
   context?: typeof TRUSTED_INTERNAL_CONTEXT;
   /** B-V4-1: tamanho do corpo lido (bytes) ou o content-length declarado, quando o canal souber. */
   bodyBytes?: number;
+}
+
+/**
+ * loadSetaDeskTickets so roda em rotas autenticadas de chamados.
+ * Qualquer rota publica (portal, auth, proposta, health, etc.) fica de fora.
+ */
+export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string): boolean {
+  const clean = (path || '/').replace(/\/+$/, '') || '/';
+  if (isPublicStiHubPath(clean, method)) return false;
+  return clean === '/api/tickets' || clean.startsWith('/api/tickets/');
 }
 
 export interface ApiResponse<T = unknown> {
@@ -1204,6 +1226,33 @@ export class CrmApiRouter {
 
     await this.ensureCompanyEmitterHydrated();
 
+    // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
+    // So em rotas autenticadas de chamados; rota publica nunca dispara o load.
+    let setaDeskBaseline: SetaDeskBaseline | null = null;
+    if (
+      this.isSingletonRepo &&
+      isSetaDeskPostgresEnabled() &&
+      shouldLoadSetaDeskTicketsForRoute(method, cleanPath)
+    ) {
+      try {
+        const loaded = await loadSetaDeskTickets(this.repo.getState().serviceTickets || []);
+        if (loaded) {
+          this.repo.replaceServiceTickets(loaded.tickets);
+          setaDeskBaseline = loaded.baseline;
+        }
+        const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
+        const reservePipelineId =
+          body && typeof body === 'object' && typeof (body as { pipelineId?: unknown }).pipelineId === 'string'
+            ? String((body as { pipelineId: string }).pipelineId)
+            : null;
+        this.repo.reserveTicketKeys(needed > 0 ? await reserveSetaDeskTicketKeys(needed, reservePipelineId) : []);
+      } catch (err) {
+        setaDeskBaseline = null;
+        this.repo.reserveTicketKeys([]);
+        console.error('[SetaDesk] Postgres indisponivel; usando estado local:', (err as Error)?.message || err);
+      }
+    }
+
     // Conta de servico (Bearer): pipeline proprio, sem sessao, sem journal, sem override IAM.
     if (query._fromHttpBridge === "1" && query._svcBearer === "1") {
       return this.dispatchSalesAgent(method, cleanPath, query, body);
@@ -1259,6 +1308,18 @@ export class CrmApiRouter {
 
     if (this.proposalTableCtx && response.status === 200) {
       await this.decorateProposalsTableResponse(cleanPath, response.body);
+    }
+
+    if (setaDeskBaseline) {
+      this.repo.clearReservedTicketKeys();
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && response.status >= 200 && response.status < 400) {
+        try {
+          const actor = verifyStiHubSessionToken(query._sessionToken || null).claims?.email || null;
+          await syncSetaDeskTickets(this.repo.getState().serviceTickets || [], setaDeskBaseline, actor);
+        } catch (err) {
+          console.error('[SetaDesk] Falha ao gravar chamados no Postgres:', (err as Error)?.message || err);
+        }
+      }
     }
 
     return response;
@@ -5863,6 +5924,7 @@ export class CrmApiRouter {
             assignee: query.assignee,
             contactId: query.contactId,
             companyId: query.companyId,
+            pipelineId: query.pipelineId,
             search: query.search,
           });
           const { tickets: evaluatedFiltered } = computeRealtimeTicketsAndKpis(filteredRaw);
@@ -5923,6 +5985,7 @@ export class CrmApiRouter {
             serviceOrderId: body.serviceOrderId ? String(body.serviceOrderId) : null,
             equipmentSerial: body.equipmentSerial ? String(body.equipmentSerial) : null,
             tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+            pipelineId: body.pipelineId ? String(body.pipelineId) : undefined,
           });
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
@@ -5967,6 +6030,71 @@ export class CrmApiRouter {
         const sla = computeRealtimeTicketSla(result.ticket);
         result.ticket.slaStatus = sla.slaStatus;
         return { status: 201, body: { data: result } };
+      }
+
+
+      const ticketPipelinesList = cleanPath === '/api/tickets/pipelines';
+      const ticketPipelineIdMatch = cleanPath.match(/^\/api\/tickets\/pipelines\/([^/]+)$/);
+      if (ticketPipelinesList || ticketPipelineIdMatch) {
+        const pipelineActor = () => {
+          const tok = query._sessionToken;
+          const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
+          return canManageSetaDeskPipelines({ trustedInternal: ctx.trustedInternal, session: sess });
+        };
+        if (ticketPipelinesList && method === 'GET') {
+          const fromDb = isSetaDeskPostgresEnabled() ? await listSetaDeskPipelines() : null;
+          const data = fromDb || this.repo.listSetaDeskPipelines();
+          return { status: 200, body: { data, total: data.length, canManage: pipelineActor() } };
+        }
+        if (ticketPipelinesList && method === 'POST') {
+          if (!pipelineActor()) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem criar filas.', code: 'PIPELINE_FORBIDDEN' } };
+          }
+          const parsed = parseSetaDeskPipelineWrite(body, { requireNameAndPrefix: true });
+          if (!parsed.ok) return { status: 400, body: { error: parsed.error, code: 'PIPELINE_INVALID' } };
+          try {
+            const created = isSetaDeskPostgresEnabled()
+              ? await createSetaDeskPipeline({
+                  name: parsed.data.name!,
+                  prefix: parsed.data.prefix!,
+                  mailbox: parsed.data.mailbox,
+                  jiraProjectKey: parsed.data.jiraProjectKey,
+                  isActive: parsed.data.isActive,
+                  sortOrder: parsed.data.sortOrder,
+                })
+              : this.repo.createSetaDeskPipeline({
+                  name: parsed.data.name!,
+                  prefix: parsed.data.prefix!,
+                  mailbox: parsed.data.mailbox,
+                  jiraProjectKey: parsed.data.jiraProjectKey,
+                  isActive: parsed.data.isActive,
+                  sortOrder: parsed.data.sortOrder,
+                });
+            return { status: 201, body: { data: created } };
+          } catch (err) {
+            return { status: 409, body: { error: (err as Error).message, code: 'PIPELINE_CONFLICT' } };
+          }
+        }
+        if (ticketPipelineIdMatch && (method === 'PATCH' || method === 'PUT')) {
+          if (!pipelineActor()) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem editar filas.', code: 'PIPELINE_FORBIDDEN' } };
+          }
+          const parsed = parseSetaDeskPipelineWrite(body);
+          if (!parsed.ok) return { status: 400, body: { error: parsed.error, code: 'PIPELINE_INVALID' } };
+          const id = decodeURIComponent(ticketPipelineIdMatch[1]);
+          try {
+            const updated = isSetaDeskPostgresEnabled()
+              ? await updateSetaDeskPipeline(id, parsed.data)
+              : this.repo.updateSetaDeskPipeline(id, parsed.data);
+            if (!updated) return { status: 404, body: { error: 'Fila não encontrada.' } };
+            return { status: 200, body: { data: updated } };
+          } catch (err) {
+            const msg = (err as Error).message;
+            const code = /possui chamados|obrigatorio|invalido/i.test(msg) ? 400 : 409;
+            return { status: code, body: { error: msg, code: code === 400 ? 'PIPELINE_INVALID' : 'PIPELINE_CONFLICT' } };
+          }
+        }
+        return { status: 405, body: { error: 'Método não permitido.' } };
       }
 
       const ticketIdMatch = cleanPath.match(/^\/api\/tickets\/([^/]+)$/);
@@ -6137,6 +6265,8 @@ export class CrmApiRouter {
             contactId: contact?.id || null,
             companyId,
             equipmentSerial,
+            // SetaDesk: e-mail ja normalizado e validado acima; vai so para requester_email (fora do DTO publico).
+            requesterEmail: email,
             comments: [
               {
                 id: `cmt-portal-${Date.now()}`,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense, useCallback, useState } from 'react';
+import { portalActionErrorMessage } from './portal-feedback';
 import { useSearchParams } from 'next/navigation';
 import {
   Radio,
@@ -67,12 +68,14 @@ function CustomerPortalContent() {
   // Reply state
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [replyError, setReplyError] = useState('');
 
   // CSAT state
   const [csatRating, setCsatRating] = useState<number>(5);
   const [csatFeedback, setCsatFeedback] = useState('');
   const [submittingCsat, setSubmittingCsat] = useState(false);
   const [csatSubmittedNotice, setCsatSubmittedNotice] = useState(false);
+  const [csatError, setCsatError] = useState('');
 
   // New Ticket Form state
   const [newName, setNewName] = useState('');
@@ -128,6 +131,7 @@ function CustomerPortalContent() {
     e.preventDefault();
     if (!ticket || !authed || !replyText.trim()) return;
     setSendingReply(true);
+    setReplyError('');
     try {
       const res = await fetch(`/api/portal/tickets/${encodeURIComponent(authed.key)}/reply`, {
         method: 'POST',
@@ -138,7 +142,11 @@ function CustomerPortalContent() {
       if (res.ok && json?.data) {
         setReplyText('');
         setTicket(json.data as PortalTicket);
+      } else {
+        setReplyError(portalActionErrorMessage(res.status, 'REPLY'));
       }
+    } catch {
+      setReplyError(portalActionErrorMessage(null, 'REPLY'));
     } finally {
       setSendingReply(false);
     }
@@ -148,6 +156,7 @@ function CustomerPortalContent() {
     if (!ticket || !authed) return;
     setCsatRating(score);
     setSubmittingCsat(true);
+    setCsatError('');
     try {
       const res = await fetch(`/api/portal/tickets/${encodeURIComponent(authed.key)}/csat`, {
         method: 'POST',
@@ -160,7 +169,11 @@ function CustomerPortalContent() {
         setCsatSubmittedNotice(true);
         setCsatFeedback('');
         setTimeout(() => setCsatSubmittedNotice(false), 3500);
+      } else {
+        setCsatError(portalActionErrorMessage(res.status, 'CSAT'));
       }
+    } catch {
+      setCsatError(portalActionErrorMessage(null, 'CSAT'));
     } finally {
       setSubmittingCsat(false);
     }
@@ -445,6 +458,11 @@ function CustomerPortalContent() {
                         <CheckCircle2 className="w-4 h-4" /> Obrigado! Sua avaliação CSAT foi gravada com sucesso.
                       </div>
                     )}
+                    {csatError && (
+                      <div role="alert" className="text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4" /> {csatError}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -489,6 +507,11 @@ function CustomerPortalContent() {
                       placeholder="Envie uma nova informação, log ou confirme a normalização do serviço para a equipe NOC..."
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#0d2b4e]"
                     />
+                    {replyError && (
+                      <div role="alert" className="text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4" /> {replyError}
+                      </div>
+                    )}
                     <div className="flex justify-end">
                       <button
                         type="submit"

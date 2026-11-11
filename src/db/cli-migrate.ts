@@ -6,10 +6,12 @@ import {
   checkPostgresHealth,
   closePostgresPool,
   ensurePostgresSchema,
+  getPostgresPool,
   isPostgresEnabled,
   loadStateFromPostgres,
 } from './postgres';
 import { getRepository } from './repository';
+import { applySetaDeskMigrations } from './setadesk-schema';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -49,6 +51,8 @@ async function main() {
 
   console.log(`[1/3] Conectado ao PostgreSQL (${health.latencyMs}ms). Criando/verificando tabelas e índices...`);
   await ensurePostgresSchema();
+  const setaDeskApplied = await applySetaDeskMigrations(getPostgresPool()!);
+  console.log(`      SetaDesk: ${setaDeskApplied.length ? setaDeskApplied.join(', ') : 'esquema ja atualizado'}`);
 
   console.log(
     `[2/3] Sincronizando estado do CRM (${forceReset ? 'redefinindo seed inicial' : 'preservando dados existentes ou aplicando seed inicial'})...`

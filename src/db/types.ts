@@ -758,6 +758,28 @@ export interface TicketComment {
   isInternal: boolean;
   body: string;
   createdAt: string;
+  /** SetaDesk: e-mail do autor (respostas por e-mail / importacao Jira). */
+  authorEmail?: string | null;
+  /** SetaDesk: origem do comentario (STIHUB, EMAIL, PORTAL, JIRA). */
+  source?: string;
+  /** SetaDesk: id externo unico por origem (ex.: id do comentario no Jira). */
+  externalId?: string | null;
+  /** SetaDesk: Message-ID do e-mail que gerou o comentario. */
+  emailMessageId?: string | null;
+}
+
+
+export interface SetaDeskPipeline {
+  id: string;
+  name: string;
+  prefix: string;
+  mailbox: string | null;
+  jiraProjectKey: string | null;
+  sequenceName: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ServiceTicket {
@@ -789,6 +811,30 @@ export interface ServiceTicket {
   comments: TicketComment[];
   createdAt: string;
   updatedAt: string;
+  // --- SetaDesk (opcionais; compativeis com dados antigos) ---
+  /** Pipeline (fila de negocio: Suporte Tecnico, Financeiro, ou outra criada). */
+  pipelineId?: string | null;
+  /** Fila de atendimento. Quando ausente, `assignee` e tratado como fila (legado). */
+  queue?: string | null;
+  /** Tecnico/agente responsavel, separado da fila. */
+  assigneeAgent?: string | null;
+  requesterEmail?: string | null;
+  requesterName?: string | null;
+  ccEmails?: string[];
+  /** Origem do registro: STIHUB, EMAIL, PORTAL, FORM, HUBSPOT, JIRA. */
+  source?: string;
+  /** Chave anterior (ex.: JSM-101) quando o chamado foi criado antes do prefixo SD-. */
+  legacyKey?: string | null;
+  jiraKey?: string | null;
+  jiraId?: string | null;
+  jiraProjectKey?: string | null;
+  jiraUrl?: string | null;
+  externalCreatedAt?: string | null;
+  externalUpdatedAt?: string | null;
+  externalResolvedAt?: string | null;
+  importedAt?: string | null;
+  importHash?: string | null;
+  closedAt?: string | null;
 }
 
 // ============================================================================
@@ -2243,6 +2289,10 @@ export interface CrmDatabaseState {
   webForms: WebForm[];
   formSubmissions: FormSubmission[];
   serviceTickets: ServiceTicket[];
+  /** SetaDesk: ultimo numero emitido para chaves SD- no modo sem Postgres (fallback local). */
+  setaDeskTicketSeq?: number;
+  setaDeskTicketSeqByPrefix?: Record<string, number>;
+  setaDeskPipelines?: SetaDeskPipeline[];
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
   proposalFollowupEnrollments?: ProposalFollowupEnrollment[];

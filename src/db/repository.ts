@@ -133,6 +133,17 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
+import {
+  formatSetaDeskTicketKey,
+  isAllowedPipelinePrefix,
+  maxAllocatedNumberForPipeline,
+  pipelineSequenceNameFromPrefix,
+  SETADESK_DEFAULT_PIPELINE_ID,
+  SETADESK_DEFAULT_TICKET_PREFIX,
+  SETADESK_SEED_PIPELINES,
+  SETADESK_TICKET_KEY_PREFIX,
+} from './setadesk-schema';
+import type { SetaDeskPipeline } from './types';
 import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
@@ -828,6 +839,38 @@ export interface StiHubAuthenticatedSession {
   moduleAccess: StiHubUserModuleAccess;
   crmPermissions: StiHubCrmPermissions;
   erpPermissions: StiHubErpPermissions;
+}
+
+/**
+ * SetaDesk: campos que um agente pode alterar num chamado via PATCH/PUT.
+ * Tudo fora desta lista e ignorado por updateServiceTicket.
+ * Coerente com TicketTeamPatchSchema (src/api/ticket-guards.ts, pacote H): mesmos campos,
+ * verificado em tests/setadesk.test.ts. queue e assigneeAgent ficam fora (so
+ * setServiceTicketSystemFields: importacao/roteamento); companyId e dealId ficam fora
+ * (nenhuma tela envia; vinculo comercial nao muda por PATCH de chamado).
+ */
+export const SERVICE_TICKET_EDITABLE_FIELDS = [
+  'status',
+  'priority',
+  'category',
+  'assignee',
+  'subject',
+  'description',
+  'resolution',
+  'equipmentSerial',
+  'contractId',
+  'tags',
+] as const satisfies ReadonlyArray<keyof ServiceTicket>;
+
+export function pickEditableTicketFields(patch: unknown): Partial<ServiceTicket> {
+  const out: Record<string, unknown> = {};
+  if (!patch || typeof patch !== 'object') return out as Partial<ServiceTicket>;
+  const src = patch as Record<string, unknown>;
+  for (const k of SERVICE_TICKET_EDITABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(src, k) && src[k] !== undefined) out[k] = src[k];
+  }
+  if (out.tags !== undefined && !(Array.isArray(out.tags) && out.tags.every((t) => typeof t === 'string'))) delete out.tags;
+  return out as Partial<ServiceTicket>;
 }
 
 const SUPERSEDED_INVITE_MESSAGE =
@@ -3543,6 +3586,7 @@ export class CrmRepository {
     assignee?: string;
     contactId?: string;
     companyId?: string;
+    pipelineId?: string;
     search?: string;
   }): ServiceTicket[] {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
@@ -3554,6 +3598,7 @@ export class CrmRepository {
     if (filters?.assignee) list = list.filter((t) => t.assignee === filters.assignee);
     if (filters?.contactId) list = list.filter((t) => t.contactId === filters.contactId);
     if (filters?.companyId) list = list.filter((t) => t.companyId === filters.companyId);
+    if (filters?.pipelineId) list = list.filter((t) => t.pipelineId === filters.pipelineId);
     if (filters?.search) {
       const q = filters.search.toLowerCase();
       list = list.filter(
@@ -3575,6 +3620,198 @@ export class CrmRepository {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // SetaDesk: geracao de chave PREFIX-<n> por fila (TEC-, FIN-, ou outra).
+  // Com Postgres, a camada HTTP reserva chaves via sequencia da fila antes da
+  // rota rodar; sem Postgres, usa o contador local por prefixo. Chamados novos
+  // da fila comecam em max(chave da fila, numero Jira da origem)+1.
+  // Prefixos JSM-/DEV- nao entram na sequencia.
+  // --------------------------------------------------------------------------
+  private reservedTicketKeys: string[] = [];
+
+  private seedPipelines(): SetaDeskPipeline[] {
+    const now = new Date().toISOString();
+    return SETADESK_SEED_PIPELINES.map((s) => ({
+      id: s.id,
+      name: s.name,
+      prefix: s.prefix,
+      mailbox: s.mailbox,
+      jiraProjectKey: s.jiraProjectKey,
+      sequenceName: s.sequenceName,
+      isActive: true,
+      sortOrder: s.sortOrder,
+      createdAt: now,
+      updatedAt: now,
+    }));
+  }
+
+  private ensurePipelines(): SetaDeskPipeline[] {
+    if (!this.state.setaDeskPipelines || this.state.setaDeskPipelines.length === 0) {
+      this.state.setaDeskPipelines = this.seedPipelines();
+    }
+    if (!this.state.setaDeskTicketSeqByPrefix) this.state.setaDeskTicketSeqByPrefix = {};
+    return this.state.setaDeskPipelines;
+  }
+
+  listSetaDeskPipelines(): SetaDeskPipeline[] {
+    return [...this.ensurePipelines()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  }
+
+  getSetaDeskPipeline(idOrPrefix: string): SetaDeskPipeline | undefined {
+    const raw = String(idOrPrefix || '').trim();
+    const upper = raw.toUpperCase().replace(/-$/, '');
+    return this.ensurePipelines().find(
+      (p) => p.id === raw || p.prefix === upper || formatSetaDeskTicketKey(p.prefix, 0).startsWith(`${upper}-`)
+    );
+  }
+
+  private defaultPipeline(): SetaDeskPipeline {
+    return this.getSetaDeskPipeline(SETADESK_DEFAULT_PIPELINE_ID) || this.ensurePipelines()[0];
+  }
+
+  createSetaDeskPipeline(input: {
+    name: string;
+    prefix: string;
+    mailbox?: string | null;
+    jiraProjectKey?: string | null;
+    isActive?: boolean;
+    sortOrder?: number;
+  }): SetaDeskPipeline {
+    const name = String(input.name || '').trim();
+    const prefix = String(input.prefix || '').trim().toUpperCase().replace(/-$/, '');
+    if (!name) throw new Error('O nome da fila e obrigatorio.');
+    if (!isAllowedPipelinePrefix(prefix)) {
+      throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra (ex.: TEC, FIN, SAC).');
+    }
+    const all = this.ensurePipelines();
+    if (all.some((p) => p.prefix === prefix)) throw new Error('Ja existe uma fila com este prefixo.');
+    if (all.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw new Error('Ja existe uma fila com este nome.');
+    const now = new Date().toISOString();
+    const created: SetaDeskPipeline = {
+      id: `pl-${prefix.toLowerCase()}`,
+      name,
+      prefix,
+      mailbox: input.mailbox ? String(input.mailbox).trim().toLowerCase() : null,
+      jiraProjectKey: input.jiraProjectKey ? String(input.jiraProjectKey).trim().toUpperCase() : null,
+      sequenceName: pipelineSequenceNameFromPrefix(prefix),
+      isActive: input.isActive !== false,
+      sortOrder: Number(input.sortOrder ?? 100),
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (all.some((p) => p.id === created.id)) throw new Error('Ja existe uma fila com este identificador.');
+    all.push(created);
+    return created;
+  }
+
+  updateSetaDeskPipeline(
+    id: string,
+    patch: Partial<{
+      name: string;
+      prefix: string;
+      mailbox: string | null;
+      jiraProjectKey: string | null;
+      isActive: boolean;
+      sortOrder: number;
+    }>
+  ): SetaDeskPipeline | null {
+    const all = this.ensurePipelines();
+    const current = all.find((p) => p.id === id);
+    if (!current) return null;
+    if (patch.prefix != null) {
+      const prefix = String(patch.prefix).trim().toUpperCase().replace(/-$/, '');
+      if (!isAllowedPipelinePrefix(prefix)) {
+        throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra.');
+      }
+      if (prefix !== current.prefix) {
+        const used = (this.state.serviceTickets || []).some((t) => t.pipelineId === id);
+        if (used) throw new Error('Nao e permitido alterar o prefixo de uma fila que ja possui chamados.');
+        if (all.some((p) => p.id !== id && p.prefix === prefix)) throw new Error('Ja existe uma fila com este prefixo.');
+        current.prefix = prefix;
+      }
+    }
+    if (patch.name != null) {
+      const name = String(patch.name).trim();
+      if (!name) throw new Error('O nome da fila e obrigatorio.');
+      if (all.some((p) => p.id !== id && p.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error('Ja existe uma fila com este nome.');
+      }
+      current.name = name;
+    }
+    if (patch.mailbox !== undefined) current.mailbox = patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null;
+    if (patch.jiraProjectKey !== undefined) {
+      current.jiraProjectKey = patch.jiraProjectKey ? String(patch.jiraProjectKey).trim().toUpperCase() : null;
+    }
+    if (patch.isActive !== undefined) current.isActive = Boolean(patch.isActive);
+    if (patch.sortOrder !== undefined) current.sortOrder = Number(patch.sortOrder);
+    current.updatedAt = new Date().toISOString();
+    return current;
+  }
+
+  /** Registra chaves ja reservadas na sequencia do Postgres para os proximos chamados. */
+  reserveTicketKeys(keys: string[]): void {
+    this.reservedTicketKeys = [...keys];
+  }
+
+  clearReservedTicketKeys(): string[] {
+    const left = this.reservedTicketKeys;
+    this.reservedTicketKeys = [];
+    return left;
+  }
+
+  private ticketKeyExists(key: string): boolean {
+    const k = key.toUpperCase();
+    return (this.state.serviceTickets || []).some(
+      (t) => t.key.toUpperCase() === k || (t.legacyKey || '').toUpperCase() === k
+    );
+  }
+
+  private takeReservedTicketKey(prefix?: string | null): string | null {
+    const want = prefix ? String(prefix).trim().toUpperCase().replace(/-$/, '') : '';
+    const kept: string[] = [];
+    let found: string | null = null;
+    while (this.reservedTicketKeys.length > 0) {
+      const k = this.reservedTicketKeys.shift()!;
+      if (this.ticketKeyExists(k)) continue;
+      const keyPrefix = k.split('-')[0]?.toUpperCase();
+      if (want && keyPrefix !== want) {
+        kept.push(k);
+        continue;
+      }
+      found = k;
+      break;
+    }
+    this.reservedTicketKeys = [...kept, ...this.reservedTicketKeys];
+    return found;
+  }
+
+  private nextLocalSetaDeskTicketKey(pipeline?: SetaDeskPipeline | null): string {
+    const pl = pipeline || this.defaultPipeline();
+    const prefix = pl.prefix || SETADESK_DEFAULT_TICKET_PREFIX;
+    if (!this.state.setaDeskTicketSeqByPrefix) this.state.setaDeskTicketSeqByPrefix = {};
+    let seq = Number(this.state.setaDeskTicketSeqByPrefix[prefix] || 0);
+    if (prefix === SETADESK_DEFAULT_TICKET_PREFIX && Number.isFinite(this.state.setaDeskTicketSeq)) {
+      seq = Math.max(seq, Number(this.state.setaDeskTicketSeq) || 0);
+    }
+    seq = Math.max(seq, maxAllocatedNumberForPipeline(this.state.serviceTickets || [], {
+      prefix,
+      jiraProjectKey: pl.jiraProjectKey,
+    }));
+    let key: string;
+    do {
+      seq += 1;
+      key = formatSetaDeskTicketKey(prefix, seq);
+    } while (this.ticketKeyExists(key));
+    this.state.setaDeskTicketSeqByPrefix[prefix] = seq;
+    if (prefix === SETADESK_DEFAULT_TICKET_PREFIX) this.state.setaDeskTicketSeq = seq;
+    return key;
+  }
+
+  /** Substitui a colecao de chamados (fonte: tabelas SetaDesk no Postgres). */
+  replaceServiceTickets(tickets: ServiceTicket[]): void {
+    this.state.serviceTickets = tickets;
+  }
+
   createServiceTicket(
     input: Partial<ServiceTicket> & { subject: string }
   ): ServiceTicket {
@@ -3583,11 +3820,14 @@ export class CrmRepository {
     const now = new Date();
     const nowIso = now.toISOString();
 
-    const maxNum = this.state.serviceTickets.reduce((max, t) => {
-      const m = t.key.match(/(\d+)$/);
-      return m ? Math.max(max, Number(m[1])) : max;
-    }, 100);
-    const nextKey = input.key || `JSM-${maxNum + 1}`;
+    const pipeline =
+      (input.pipelineId ? this.getSetaDeskPipeline(input.pipelineId) : undefined) ||
+      (input.category === 'BILLING' ? this.getSetaDeskPipeline('pl-fin') : undefined) ||
+      this.defaultPipeline();
+    const nextKey =
+      input.key ||
+      this.takeReservedTicketKey(pipeline?.prefix) ||
+      this.nextLocalSetaDeskTicketKey(pipeline);
 
     const priority: TicketPriority = input.priority || 'MEDIUM';
     const slaHoursMap: Record<TicketPriority, { firstRespHours: number; resolveHours: number }> = {
@@ -3644,7 +3884,17 @@ export class CrmRepository {
       comments: input.comments || [],
       createdAt: input.createdAt || nowIso,
       updatedAt: nowIso,
+      pipelineId: pipeline?.id || input.pipelineId || SETADESK_DEFAULT_PIPELINE_ID,
     };
+    if (input.queue !== undefined) ticket.queue = input.queue;
+    if (input.assigneeAgent !== undefined) ticket.assigneeAgent = input.assigneeAgent;
+    if (input.requesterEmail) ticket.requesterEmail = input.requesterEmail.trim().toLowerCase();
+    if (input.requesterName) ticket.requesterName = input.requesterName;
+    if (input.ccEmails) ticket.ccEmails = input.ccEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (input.source) ticket.source = input.source;
+    if (input.legacyKey) ticket.legacyKey = input.legacyKey;
+    if (input.jiraKey) ticket.jiraKey = input.jiraKey;
+    if (input.jiraId) ticket.jiraId = input.jiraId;
 
     this.state.serviceTickets.unshift(ticket);
 
@@ -3663,7 +3913,49 @@ export class CrmRepository {
     return ticket;
   }
 
+  /**
+   * SetaDesk (defesa no repository): atualizacao de chamado vinda de PATCH/PUT.
+   * So os campos de SERVICE_TICKET_EDITABLE_FIELDS sao aplicados; comments, csatScore,
+   * firstRespondedAt, contactId, campos de SLA, datas, canal, chaves e campos de sistema
+   * (requesterEmail, ccEmails, jira*, source) sao descartados. Comentarios entram
+   * somente por addTicketComment; CSAT por recordTicketCsat; campos de sistema por
+   * setServiceTicketSystemFields.
+   */
   updateServiceTicket(idOrKey: string, patch: Partial<ServiceTicket>): ServiceTicket | null {
+    // TRANSITORIO ate o pacote H (router, CISO): o CSAT do portal ainda chama
+    // updateServiceTicket({ csatScore }). Aceito SOMENTE quando o patch tem apenas
+    // csatScore, inteiro de 1 a 5. Remover quando o router usar recordTicketCsat.
+    if (patch && typeof patch === 'object') {
+      const keys = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined);
+      if (keys.length === 1 && keys[0] === 'csatScore') return this.recordTicketCsat(idOrKey, Number(patch.csatScore));
+    }
+    return this.applyServiceTicketUpdate(idOrKey, pickEditableTicketFields(patch));
+  }
+
+  /** CSAT do chamado (1 a 5, inteiro). Caminho proprio, fora do PATCH generico. */
+  recordTicketCsat(idOrKey: string, score: number): ServiceTicket | null {
+    const n = Math.round(Number(score));
+    if (!Number.isFinite(n) || n < 1 || n > 5) return null;
+    return this.applyServiceTicketUpdate(idOrKey, { csatScore: n });
+  }
+
+  /** Campos de sistema do SetaDesk (e-mail de entrada, importacao Jira, fila/agente do roteamento). Nunca exposto a PATCH. */
+  setServiceTicketSystemFields(
+    idOrKey: string,
+    fields: Pick<
+      Partial<ServiceTicket>,
+      'requesterEmail' | 'requesterName' | 'ccEmails' | 'jiraKey' | 'jiraId' | 'source' | 'legacyKey' | 'queue' | 'assigneeAgent'
+    >
+  ): ServiceTicket | null {
+    const clean: Partial<ServiceTicket> = {};
+    for (const k of ['requesterEmail', 'requesterName', 'ccEmails', 'jiraKey', 'jiraId', 'source', 'legacyKey', 'queue', 'assigneeAgent'] as const) {
+      if (fields[k] !== undefined) (clean as Record<string, unknown>)[k] = fields[k];
+    }
+    if (typeof clean.requesterEmail === 'string') clean.requesterEmail = clean.requesterEmail.trim().toLowerCase();
+    return this.applyServiceTicketUpdate(idOrKey, clean);
+  }
+
+  private applyServiceTicketUpdate(idOrKey: string, patch: Partial<ServiceTicket>): ServiceTicket | null {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
     const idx = this.state.serviceTickets.findIndex(
       (t) => t.id === idOrKey || t.key.toLowerCase() === idOrKey.toLowerCase()
@@ -3767,7 +4059,8 @@ export class CrmRepository {
     const comment: TicketComment = {
       id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       author: input.author || 'Marcéllo Mira',
-      authorRole: input.authorRole || 'AGENT',
+      // SetaDesk: papel so pode ser AGENT ou CUSTOMER; qualquer outro valor vira AGENT.
+      authorRole: input.authorRole === 'CUSTOMER' ? 'CUSTOMER' : 'AGENT',
       isInternal: Boolean(input.isInternal),
       body: input.body.trim(),
       createdAt: nowIso,
