@@ -121,7 +121,9 @@ function serializeComposerHtml(raw: string): string {
     const slot = /data-stihub-inline=["']?(\d{1,2})["']?/i.exec(tag);
     if (!slot) return '';
     const altM = /\balt="([^"]*)"/i.exec(tag);
-    const alt = altM ? altM[1] : '';
+    const alt = (altM ? altM[1] : '').replace(/[&<>"']/g, (ch) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch
+    ));
     return `<img src="cid:stihub-inline-${Number(slot[1])}" alt="${alt}" />`;
   });
   return sanitizeEmailHtml(replaced);

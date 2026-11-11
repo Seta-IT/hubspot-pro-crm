@@ -164,6 +164,20 @@ describe('sanitização HTML do e-mail (XSS)', () => {
     assert.equal(plainTextToHtml('a < b\nc'), 'a &lt; b<br>c');
   });
 
+
+  it('remove srcset, target sem rel, comentários condicionais e <style>', () => {
+    const withSrcset = sanitizeEmailHtml('<img src="cid:seta-it-logo" srcset="https://evil.example/p.png 1x" alt="l">');
+    assert.doesNotMatch(withSrcset, /srcset/i);
+    assert.doesNotMatch(withSrcset, /evil\.example/);
+    assert.match(withSrcset, /src="cid:seta-it-logo"/);
+    const a = sanitizeEmailHtml('<a href="https://ok.example" target="_blank">x</a>');
+    assert.doesNotMatch(a, /\btarget=/i);
+    assert.match(a, /rel="noopener noreferrer"/);
+    assert.equal(sanitizeEmailHtml('<!--[if IE]><script>alert(1)</script><![endif]--><b>ok</b>'), '<b>ok</b>');
+    assert.equal(sanitizeEmailHtml('<![if !IE]><script>alert(1)</script><![endif]><b>ok</b>'), '<b>ok</b>');
+    assert.equal(sanitizeEmailHtml('<style>body{background:url(javascript:alert(1))}</style><b>ok</b>'), '<b>ok</b>');
+  });
+
   it('html/body envoltórios são desembrulhados (o conteúdo seguro permanece)', () => {
     const out = sanitizeEmailHtml('<html><body><b>ok</b><script>x()</script></body></html>');
     assert.match(out, /<b>ok<\/b>/);
@@ -271,6 +285,60 @@ describe('anexos: tipos, tamanho e payload do Graph', () => {
     if (!many.ok) assert.equal(many.code, 'MAILBOX_ATTACHMENT_LIMIT');
 
     assert.match(MAILBOX_ATTACHMENT_TYPE_DENIED, /PDF/);
+  });
+
+
+  it('recusa conteúdo cujo magic byte não bate com a extensão/MIME', () => {
+    const exeAsPdf = parseMailboxAttachments([{
+      filename: 'proposta.pdf',
+      contentType: 'application/pdf',
+      contentBase64: Buffer.from('MZ\x90this-is-not-a-pdf').toString('base64'),
+    }]);
+    assert.equal(exeAsPdf.ok, false);
+    if (!exeAsPdf.ok) assert.equal(exeAsPdf.code, 'MAILBOX_ATTACHMENT_TYPE');
+
+    const htmlAsTxt = parseMailboxAttachments([{
+      filename: 'nota.txt',
+      contentType: 'text/plain',
+      contentBase64: Buffer.from('<html><script>alert(1)</script></html>').toString('base64'),
+    }]);
+    assert.equal(htmlAsTxt.ok, false);
+    if (!htmlAsTxt.ok) assert.equal(htmlAsTxt.code, 'MAILBOX_ATTACHMENT_TYPE');
+
+    const htmlAsCsv = parseMailboxAttachments([{
+      filename: 'dados.csv',
+      contentType: 'text/csv',
+      contentBase64: Buffer.from('<!DOCTYPE html><html>').toString('base64'),
+    }]);
+    assert.equal(htmlAsCsv.ok, false);
+
+    const svgAsPng = parseMailboxAttachments([{
+      filename: 'foto.png',
+      contentType: 'image/png',
+      contentBase64: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>').toString('base64'),
+    }]);
+    assert.equal(svgAsPng.ok, false);
+
+    const jpegAsPng = parseMailboxAttachments([{
+      filename: 'foto.png',
+      contentType: 'image/png',
+      contentBase64: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]).toString('base64'),
+    }]);
+    assert.equal(jpegAsPng.ok, false);
+
+    const pngOk = parseMailboxAttachments([{
+      filename: 'foto.png',
+      contentType: 'image/png',
+      contentBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64'),
+    }]);
+    assert.equal(pngOk.ok, true);
+
+    const txtOk = parseMailboxAttachments([{
+      filename: 'nota.txt',
+      contentType: 'text/plain',
+      contentBase64: Buffer.from('Olá cliente, segue o texto.').toString('base64'),
+    }]);
+    assert.equal(txtOk.ok, true);
   });
 
   it('monta o payload do Graph com HTML, logo inline (CID) e anexos de arquivo', () => {
@@ -402,7 +470,7 @@ describe('POST /api/mailbox/send com HTML e anexos', () => {
     enableEnv();
     const { router, mock, contact } = setup();
     await connect(router);
-    const pngB64 = Buffer.from('PNGDATA').toString('base64');
+    const pngB64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
     const sent = await router.dispatch({
       method: 'POST',
       path: '/api/mailbox/send',
@@ -507,6 +575,8 @@ describe('Cco fora do histórico e teto de destinatários', () => {
     assert.equal('bcc' in list[0], false);
     const audit = JSON.stringify(repo.listSecurityAuditLogs(50).logs);
     assert.equal(audit.includes(bcc), false, audit);
+    assert.match(audit, /para 2 destinatario/);
+    assert.doesNotMatch(audit, /para 3 destinatario/);
   });
 
   it(`rejeita mais de ${MAILBOX_MAX_RECIPIENTS} destinatários somando Para, Cc e Cco`, async () => {

@@ -8,7 +8,7 @@ import { stopFollowupForDeal } from '../modules/deals/proposal-followup-service'
 //   PUT    /api/mailbox/signature              -> { signature } (texto puro)
 //   POST   /api/mailbox/send                   -> envia pela caixa do usuario (Graph) e registra
 //        bodyFormat=html: corpo HTML sanitizado (allowlist) + texto alternativo na timeline
-//        attachments: filename + contentType + contentBase64 (memoria, allowlist, <=3 MiB)
+//        attachments: filename + contentType + contentBase64 (memoria, allowlist+magic, <=2,5 MB)
 //   POST   /api/mailbox/sync                   -> busca respostas/enviados das minhas caixas
 //   GET    /api/mailbox/timeline?contactId=|companyId=|dealId=  -> e-mails da ficha
 //   GET    /api/mailbox/never-log              -> lista "Nunca registrar" (+ canManage)
@@ -616,7 +616,7 @@ export async function handleMailboxRoute(
       item = toTimelineEmail(rec);
     }
     audit(deps.repo, actor, query, 'MAILBOX_EMAIL_SENT', `${m} ${cleanPath}`, 'SUCCESS',
-      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length + v.bcc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}; anexos: ${attachmentNames.length ? attachmentNames.join(', ') : 'nenhum'}.`);
+      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}; anexos: ${attachmentNames.length ? attachmentNames.join(', ') : 'nenhum'}.`);
     return { status: 201, body: { data: { sent: true, logged: logIt, tracked: track, email: item } } };
   }
 

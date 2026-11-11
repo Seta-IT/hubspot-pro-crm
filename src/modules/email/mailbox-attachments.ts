@@ -27,7 +27,7 @@ export const MAILBOX_ATTACHMENT_INVALID = 'Anexo inválido.';
 
 export const MAILBOX_ATTACHMENT_LIMIT = `É possível anexar no máximo ${MAILBOX_MAX_ATTACHMENTS} arquivos.`;
 
-/** Tipos aceitos (extensão → MIME canônico). SVG, HTML, JS e executáveis ficam de fora. */
+/** Tipos aceitos (extensão → MIME canônico). Conteúdo também precisa bater com o magic byte. SVG, HTML, JS e executáveis ficam de fora. */
 export const ALLOWED_ATTACHMENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
   pdf: 'application/pdf',
   png: 'image/png',
@@ -101,6 +101,62 @@ function canonicalMime(filename: string, declared: string): string | null {
   return null;
 }
 
+/** Cabeçalhos mágicos (e, em texto, ausência de HTML/SVG/executável). Extensão/MIME sozinhos não bastam. */
+export function attachmentMatchesDeclaredType(mime: string, buf: Buffer): boolean {
+  if (!buf.length) return false;
+  const at = (n: number) => (n < buf.length ? buf[n]! : -1);
+  const ascii = (start: number, len: number) => buf.subarray(start, start + len).toString('latin1');
+  switch (mime) {
+    case 'application/pdf': {
+      let i = 0;
+      if (buf.length >= 3 && at(0) === 0xef && at(1) === 0xbb && at(2) === 0xbf) i = 3;
+      while (i < Math.min(buf.length, 16) && (at(i) === 0x20 || at(i) === 0x09 || at(i) === 0x0d || at(i) === 0x0a)) i++;
+      return ascii(i, 5) === '%PDF-';
+    }
+    case 'image/png':
+      return buf.length >= 8 && at(0) === 0x89 && ascii(1, 3) === 'PNG' && at(4) === 0x0d && at(5) === 0x0a && at(6) === 0x1a && at(7) === 0x0a;
+    case 'image/jpeg':
+      return buf.length >= 3 && at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff;
+    case 'image/gif':
+      return buf.length >= 6 && (ascii(0, 6) === 'GIF87a' || ascii(0, 6) === 'GIF89a');
+    case 'image/webp':
+      return buf.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP';
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+    case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+      return (
+        buf.length >= 4 &&
+        at(0) === 0x50 &&
+        at(1) === 0x4b &&
+        (at(2) === 0x03 || at(2) === 0x05 || at(2) === 0x07) &&
+        (at(3) === 0x04 || at(3) === 0x06 || at(3) === 0x08)
+      );
+    case 'text/plain':
+    case 'text/csv':
+      return isSafeTextAttachment(buf);
+    default:
+      return false;
+  }
+}
+
+function isSafeTextAttachment(buf: Buffer): boolean {
+  if (!buf.length || buf.includes(0)) return false;
+  if (buf.length >= 2 && buf[0] === 0x4d && buf[1] === 0x5a) return false; // MZ / executável
+  const head = buf.subarray(0, Math.min(buf.length, 256)).toString('utf8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+  if (head.startsWith('%pdf-')) return false;
+  if (
+    head.startsWith('<svg') ||
+    head.startsWith('<?xml') ||
+    head.startsWith('<!doctype') ||
+    head.startsWith('<html') ||
+    head.startsWith('<script') ||
+    head.startsWith('<iframe')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function decodeBase64(raw: string): Buffer | null {
   const s = String(raw || '').trim();
   if (!s || s.length > Math.ceil(GRAPH_SIMPLE_ATTACHMENT_MAX_BYTES * 4 / 3) + 64) return null;
@@ -172,6 +228,9 @@ export function parseMailboxAttachments(raw: unknown, opts?: ParseMailboxAttachm
     total += buf.length;
     if (total > MAILBOX_MAX_ATTACHMENT_TOTAL_BYTES) {
       return { ok: false, error: MAILBOX_ATTACHMENT_TOO_LARGE, code: 'MAILBOX_ATTACHMENT_TOO_LARGE' };
+    }
+    if (!attachmentMatchesDeclaredType(mime, buf)) {
+      return { ok: false, error: MAILBOX_ATTACHMENT_TYPE_DENIED, code: 'MAILBOX_ATTACHMENT_TYPE' };
     }
     out.push({
       filename,
