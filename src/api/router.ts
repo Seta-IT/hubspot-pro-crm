@@ -144,6 +144,7 @@ import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
 import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
+import { toInternalProposalSummary } from '../app/lib/internal-proposal-summary';
 import { toPublicInvoiceDto } from '../app/lib/invoice-public-dto';
 import {
   isInvoiceLinkConfigured,
@@ -2882,6 +2883,41 @@ export class CrmApiRouter {
     if (!e) return undefined;
     const rec = this.repo.findRbacUserRecord('', e);
     return rec && String(rec.email || '').toLowerCase() === e ? rec.id : undefined;
+  }
+
+  /**
+   * GET /api/interno/proposta/:id — visão resumida para o contrato.
+   * Sem sessão MFA => 401. Sessão sem leitura da proposta (RBAC/escopo) => 403.
+   * A URL é o id da proposta; a resposta é sempre a versão atual. Não registra token.
+   */
+  private internalProposalSummary(
+    pathId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    if (ctx.serviceAccount) {
+      return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+    }
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'denied') {
+      if (!query._sessionToken) {
+        return {
+          status: 401,
+          body: {
+            error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
+            code: 'MFA_AUTH_REQUIRED',
+          },
+        };
+      }
+      return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+    }
+    const found = this.findProposalByRef(pathId);
+    if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+    if (!CrmApiRouter.proposalVisibleIn(scope, found)) {
+      return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+    }
+    const origin = typeof query._origin === 'string' && query._origin.trim() ? query._origin : undefined;
+    return { status: 200, body: { data: toInternalProposalSummary(found, { origin }) } };
   }
 
   private proposalScopeForbidden(code: 'PROPOSAL_SCOPE_FORBIDDEN' | 'PROPOSAL_OWNER_IMMUTABLE', fields?: string[]): ApiResponse {
@@ -6594,6 +6630,11 @@ export class CrmApiRouter {
       // header via src/app/api/erp/proposals/[id]/* em query.proposalLinkToken (nunca na URL
       // do cliente: a rota descarta o parametro vindo da URL) e nunca e logado.
       // ======================================================================
+      const internalProposalMatch = cleanPath.match(/^\/api\/interno\/proposta\/([^/]+)$/);
+      if (internalProposalMatch && method === 'GET') {
+        return this.internalProposalSummary(decodeURIComponent(internalProposalMatch[1]).trim(), query, ctx);
+      }
+
       const proposalShortMatch = cleanPath.match(/^\/api\/p\/([^/]+)$/);
       if (proposalShortMatch && method === 'GET') {
         return this.resolveProposalShortLink(decodeURIComponent(proposalShortMatch[1]).trim(), query);

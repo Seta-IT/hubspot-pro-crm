@@ -155,6 +155,7 @@ import {
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
+import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
 import { buildContractEmailPayload } from '../lib/contract-email-payload';
@@ -1833,6 +1834,18 @@ export default function ErpGestaoClickTab({
                     className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
                   >
                     Copiar link do cliente
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="menu-copy-internal-link"
+                    onClick={async () => {
+                      setOpenProposalMenuId(null);
+                      const url = await copyInternalProposalLink(prop.id);
+                      onShowToast(`Link interno copiado: ${url}`);
+                    }}
+                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
+                  >
+                    Copiar link interno
                   </button>
                   <button
                     type="button"
@@ -5190,6 +5203,17 @@ export default function ErpGestaoClickTab({
                 >
                   <Copy className="w-3.5 h-3.5" /> Copiar link para o cliente
                 </button>
+                <button
+                  type="button"
+                  data-testid="banner-copy-internal-link"
+                  onClick={async () => {
+                    const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
+                    onShowToast(`Link interno copiado: ${url}`);
+                  }}
+                  className="inline-flex items-center gap-1 text-[#1e3a6e] font-semibold hover:underline cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copiar link interno
+                </button>
                 <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
                   <ExternalLink className="w-3.5 h-3.5" /> Abrir
                 </a>
@@ -7577,6 +7601,18 @@ export default function ErpGestaoClickTab({
                 >
                   <Copy className="w-3.5 h-3.5" />
                   Copiar link do cliente
+                </button>
+                <button
+                  type="button"
+                  data-testid="status-modal-copy-internal-link"
+                  onClick={async () => {
+                    const url = await copyInternalProposalLink(statusModalProposal.id);
+                    onShowToast(`Link interno copiado: ${url}`);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-white text-[#1e3a6e] text-xs font-semibold cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copiar link interno
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
