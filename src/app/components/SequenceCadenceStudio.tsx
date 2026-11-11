@@ -467,7 +467,7 @@ export default function SequenceCadenceStudio({
               title={s.state}
               onClick={() => onSelectStateFilter(s.state)}
               className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold transition ${
-                selectedStateFilter === s.state ? 'ring-2 ring-[#ff7a59] ' : ''
+                selectedStateFilter === s.state ? 'ring-2 ring-accent ' : ''
               }${s.tone}`}
             >
               {s.labelPt} ({stateCounts[s.state] || 0})
@@ -491,7 +491,7 @@ export default function SequenceCadenceStudio({
             type="button"
             onClick={() => setPanel(id)}
             className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px transition ${
-              panel === id ? 'border-[#ff7a59] text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
+              panel === id ? 'border-accent text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             {label}
@@ -535,7 +535,7 @@ export default function SequenceCadenceStudio({
                   type="button"
                   disabled={saving}
                   onClick={handleSaveSteps}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold disabled:opacity-50"
                 >
                   <Save className="w-3.5 h-3.5" /> {saving ? 'Salvando...' : 'Salvar passos'}
                 </button>
@@ -742,7 +742,7 @@ export default function SequenceCadenceStudio({
                     Ao atingir o limite, novas inscrições são retidas e passos de e-mail são adiados para a próxima janela comercial. O contador zera na virada do dia ({draftWindow.defaultTimezone}).
                   </p>
                 </div>
-                <button type="button" disabled={saving} onClick={handleSaveWindow} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold disabled:opacity-50">
+                <button type="button" disabled={saving} onClick={handleSaveWindow} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold disabled:opacity-50">
                   <Save className="w-3.5 h-3.5" /> {saving ? 'Salvando...' : 'Salvar janela e limites'}
                 </button>
               </div>
@@ -833,14 +833,14 @@ export default function SequenceCadenceStudio({
                   </div>
                 ))}
               </div>
-              <button type="button" disabled={saving} onClick={handleSaveRules} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold disabled:opacity-50">
+              <button type="button" disabled={saving} onClick={handleSaveRules} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold disabled:opacity-50">
                 <Save className="w-3.5 h-3.5" /> {saving ? 'Salvando...' : 'Salvar regras'}
               </button>
             </div>
 
             <div className="p-4 rounded-xl border border-slate-200 space-y-2">
               <h5 className="font-semibold text-slate-900 flex items-center gap-1.5">
-                <GitBranch className="w-4 h-4 text-[#ff7a59]" /> Simulador de regras de saída
+                <GitBranch className="w-4 h-4 text-accent" /> Simulador de regras de saída
               </h5>
               <p className="text-slate-500">Aplica a regra de verdade na inscrição escolhida (motor de cadências).</p>
               <select value={simEnrollmentId} onChange={(e) => setSimEnrollmentId(e.target.value)} className="w-full px-2 py-1.5 rounded border border-slate-300 bg-white">
@@ -910,7 +910,7 @@ export default function SequenceCadenceStudio({
             </div>
             <div className="p-4 rounded-xl border border-slate-200 space-y-2">
               <h5 className="font-semibold text-slate-900 flex items-center gap-1.5">
-                <Copy className="w-4 h-4 text-[#ff7a59]" /> Clonar cadência
+                <Copy className="w-4 h-4 text-accent" /> Clonar cadência
               </h5>
               <p className="text-slate-500">Cria uma cópia (v1) com os mesmos passos, janela e regras, com métricas zeradas.</p>
               <input type="text" value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder={`${sequence.name} (Clonar)`} className="w-full px-2 py-1.5 rounded border border-slate-300" />

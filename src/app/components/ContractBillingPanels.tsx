@@ -190,7 +190,7 @@ export function ContractGestaoClickDataPanel({
                       <span className="text-[10px] text-slate-500 block text-right">Estoque: {Number(stock).toFixed(2).replace('.', ',')}</span>
                     </td>
                     <td className="p-1 w-28"><input type="number" step="0.01" min={0} value={eq.unitMonthlyRent} onChange={(e) => updateEq(idx, { unitMonthlyRent: Number(e.target.value) || 0 })} className="w-full px-2 py-1.5 rounded border border-slate-300 text-right" /></td>
-                    <td className="p-1 w-28"><input type="text" readOnly value={(Number(eq.quantity || 0) * Number(eq.unitMonthlyRent || 0)).toFixed(2).replace('.', ',')} className="w-full px-2 py-1.5 rounded border border-slate-200 bg-slate-100 text-right font-semibold" /></td>
+                    <td className="p-1 w-28"><input type="text" readOnly value={(Number(eq.quantity || 0) * Number(eq.unitMonthlyRent || 0)).toFixed(2).replace('.', ',')} className="w-full px-2 py-1.5 rounded border border-slate-200 bg-slate-100 text-right" /></td>
                     <td className="p-1 text-right"><button type="button" aria-label="Excluir produto" onClick={() => patch({ equipments: draft.equipments.filter((_, i) => i !== idx) })} className="px-2 py-1.5 rounded bg-rose-600 text-white font-semibold cursor-pointer">Excluir</button></td>
                   </tr>
                 );
@@ -353,7 +353,7 @@ export function ReceiptDraftPreviewModal({
               setTemplateStyle(id);
               saveReceiptTemplateStyle(id);
             }}
-            className="mr-auto px-2.5 py-2 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer"
+            className="mr-auto px-2.5 py-2 rounded-md bg-white text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer"
           />
           <button type="button" onClick={print} className={`px-3 py-2 ${BTN_OUTLINE}`}>Baixar PDF</button>
           <button type="button" onClick={onClose} disabled={finalizing} className={`px-3 py-2 ${BTN_OUTLINE}`}>Voltar e editar</button>
@@ -737,7 +737,6 @@ export function InvoiceExtraFieldsPanel({ draft, setDraft }: { draft: ErpFiscalI
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {field('Contrato n.', 'contractNumber')}
         {field('Proposta', 'proposalNumber')}
-        {field('NF de Remessa', 'remessaNfeNumber')}
         {field('Prazo do Contrato', 'contractTermLabel')}
         {field('Vendedor', 'sellerName')}
         {field('Centro de custo', 'costCenter')}

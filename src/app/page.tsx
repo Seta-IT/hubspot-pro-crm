@@ -53,6 +53,7 @@ import {
   shouldOfferHomeScreenChoice,
   systemHasAccess,
 } from './lib/home-screen';
+import { proposalFlowNavigation } from './lib/proposal-validity-return';
 import { loadClientIamUsersOverride, migrateClientIamStorage } from './lib/auth';
 import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
@@ -61,6 +62,8 @@ import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeader
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
+import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
+import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
   loadDurableJournal,
@@ -428,19 +431,27 @@ export default function HubSpotProCrmApp() {
     await fetchAllCrmData();
   };
 
-  const handleUpdateDeal = async (dealId: string, patch: Record<string, unknown>) => {
+  const handleUpdateDeal = async (
+    dealId: string,
+    patch: Record<string, unknown>,
+    options?: { silent?: boolean }
+  ) => {
     const res = await fetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...patch, _reconcileJournal: loadDurableJournal() }),
     });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.data) recordUpsertedDeal(json.data);
-      showToast('Negócio atualizado com sucesso!');
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      const msg = (errJson as { error?: string }).error || res.statusText || 'Falha ao atualizar o negócio';
+      if (!options?.silent) showToast(`Erro ao atualizar negócio: ${msg}`);
+      throw new Error(msg);
     }
+    const json = await res.json();
+    if (json.data) recordUpsertedDeal(json.data);
+    if (!options?.silent) showToast('Negócio atualizado com sucesso!');
+    await fetchAllCrmData();
   };
 
   const handleDeleteDeal = async (dealId: string) => {
@@ -1100,6 +1111,14 @@ export default function HubSpotProCrmApp() {
     userModuleAccess.erp && (erpFinancePerm ? erpFinancePerm.view : true)
   );
   const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
+  const canEditDealDrawer = canEditDealsFromPermissions(activeRbacUser);
+  const canDeleteDealDrawer = canDeleteDealsFromPermissions(activeRbacUser);
+  const canSendDealEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'deal');
+  const canSendContactEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'contact');
+  const canSendCompanyEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'company');
+  const dealOwnerOptions = (rbacState?.users || [])
+    .filter((u) => u.active)
+    .map((u) => ({ id: u.id, name: u.name }));
 
   const isCrmActive =
     activeModule === 'OVERVIEW_AI' ||
@@ -1193,6 +1212,17 @@ export default function HubSpotProCrmApp() {
       typeof window !== 'undefined'
         ? parseHomeDeepLink(window.location.search, window.location.hash)
         : { hasDeepLink: false, screenId: null };
+    // Atualizar validade / voltar ao envio: a URL manda (não a tela inicial salva).
+    const flowNav =
+      typeof window !== 'undefined' && systemHasAccess('ERP', access)
+        ? proposalFlowNavigation(window.location.search)
+        : null;
+    if (flowNav) {
+      setErpInitialSection(flowNav.section);
+      setErpTargetEntity(flowNav.target);
+      setErpNavigationTrigger((n) => n + 1);
+      setActiveModule('ERP_GESTAOCLICK');
+    }
     const apply = (saved: HomeScreenId | null) => {
       setHomeScreenPreference(saved);
       const resolution = resolveInitialHomeScreen({ saved, access, deepLink });
@@ -1855,7 +1885,7 @@ export default function HubSpotProCrmApp() {
         <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2">
           {/* Left Breadcrumb & Strictly Scoped Clickable Badges */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium mr-1">
+            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-semibold mr-1">
               <button
                 type="button"
                 onClick={() => setActiveModule("OVERVIEW_AI")}
@@ -2006,7 +2036,7 @@ export default function HubSpotProCrmApp() {
                       setSelectedPipelineId(e.target.value);
                       setActiveModule("DEALS_KANBAN");
                     }}
-                    className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                    className="bg-transparent text-xs text-slate-800 focus:outline-none cursor-pointer"
                   >
                     {pipelines.map((p) => (
                       <option key={p.id} value={p.id} className="text-[#33475b]">
@@ -2438,6 +2468,10 @@ export default function HubSpotProCrmApp() {
                     openNewDealTrigger={openNewDealTrigger}
                     onUpdateDeal={handleUpdateDeal}
                     onDeleteDeal={handleDeleteDeal}
+                    canEditDeal={canEditDealDrawer}
+                    canDeleteDeal={canDeleteDealDrawer}
+                    canSendEmail={canSendDealEmail}
+                    ownerOptions={dealOwnerOptions}
                     onNavigateToErp={() => {
                       setErpInitialSection('INICIO');
                       setActiveModule('ERP_GESTAOCLICK');
@@ -2473,6 +2507,8 @@ export default function HubSpotProCrmApp() {
                     onEnrichCompany={handleEnrichCompany}
                     onBatchEnrichAll={handleBatchEnrichAll}
                     onAddContactActivity={handleAddContactActivity}
+                    canSendContactEmail={canSendContactEmail}
+                    canSendCompanyEmail={canSendCompanyEmail}
                   />
                 )}
 

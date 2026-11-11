@@ -1,6 +1,8 @@
 'use client';
 
 // t33u / t200u: short link opaco /p/<codigo> para proposta ou fatura emitida.
+// Correcao comercial incrementa a versao interna da proposta e NAO invalida o codigo:
+// a folha A4 mostra a proposta atual. Fatura continua no mesmo slug, com kind=invoice.
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ProposalLinkOverrideContext, type ProposalLinkOverride } from '../../lib/proposal-link-override';

@@ -90,13 +90,13 @@ function formFromView(v: FiscalSettingsView): FormState {
 }
 
 const inputCls = 'w-full px-3 py-2 rounded border border-slate-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a6e]/30';
-const labelCls = 'block text-[11px] font-bold text-slate-700 mb-1';
+const labelCls = 'block text-[11px] font-semibold text-slate-700 mb-1';
 const hintCls = 'text-[10px] text-slate-500 mt-1';
-const sectionTitleCls = 'text-[10px] font-extrabold uppercase tracking-wide text-slate-500 border-b border-slate-100 pb-1 mb-3';
+const sectionTitleCls = 'text-[10px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100 pb-1 mb-3';
 
 function EnvironmentToggle({ value, onChange, disabled }: { value: FiscalEnvironment; onChange: (v: FiscalEnvironment) => void; disabled?: boolean }) {
   return (
-    <div className="grid grid-cols-2 rounded border border-slate-300 overflow-hidden text-xs font-bold" role="radiogroup">
+    <div className="grid grid-cols-2 rounded border border-slate-300 overflow-hidden text-xs font-semibold" role="radiogroup">
       <button
         type="button"
         role="radio"
@@ -123,9 +123,9 @@ function EnvironmentToggle({ value, onChange, disabled }: { value: FiscalEnviron
 
 function EnvBadge({ env }: { env: FiscalEnvironment }) {
   return env === 'PRODUCAO' ? (
-    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-300">Produção</span>
+    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-300">Produção</span>
   ) : (
-    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-300">Homologação</span>
+    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-300">Homologação</span>
   );
 }
 
@@ -181,7 +181,7 @@ function ToggleRow({ icon, title, hint, checked, onChange }: { icon: React.React
       <div className="flex items-start gap-3">
         <span className="text-slate-500 mt-0.5">{icon}</span>
         <div>
-          <p className="text-xs font-bold text-slate-800">{title}</p>
+          <p className="text-xs font-semibold text-slate-800">{title}</p>
           <p className="text-[10px] text-slate-500">{hint}</p>
         </div>
       </div>
@@ -204,7 +204,7 @@ function AdditionalInfo({ docLabel, value, onChange }: { docLabel: string; value
       <div className="flex items-start gap-3">
         <FileText className="w-4 h-4 text-slate-500 mt-0.5" />
         <div className="flex-1">
-          <p className="text-xs font-bold text-slate-800">Informações complementares</p>
+          <p className="text-xs font-semibold text-slate-800">Informações complementares</p>
           <p className="text-[10px] text-slate-500 mb-2">Sai em toda {docLabel} emitida.</p>
           <textarea className={`${inputCls} min-h-[56px]`} maxLength={2000} value={value} placeholder="Sem texto padrão." onChange={(e) => onChange(e.target.value)} />
         </div>
@@ -220,7 +220,7 @@ function Card({ icon, title, subtitle, env, children }: { icon: React.ReactNode;
         <div className="flex items-start gap-2">
           <span className="text-[#1e3a6e] mt-0.5">{icon}</span>
           <div>
-            <h3 className="text-base font-extrabold text-slate-900">{title}</h3>
+            <h3 className="text-base font-semibold text-slate-900">{title}</h3>
             <p className="text-xs text-slate-500">{subtitle}</p>
           </div>
         </div>
@@ -350,9 +350,9 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
   if (error || !view || !form) {
     return (
       <div className="bg-white rounded-md border border-rose-200 p-5 text-xs text-rose-700 space-y-2">
-        <p className="font-bold">Não foi possível carregar as Configurações Fiscais.</p>
+        <p className="font-semibold">Não foi possível carregar as Configurações Fiscais.</p>
         <p>{error}</p>
-        <button type="button" onClick={() => void load()} className="px-3 py-1.5 rounded border border-rose-300 font-bold">
+        <button type="button" onClick={() => void load()} className="px-3 py-1.5 rounded border border-rose-300 font-semibold">
           Tentar novamente
         </button>
       </div>
@@ -364,25 +364,25 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-md border border-slate-200 p-5">
-        <span className="text-[10px] font-extrabold uppercase text-[#1e3a6e] block">Fiscal &gt; Configurações fiscais</span>
-        <h2 className="text-base font-extrabold text-slate-900">Configurações Fiscais — NF-e, NFC-e e NFS-e</h2>
+        <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">Fiscal &gt; Configurações fiscais</span>
+        <h2 className="text-base font-semibold text-slate-900">Configurações Fiscais — NF-e, NFC-e e NFS-e</h2>
         <p className="text-xs text-slate-500">
           Ambiente padrão de todos os documentos: <strong>Homologação</strong> (sem validade fiscal). A numeração de homologação e a de produção são separadas.
         </p>
         <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <p className="text-[10px] font-bold uppercase text-slate-500">Emitente</p>
-            <p className="font-bold text-slate-800">{view.emitter.companyLegalName || '—'}</p>
+            <p className="text-[10px] font-semibold uppercase text-slate-500">Emitente</p>
+            <p className="font-semibold text-slate-800">{view.emitter.companyLegalName || '—'}</p>
           </div>
           <div className="rounded border border-slate-200 bg-slate-50 p-3">
-            <p className="text-[10px] font-bold uppercase text-slate-500">CNPJ (somente leitura)</p>
-            <p className="font-bold text-slate-800">{view.emitter.companyCnpj || '—'}</p>
+            <p className="text-[10px] font-semibold uppercase text-slate-500">CNPJ (somente leitura)</p>
+            <p className="font-semibold text-slate-800">{view.emitter.companyCnpj || '—'}</p>
           </div>
           <div className="rounded border border-amber-200 bg-amber-50 p-3">
-            <p className="text-[10px] font-bold uppercase text-amber-700">Regime tributário (somente leitura)</p>
-            <p className="font-bold text-slate-800">
+            <p className="text-[10px] font-semibold uppercase text-amber-700">Regime tributário (somente leitura)</p>
+            <p className="font-semibold text-slate-800">
               {view.emitter.taxRegime ? TAX_REGIME_LABEL[view.emitter.taxRegime] || view.emitter.taxRegime : '—'}{' '}
-              <span className="text-[10px] font-bold text-amber-700">({view.emitter.taxRegimeNote})</span>
+              <span className="text-[10px] font-semibold text-amber-700">({view.emitter.taxRegimeNote})</span>
             </p>
           </div>
         </div>
@@ -584,7 +584,7 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
             />
           </div>
           {!authDocValid && <p className="text-[10px] text-rose-600">CPF/CNPJ inválido (dígito verificador).</p>}
-          <button type="button" onClick={addAuthDoc} className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-[#1e3a6e] text-[#1e3a6e] text-xs font-bold">
+          <button type="button" onClick={addAuthDoc} className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-[#1e3a6e] text-[#1e3a6e] text-xs font-semibold">
             <Plus className="w-3.5 h-3.5" /> Adicionar CPF/CNPJ
           </button>
         </div>
@@ -595,37 +595,37 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div>
             <p className={labelCls}>Status</p>
-            <p className="font-bold text-slate-800 flex items-center gap-1">
+            <p className="font-semibold text-slate-800 flex items-center gap-1">
               {view.certificate.status === 'VALIDO' ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 text-slate-400" />}
               {view.certificate.status === 'VALIDO' ? 'Válido' : view.certificate.status === 'VENCIDO' ? 'Vencido' : 'Não configurado'}
             </p>
           </div>
           <div>
             <p className={labelCls}>Validade</p>
-            <p className="font-bold text-slate-800">{view.certificate.validUntil ? new Date(view.certificate.validUntil).toLocaleDateString('pt-BR') : '—'}</p>
+            <p className="font-semibold text-slate-800">{view.certificate.validUntil ? new Date(view.certificate.validUntil).toLocaleDateString('pt-BR') : '—'}</p>
           </div>
           <div>
             <p className={labelCls}>CNPJ do certificado</p>
-            <p className="font-bold text-slate-800">{view.certificate.certificateCnpj ? formatCpfOrCnpj(view.certificate.certificateCnpj) : '—'}</p>
+            <p className="font-semibold text-slate-800">{view.certificate.certificateCnpj ? formatCpfOrCnpj(view.certificate.certificateCnpj) : '—'}</p>
           </div>
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <button type="button" disabled aria-disabled className="px-3 py-1.5 rounded border border-slate-300 bg-slate-100 text-slate-400 text-xs font-bold cursor-not-allowed">
+          <button type="button" disabled aria-disabled className="px-3 py-1.5 rounded border border-slate-300 bg-slate-100 text-slate-400 text-xs font-semibold cursor-not-allowed">
             Enviar certificado (.pfx)
           </button>
-          <span className="text-[11px] font-bold text-slate-500">Em breve. Nenhum arquivo .pfx ou senha é armazenado nesta versão.</span>
+          <span className="text-[11px] font-semibold text-slate-500">Em breve. Nenhum arquivo .pfx ou senha é armazenado nesta versão.</span>
         </div>
       </Card>
 
       <div className="flex items-center justify-between gap-3">
-        <button type="button" onClick={() => form && view && setForm(formFromView(view))} className="px-4 py-2 rounded border border-slate-300 bg-white text-xs font-bold text-slate-700">
+        <button type="button" onClick={() => form && view && setForm(formFromView(view))} className="px-4 py-2 rounded border border-slate-300 bg-white text-xs font-semibold text-slate-700">
           Cancelar
         </button>
         <button
           type="button"
           disabled={saving}
           onClick={() => void handleSave()}
-          className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162c54] text-white text-xs font-extrabold disabled:opacity-60"
+          className="px-4 py-2 rounded bg-[#1e3a6e] hover:bg-[#162c54] text-white text-xs font-semibold disabled:opacity-60"
         >
           {saving ? 'Salvando…' : 'Salvar configurações'}
         </button>
@@ -636,7 +636,7 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
           <div className="w-full max-w-lg rounded-md bg-white p-5 shadow-xl space-y-3">
             <div className="flex items-center gap-2 text-amber-700">
               <AlertTriangle className="w-5 h-5" />
-              <h3 className="text-sm font-extrabold">Emitir {DOC_LABEL[pendingProduction]} em PRODUÇÃO pelo ERP?</h3>
+              <h3 className="text-sm font-semibold">Emitir {DOC_LABEL[pendingProduction]} em PRODUÇÃO pelo ERP?</h3>
             </div>
             <p className="text-xs text-slate-700">
               As notas passam a ter validade fiscal e usam a numeração de produção (
@@ -647,21 +647,21 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
                   : `próximo RPS ${view.nfse.numbering.next.PRODUCAO}, série ${view.nfse.rpsSerie}`}
               ).
             </p>
-            <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">{FISCAL_PRODUCTION_GESTAOCLICK_WARNING}</p>
+            <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">{FISCAL_PRODUCTION_GESTAOCLICK_WARNING}</p>
             <label className="flex items-start gap-2 text-xs text-slate-800">
               <input type="checkbox" checked={productionAck} onChange={(e) => setProductionAck(e.target.checked)} className="mt-0.5" />
               Confirmo que o GestaoClick vai parar de emitir {DOC_LABEL[pendingProduction]} nesta série e que tenho autorização para emitir em produção.
             </label>
             <p className="text-[10px] text-slate-500">A troca só vale depois de “Salvar configurações” e fica registrada na auditoria.</p>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setPendingProduction(null)} className="px-3 py-1.5 rounded border border-slate-300 text-xs font-bold">
+              <button type="button" onClick={() => setPendingProduction(null)} className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold">
                 Manter homologação
               </button>
               <button
                 type="button"
                 disabled={!productionAck}
                 onClick={confirmProduction}
-                className="px-3 py-1.5 rounded bg-emerald-700 text-white text-xs font-extrabold disabled:opacity-50"
+                className="px-3 py-1.5 rounded bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
               >
                 Confirmar produção
               </button>

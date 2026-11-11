@@ -28,7 +28,7 @@ describe('Pacote N (D-M2): sessao revogada nao ganha o teto de 4 MiB', () => {
     const out = await router.dispatch({ method: 'POST', path: '/api/auth/logout', query: { _fromHttpBridge: '1', _sessionToken: t }, body: {} });
     assert.equal(out.status, 200);
     assert.equal(isSessionTokenRevoked(t), true);
-    for (const p of ['/api/bootstrap', '/api/erp/purchases/import-xml', '/api/erp/nfe-importacao/emit', '/api/erp/financial/reconcile-ofx']) {
+    for (const p of ['/api/bootstrap', '/api/erp/purchases/import-xml', '/api/erp/nfe-importacao/emit', '/api/erp/financial/reconcile-ofx', '/api/mailbox/send']) {
       assert.equal(bridgeBodyCapFor('POST', p, t), BRIDGE_MAX_BODY_BYTES, p);
       assert.equal(requestBodyCapFor('POST', p, t), BRIDGE_MAX_BODY_BYTES, p);
     }

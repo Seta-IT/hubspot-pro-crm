@@ -53,11 +53,11 @@ export default function HomeScreenPreferenceModal({
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden text-xs my-6">
         <div className="bg-[#0d2b4e] text-white px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#ff7a59] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center">
               <Home className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h2 className="text-sm font-bold">Tela inicial padrão</h2>
+              <h2 className="text-sm font-semibold">Tela inicial padrão</h2>
               <p className="text-[11px] text-slate-300 font-semibold">
                 Escolha o sistema e a tela que abrem ao entrar no STI-hub, {userName}.
               </p>
@@ -90,7 +90,7 @@ export default function HomeScreenPreferenceModal({
           ) : (
             <>
               <div className="space-y-2">
-                <h3 className="text-[11px] uppercase tracking-wide font-bold text-slate-500">1. Sistema</h3>
+                <h3 className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">1. Sistema</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {HOME_SYSTEMS.filter((s) => allowedSystems.includes(s.id)).map((sys) => {
                     const Icon = SYSTEM_ICONS[sys.id];
@@ -107,12 +107,12 @@ export default function HomeScreenPreferenceModal({
                         }}
                         className={`text-left rounded-lg border px-3 py-2.5 transition cursor-pointer ${
                           active
-                            ? 'border-[#ff7a59] bg-[#fff3ef] ring-1 ring-[#ff7a59]'
+                            ? 'border-accent bg-[#fff3ef] ring-1 ring-accent'
                             : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <Icon className={`w-4 h-4 ${active ? 'text-[#ff7a59]' : 'text-slate-500'}`} />
+                          <Icon className={`w-4 h-4 ${active ? 'text-accent' : 'text-slate-500'}`} />
                           <span className="font-semibold text-[#0d2b4e] text-[13px]">{sys.label}</span>
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500">{sys.description}</p>
@@ -124,7 +124,7 @@ export default function HomeScreenPreferenceModal({
 
               {selectedSystem && (
                 <div className="space-y-2">
-                  <h3 className="text-[11px] uppercase tracking-wide font-bold text-slate-500">2. Tela</h3>
+                  <h3 className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">2. Tela</h3>
                   <div className="space-y-1.5">
                     {screens.map((scr) => {
                       const active = selectedScreen === scr.id;
@@ -187,7 +187,7 @@ export default function HomeScreenPreferenceModal({
                 type="button"
                 disabled={!selectedScreen}
                 onClick={() => onSave(selectedScreen)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#ff7a59] hover:bg-[#e86646] disabled:opacity-50 text-white font-semibold cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-semibold cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Salvar tela inicial

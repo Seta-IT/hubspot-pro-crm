@@ -109,7 +109,7 @@ function Card({ icon: Icon, lead, strong, tail, subtitle, right, children }: {
           <h3 className="flex items-center gap-2 text-[15px] text-slate-700">
             <Icon className="w-4 h-4 text-slate-500" />
             <span>
-              {lead} <strong className="font-bold" style={{ color: NAVY }}>{strong}</strong>
+              {lead} <strong className="font-semibold" style={{ color: NAVY }}>{strong}</strong>
               {tail ? ` ${tail}` : ''}
             </span>
           </h3>
@@ -158,7 +158,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 }
 
 const selectCls = 'w-44 px-3 py-1.5 rounded border border-slate-300 bg-white text-xs font-semibold';
-const inputCls = 'px-3 py-1.5 rounded border border-slate-300 bg-white text-xs font-semibold';
+const inputCls = 'px-3 py-1.5 rounded border border-slate-300 bg-white text-xs';
 
 export interface ErpGeneralSettingsPageProps {
   /** generalParameters.erpConfigGerais vindo de GET /api/admin/settings. */

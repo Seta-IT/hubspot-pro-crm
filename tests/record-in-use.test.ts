@@ -126,6 +126,23 @@ describe('t197u/t198u bloqueio de exclusão — texto e contagens', () => {
     assert.equal(stage.deals, 1);
   });
 
+  it('negócio conta propostas, contratos e faturas vinculadas', () => {
+    const counts = countRecordUsage(
+      'deal',
+      { id: 'deal-1' },
+      {
+        proposals: [{ dealId: 'deal-1' }, { dealId: 'other' }],
+        contracts: [{ dealId: 'deal-1' }],
+        invoices: [{ dealId: 'deal-1' }, { dealId: 'deal-1' }, { dealId: 'x' }],
+      }
+    );
+    assert.equal(counts.proposals, 1);
+    assert.equal(counts.contracts, 1);
+    assert.equal(counts.invoices, 2);
+    const free = countRecordUsage('deal', { id: 'deal-livre' }, { proposals: [{ dealId: 'deal-1' }] });
+    assert.equal(recordUsageTotal(free), 0);
+  });
+
   it('conta bancária casa lançamento, fatura e boleto pelo nome', () => {
     const counts = countRecordUsage(
       'bankAccount',
@@ -261,6 +278,55 @@ describe('t197u DELETE 409 RECORD_IN_USE nas rotas', () => {
       body: {},
       query: {},
     });
+
     assert.equal(allowedStage.status, 200);
+  });
+
+  it('não exclui negócio vinculado a proposta e libera negócio sem vínculo', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const pipe = repo.createPipeline({
+      name: 'Pipeline exclusão de negócio',
+      stages: [
+        { id: 'st-deal-uso', pipelineId: 'tmp', name: 'Aberta', order: 1, defaultProbability: 10, dealRottingDays: 14, isClosed: false, isWon: false },
+        { id: 'st-deal-livre', pipelineId: 'tmp', name: 'Outra', order: 2, defaultProbability: 20, dealRottingDays: 14, isClosed: false, isWon: false },
+      ],
+    });
+    const used = repo.createDeal({
+      title: 'Negócio com proposta',
+      value: 100,
+      pipelineId: pipe.id,
+      stageId: pipe.stages[0].id,
+    } as Parameters<typeof repo.createDeal>[0]);
+    const free = repo.createDeal({
+      title: 'Negócio livre',
+      value: 50,
+      pipelineId: pipe.id,
+      stageId: pipe.stages[1].id,
+    } as Parameters<typeof repo.createDeal>[0]);
+    repo.createProposal({ title: 'Proposta do negócio', dealId: used.id, items: [] } as Parameters<typeof repo.createProposal>[0]);
+
+    const blocked = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'DELETE',
+      path: `/api/deals/${used.id}`,
+      body: {},
+      query: {},
+    });
+    assert.equal(blocked.status, 409);
+    const body = blocked.body as { code: string; usageText: string };
+    assert.equal(body.code, RECORD_IN_USE_CODE);
+    assert.match(body.usageText, /proposta/);
+    assert.ok(repo.getDealById(used.id));
+
+    const allowed = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'DELETE',
+      path: `/api/deals/${free.id}`,
+      body: {},
+      query: {},
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(repo.getDealById(free.id), undefined);
   });
 });

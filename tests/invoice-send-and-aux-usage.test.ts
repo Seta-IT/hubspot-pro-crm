@@ -197,7 +197,7 @@ describe('t199u/t200u status emitido e tokens de link', () => {
 
   it('janela Enviar tem Cco e caixas da fatura emitida', () => {
     const src = readFileSync(path.join(process.cwd(), 'src/app/components/ClientEmailComposerModal.tsx'), 'utf8');
-    assert.match(src, />Cco</);
+    assert.match(src, /label="Cco"/);
     assert.match(src, /data-testid="invoice-send-attachments"/);
     assert.match(src, /Recibo \(PDF\)/);
     assert.match(src, /NF de remessa \(DANFE\/XML\)/);

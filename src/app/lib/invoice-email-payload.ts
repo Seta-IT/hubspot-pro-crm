@@ -69,6 +69,7 @@ export function buildIssuedInvoiceEmailPayload(
   return {
     docType: invoice.documentType === 'FATURA_LOCACAO' ? 'RENTAL_RECEIPT' : 'FISCAL_INVOICE',
     invoiceId: invoice.id,
+    companyId: invoice.companyId || opts?.contract?.companyId || null,
     recipientName: invoice.companyName || opts?.contract?.companyName,
     recipientEmail: emails.join(', '),
     companyName: invoice.companyName || opts?.contract?.companyName,

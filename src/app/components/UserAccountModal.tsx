@@ -412,7 +412,7 @@ export default function UserAccountModal({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold text-slate-900"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
               />
             </div>
             <div>
@@ -580,7 +580,7 @@ export default function UserAccountModal({
                       }
                     }}
                     placeholder={mfaMethod === 'EMAIL_OTP' ? 'Código do e-mail' : 'Código atual do app'}
-                    className="w-48 px-3 py-2 rounded-lg border-2 border-[#0d2b4e] font-mono text-sm font-semibold tracking-widest text-center text-[#0d2b4e]"
+                    className="w-48 px-3 py-2 rounded-lg border-2 border-[#0d2b4e] font-mono text-sm tracking-widest text-center text-[#0d2b4e]"
                   />
                   <button
                     type="button"
@@ -660,7 +660,7 @@ export default function UserAccountModal({
                           }
                         }}
                         placeholder="Digite os 6 dígitos do app"
-                        className="w-48 px-3 py-2 rounded-lg border-2 border-[#0d2b4e] font-mono text-sm font-semibold tracking-widest text-center text-[#0d2b4e]"
+                        className="w-48 px-3 py-2 rounded-lg border-2 border-[#0d2b4e] font-mono text-sm tracking-widest text-center text-[#0d2b4e]"
                       />
                       <button
                         type="button"

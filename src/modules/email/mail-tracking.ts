@@ -1,13 +1,24 @@
 // ============================================================================
 // STI-hub — Rastreamento de aberturas e cliques do e-mail individual do CRM (04/11/2026).
-// - Corpo digitado em texto puro: escapado para HTML (sem HTML do usuario), quebras de linha
+// - Corpo em texto puro: escapado para HTML (sem HTML do usuario), quebras de linha
 //   preservadas, links http(s) viram <a> passando pelo redirecionamento de clique.
+// - Corpo em HTML (bodyFormat=html): sanitizado com allowlist e os <a href> http(s) reescritos
+//   para o rastreio, sem escapar o HTML legitimo e sem reabrir XSS.
 // - O destino do clique NUNCA vem da URL publica: a rota publica so recebe o id de rastreio
 //   e o indice do link; o endereco real fica gravado no servidor (sem redirecionamento aberto).
 // - Pixel 1x1 no fim do corpo. Rotas publicas: /api/email-track/o/:id e /api/email-track/c/:id/:n.
 // ============================================================================
 import crypto from 'node:crypto';
 import { resolveMailboxEncKey } from './mailbox-crypto';
+import {
+  autolinkBareUrlsInSanitizedHtml,
+  buildSignatureHtml,
+  escapeHtml as escapeHtmlFn,
+  htmlToPlainText,
+  plainTextToHtml,
+  rewriteSanitizedAnchors,
+  sanitizeEmailHtml,
+} from './email-html';
 
 export const TRACKING_PATH_PREFIX = '/api/email-track';
 export const TRACKING_ID_RE = /^[A-Za-z0-9_-]{22,64}$/;
@@ -51,14 +62,7 @@ export function newTrackingId(): string {
   return crypto.randomBytes(18).toString('base64url');
 }
 
-export function escapeHtml(v: string): string {
-  return String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+export const escapeHtml = escapeHtmlFn;
 
 const URL_RE = /\bhttps?:\/\/[^\s<>"'()]+[^\s<>"'().,;:!?]/gi;
 
@@ -79,23 +83,60 @@ export interface BuiltEmailBody {
   links: string[];
 }
 
+export type EmailBodyFormat = 'text' | 'html';
+
+function trackingHref(origin: string, trackingId: string, n: number): string {
+  return `${origin}${TRACKING_PATH_PREFIX}/c/${trackingId}/${n}/${trackingSignature(trackingId, n)}`;
+}
+
+function buildPixel(origin: string, trackingId: string): string {
+  return `<img src="${origin}${TRACKING_PATH_PREFIX}/o/${trackingId}/${trackingSignature(trackingId)}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" />`;
+}
+
+const WRAP = 'font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1f2937';
+
 /**
- * Monta o corpo HTML do e-mail a partir do texto (corpo + assinatura).
+ * Monta o corpo HTML do e-mail a partir do texto ou de HTML sanitizado (corpo + assinatura).
  * track=false => links diretos e sem pixel (ex.: destinatarios so da lista "Nunca registrar").
+ * bodyFormat=html: nao escapa o HTML legitimo; sanitiza e reescreve apenas os href http(s).
  */
 export function buildTrackedEmailBody(opts: {
   body: string;
   signature?: string | null;
   trackingId?: string | null;
   origin?: string;
+  bodyFormat?: EmailBodyFormat;
+  logoCid?: string | null;
+  logoAlt?: string | null;
 }): BuiltEmailBody {
   const origin = opts.origin || publicOrigin();
-  const text = [String(opts.body || '').replace(/\r\n/g, '\n').trimEnd(), String(opts.signature || '').replace(/\r\n/g, '\n').trim()]
-    .filter(Boolean)
-    .join('\n\n');
+  const signature = String(opts.signature || '').replace(/\r\n/g, '\n').trim();
   const links: string[] = [];
   // Sem chave de assinatura => sem rastreio (links diretos e sem pixel).
   const track = Boolean(opts.trackingId && TRACKING_ID_RE.test(opts.trackingId) && trackingSignature(opts.trackingId));
+  const rewrite = (url: string, n: number): string | null => {
+    if (!track || !isSafeRedirectTarget(url)) return null;
+    return trackingHref(origin, opts.trackingId!, n);
+  };
+  const pixel = track ? buildPixel(origin, opts.trackingId!) : '';
+  const logoCid = opts.logoCid ? String(opts.logoCid) : '';
+
+  if (opts.bodyFormat === 'html') {
+    const bodyHtml = sanitizeEmailHtml(String(opts.body || ''));
+    const sigHtml = buildSignatureHtml(signature, logoCid ? { logoCid, logoAlt: opts.logoAlt || undefined } : undefined);
+    let html = [bodyHtml, sigHtml].filter(Boolean).join('<br><br>');
+    const rewritten = rewriteSanitizedAnchors(html, rewrite, MAX_TRACKED_LINKS);
+    links.push(...rewritten.links);
+    html = autolinkBareUrlsInSanitizedHtml(rewritten.html, rewrite, links, MAX_TRACKED_LINKS);
+    const text = [htmlToPlainText(bodyHtml), signature].filter(Boolean).join('\n\n');
+    return {
+      html: `<div style="${WRAP}">${html}</div>${pixel}`,
+      text,
+      links,
+    };
+  }
+
+  const text = [String(opts.body || '').replace(/\r\n/g, '\n').trimEnd(), signature].filter(Boolean).join('\n\n');
   let html = '';
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
@@ -106,22 +147,24 @@ export function buildTrackedEmailBody(opts: {
     if (track && links.length < MAX_TRACKED_LINKS) {
       links.push(url);
       const n = links.length - 1;
-      href = `${origin}${TRACKING_PATH_PREFIX}/c/${opts.trackingId}/${n}/${trackingSignature(opts.trackingId!, n)}`;
+      href = trackingHref(origin, opts.trackingId!, n);
     }
     html += `<a href="${escapeHtml(href)}">${escapeHtml(url)}</a>`;
     last = idx + url.length;
   }
   html += escapeHtml(text.slice(last));
   html = html.replace(/\n/g, '<br>');
-  const pixel = track
-    ? `<img src="${origin}${TRACKING_PATH_PREFIX}/o/${opts.trackingId}/${trackingSignature(opts.trackingId!)}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px" />`
-    : '';
+  const logoHtml = logoCid ? buildSignatureHtml('', { logoCid, logoAlt: opts.logoAlt || undefined }) : '';
+  if (logoHtml) html = `${logoHtml}${html}`;
   return {
-    html: `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1f2937">${html}</div>${pixel}`,
+    html: `<div style="${WRAP}">${html}</div>${pixel}`,
     text,
     links,
   };
 }
+
+/** Conveniência: HTML sanitizado a partir de texto (modelos, nota). */
+export { plainTextToHtml, htmlToPlainText, sanitizeEmailHtml };
 
 /**
  * Le o caminho publico assinado. Retorna null se nao for um caminho de rastreio valido ou se a

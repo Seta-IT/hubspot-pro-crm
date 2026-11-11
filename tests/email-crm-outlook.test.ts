@@ -19,7 +19,8 @@ import { SlidingWindowRateLimiter } from '../src/api/password-reset';
 import { isPublicStiHubPath } from '../src/middleware';
 import { MemoryMailboxStore, type CrmEmailMessage } from '../src/modules/email/mailbox-store';
 import { importHubSpotEmailHistory, mapHubSpotEmail, type HubSpotEmailPage } from '../src/modules/email/hubspot-email-history';
-import { isMailboxFeatureEnabled } from '../src/modules/email/ms-graph';
+import { buildGraphRequestHeaders, GraphError, isMailboxFeatureEnabled, parseGraphErrorCode } from '../src/modules/email/ms-graph';
+import { MAILBOX_MESSAGES, userFacingMailboxSendFailure } from '../src/api/mailbox-routes';
 import { handleEmailTrackRequest } from '../src/app/lib/email-track-route';
 import { mailboxSendDisabledReason } from '../src/app/components/email/mailbox-client';
 const oPath = (id: string) => `/api/email-track/o/${id}/${trackingSignature(id)}`;
@@ -47,15 +48,21 @@ function disableEnv() {
 }
 
 type Call = { url: string; method: string; body?: string; headers?: Record<string, string> };
-function graphMock(opts: { me?: string; inbox?: unknown[]; sent?: unknown[] } = {}) {
+function graphMock(opts: { me?: string; inbox?: unknown[]; sent?: unknown[]; sendStatus?: number; sendError?: unknown; draftStatus?: number; draftError?: unknown } = {}) {
   const calls: Call[] = [];
   const res = (status: number, json: unknown) => ({ ok: status < 400, status, json: async () => json, text: async () => JSON.stringify(json) });
   const fetchFn = async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
     calls.push({ url, method: init?.method || 'GET', body: init?.body, headers: init?.headers });
     if (url.includes('/oauth2/v2.0/token')) return res(200, { access_token: 'at-123', refresh_token: 'rt-456', expires_in: 3600, scope: 'Mail.Send Mail.Read' });
     if (url.includes('/me?$select')) return res(200, { mail: opts.me || 'marcelo.mira@setatelecom.com.br', displayName: 'Marcelo Mira' });
-    if (url.endsWith('/me/messages') && init?.method === 'POST') return res(201, { id: 'msg-1', conversationId: 'conv-1', internetMessageId: '<a@b>' });
-    if (/\/me\/messages\/[^/]+\/send$/.test(url)) return res(202, null);
+    if (url.endsWith('/me/messages') && init?.method === 'POST') {
+      if (opts.draftStatus && opts.draftStatus >= 400) return res(opts.draftStatus, opts.draftError ?? { error: { code: 'ErrorAccessDenied' } });
+      return res(201, { id: 'msg-1', conversationId: 'conv-1', internetMessageId: '<a@b>' });
+    }
+    if (/\/me\/messages\/[^/]+\/send$/.test(url)) {
+      if (opts.sendStatus && opts.sendStatus >= 400) return res(opts.sendStatus, opts.sendError ?? { error: { code: 'ErrorAccessDenied' } });
+      return res(202, null);
+    }
     if (url.includes('/mailFolders/inbox/')) return res(200, { value: opts.inbox || [] });
     if (url.includes('/mailFolders/sentitems/')) return res(200, { value: opts.sent || [] });
     return res(404, {});
@@ -283,7 +290,10 @@ describe('Rotas /api/mailbox', () => {
     assert.ok(payload.body.content.includes('/api/email-track/c/'));
     assert.ok(payload.body.content.includes('Marcelo Mira<br>Seta Telecom'));
     assert.equal(draft.headers?.Authorization, 'Bearer at-123');
-    assert.ok(mock.calls.some((c) => /\/me\/messages\/msg-1\/send$/.test(c.url)));
+    const sendCall = mock.calls.find((c) => /\/me\/messages\/msg-1\/send$/.test(c.url));
+    assert.ok(sendCall);
+    assert.equal(sendCall!.body, undefined);
+    assert.ok(!sendCall!.headers?.['Content-Type'], 'POST /send do Graph deve ir sem Content-Type');
     const tl = await router.dispatch({ method: 'GET', path: '/api/mailbox/timeline', query: { ...ADMIN(), contactId: contact.id } });
     const list = (tl.body as { data: Array<Record<string, unknown>> }).data;
     assert.equal(list.length, 1);
@@ -397,6 +407,84 @@ describe('Rotas /api/mailbox', () => {
     assert.equal(own.status, 200);
     assert.equal((await store.listAllAccounts()).length, 0);
   });
+
+  it('Graph 401 no envio: pede para reconectar e nao usa a mensagem generica', async () => {
+    enableEnv();
+    const { router, store, contact } = setup({
+      sendStatus: 401,
+      sendError: { error: { code: 'InvalidAuthenticationToken', message: 'token for marcelo.mira@setatelecom.com.br expired' } },
+    });
+    await connect(router);
+    const s = await router.dispatch({
+      method: 'POST', path: '/api/mailbox/send', query: ADMIN(),
+      body: { to: contact.email, subject: 'Proposta', body: 'Olá', contactId: contact.id },
+    });
+    assert.equal(s.status, 409, JSON.stringify(s.body));
+    const body = s.body as { error: string; code: string };
+    assert.equal(body.code, 'MAILBOX_RECONNECT');
+    assert.equal(body.error, MAILBOX_MESSAGES.reconnect);
+    assert.doesNotMatch(body.error, /Tente novamente em instantes/);
+    assert.doesNotMatch(JSON.stringify(s.body), /InvalidAuthenticationToken|expired|graph\.microsoft/i);
+    const acc = (await store.listAllAccounts())[0];
+    assert.equal(acc.status, 'RECONECTAR');
+  });
+
+  it('Graph 403 no rascunho: avisa falta de permissao de envio', async () => {
+    enableEnv();
+    const { router, contact } = setup({
+      draftStatus: 403,
+      draftError: { error: { code: 'ErrorAccessDenied', message: 'Access is denied. Check credentials and try again.' } },
+    });
+    await connect(router);
+    const s = await router.dispatch({
+      method: 'POST', path: '/api/mailbox/send', query: ADMIN(),
+      body: { to: contact.email, subject: 'Proposta', body: 'Olá', contactId: contact.id },
+    });
+    assert.equal(s.status, 403, JSON.stringify(s.body));
+    const body = s.body as { error: string; code: string };
+    assert.equal(body.code, 'MAILBOX_SEND_FORBIDDEN');
+    assert.equal(body.error, MAILBOX_MESSAGES.sendForbidden);
+    assert.doesNotMatch(JSON.stringify(s.body), /ErrorAccessDenied|credentials|graph\.microsoft/i);
+  });
+
+  it('Graph 400 ErrorInvalidRecipients: pede para conferir os destinatarios', async () => {
+    enableEnv();
+    const { router, contact } = setup({
+      sendStatus: 400,
+      sendError: { error: { code: 'ErrorInvalidRecipients', message: 'One or more recipients are invalid: secret@cliente.com' } },
+    });
+    await connect(router);
+    const s = await router.dispatch({
+      method: 'POST', path: '/api/mailbox/send', query: ADMIN(),
+      body: { to: contact.email, subject: 'Proposta', body: 'Olá', contactId: contact.id },
+    });
+    assert.equal(s.status, 400, JSON.stringify(s.body));
+    const body = s.body as { error: string; code: string };
+    assert.equal(body.code, 'MAILBOX_INVALID_RECIPIENTS');
+    assert.equal(body.error, MAILBOX_MESSAGES.invalidRecipients);
+    assert.doesNotMatch(JSON.stringify(s.body), /secret@cliente\.com|ErrorInvalidRecipients/);
+  });
+});
+
+describe('Traducao dos erros do Graph no envio', () => {
+  it('parseia so o code do Graph e mapeia 401/403/413/destinatarios', () => {
+    assert.equal(parseGraphErrorCode({ error: { code: 'ErrorAccessDenied', message: 'x@y.com' } }), 'ErrorAccessDenied');
+    assert.equal(parseGraphErrorCode({ error: { code: 'Nope with space' } }), null);
+    assert.equal(parseGraphErrorCode({ message: 'internal' }), null);
+    const rec = userFacingMailboxSendFailure(new GraphError('GRAPH_UNAUTHORIZED', 401, 'InvalidAuthenticationToken'));
+    assert.equal(rec.code, 'MAILBOX_RECONNECT');
+    assert.match(rec.error, /Reconecte/);
+    const forb = userFacingMailboxSendFailure(new GraphError('GRAPH_REQUEST_FAILED', 403, 'ErrorAccessDenied'));
+    assert.equal(forb.code, 'MAILBOX_SEND_FORBIDDEN');
+    const big = userFacingMailboxSendFailure(new GraphError('GRAPH_REQUEST_FAILED', 413, 'ErrorMessageSizeExceeded'));
+    assert.equal(big.code, 'MAILBOX_SEND_TOO_LARGE');
+    const other = userFacingMailboxSendFailure(new GraphError('GRAPH_REQUEST_FAILED', 500, 'UnknownError'));
+    assert.equal(other.code, 'MAILBOX_SEND_FAILED');
+    assert.equal(other.error, MAILBOX_MESSAGES.sendFailed);
+    const headers = buildGraphRequestHeaders('POST', false);
+    assert.ok(!headers['Content-Type']);
+    assert.equal(buildGraphRequestHeaders('POST', true)['Content-Type'], 'application/json');
+  });
 });
 
 describe('Encaixe da importacao do historico de e-mails do HubSpot (sem rodar)', () => {
@@ -488,7 +576,7 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
   });
 
   it('compositor mostra motivo do Enviar desabilitado e erros com role=alert', () => {
-    const s = readSrc('src/app/components/email/CrmRecordEmailSection.tsx');
+    const s = readSrc('src/app/components/email/CrmEmailComposerModal.tsx');
     assert.match(s, /mailboxSendDisabledReason/);
     assert.match(s, /data-testid="crm-mail-send-reason"/);
     assert.match(s, /role="alert"/);
@@ -514,6 +602,7 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
     const deal = readSrc('src/app/components/DealRecordDrawer.tsx');
     assert.match(deal, /dealId: deal\.id/);
     assert.match(deal, /defaultTo=\{deal\.contact\?\.email/);
-    assert.match(deal, /suggestions=\{contacts/);
+    assert.match(deal, /associatedContacts=\{associatedContacts\}/);
+    assert.match(deal, /canSendEmail=\{canSendEmail\}/);
   });
 });

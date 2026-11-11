@@ -192,6 +192,7 @@ describe('Pacote M (3): teto de corpo no bridge', () => {
       'POST /api/erp/financial/reconcile-ofx',
       'POST /api/erp/nfe-importacao/emit',
       'POST /api/erp/purchases/import-xml',
+      'POST /api/mailbox/send',
     ]);
     assert.equal(isLargeBodyRoute('POST', '/api/bootstrap/'), true);
     assert.equal(isLargeBodyRoute('PATCH', '/api/bootstrap'), false);

@@ -385,7 +385,7 @@ export function MarketingHubSuiteTop({
       {/* MARKETING HUB NAVIGATION BAR (CORPORATE CLEAN — ZERO EMOJIS) */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div>
-          <span className="text-[10px] font-semibold uppercase text-[#e05835] block">
+          <span className="text-[10px] font-semibold uppercase text-accent block">
             STI-hub • Email Marketing, Cadências &amp; Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)
           </span>
           <h2 className="text-base sm:text-lg font-semibold text-slate-900">
@@ -411,7 +411,7 @@ export function MarketingHubSuiteTop({
                 onClick={() => onSelectView(id)}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold cursor-pointer transition ${
                   on
-                    ? 'bg-[#ff7a59] text-white shadow-xs'
+                    ? 'bg-accent text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
@@ -479,7 +479,7 @@ export function MarketingHubSuiteTop({
             { label: 'Cliques únicos', value: totalUniqueClicks.toLocaleString('pt-BR'), tone: 'text-[#0091ae]' },
             { label: 'Respostas', value: totalReplies.toLocaleString('pt-BR'), tone: 'text-indigo-700' },
             { label: 'Oportunidades', value: totalOpportunities.toLocaleString('pt-BR'), tone: 'text-emerald-700' },
-            { label: 'Cadências ativas (Locação/Renovação/Spare Parts)', value: '24', tone: 'text-[#e05835]' },
+            { label: 'Cadências ativas (Locação/Renovação/Spare Parts)', value: '24', tone: 'text-accent' },
           ].map((step) => (
             <div key={step.label} className="p-3 rounded-lg border border-slate-200 bg-white">
               <span className="text-[10px] font-semibold uppercase text-slate-500 block truncate">
@@ -545,7 +545,7 @@ export function MarketingHubSuiteTop({
             <select
               value={newCmpProvider}
               onChange={(e) => setNewCmpProvider(e.target.value as 'MARKETING_ESP' | 'OUTLOOK_M365')}
-              className="px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+              className="px-3 py-2 rounded border border-slate-300 bg-white"
             >
               <option value="MARKETING_ESP">Motor: Provedor Marketing ESP</option>
               <option value="OUTLOOK_M365">Motor: Outlook / M365 Vendas 1:1</option>
@@ -652,7 +652,7 @@ export function MarketingHubSuiteTop({
                     amountBrl: 4320,
                   })
                 }
-                className="px-4 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold cursor-pointer inline-flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Send className="w-3.5 h-3.5" /> Disparar Novo E-mail Marketing
               </button>
@@ -766,10 +766,10 @@ export function MarketingHubSuiteTop({
             <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-[#e05835]" />
+                  <Building2 className="w-4 h-4 text-accent" />
                   Visão de Engajamento por Empresa (Account-Based Engagement)
                 </h3>
-                <span className="px-2 py-0.5 rounded bg-orange-50 text-[#e05835] font-semibold text-[10px]">
+                <span className="px-2 py-0.5 rounded bg-orange-50 text-accent font-semibold text-[10px]">
                   Diferencial Seta Telecom
                 </span>
               </div>

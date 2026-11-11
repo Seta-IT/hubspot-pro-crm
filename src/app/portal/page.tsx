@@ -281,7 +281,7 @@ function CustomerPortalContent() {
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              <Radio className="w-4 h-4 text-[#ff7a59]" />
+              <Radio className="w-4 h-4 text-accent" />
               Consultar Protocolo
             </button>
 
@@ -290,8 +290,8 @@ function CustomerPortalContent() {
               onClick={() => setActiveTab('NEW_TICKET')}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'NEW_TICKET'
-                  ? 'bg-[#ff7a59] text-white shadow-sm'
-                  : 'bg-orange-50 text-[#e05835] hover:bg-orange-100 border border-orange-200'
+                  ? 'bg-accent text-white shadow-sm'
+                  : 'bg-orange-50 text-accent hover:bg-orange-100 border border-orange-200'
               }`}
             >
               <Plus className="w-4 h-4" />
@@ -468,7 +468,7 @@ function CustomerPortalContent() {
 
                 <div className="p-6 space-y-4">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    <MessageSquare className="w-3.5 h-3.5 text-accent" />
                     Histórico de Interações Públicas ({activeTicket.comments.length})
                   </h3>
                   <div className="space-y-3">
@@ -516,7 +516,7 @@ function CustomerPortalContent() {
                       <button
                         type="submit"
                         disabled={sendingReply || !replyText.trim()}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition disabled:opacity-40 cursor-pointer"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-40 cursor-pointer"
                       >
                         <Send className="w-3.5 h-3.5" />
                         {sendingReply ? 'Enviando...' : 'Enviar Mensagem ao NOC'}
@@ -535,7 +535,7 @@ function CustomerPortalContent() {
           /* TAB 2: OPEN NEW SUPPORT TICKET OR RMA */
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm max-w-3xl mx-auto space-y-5">
             <div className="border-b border-slate-100 pb-4">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#ff7a59]">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-accent">
                 Abertura Direta com SLA Contratual
               </span>
               <h2 className="text-lg font-semibold text-slate-900 mt-0.5">
@@ -706,7 +706,7 @@ function CustomerPortalContent() {
                 <button
                   type="submit"
                   disabled={creatingTicket}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#ff7a59] hover:bg-[#e05835] text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-4 h-4" />
                   {creatingTicket ? 'Gerando Protocolo...' : 'Registrar Chamado com SLA Garantido'}

@@ -76,6 +76,8 @@ export interface CrmEmailMessage {
   lastOpenedAt: string | null;
   lastClickedAt: string | null;
   createdAt: string;
+  /** Nomes dos anexos (nunca o conteúdo). */
+  attachmentNames?: string[];
 }
 
 /** Item da linha do tempo (sem id de rastreio nem links internos). */
@@ -86,7 +88,7 @@ export type TimelineEmail = Omit<CrmEmailMessage, 'trackingId' | 'links' | 'exte
 export function toTimelineEmail(m: CrmEmailMessage): TimelineEmail {
   const { trackingId, links, externalId, internetMessageId, accountId, ...rest } = m;
   void links; void externalId; void internetMessageId; void accountId;
-  return { ...rest, tracked: Boolean(trackingId) };
+  return { ...rest, attachmentNames: Array.isArray(m.attachmentNames) ? m.attachmentNames.slice(0, 20) : [], tracked: Boolean(trackingId) };
 }
 
 export interface NeverLogEntry {
@@ -302,8 +304,10 @@ CREATE TABLE IF NOT EXISTS crm_email_messages (
   click_count INTEGER NOT NULL DEFAULT 0,
   last_opened_at TIMESTAMPTZ,
   last_clicked_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  attachment_names JSONB NOT NULL DEFAULT '[]'::jsonb
 );
+ALTER TABLE crm_email_messages ADD COLUMN IF NOT EXISTS attachment_names JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_email_external ON crm_email_messages (external_id) WHERE external_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_email_tracking ON crm_email_messages (tracking_id) WHERE tracking_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_crm_email_contact ON crm_email_messages (contact_id, occurred_at DESC);
@@ -376,6 +380,7 @@ function rowToMessage(r: any): CrmEmailMessage {
     lastOpenedAt: iso(r.last_opened_at),
     lastClickedAt: iso(r.last_clicked_at),
     createdAt: iso(r.created_at) || new Date().toISOString(),
+    attachmentNames: Array.isArray(r.attachment_names) ? r.attachment_names.map((n: unknown) => String(n)).filter(Boolean).slice(0, 20) : [],
   };
 }
 
@@ -491,11 +496,12 @@ export class PostgresMailboxStore implements MailboxStore {
   async insertMessage(m: CrmEmailMessage) {
     const r = await (await this.db()).query(
       `INSERT INTO crm_email_messages (id, account_id, owner_email, source, external_id, conversation_id, internet_message_id, direction,
-         from_address, from_name, to_addresses, cc_addresses, subject, body_preview, occurred_at, contact_id, company_id, deal_id, tracking_id, links)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20::jsonb)
+         from_address, from_name, to_addresses, cc_addresses, subject, body_preview, occurred_at, contact_id, company_id, deal_id, tracking_id, links, attachment_names)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,$21::jsonb)
        ON CONFLICT DO NOTHING`,
       [m.id, m.accountId, m.ownerEmail, m.source, m.externalId, m.conversationId, m.internetMessageId, m.direction, m.fromAddress, m.fromName,
-        JSON.stringify(m.to), JSON.stringify(m.cc), m.subject, m.bodyPreview, m.occurredAt, m.contactId, m.companyId, m.dealId, m.trackingId, JSON.stringify(m.links)]
+        JSON.stringify(m.to), JSON.stringify(m.cc), m.subject, m.bodyPreview, m.occurredAt, m.contactId, m.companyId, m.dealId, m.trackingId, JSON.stringify(m.links),
+        JSON.stringify(Array.isArray(m.attachmentNames) ? m.attachmentNames.slice(0, 20) : [])]
     );
     return (r.rowCount || 0) > 0;
   }

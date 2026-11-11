@@ -300,9 +300,9 @@ function stableProposalContent(v: unknown): string {
 
 /**
  * D3: troca SO de status entre ENVIADA e EM_NEGOCIACAO (nenhum outro campo muda) nao cria
- * versao nova: o conteudo que o cliente recebeu pelo link e o mesmo, entao o link continua
- * valendo. Qualquer outra mudanca (inclusive status fora desse par) gera versao nova e o
- * link anterior deixa de valer.
+ * versao nova. Qualquer outra mudanca gera versao nova para historico/auditoria. Essa
+ * versao nova NAO invalida o link ja emitido: o cliente segue no mesmo endereco e ve os
+ * dados atuais. Voltar a situacao para RASCUNHO oculta o link pelo status, nao pela versao.
  */
 export function isProposalLinkStableStatusOnlyChange(prev: ErpCommercialProposal, next: ErpCommercialProposal): boolean {
   const ok = (st: unknown) => (PROPOSAL_LINK_APPROVABLE_STATUSES as readonly string[]).includes(String(st || ''));

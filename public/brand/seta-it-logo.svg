@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="64" viewBox="0 0 200 64" role="img" aria-label="SETA | IT">
+  <rect x="1" y="1" width="198" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
+  <text x="28" y="42" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="28" fill="#0d2b4e">SETA</text>
+  <rect x="108" y="18" width="3" height="28" fill="#f26522"/>
+  <text x="125" y="42" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="28" fill="#f26522">IT</text>
+</svg>

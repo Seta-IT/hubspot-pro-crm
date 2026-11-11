@@ -263,7 +263,7 @@ export default function HubSpotTasksQueueView({
           <button
             type="button"
             onClick={() => setShowNewTaskModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             Criar Tarefa
@@ -353,7 +353,7 @@ export default function HubSpotTasksQueueView({
         <select
           value={queueFilter}
           onChange={(e) => setQueueFilter(e.target.value)}
-          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
+          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white text-[#33475b]"
         >
           <option value="ALL">Fila HubSpot: Todas as Filas</option>
           {HUBSPOT_TASK_QUEUES.map((q) => (
@@ -366,7 +366,7 @@ export default function HubSpotTasksQueueView({
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
+          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white text-[#33475b]"
         >
           <option value="ALL">Tipo: Todos (Ligação, E-mail, A fazer)</option>
           <option value="CALL">Ligação (Call)</option>
@@ -377,7 +377,7 @@ export default function HubSpotTasksQueueView({
         <select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
-          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
+          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white text-[#33475b]"
         >
           <option value="ALL">Prioridade: Todas</option>
           <option value="HIGH">Alta Prioridade</option>
@@ -388,7 +388,7 @@ export default function HubSpotTasksQueueView({
         <select
           value={ownerFilter}
           onChange={(e) => setOwnerFilter(e.target.value)}
-          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white font-semibold text-[#33475b]"
+          className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white text-[#33475b]"
         >
           <option value="ALL">Proprietário: Todos</option>
           <option value="Marcelo">Marcelo Lopes Mira</option>
@@ -582,7 +582,7 @@ export default function HubSpotTasksQueueView({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CheckSquare className="w-5 h-5 text-[#ff7a59]" />
+                <CheckSquare className="w-5 h-5 text-accent" />
                 <h3 className="text-base font-semibold">Nova Tarefa de Follow-up (Padrão HubSpot)</h3>
               </div>
               <button
@@ -615,7 +615,7 @@ export default function HubSpotTasksQueueView({
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value as CrmTaskType)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
                   >
                     <option value="CALL">Ligação</option>
                     <option value="EMAIL">E-mail</option>
@@ -629,7 +629,7 @@ export default function HubSpotTasksQueueView({
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as CrmTaskPriority)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
                   >
                     <option value="HIGH">Alta</option>
                     <option value="MEDIUM">Média</option>
@@ -643,7 +643,7 @@ export default function HubSpotTasksQueueView({
                   <select
                     value={queueName}
                     onChange={(e) => setQueueName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
                   >
                     {HUBSPOT_TASK_QUEUES.map((q) => (
                       <option key={q} value={q}>
@@ -738,7 +738,7 @@ export default function HubSpotTasksQueueView({
                 <select
                   value={assignedTo}
                   onChange={(e) => setAssignedTo(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
                 >
                   {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                     <option key={ow} value={ow}>
@@ -772,7 +772,7 @@ export default function HubSpotTasksQueueView({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold shadow-sm transition cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold shadow-sm transition cursor-pointer"
                 >
                   {saving ? 'Criando...' : 'Criar Tarefa'}
                 </button>

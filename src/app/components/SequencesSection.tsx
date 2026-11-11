@@ -239,7 +239,7 @@ export default function SequencesSection({
   return (
     <div className="space-y-6">
       {feedbackBanner && (
-        <div className="p-4 rounded-xl bg-emerald-950 text-white border border-emerald-700 flex items-center justify-between gap-3 text-xs font-medium shadow-sm">
+        <div className="p-4 rounded-xl bg-emerald-950 text-white border border-emerald-700 flex items-center justify-between gap-3 text-xs font-semibold shadow-sm">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{feedbackBanner}</span>
@@ -265,7 +265,7 @@ export default function SequencesSection({
               className={`px-4 py-2.5 rounded-xl text-xs font-semibold border transition text-left ${
                 activeSequence?.id === seq.id
                   ? 'bg-[#1e293b] text-white border-[#1e293b] shadow-sm'
-                  : 'bg-white text-slate-700 border-slate-200 hover:border-[#ff7a59]'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-accent'
               }`}
             >
               <div>{seq.name}</div>
@@ -283,7 +283,7 @@ export default function SequencesSection({
         <button
           type="button"
           onClick={() => setShowCreateSeqModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition shrink-0"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition shrink-0"
         >
           <Plus className="w-4 h-4" />
           Nova Cadência de E-mail
@@ -296,7 +296,7 @@ export default function SequencesSection({
           <div className="p-6 border-b border-slate-200 bg-slate-50/60 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 text-[#e05835]">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 text-accent">
                   {activeSequence.category}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
@@ -369,7 +369,7 @@ export default function SequencesSection({
                       <span className="px-2.5 py-0.5 rounded-full bg-[#1e293b] text-white text-[11px] font-semibold">
                         Passo {step.stepOrder} • Dia {step.dayOffset}
                       </span>
-                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-orange-100 text-[#e05835]">
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-orange-100 text-accent">
                         {step.stepType}
                       </span>
                     </div>
@@ -411,7 +411,7 @@ export default function SequencesSection({
             className="px-6 py-4 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3"
           >
             <div className="flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-[#ff7a59]" />
+              <UserPlus className="w-4 h-4 text-accent" />
               <span className="text-xs font-semibold">
                 Inscrever Contato nesta Cadência (Dispara Passo 1 Imediatamente):
               </span>
@@ -446,7 +446,7 @@ export default function SequencesSection({
               <button
                 type="submit"
                 disabled={enrolling}
-                className="px-4 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
+                className="px-4 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold transition disabled:opacity-50"
               >
                 {enrolling ? 'Inscrevendo...' : 'Inscrever Lead Agora'}
               </button>
@@ -466,14 +466,14 @@ export default function SequencesSection({
               Simule avanço de etapa, abertura, clique ou resposta do lead para validar o encerramento imediato (`PAUSED_ON_REPLY`).
             </p>
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+          <div className="font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
             <Filter className="w-3.5 h-3.5 text-slate-500" />
             <select
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as CanonicalSequenceEnrollmentState | 'ALL')
               }
-              className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+              className="bg-transparent text-slate-800 focus:outline-none"
             >
               <option value="ALL">Todos ({enrollments.length})</option>
               {TEN_CADENCE_STATES.map((st) => (
@@ -543,7 +543,7 @@ export default function SequencesSection({
                       {enr.nextStepDueAt && (
                         <>
                           <span>•</span>
-                          <span className="text-indigo-600 font-medium">
+                          <span className="text-indigo-600 font-semibold">
                             Próximo disparo: {formatDateTimeBR(enr.nextStepDueAt)}
                           </span>
                         </>
@@ -698,7 +698,7 @@ export default function SequencesSection({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden my-8">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Mail className="w-5 h-5 text-[#ff7a59]" />
+                <Mail className="w-5 h-5 text-accent" />
                 <h3 className="text-base font-semibold">Criar Nova Cadência Multi-etapas</h3>
               </div>
               <button
@@ -846,7 +846,7 @@ export default function SequencesSection({
                 <button
                   type="submit"
                   disabled={creatingSeq}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold"
+                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold"
                 >
                   {creatingSeq ? 'Criando...' : 'Salvar Cadência'}
                 </button>

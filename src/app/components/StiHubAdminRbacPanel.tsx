@@ -1178,7 +1178,7 @@ export default function StiHubAdminRbacPanel({
                       }`}
                     >
                       <td className="py-3 px-3.5">
-                        <div className="font-medium text-slate-800 flex items-center gap-1.5">
+                        <div className="font-semibold text-slate-800 flex items-center gap-1.5">
                           <span>{u.name}</span>
                           {isCurrentActive && (
                             <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 text-[10px] font-semibold">
@@ -1230,7 +1230,7 @@ export default function StiHubAdminRbacPanel({
                                   const v = e.target.value;
                                   handleSetUserHomeScreen(u, v && isHomeScreenId(v) ? v : null);
                                 }}
-                                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] font-semibold text-slate-700 cursor-pointer disabled:opacity-60"
+                                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-700 cursor-pointer disabled:opacity-60"
                               >
                                 <option value="">Padrão do sistema</option>
                                 {(['CRM', 'ERP', 'CHAMADOS'] as const).map((sys) => {
@@ -1412,7 +1412,7 @@ export default function StiHubAdminRbacPanel({
                   type="email"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 bg-white"
                 />
                 <button
                   type="button"
@@ -1446,7 +1446,7 @@ export default function StiHubAdminRbacPanel({
                 <select
                   value={tplCategory}
                   onChange={(e) => setTplCategory(e.target.value as CrmEmailTemplateCategory)}
-                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white"
                 >
                   <option value="PROPOSTA">PROPOSTA COMERCIAL</option>
                   <option value="FOLLOW_UP">FOLLOW-UP</option>
@@ -1461,7 +1461,7 @@ export default function StiHubAdminRbacPanel({
                 value={tplSubject}
                 onChange={(e) => setTplSubject(e.target.value)}
                 placeholder="Assunto com variáveis {{company.name}}"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
               />
               <textarea
                 rows={4}
@@ -1731,7 +1731,7 @@ export default function StiHubAdminRbacPanel({
                 type="text"
                 value={companyEmitter.legalName}
                 onChange={(e) => setCompanyEmitter({ ...companyEmitter, legalName: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
               />
             </div>
             <div>
@@ -1749,7 +1749,7 @@ export default function StiHubAdminRbacPanel({
                 type="text"
                 value={companyEmitter.cnpj}
                 onChange={(e) => setCompanyEmitter({ ...companyEmitter, cnpj: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono"
               />
             </div>
             <div>
@@ -1784,7 +1784,7 @@ export default function StiHubAdminRbacPanel({
                     taxRegime: e.target.value as StiHubCompanyEmitterSettings['taxRegime'],
                   })
                 }
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
               >
                 <option value="LUCRO_PRESUMIDO">Lucro Presumido</option>
                 <option value="LUCRO_REAL">Lucro Real</option>
@@ -1852,7 +1852,7 @@ export default function StiHubAdminRbacPanel({
                   type="text"
                   value={companyEmitter.state}
                   onChange={(e) => setCompanyEmitter({ ...companyEmitter, state: e.target.value })}
-                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                  className="col-span-1 px-3 py-2 rounded-lg border border-slate-300"
                 />
               </div>
             </div>
@@ -1979,7 +1979,7 @@ export default function StiHubAdminRbacPanel({
                       sefazEnvironment: e.target.value as 'PRODUCAO' | 'HOMOLOGACAO',
                     })
                   }
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                 >
                   <option value="PRODUCAO">PRODUÇÃO (Validade Jurídica Ativa)</option>
                   <option value="HOMOLOGACAO">HOMOLOGAÇÃO (Testes SEFAZ)</option>
@@ -2119,7 +2119,7 @@ export default function StiHubAdminRbacPanel({
                         defaultSalesDiscountLimitPercent: Number(e.target.value) || 0,
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
                   />
                 </div>
                 <div>
@@ -2133,7 +2133,7 @@ export default function StiHubAdminRbacPanel({
                           .value as StiHubGeneralSystemParameters['defaultContractReadjustmentIndex'],
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                   >
                     <option value="IPCA">IPCA (IBGE)</option>
                     <option value="IGP-M">IGP-M (FGV)</option>
@@ -2518,7 +2518,7 @@ export default function StiHubAdminRbacPanel({
                           erpPermissions: buildDefaultErpPermissionsForRole(nextRole),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                     >
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>
@@ -2540,7 +2540,7 @@ export default function StiHubAdminRbacPanel({
                           mfaMethod: e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP',
                         })
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#0d2b4e]"
                     >
                       <option value="TOTP_AUTHENTICATOR">
                         Google Authenticator (TOTP RFC 6238 • 30s)
@@ -2697,7 +2697,7 @@ export default function StiHubAdminRbacPanel({
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
                     <div className="font-semibold text-[#0d2b4e] border-b border-slate-200 pb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">Painel 1: Permissões CRM &amp; Chamados</span>
+                        <span className="font-semibold">Painel 1: Permissões CRM &amp; Chamados</span>
                         {isModuleFullControl(editingUser, 'CRM') && (
                           <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                             Full Control CRM Ativo
@@ -2741,7 +2741,7 @@ export default function StiHubAdminRbacPanel({
                             crmPermissions: { ...userCrm, portfolioScope: sc },
                           });
                         }}
-                        className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold"
+                        className="px-2 py-1 rounded border border-slate-300 bg-white"
                       >
                         <option value="TODOS">TODOS</option>
                         <option value="EQUIPE">EQUIPE</option>
@@ -2826,7 +2826,7 @@ export default function StiHubAdminRbacPanel({
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
                     <div className="font-semibold text-[#1e3a6e] border-b border-slate-200 pb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">Painel 2: Permissões ERP (SETA | IT)</span>
+                        <span className="font-semibold">Painel 2: Permissões ERP (SETA | IT)</span>
                         {isModuleFullControl(editingUser, 'ERP') && (
                           <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                             Full Control ERP Ativo
@@ -2861,7 +2861,7 @@ export default function StiHubAdminRbacPanel({
                             },
                           })
                         }
-                        className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-right"
+                        className="w-20 px-2 py-1 rounded border border-slate-300 bg-white text-right"
                       />
                     </div>
                     {(
@@ -3015,7 +3015,7 @@ export default function StiHubAdminRbacPanel({
                                 itemPermissions: { ...nextCrmMap, ...userErpItems },
                               });
                             }}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#0d2b4e]"
                           >
                             {(Object.keys(CRM_ROLES_CATALOG) as CrmAccountRole[]).map((k) => (
                               <option key={k} value={k}>
@@ -3040,7 +3040,7 @@ export default function StiHubAdminRbacPanel({
                                 itemPermissions: { ...userCrmItems, ...nextErpMap },
                               });
                             }}
-                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#1e3a6e]"
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#1e3a6e]"
                           >
                             {(Object.keys(ERP_ROLES_CATALOG) as ErpAccountRole[]).map((k) => (
                               <option key={k} value={k}>
@@ -3275,7 +3275,7 @@ export default function StiHubAdminRbacPanel({
                       setNewUserCrmPerms(buildDefaultCrmPermissionsForRole(rId, newUserScope));
                       setNewUserErpPerms(buildDefaultErpPermissionsForRole(rId));
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
                   >
                     {roles.map((r) => (
                       <option key={r.id} value={r.id}>
@@ -3293,7 +3293,7 @@ export default function StiHubAdminRbacPanel({
                         e.target.value as 'TOTP_AUTHENTICATOR' | 'EMAIL_OTP'
                       )
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#0d2b4e]"
                   >
                     <option value="TOTP_AUTHENTICATOR">Google Authenticator (TOTP)</option>
                     <option value="EMAIL_OTP">Código OTP por E-mail</option>
@@ -3310,7 +3310,7 @@ export default function StiHubAdminRbacPanel({
                   <select
                     value={newUserCrmRole}
                     onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#0d2b4e]"
                   >
                     {(Object.keys(crmRolesMatrixState) as CrmAccountRole[]).map((cKey) => (
                       <option key={cKey} value={cKey}>
@@ -3326,7 +3326,7 @@ export default function StiHubAdminRbacPanel({
                   <select
                     value={newUserErpRole}
                     onChange={(e) => setNewUserErpRole(e.target.value as ErpAccountRole)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-[#1e3a6e]"
                   >
                     {(Object.keys(erpRolesMatrixState) as ErpAccountRole[]).map((eKey) => (
                       <option key={eKey} value={eKey}>
@@ -3456,7 +3456,7 @@ export default function StiHubAdminRbacPanel({
                     <select
                       value={newUserScope}
                       onChange={(e) => setNewUserScope(e.target.value as StiHubVisibilityScope)}
-                      className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold"
+                      className="px-2 py-1 rounded border border-slate-300 bg-white"
                     >
                       <option value="TODOS">TODOS</option>
                       <option value="EQUIPE">EQUIPE</option>
@@ -3523,7 +3523,7 @@ export default function StiHubAdminRbacPanel({
                           maxDiscountPercent: Number(e.target.value) || 0,
                         })
                       }
-                      className="w-20 px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-right"
+                      className="w-20 px-2 py-1 rounded border border-slate-300 bg-white text-right"
                     />
                   </div>
                   <div className="flex flex-wrap gap-3 pt-1">

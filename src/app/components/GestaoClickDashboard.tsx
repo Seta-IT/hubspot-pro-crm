@@ -512,7 +512,7 @@ export default function GestaoClickDashboard({
               <div
                 key={a.id}
                 onClick={() => onOpenSection('FINANCEIRO', 'FIN_FLUXO')}
-                className="flex items-center justify-between py-2.5 px-2 rounded hover:bg-blue-50/60 transition cursor-pointer text-xs"
+                className="font-semibold flex items-center justify-between py-2.5 px-2 rounded hover:bg-blue-50/60 transition cursor-pointer text-xs"
               >
                 <div className="flex items-center gap-2.5">
                   <span className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center">
@@ -586,7 +586,7 @@ export default function GestaoClickDashboard({
                 <div
                   key={os.code}
                   onClick={() => onOpenSection('ORDENS_SERVICOS', 'OS_GERENCIAR')}
-                  className="py-2 px-2 rounded hover:bg-blue-50/60 transition cursor-pointer flex items-center justify-between text-xs"
+                  className="font-semibold py-2 px-2 rounded hover:bg-blue-50/60 transition cursor-pointer flex items-center justify-between text-xs"
                 >
                   <div>
                     <div className="font-semibold text-[#1e3a6e] hover:underline">

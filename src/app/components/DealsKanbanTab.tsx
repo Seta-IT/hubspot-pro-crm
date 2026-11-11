@@ -44,6 +44,7 @@ import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
+import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 import PipelineSelect from './PipelineSelect';
 import { formatPipelineDisplayName } from '../lib/pipeline-display';
@@ -137,8 +138,12 @@ interface DealsKanbanTabProps {
   initialSelectedDealId?: string | null;
   onClearInitialDeal?: () => void;
   openNewDealTrigger?: number;
-  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>) => Promise<void>;
+  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>, options?: { silent?: boolean }) => Promise<void>;
   onDeleteDeal?: (dealId: string) => Promise<void>;
+  canEditDeal?: boolean;
+  canDeleteDeal?: boolean;
+  canSendEmail?: boolean;
+  ownerOptions?: Array<{ id: string; name: string }>;
   onNavigateToErp?: () => void;
   onOpenNewProposalFromDeal?: (deal: EnrichedDeal) => void;
   onShowToast?: (msg: string) => void;
@@ -190,6 +195,10 @@ export default function DealsKanbanTab({
   openNewDealTrigger,
   onUpdateDeal,
   onDeleteDeal,
+  canEditDeal = false,
+  canDeleteDeal = false,
+  canSendEmail = false,
+  ownerOptions = [],
   onNavigateToErp,
   onOpenNewProposalFromDeal,
   onShowToast,
@@ -678,6 +687,18 @@ export default function DealsKanbanTab({
               <Copy className="w-3.5 h-3.5 text-emerald-700" />
               Copiar link para o cliente
             </button>
+            <button
+              type="button"
+              data-testid="kanban-copy-internal-link"
+              onClick={async () => {
+                const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
+                onShowToast?.(url ? "Link interno da proposta copiado." : "Não foi possível copiar o link interno.");
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] border border-white/40 text-white hover:bg-white/10 text-xs font-semibold cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar link interno
+            </button>
             <a
               href={createdProposalBanner.publicUrl}
               target="_blank"
@@ -691,7 +712,7 @@ export default function DealsKanbanTab({
               href={createdProposalBanner.printUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold"
             >
               <Printer className="w-3.5 h-3.5" />
               Imprimir PDF
@@ -742,7 +763,7 @@ export default function DealsKanbanTab({
           <button
             type="button"
             onClick={() => openCreateDealModal(stages[0]?.id || 'stage-discovery')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Criar negócio
@@ -854,7 +875,7 @@ export default function DealsKanbanTab({
               aria-label="Classificar por"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as DealSortKey)}
-              className="px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b] focus:outline-none focus:border-[#0091ae] cursor-pointer"
+              className="px-2 py-1.5 rounded-[4px] border border-[#cbd6e2] bg-white text-xs text-[#33475b] focus:outline-none focus:border-[#0091ae] cursor-pointer"
             >
               <option value="createdAt">Classificar por: Data de criação</option>
               <option value="expectedCloseDate">Classificar por: Data de fechamento</option>
@@ -1009,7 +1030,7 @@ export default function DealsKanbanTab({
                     }}
                     onDrop={(e) => handleDropOnStage(e, stage.id)}
                     className={`flex-1 min-w-[148px] max-w-[240px] sm:max-w-none rounded-[4px] bg-[#f5f8fa] border flex flex-col max-h-[min(720px,calc(100vh-260px))] ${
-                      isDragTarget ? 'border-[#ff7a59] ring-1 ring-[#ff7a59]/30' : 'border-[#cbd6e2]'
+                      isDragTarget ? 'border-accent ring-1 ring-accent/30' : 'border-[#cbd6e2]'
                     }`}
                     data-testid={`deals-kanban-column-${stage.id}`}
                   >
@@ -1165,7 +1186,7 @@ export default function DealsKanbanTab({
             </span>
             <span className="text-slate-500">
               Total Aberto: <strong>{formatBRL(pipeOpenValue)}</strong> • Forecast Ponderado:{' '}
-              <strong className="text-[#e05835]">{formatBRL(pipeWeightedValue)}</strong>
+              <strong className="text-accent">{formatBRL(pipeWeightedValue)}</strong>
             </span>
           </div>
           <div className="overflow-x-auto">
@@ -1223,7 +1244,7 @@ export default function DealsKanbanTab({
                           aria-label={`Etapa de ${deal.title}`}
                           value={deal.stageId}
                           onChange={(e) => handleStageChange(deal.id, e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-accent text-xs"
+                          className="px-2 py-1 rounded border border-slate-300 bg-white text-accent text-xs"
                         >
                           {stages.map((s) => (
                             <option key={s.id} value={s.id}>
@@ -1259,7 +1280,7 @@ export default function DealsKanbanTab({
                           <button
                             type="button"
                             onClick={() => handleQuickGenerateProposalForDeal(deal)}
-                            className="px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 text-[#e05835] border border-orange-200 font-semibold text-[11px] cursor-pointer"
+                            className="px-2 py-1 rounded bg-orange-50 hover:bg-orange-100 text-accent border border-orange-200 font-semibold text-[11px] cursor-pointer"
                           >
                             PDF
                           </button>
@@ -1318,7 +1339,7 @@ export default function DealsKanbanTab({
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block">Prob.</span>
-                      <strong className="text-[#e05835]">{deal.probability}%</strong>
+                      <strong className="text-accent">{deal.probability}%</strong>
                     </div>
                   </div>
                 </div>
@@ -1371,15 +1392,15 @@ export default function DealsKanbanTab({
               setFilterRottingOnly(false);
               setSearchQuery('');
             }}
-            className="text-left bg-orange-50/60 hover:bg-orange-100/60 hover:border-[#ff7a59] rounded-xl p-3 border border-orange-200/70 transition cursor-pointer"
+            className="text-left bg-orange-50/60 hover:bg-orange-100/60 hover:border-accent rounded-xl p-3 border border-orange-200/70 transition cursor-pointer"
           >
-            <span className="text-[11px] font-semibold uppercase text-[#e05835] block">
+            <span className="text-[11px] font-semibold uppercase text-accent block">
               Receita Ponderada (Forecast)
             </span>
-            <div className="text-base font-semibold text-[#e05835] mt-0.5">
+            <div className="text-base font-semibold text-accent mt-0.5">
               {formatBRL(pipeWeightedValue)}
             </div>
-            <span className="text-[10px] text-[#e05835]/80 block mt-0.5">
+            <span className="text-[10px] text-accent/80 block mt-0.5">
               Global 3 funis: {formatBRL(forecast.weightedOpenValue)}
             </span>
           </button>
@@ -1434,7 +1455,7 @@ export default function DealsKanbanTab({
             {
               key: 'IMMEDIATE',
               title: '1. Fechamento Prioritário & Curto Prazo (Alta Probabilidade >= 60%)',
-              accent: 'border-l-4 border-l-[#ff7a59]',
+              accent: 'border-l-4 border-l-accent',
               items: filteredDeals.filter((d) => d.status === 'OPEN' && d.probability >= 60),
             },
             {
@@ -1468,7 +1489,7 @@ export default function DealsKanbanTab({
                     <span className="px-2.5 py-1 rounded bg-slate-100 font-semibold text-slate-800">
                       TCV: {formatBRL(bucketTotal)}
                     </span>
-                    <span className="px-2.5 py-1 rounded bg-orange-50 font-semibold text-[#e05835] border border-orange-200">
+                    <span className="px-2.5 py-1 rounded bg-orange-50 font-semibold text-accent border border-orange-200">
                       Forecast Ponderado: {formatBRL(bucketWeighted)}
                     </span>
                   </div>
@@ -1669,7 +1690,7 @@ export default function DealsKanbanTab({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full overflow-hidden max-h-[92vh] flex flex-col">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-[#ff7a59]" />
+                <DollarSign className="w-5 h-5 text-accent" />
                 <div>
                   <h3 className="text-base font-semibold">Criar Novo Negócio no Funil</h3>
                   <p className="text-[11px] text-slate-300">{activePipeline?.name}</p>
@@ -1695,7 +1716,7 @@ export default function DealsKanbanTab({
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Ex: Banco Inter - Locação Cluster PABX IP + SD-WAN (24m)"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:border-accent"
                 />
               </div>
 
@@ -1715,7 +1736,7 @@ export default function DealsKanbanTab({
                       const months = Number(newContractMonths) || 24;
                       setNewValue(String((Number(mrrVal) || 0) * months));
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-emerald-700 focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-emerald-700 focus:outline-none focus:border-accent"
                   />
                 </div>
 
@@ -1731,7 +1752,7 @@ export default function DealsKanbanTab({
                       const months = Number(mStr) || 24;
                       setNewValue(String((Number(newMrr) || 0) * months));
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="12">12 meses</option>
                     <option value="24">24 meses</option>
@@ -1756,7 +1777,7 @@ export default function DealsKanbanTab({
                       const months = Math.max(1, Number(newContractMonths) || 24);
                       setNewMrr(String(Math.round((Number(tcvStr) || 0) / months)));
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 focus:outline-none focus:border-accent"
                   />
                 </div>
               </div>
@@ -1769,7 +1790,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newStageId}
                     onChange={(e) => setNewStageId(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     {stages.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -1786,7 +1807,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newDealType}
                     onChange={(e) => setNewDealType(e.target.value as DealBusinessType)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="NEW_BUSINESS">Novo Negócio B2B</option>
                     <option value="LOCACAO_RECORRENTE">Locação Recorrente (0% ISS — SV 31)</option>
@@ -1803,7 +1824,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newPriority}
                     onChange={(e) => setNewPriority(e.target.value as DealPriority)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="ALTA">Alta Prioridade</option>
                     <option value="MEDIA">Média Prioridade</option>
@@ -1818,7 +1839,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newOwnerName}
                     onChange={(e) => setNewOwnerName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="Marcelo Lopes Mira">Marcelo Lopes Mira</option>
                     <option value="Evelyn Ternero Seta Telecom">Evelyn Ternero Seta Telecom</option>
@@ -1835,7 +1856,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newCompanyId}
                     onChange={(e) => setNewCompanyId(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="">Selecione uma empresa...</option>
                     {companies.map((comp) => (
@@ -1853,7 +1874,7 @@ export default function DealsKanbanTab({
                   <select
                     value={newContactId}
                     onChange={(e) => setNewContactId(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-[#ff7a59]"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:outline-none focus:border-accent"
                   >
                     <option value="">Selecione um contato...</option>
                     {contacts.map((c) => (
@@ -1873,7 +1894,7 @@ export default function DealsKanbanTab({
                   type="date"
                   value={newCloseDate}
                   onChange={(e) => setNewCloseDate(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:border-accent"
                 />
               </div>
 
@@ -1888,7 +1909,7 @@ export default function DealsKanbanTab({
                 <button
                   type="submit"
                   disabled={creating}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 cursor-pointer"
                 >
                   {creating ? 'Salvando...' : 'Criar Negócio'}
                 </button>
@@ -1919,33 +1940,28 @@ export default function DealsKanbanTab({
           onClose={() => setSelectedDeal(null)}
           onChangeDeal={setSelectedDeal}
           onStageChange={handleStageChange}
-          onSave={async () => {
-            if (!onUpdateDeal) return;
-            await onUpdateDeal(selectedDeal.id, {
-              title: selectedDeal.title,
-              value: selectedDeal.value,
-              mrr: selectedDeal.mrr,
-              contractMonths: selectedDeal.contractMonths,
-              priority: selectedDeal.priority,
-              dealType: selectedDeal.dealType,
-              ownerName: selectedDeal.ownerName,
-              expectedCloseDate: selectedDeal.expectedCloseDate,
-              companyId: selectedDeal.companyId,
-              contactId: selectedDeal.contactId,
-              wonReason: selectedDeal.wonReason,
-              lostReason: selectedDeal.lostReason,
-              stageId: selectedDeal.stageId,
-            });
-            onShowToast?.('Negócio atualizado.');
-          }}
+          onUpdateDeal={onUpdateDeal}
           onDelete={
-            onDeleteDeal
+            canDeleteDeal && onDeleteDeal
               ? async () => {
                   await onDeleteDeal(selectedDeal.id);
                   setSelectedDeal(null);
                 }
               : undefined
           }
+          canEditDeal={canEditDeal}
+          canDeleteDeal={Boolean(canDeleteDeal && onDeleteDeal)}
+          canSendEmail={canSendEmail}
+          ownerOptions={(() => {
+            const map = new Map<string, { id: string; name: string }>();
+            for (const o of ownerOptions) map.set(o.id, o);
+            for (const name of availableOwners) {
+              if (![...map.values()].some((o) => o.name === name)) {
+                map.set(name, { id: name, name });
+              }
+            }
+            return Array.from(map.values());
+          })()}
           onGenerateProposal={() => handleQuickGenerateProposalForDeal(selectedDeal)}
           onAddNote={async (title, body, type) => {
             await onAddDealNote(selectedDeal.id, title, body, type);

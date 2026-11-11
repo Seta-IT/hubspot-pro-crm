@@ -298,7 +298,7 @@ export default function MarketingEmailsManager({
       {/* CABECALHO */}
       <div className="px-5 pt-4 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200">
         <div>
-          <span className="text-[10px] font-semibold uppercase text-[#e05835] block">Marketing</span>
+          <span className="text-[10px] font-semibold uppercase text-accent block">Marketing</span>
           <h3 className="text-lg font-semibold text-slate-900">
             {loading && emails.length === 0 ? 'E-mails de marketing' : `${emails.length} E-mails de marketing`}
           </h3>
@@ -315,7 +315,7 @@ export default function MarketingEmailsManager({
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold"
           >
             <Plus className="w-3.5 h-3.5" /> Criar e-mail
           </button>
@@ -337,7 +337,7 @@ export default function MarketingEmailsManager({
             type="button"
             onClick={() => setTab(id)}
             className={`px-3.5 py-2.5 font-semibold border-b-2 -mb-px transition ${
-              tab === id ? 'border-[#ff7a59] text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
+              tab === id ? 'border-accent text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             {label}
@@ -606,7 +606,7 @@ export default function MarketingEmailsManager({
               <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-lg border border-slate-300 font-semibold text-slate-700">
                 Cancelar
               </button>
-              <button type="submit" disabled={creating} className="px-4 py-2 rounded-lg bg-[#ff7a59] text-white font-semibold disabled:opacity-50">
+              <button type="submit" disabled={creating} className="px-4 py-2 rounded-lg bg-accent text-white font-semibold disabled:opacity-50">
                 {creating ? 'Salvando...' : 'Salvar rascunho'}
               </button>
             </div>

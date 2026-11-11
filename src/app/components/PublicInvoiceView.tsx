@@ -40,13 +40,6 @@ export default function PublicInvoiceView({ dto, issuerAddress }: { dto: PublicI
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
           <iframe title="Fatura / Recibo A4" srcDoc={html} className="w-full bg-white block border-0" style={{ height: '78vh' }} />
         </div>
-        {dto.attachments.boleto && dto.boletoDigitableLine && (
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-1">
-            <h2 className="text-sm font-semibold text-slate-900">Boleto</h2>
-            <p className="text-[11px] text-slate-500">Linha digitável</p>
-            <p className="font-mono text-xs text-slate-900 break-all">{dto.boletoDigitableLine}</p>
-          </div>
-        )}
         {dto.attachments.pix && dto.pixCopyPaste && (
           <div className="bg-white rounded-lg border border-slate-200 p-4 flex flex-wrap gap-4 items-start">
             <div className="flex-1 min-w-[200px]">
@@ -55,17 +48,6 @@ export default function PublicInvoiceView({ dto, issuerAddress }: { dto: PublicI
               <p className="font-mono text-[11px] text-slate-900 break-all">{dto.pixCopyPaste}</p>
             </div>
             <PixQr code={dto.pixCopyPaste} />
-          </div>
-        )}
-        {dto.attachments.remessa && (dto.remessaNfeNumber || dto.remessaAccessKey) && (
-          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-1">
-            <h2 className="text-sm font-semibold text-slate-900">NF-e de remessa</h2>
-            {dto.remessaNfeNumber && <p className="text-xs text-slate-800">Número: <strong>{dto.remessaNfeNumber}</strong></p>}
-            {dto.remessaAccessKey && (
-              <p className="text-[11px] text-slate-600">
-                Chave de acesso: <span className="font-mono break-all">{dto.remessaAccessKey}</span>
-              </p>
-            )}
           </div>
         )}
       </div>

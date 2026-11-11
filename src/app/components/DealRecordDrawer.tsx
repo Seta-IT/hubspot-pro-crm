@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FollowupStatusView } from '../../modules/deals/proposal-followup-service';
 import {
   Building2,
@@ -38,6 +38,16 @@ import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { CrmEmailComposerModal } from './email/CrmRecordEmailSection';
 import type { EnrichedDeal } from './DealsKanbanTab';
+import DealInlineProperty from './DealInlineProperty';
+import {
+  buildDealFieldPatch,
+  distinctLastContactAt,
+  shouldShowLostReason,
+  shouldShowWonReason,
+  toDateInputValue,
+  type DealFieldKey,
+  type DealOwnerOption,
+} from '../lib/deal-sidebar-edit';
 
 function dash(v: unknown): string {
   if (v === null || v === undefined || v === '') return '--';
@@ -175,14 +185,6 @@ type AboutRow = {
   key: string;
 };
 
-function dealTypeAsTag(dealType: EnrichedDeal['dealType']): string | null {
-  if (!dealType) return null;
-  if (dealType === 'LOCACAO_RECORRENTE') return 'Locação Recorrente (0% ISS)';
-  if (dealType === 'UPSELL_RENOVACAO') return 'Upsell / Renovação';
-  if (dealType === 'NEW_BUSINESS') return 'Novo Negócio B2B';
-  return String(dealType);
-}
-
 function formatCustomValue(v: unknown): string {
   if (v === null || v === undefined || v === '') return '--';
   if (typeof v === 'boolean') return v ? 'Verdadeiro' : 'Falso';
@@ -224,8 +226,12 @@ export interface DealRecordDrawerProps {
   onClose: () => void;
   onChangeDeal: (next: EnrichedDeal) => void;
   onStageChange: (dealId: string, stageId: string) => Promise<void>;
-  onSave: () => Promise<void>;
+  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>, options?: { silent?: boolean }) => Promise<void>;
   onDelete?: () => Promise<void>;
+  canEditDeal?: boolean;
+  canDeleteDeal?: boolean;
+  canSendEmail?: boolean;
+  ownerOptions?: DealOwnerOption[];
   onGenerateProposal: () => void;
   onAddNote: (title: string, body: string, type: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK') => Promise<void>;
   onShowToast?: (msg: string) => void;
@@ -252,8 +258,12 @@ export default function DealRecordDrawer({
   onClose,
   onChangeDeal,
   onStageChange,
-  onSave,
+  onUpdateDeal,
   onDelete,
+  canEditDeal = false,
+  canDeleteDeal = false,
+  canSendEmail = false,
+  ownerOptions = [],
   onGenerateProposal,
   onAddNote,
   onShowToast,
@@ -271,6 +281,8 @@ export default function DealRecordDrawer({
   const [emailOpen, setEmailOpen] = useState(false);
   const [showAllAbout, setShowAllAbout] = useState(false);
   const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
 
   const [followup, setFollowup] = useState<FollowupStatusView | null>(null);
   const [followupBusy, setFollowupBusy] = useState(false);
@@ -307,7 +319,21 @@ export default function DealRecordDrawer({
 
 
 
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+        setActionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [actionsOpen]);
+
   const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
+  const currentStage = stages.find((s) => s.id === deal.stageId);
+  const canEdit = Boolean(canEditDeal);
+  const canDelete = Boolean(canDeleteDeal && onDelete);
   const monthly = deal.mrr ?? null;
   const total = deal.value ?? null;
 
@@ -338,16 +364,6 @@ export default function DealRecordDrawer({
     (proposals[0] ? buildInternalProposalUrl(proposals[0]) : null);
   const proposalLink = proposalLinkRaw ? String(proposalLinkRaw) : null;
 
-  const solutionRaw = firstProp(deal, ['solutionTag', 'solucao', 'solução', 'seta_deal_modality']);
-  const solutionTags: string[] = [];
-  if (Array.isArray(solutionRaw)) {
-    for (const s of solutionRaw) if (s) solutionTags.push(String(s));
-  } else if (typeof solutionRaw === 'string' && solutionRaw.trim()) {
-    solutionTags.push(...solutionRaw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean));
-  }
-  const dealTypeTag = dealTypeAsTag(deal.dealType);
-  if (dealTypeTag && !solutionTags.includes(dealTypeTag)) solutionTags.push(dealTypeTag);
-
   const lastMeetingFromTimeline = timeline
     .filter((e) => e.type === 'MEETING')
     .map((e) => e.createdAt)
@@ -357,14 +373,12 @@ export default function DealRecordDrawer({
     lastMeetingFromTimeline ||
     null;
 
-  const lastContact =
-    firstProp(deal, ['notes_last_contacted', 'ultimo_contato', 'hs_last_contacted']) || deal.lastActivityAt;
+  const lastContact = distinctLastContactAt(deal);
 
   const description =
     firstProp(deal, ['description', 'descricao_do_negocio', 'deal_description', 'descricao']) || null;
 
   const aboutRowsAll: AboutRow[] = [
-    { key: 'dealname', label: 'Nome do negócio', value: dash(deal.title) },
     {
       key: 'proposal_number',
       label: 'Número da Proposta',
@@ -379,59 +393,6 @@ export default function DealRecordDrawer({
       value: proposalLink || '--',
       href: proposalLink,
     },
-    { key: 'description', label: 'Descrição do negócio', value: dash(description) },
-    {
-      key: 'mrr',
-      label: 'Valor mensal',
-      value: monthly != null ? formatBRL(monthly) : dash(firstProp(deal, ['hs_mrr_brl'])),
-    },
-    {
-      key: 'amount',
-      label: 'Valor total',
-      value: total != null ? formatBRL(total) : '--',
-    },
-    { key: 'pipeline', label: 'Pipeline', value: dash(pipelineName) },
-    { key: 'dealstage', label: 'Etapa do negócio', value: dash(stageName) },
-    {
-      key: 'solution',
-      label: 'Solução',
-      value: solutionTags.length ? solutionTags.join(', ') : '--',
-      tags: solutionTags.length ? solutionTags : undefined,
-    },
-    {
-      key: 'acquisition',
-      label: 'Canal de Aquisição',
-      value: dash(firstProp(deal, ['acquisitionChannel', 'canal_de_aquisicao', 'canal_aquisicao'])),
-    },
-    { key: 'won_reason', label: 'Descrição Motivo Ganho', value: dash(deal.wonReason) },
-    { key: 'lost_reason', label: 'Descrição Motivo Perda', value: dash(deal.lostReason) },
-    { key: 'createdate', label: 'Data de criação', value: formatPropDateTime(deal.createdAt) },
-    { key: 'next_step', label: 'Próxima etapa', value: dash(deal.nextBestAction?.title) },
-    { key: 'closedate', label: 'Data de fechamento', value: formatPropDateTime(deal.expectedCloseDate) },
-    { key: 'hs_lastmodifieddate', label: 'Data da última modificação', value: formatPropDateTime(deal.updatedAt) },
-    { key: 'notes_last_updated', label: 'Data da última atividade', value: formatPropDateTime(deal.lastActivityAt) },
-    { key: 'hubspot_owner_id', label: 'Proprietário do negócio', value: dash(deal.ownerName) },
-    {
-      key: 'hs_deal_stage_probability',
-      label: 'Probabilidade da fase de negócios (%)',
-      value: deal.probability != null ? `${deal.probability}%` : '--',
-    },
-    { key: 'notes_last_contacted', label: 'Último contato', value: formatPropDateTime(lastContact as string | null) },
-    {
-      key: 'contact',
-      label: 'Pessoa de contato',
-      value: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}`.trim() || dash(deal.contact.email) : '--',
-    },
-    {
-      key: 'last_meeting',
-      label: 'Data da última reunião agendada',
-      value: formatPropDateTime(lastMeeting as string | null),
-    },
-    {
-      key: 'hs_is_closed',
-      label: 'É negócio fechado',
-      value: deal.status === 'OPEN' ? 'Falso' : 'Verdadeiro',
-    },
   ];
 
   const customExtra: AboutRow[] = Object.entries(deal.customProperties || {})
@@ -445,13 +406,52 @@ export default function DealRecordDrawer({
     }));
 
   const ABOUT_PREVIEW_LIMIT = 30;
-  const aboutCombined = [...aboutRowsAll, ...customExtra];
-  const aboutRows = showAllAbout || aboutCombined.length <= ABOUT_PREVIEW_LIMIT
-    ? aboutCombined
-    : aboutCombined.slice(0, ABOUT_PREVIEW_LIMIT);
-  const aboutHasMore = aboutCombined.length > ABOUT_PREVIEW_LIMIT && !showAllAbout;
+  const aboutExtras = showAllAbout || customExtra.length <= ABOUT_PREVIEW_LIMIT
+    ? customExtra
+    : customExtra.slice(0, ABOUT_PREVIEW_LIMIT);
+  const aboutHasMore = customExtra.length > ABOUT_PREVIEW_LIMIT && !showAllAbout;
 
-  const associatedContacts = useMemo(() => {
+  const solutionValue = dash(firstProp(deal, ['solutionTag', 'solucao', 'solução']));
+  const solutionEditTags: string[] = [];
+  const solutionOnlyRaw = firstProp(deal, ['solutionTag', 'solucao', 'solução']);
+  if (Array.isArray(solutionOnlyRaw)) {
+    for (const s of solutionOnlyRaw) if (s) solutionEditTags.push(String(s));
+  } else if (typeof solutionOnlyRaw === 'string' && solutionOnlyRaw.trim()) {
+    solutionEditTags.push(...solutionOnlyRaw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean));
+  }
+
+  const saveDealField = async (field: DealFieldKey, raw: string) => {
+    if (!canEdit || !onUpdateDeal) return;
+    const patch = buildDealFieldPatch(field, raw, deal, { ownerOptions });
+    await onUpdateDeal(deal.id, patch, { silent: true });
+    onChangeDeal({
+      ...deal,
+      ...patch,
+      customProperties: patch.customProperties
+        ? (patch.customProperties as EnrichedDeal['customProperties'])
+        : deal.customProperties,
+      nextBestAction:
+        patch.nextBestAction !== undefined
+          ? (patch.nextBestAction as EnrichedDeal['nextBestAction'])
+          : deal.nextBestAction,
+    });
+  };
+
+  const saveStage = async (stageId: string) => {
+    if (!canEdit || stageId === deal.stageId) return;
+    const st = stages.find((s) => s.id === stageId);
+    if (!st) return;
+    await onStageChange(deal.id, st.id);
+    onChangeDeal({
+      ...deal,
+      stageId: st.id,
+      stageName: st.name,
+      probability: st.defaultProbability,
+      status: st.isWon ? 'WON' : st.isClosed ? 'LOST' : 'OPEN',
+    });
+  };
+
+    const associatedContacts = useMemo(() => {
     const list: Contact[] = [];
     const seen = new Set<string>();
     if (deal.contact) {
@@ -543,6 +543,8 @@ export default function DealRecordDrawer({
     label: string;
     icon: React.ReactNode;
     onClick: () => void;
+    disabled?: boolean;
+    title?: string;
   }> = [
     {
       id: 'note',
@@ -557,7 +559,10 @@ export default function DealRecordDrawer({
       id: 'email',
       label: 'E-mail',
       icon: <Mail className="w-4 h-4" />,
+      disabled: !canSendEmail,
+      title: canSendEmail ? 'Escrever e-mail' : 'Seu perfil não tem permissão para enviar e-mail do CRM.',
       onClick: () => {
+        if (!canSendEmail) return;
         setEmailOpen(true);
         setCenterTab('ACTIVITIES');
       },
@@ -624,12 +629,42 @@ export default function DealRecordDrawer({
             >
               <ChevronLeft className="w-4 h-4" /> Negócios
             </button>
-            <button
-              type="button"
-              className="px-2.5 py-1 rounded-md border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-            >
-              Ações
-            </button>
+            <div className="relative" ref={actionsRef} data-testid="deal-actions-menu">
+              <button
+                type="button"
+                onClick={() => setActionsOpen((v) => !v)}
+                className="px-2.5 py-1 rounded-md border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                aria-haspopup="menu"
+                aria-expanded={actionsOpen}
+              >
+                Ações
+              </button>
+              {actionsOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full mt-1 z-20 min-w-[160px] rounded-md border border-slate-200 bg-white shadow-lg py-1"
+                >
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      data-testid="deal-action-delete"
+                      onClick={() => {
+                        setActionsOpen(false);
+                        if (window.confirm('Excluir este negócio? Esta ação não pode ser desfeita.')) {
+                          void onDelete?.();
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50 cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Excluir
+                    </button>
+                  ) : (
+                    <div className="px-3 py-1.5 text-xs text-slate-400">Nenhuma ação disponível</div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {onNavigateToErp && (
@@ -683,28 +718,21 @@ export default function DealRecordDrawer({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500 font-semibold">Etapa do negócio</span>
-                <select
-                  value={deal.stageId}
-                  onChange={async (e) => {
-                    const st = stages.find((s) => s.id === e.target.value);
-                    if (!st) return;
-                    await onStageChange(deal.id, st.id);
-                    onChangeDeal({
-                      ...deal,
-                      stageId: st.id,
-                      stageName: st.name,
-                      probability: st.defaultProbability,
-                      status: st.isWon ? 'WON' : st.isClosed ? 'LOST' : 'OPEN',
-                    });
-                  }}
-                  className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white font-semibold text-slate-800 text-[11px]"
-                >
-                  {stages.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name}
-                    </option>
-                  ))}
-                </select>
+                {canEdit ? (
+                  <select
+                    value={deal.stageId}
+                    onChange={(e) => void saveStage(e.target.value)}
+                    className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-800 text-[11px]"
+                  >
+                    {stages.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="font-semibold text-slate-900 truncate">{dash(stageName)}</span>
+                )}
               </div>
             </div>
 
@@ -738,7 +766,9 @@ export default function DealRecordDrawer({
                   key={btn.id}
                   type="button"
                   onClick={btn.onClick}
-                  className="flex flex-col items-center gap-1 flex-1 min-w-0 cursor-pointer group"
+                  disabled={btn.disabled}
+                  title={btn.title}
+                  className="flex flex-col items-center gap-1 flex-1 min-w-0 cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="w-9 h-9 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center group-hover:border-accent group-hover:text-accent">
                     {btn.icon}
@@ -757,41 +787,198 @@ export default function DealRecordDrawer({
                 className="w-full px-3 py-2.5 flex items-center justify-between bg-slate-50 hover:bg-slate-100 cursor-pointer"
               >
                 <span className="text-xs font-semibold text-slate-800">Sobre esse Negócio</span>
-                <span className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-slate-500">Ações</span>
-                  {aboutOpen ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
-                </span>
+                {aboutOpen ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
               </button>
               {aboutOpen && (
-                <div className="p-3 space-y-3">
-                  {aboutRows.map((row) => (
-                    <div key={row.key} className="space-y-0.5">
-                      <div className="text-[10px] font-semibold text-slate-400">{row.label}</div>
-                      {row.tags && row.tags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {row.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-700 border border-slate-200"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      ) : row.href && row.value !== '--' ? (
-                        <a
-                          href={row.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline break-all"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                          <span className="break-all">{row.value}</span>
-                        </a>
-                      ) : (
-                        <div className="text-xs font-semibold text-slate-800 break-words whitespace-pre-wrap">{row.value}</div>
-                      )}
-                    </div>
+                <div className="p-3 space-y-3" data-testid="deal-about-panel">
+                  <DealInlineProperty
+                    fieldKey="dealname"
+                    label="Nome do negócio"
+                    displayValue={dash(deal.title)}
+                    editValue={deal.title || ''}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('title', raw)}
+                  />
+                  {aboutRowsAll.map((row) => (
+                    <DealInlineProperty
+                      key={row.key}
+                      fieldKey={row.key}
+                      label={row.label}
+                      displayValue={row.value}
+                      editValue={row.value === '--' ? '' : row.value}
+                      readOnly
+                      href={row.href}
+                    />
+                  ))}
+                  <DealInlineProperty
+                    fieldKey="description"
+                    label="Descrição do negócio"
+                    displayValue={dash(description)}
+                    editValue={description ? String(description) : ''}
+                    kind="textarea"
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('description', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="mrr"
+                    label="Valor mensal"
+                    displayValue={monthly != null ? formatBRL(monthly) : '--'}
+                    editValue={monthly != null ? String(monthly) : ''}
+                    kind="currency"
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('mrr', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="amount"
+                    label="Valor total"
+                    displayValue={total != null ? formatBRL(total) : '--'}
+                    editValue={total != null ? String(total) : ''}
+                    kind="currency"
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('value', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="pipeline"
+                    label="Pipeline"
+                    displayValue={dash(pipelineName)}
+                    editValue={pipelineName || ''}
+                    readOnly
+                  />
+                  <DealInlineProperty
+                    fieldKey="dealstage"
+                    label="Etapa do negócio"
+                    displayValue={dash(stageName)}
+                    editValue={deal.stageId}
+                    kind="select"
+                    options={stages.map((st) => ({ value: st.id, label: st.name }))}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveStage(raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="solution"
+                    label="Solução"
+                    displayValue={solutionValue}
+                    editValue={solutionValue === '--' ? '' : solutionEditTags.join(', ')}
+                    tags={solutionEditTags.length ? solutionEditTags : undefined}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('solution', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="acquisition"
+                    label="Canal de Aquisição"
+                    displayValue={dash(firstProp(deal, ['acquisitionChannel', 'canal_de_aquisicao', 'canal_aquisicao']))}
+                    editValue={dash(firstProp(deal, ['acquisitionChannel', 'canal_de_aquisicao', 'canal_aquisicao'])) === '--' ? '' : String(firstProp(deal, ['acquisitionChannel', 'canal_de_aquisicao', 'canal_aquisicao']) || '')}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('acquisition', raw)}
+                  />
+                  {shouldShowWonReason(currentStage) && (
+                    <DealInlineProperty
+                      fieldKey="won_reason"
+                      label="Descrição Motivo Ganho"
+                      displayValue={dash(deal.wonReason)}
+                      editValue={deal.wonReason || ''}
+                      kind="textarea"
+                      readOnly={!canEdit}
+                      onSave={(raw) => saveDealField('wonReason', raw)}
+                    />
+                  )}
+                  {shouldShowLostReason(currentStage) && (
+                    <DealInlineProperty
+                      fieldKey="lost_reason"
+                      label="Descrição Motivo Perda"
+                      displayValue={dash(deal.lostReason)}
+                      editValue={deal.lostReason || ''}
+                      kind="textarea"
+                      readOnly={!canEdit}
+                      onSave={(raw) => saveDealField('lostReason', raw)}
+                    />
+                  )}
+                  <DealInlineProperty
+                    fieldKey="createdate"
+                    label="Data de criação"
+                    displayValue={formatPropDateTime(deal.createdAt)}
+                    editValue={deal.createdAt || ''}
+                    system
+                  />
+                  <DealInlineProperty
+                    fieldKey="next_step"
+                    label="Próxima etapa"
+                    displayValue={dash(deal.nextBestAction?.title)}
+                    editValue={deal.nextBestAction?.title || ''}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('nextStep', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="closedate"
+                    label="Data de fechamento"
+                    displayValue={formatDateBR(deal.expectedCloseDate)}
+                    editValue={toDateInputValue(deal.expectedCloseDate)}
+                    kind="date"
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('closedate', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="hs_lastmodifieddate"
+                    label="Data da última modificação"
+                    displayValue={formatPropDateTime(deal.updatedAt)}
+                    editValue={deal.updatedAt || ''}
+                    system
+                  />
+                  <DealInlineProperty
+                    fieldKey="notes_last_updated"
+                    label="Data da última atividade"
+                    displayValue={formatPropDateTime(deal.lastActivityAt)}
+                    editValue={deal.lastActivityAt || ''}
+                    system
+                  />
+                  <DealInlineProperty
+                    fieldKey="hubspot_owner_id"
+                    label="Proprietário do negócio"
+                    displayValue={dash(deal.ownerName)}
+                    editValue={deal.ownerId || deal.ownerName || ''}
+                    kind="select"
+                    options={(ownerOptions.length
+                      ? ownerOptions
+                      : deal.ownerName
+                        ? [{ id: deal.ownerId || deal.ownerName, name: deal.ownerName }]
+                        : []
+                    ).map((o) => ({ value: o.id, label: o.name }))}
+                    readOnly={!canEdit}
+                    onSave={(raw) => saveDealField('owner', raw)}
+                  />
+                  <DealInlineProperty
+                    fieldKey="hs_deal_stage_probability"
+                    label="Probabilidade da fase de negócios (%)"
+                    displayValue={deal.probability != null ? `${deal.probability}%` : '--'}
+                    editValue={deal.probability != null ? String(deal.probability) : ''}
+                    system
+                  />
+                  {lastContact && (
+                    <DealInlineProperty
+                      fieldKey="notes_last_contacted"
+                      label="Último contato"
+                      displayValue={formatPropDateTime(lastContact)}
+                      editValue={lastContact}
+                      system
+                    />
+                  )}
+                  <DealInlineProperty
+                    fieldKey="last_meeting"
+                    label="Data da última reunião agendada"
+                    displayValue={formatPropDateTime(lastMeeting as string | null)}
+                    editValue={typeof lastMeeting === 'string' ? lastMeeting : ''}
+                    system
+                  />
+                  {aboutExtras.map((row) => (
+                    <DealInlineProperty
+                      key={row.key}
+                      fieldKey={row.key}
+                      label={row.label}
+                      displayValue={row.value}
+                      editValue={row.value === '--' ? '' : row.value}
+                      readOnly
+                      href={row.href}
+                    />
                   ))}
                   {aboutHasMore && (
                     <button
@@ -799,65 +986,9 @@ export default function DealRecordDrawer({
                       onClick={() => setShowAllAbout(true)}
                       className="text-[11px] font-semibold text-accent hover:underline cursor-pointer"
                     >
-                      Ver todas as propriedades ({aboutCombined.length})
+                      Ver todas as propriedades ({customExtra.length})
                     </button>
                   )}
-
-                  <div className="pt-2 border-t border-slate-100 space-y-2">
-                    <label className="block text-[10px] font-semibold text-slate-400">Editar nome</label>
-                    <input
-                      type="text"
-                      value={deal.title}
-                      onChange={(e) => onChangeDeal({ ...deal, title: e.target.value })}
-                      className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Valor mensal</label>
-                        <input
-                          type="number"
-                          value={deal.mrr ?? Math.round(deal.value / (deal.contractMonths || 24))}
-                          onChange={(e) => {
-                            const mrrVal = Number(e.target.value) || 0;
-                            const months = deal.contractMonths || 24;
-                            onChangeDeal({ ...deal, mrr: mrrVal, value: mrrVal * months });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Valor total</label>
-                        <input
-                          type="number"
-                          value={deal.value}
-                          onChange={(e) => {
-                            const val = Number(e.target.value) || 0;
-                            const months = deal.contractMonths || 24;
-                            onChangeDeal({ ...deal, value: val, mrr: Math.round(val / months) });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      {onDelete && (
-                        <button
-                          type="button"
-                          onClick={() => void onDelete()}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-rose-200 text-rose-700 text-xs font-semibold cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Excluir
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void onSave()}
-                        className="flex-1 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
-                      >
-                        Salvar
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -947,10 +1078,10 @@ export default function DealRecordDrawer({
                         value={activitySearch}
                         onChange={(e) => setActivitySearch(e.target.value)}
                         placeholder="Pesquisar atividades"
-                        className="w-full pl-8 pr-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
+                        className="w-full pl-8 pr-3 py-1.5 rounded-md border border-slate-200 text-xs"
                       />
                     </div>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ALL" aria-label="Atividade">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ALL" aria-label="Atividade">
                       <option value="ALL">Atividade</option>
                       <option value="NOTE">Observação</option>
                       <option value="EMAIL">E-mail</option>
@@ -958,12 +1089,12 @@ export default function DealRecordDrawer({
                       <option value="TASK">Tarefa</option>
                       <option value="MEETING">Reunião</option>
                     </select>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ANY" aria-label="Data da atividade">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ANY" aria-label="Data da atividade">
                       <option value="ANY">Data da atividade</option>
                       <option value="7">Últimos 7 dias</option>
                       <option value="30">Últimos 30 dias</option>
                     </select>
-                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] font-semibold text-slate-600" defaultValue="ANY" aria-label="Atividade atribuída a">
+                    <select className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] text-slate-600" defaultValue="ANY" aria-label="Atividade atribuída a">
                       <option value="ANY">Atividade atribuída a</option>
                       <option value="ME">Eu</option>
                     </select>
@@ -982,7 +1113,7 @@ export default function DealRecordDrawer({
                         value={noteTitle}
                         onChange={(e) => setNoteTitle(e.target.value)}
                         placeholder="Assunto"
-                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
                       />
                       <textarea
                         rows={3}
@@ -1031,9 +1162,15 @@ export default function DealRecordDrawer({
                   {emailOpen && (
                     <CrmEmailComposerModal
                       record={{ dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }}
+                      recordKind="deal"
                       defaultTo={deal.contact?.email || ''}
-                      suggestions={contacts.filter((c) => c.companyId === deal.companyId).map((c) => c.email).filter(Boolean) as string[]}
+                      suggestions={associatedContacts.map((c) => c.email).filter(Boolean) as string[]}
                       recordLabel={deal.title}
+                      contact={deal.contact ? { id: deal.contact.id, email: deal.contact.email, firstName: deal.contact.firstName, lastName: deal.contact.lastName, companyId: deal.contact.companyId } : null}
+                      company={deal.company ? { id: deal.company.id, name: deal.company.name, domain: deal.company.domain } : companies.find((c) => c.id === deal.companyId) || null}
+                      deal={{ id: deal.id, title: deal.title, value: deal.value }}
+                      associatedContacts={associatedContacts}
+                      canSendEmail={canSendEmail}
                       onClose={() => setEmailOpen(false)}
                       onSent={() => setEmailOpen(false)}
                     />

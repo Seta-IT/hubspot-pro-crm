@@ -7,11 +7,11 @@
   --sti-accent: #1e3a6e;
   --sti-accent-hover: #162d57;
   --sti-accent-soft: #eef2f8;
-  /* Cabecalho por sistema (t139u/t140u/t141u): CRM laranja mais claro, Chamados verde, ERP azul.
-     Texto branco font-semibold: contraste >= 3:1 (texto grande/bold) em todas as paradas. */
-  --sti-header-erp: linear-gradient(90deg, #1e3a6e 0%, #2b4c86 55%, #3a5f9c 100%);
-  --sti-header-crm: linear-gradient(90deg, #9a3412 0%, #c2410c 55%, #ea580c 100%);
-  --sti-header-service: linear-gradient(90deg, #065f46 0%, #047857 55%, #059669 100%);
+  /* Cabecalho por sistema: CRM #D9541E, Chamados verde, ERP azul.
+     Texto branco font-semibold no cabecalho. CRM #D9541E com branco ~4,0:1 (texto grande). */
+  --sti-header-erp: linear-gradient(#1e3a6e, #1e3a6e);
+  --sti-header-crm: linear-gradient(#D9541E, #D9541E);
+  --sti-header-service: linear-gradient(#047857, #047857);
   --hs-obsidian: #213343;
   --hs-charcoal: #33475b;
   --hs-battleship: #516f90;
@@ -28,10 +28,11 @@
 
 /* Tema por sistema ativo (header + accent): CRM laranja, Chamados verde, ERP azul. */
 [data-system="crm"] {
-  /* #c2410c ~5,2:1 com branco (AA texto normal); hover mais escuro nos botoes. */
-  --sti-accent: #c2410c;
-  --sti-accent-hover: #9a3412;
-  --sti-accent-soft: #fff7ed;
+  /* #D9541E escolhida pelo usuario (t207u). Texto branco nos botoes, no estilo HubSpot.
+     Contraste com branco ~4,0:1 (texto grande). opção E escolhida pelo usuário (t222u). */
+  --sti-accent: #D9541E;
+  --sti-accent-hover: #BC4718;
+  --sti-accent-soft: #FEF1EA;
 }
 [data-system="service"] {
   --sti-accent: #047857;
@@ -131,7 +132,17 @@ html, body {
 }
 
 
-/* Corporate Typography Hierarchy: Semibold on Titles, Headers, Labels, Buttons & Strong Elements */
-h1, h2, h3, h4, h5, h6, th, strong, b, label, summary {
+/* Corporate typography: font-semibold (600) on titles, labels, buttons, tabs and menus.
+   Tailwind font-* classes still override this rule (higher specificity).
+   Body, descriptions, helpers, placeholders and secondary table cells stay regular (400). */
+h1, h2, h3, h4, h5, h6, th, strong, b, label, summary,
+button,
+[type="button"],
+[type="submit"],
+[type="reset"],
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"] {
   font-weight: 600;
 }

@@ -119,7 +119,7 @@ describe('Proposta e documentos - endereco da emitente', () => {
     assert.doesNotMatch(sync, /José Bonifácio|Flamboyant|13091-140/);
 
     const css = readFileSync(join(root, 'src/app/globals.css'), 'utf8');
-    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#c2410c/);
+    assert.match(css, /\[data-system="crm"\][\s\S]*?--sti-accent:\s*#D9541E/i);
     assert.match(css, /\[data-system="service"\][\s\S]*?--sti-accent:\s*#047857/);
     assert.doesNotMatch(css, /\[data-system="crm"\]\s*\{\s*--sti-accent:\s*#ea580c/);
   });

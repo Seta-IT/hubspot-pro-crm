@@ -347,6 +347,25 @@ export function isModuleFullControl(
   return Boolean(c?.ticketsServiceDeskAccess === "FULL" && (nocFull || user.crmRole === "CRM_ADMIN"));
 }
 
+const DEALS_KANBAN_ITEM = "crm.deals_kanban";
+
+/**
+ * PATCH/PUT /api/deals/:id: admin IAM, CRM_ADMIN e Full Control do CRM passam;
+ * caso contrário exige edit=true na matriz do item. Sem a chave, recusa (fail-closed).
+ */
+export function canEditCrmDealsKanban(
+  user: Partial<StiHubUserRecord> | null | undefined,
+  guards?: Partial<{ canManageUsersRbac: boolean }> | null
+): boolean {
+  if (!user) return false;
+  if (guards?.canManageUsersRbac) return true;
+  if (user.roleId === "SUPER_ADMIN") return true;
+  if (String(user.crmRole || "") === "CRM_ADMIN") return true;
+  if (isModuleFullControl(user, "CRM")) return true;
+  const perm = user.crmItemPermissions?.[DEALS_KANBAN_ITEM] || user.itemPermissions?.[DEALS_KANBAN_ITEM];
+  return perm?.edit === true;
+}
+
 export function buildDefaultErpPermissionsForRole(roleId: StiHubRoleId): StiHubErpPermissions {
   switch (roleId) {
     case "SUPER_ADMIN":

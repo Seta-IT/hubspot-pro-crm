@@ -215,15 +215,52 @@ const rowToStored = (r: any): StoredProposal => ({
   rowVersion: Number(r.row_version) || 1,
 });
 
+/**
+ * Refs que a rota precisa carregar de erp_proposals antes de responder.
+ * /api/interno/proposta/:id entra aqui: sem isso o modo tabela (lista vazia em memoria)
+ * responde "não encontrada" para um id que existe na tabela.
+ */
+export function proposalRouteLookupRefs(method: string, cleanPath: string): string[] {
+  const refs: string[] = [];
+  const push = (raw: string) => {
+    let value = String(raw || '');
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      value = String(raw || '');
+    }
+    value = value.trim();
+    if (value && !refs.includes(value)) refs.push(value);
+  };
+  const byRef = String(cleanPath || '').match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
+  if (byRef) push(byRef[1]);
+  if (String(method || 'GET').toUpperCase() === 'GET') {
+    const internal = String(cleanPath || '').match(/^\/api\/interno\/proposta\/([^/]+)$/);
+    if (internal) push(internal[1]);
+  }
+  return refs;
+}
+
 /** Por id exato, id sem caixa ou codigo sem caixa (inclui "#4705" / "GC-ORC-4705" pelo numero). */
 export async function getProposalsByRefs(db: PgQ, refs: string[]): Promise<StoredProposal[]> {
   const clean = Array.from(new Set(refs.map((r) => String(r || '').trim()).filter(Boolean))).slice(0, 50);
   if (!clean.length) return [];
-  const lower = clean.map((r) => r.toLowerCase());
-  const res = await db.query(
-    `SELECT data, row_version FROM erp_proposals WHERE lower(id) = ANY($1::text[]) OR (code <> '' AND lower(code) = ANY($1::text[]))`,
-    [lower]
-  );
+  const lower = new Set(clean.map((r) => r.toLowerCase()));
+  const nums: number[] = [];
+  for (const r of clean) {
+    const n = extractGcProposalNumber(r);
+    if (n !== null) {
+      nums.push(n);
+      lower.add(String(n));
+    }
+  }
+  const params: unknown[] = [Array.from(lower)];
+  let sql = `SELECT data, row_version FROM erp_proposals WHERE lower(id) = ANY($1::text[]) OR (code <> '' AND lower(code) = ANY($1::text[]))`;
+  if (nums.length) {
+    params.push(nums);
+    sql += ` OR code_num = ANY($2::int[])`;
+  }
+  const res = await db.query(sql, params);
   return (res.rows || []).map(rowToStored);
 }
 

@@ -41,10 +41,10 @@ export const PROPOSAL_SHEET_COMMON_TW = {
   totalLabel: 'text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block',
   totalValue: 'font-semibold text-emerald-700',
   fiscalBox: 'rounded-lg bg-emerald-50/60 border border-emerald-200',
-  primaryButton: 'bg-[#1e3a6e] hover:bg-[#162b54] text-white',
-  outlineButton: 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50',
+  primaryButton: 'bg-[#1e3a6e] hover:bg-[#162b54] text-white font-semibold',
+  outlineButton: 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold',
   topBar: 'bg-white text-slate-700 rounded-lg border border-slate-200',
-  templateSelect: 'px-2.5 py-1.5 rounded-md bg-white text-slate-700 text-xs font-medium border border-slate-300 cursor-pointer',
+  templateSelect: 'px-2.5 py-1.5 rounded-md bg-white text-slate-700 text-xs font-semibold border border-slate-300 cursor-pointer',
 } as const;
 
 export const PROPOSAL_SHEET_TW: Record<ProposalLightTemplateId, ProposalSheetTw> = {
@@ -245,12 +245,12 @@ ${proposalSheetCssVarsBlock()}
     .ccl-logo { background: ${C.white}; border: 1px solid ${C.slate200}; border-radius: 6px; padding: 6px 11px; display: flex; align-items: center; gap: 7px; flex-shrink: 0; box-shadow: 0 1px rgba(0,0,0,0.05); }
     .ccl-logo b { font-size: 18px; font-weight: 900; letter-spacing: -0.025em; line-height: 1; }
     .ccl-logo i { width: 2px; height: 18px; background: ${C.brandOrange}; display: inline-block; }
-    .ccl-company { font-size: 16px; font-weight: 900; letter-spacing: -0.025em; color: var(--ps-header-ink); margin: 0; line-height: 1.25; }
+    .ccl-company { font-size: 16px; font-weight: 600; letter-spacing: -0.025em; color: var(--ps-header-ink); margin: 0; line-height: 1.25; }
     .ccl-company-sub { font-size: 10.5px; font-weight: 600; color: ${C.slate600}; margin: 0; }
     .ccl-company-sub2 { font-size: 10.5px; color: ${C.slate500}; margin: 0; }
     .ccl-meta { background: var(--ps-meta-bg); border: 1px solid var(--ps-meta-border); border-radius: 8px; padding: 6px 12px; text-align: right; flex-shrink: 0; }
-    .ccl-eyebrow { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${C.accent}; }
-    .ccl-doc-number { font-size: 18px; font-weight: 900; color: var(--ps-header-ink); line-height: 1.2; }
+    .ccl-eyebrow { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: ${C.accent}; }
+    .ccl-doc-number { font-size: 18px; font-weight: 600; color: var(--ps-header-ink); line-height: 1.2; }
     .ccl-version { padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(30, 58, 110, 0.3); background: rgba(30, 58, 110, 0.05); font-size: 10.5px; font-weight: 600; color: ${C.accent}; white-space: nowrap; }
     .ccl-meta-line { font-size: 10.5px; color: ${C.slate600}; margin-top: 1px; }
     .ccl-meta-line strong, .ccl-contact strong { color: ${C.slate900}; }
@@ -272,18 +272,18 @@ ${proposalSheetCssVarsBlock()}
     .ccl-text { font-size: 11px; color: ${C.slate600}; line-height: 1.45; margin: 0; }
     .ccl-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     .ccl-table-card { border: 1px solid var(--ps-table-border); border-radius: 8px; overflow: hidden; background: ${C.white}; page-break-inside: avoid; break-inside: avoid; }
-    .ccl-table-head { background: var(--ps-table-head-bg); color: var(--ps-table-head-ink); border-bottom: 1px solid var(--ps-table-head-border); padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 800; letter-spacing: 0.025em; }
+    .ccl-table-head { background: var(--ps-table-head-bg); color: var(--ps-table-head-ink); border-bottom: 1px solid var(--ps-table-head-border); padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.025em; }
     .ccl-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
     .ccl-table thead { background: var(--ps-col-head-bg); color: var(--ps-col-head-ink); border-bottom: 1px solid var(--ps-col-head-border); text-transform: uppercase; font-size: 10px; }
-    .ccl-table th { padding: 6px 10px; font-weight: 800; white-space: nowrap; }
+    .ccl-table th { padding: 6px 10px; font-weight: 600; white-space: nowrap; }
     .ccl-table td { padding: 6px 10px; border-top: 1px solid rgba(226, 232, 240, 0.8); vertical-align: top; }
     .ccl-table tbody tr:first-child td { border-top: none; }
     .ccl-table tbody tr:nth-child(even) { background: rgba(248, 250, 252, 0.4); }
-    .ccl-td-sku { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-weight: 700; color: ${C.accent}; font-size: 10.5px; white-space: nowrap; }
-    .ccl-td-desc { font-weight: 700; color: ${C.slate900}; line-height: 1.35; }
+    .ccl-td-sku { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-weight: 600; color: ${C.accent}; font-size: 10.5px; white-space: nowrap; }
+    .ccl-td-desc { font-weight: 600; color: ${C.slate900}; line-height: 1.35; }
     .ccl-td-num { text-align: right; color: ${C.slate700}; white-space: nowrap; }
-    .ccl-td-qty { text-align: center; font-weight: 700; color: ${C.slate900}; white-space: nowrap; }
-    .ccl-td-total { text-align: right; font-weight: 800; color: ${C.slate900}; white-space: nowrap; }
+    .ccl-td-qty { text-align: center; font-weight: 600; color: ${C.slate900}; white-space: nowrap; }
+    .ccl-td-total { text-align: right; font-weight: 600; color: ${C.slate900}; white-space: nowrap; }
     .ccl-right { text-align: right; }
     .ccl-center { text-align: center; }
     .ccl-summary { background: var(--ps-soft-bg); border: 1px solid var(--ps-soft-border); border-radius: 8px; padding: 9px 12px; display: grid; gap: 8px; font-size: 11px; page-break-inside: avoid; }

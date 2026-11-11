@@ -118,6 +118,8 @@ interface ContactsCompaniesTabProps {
     title: string;
     body?: string;
   }) => Promise<void>;
+  canSendContactEmail?: boolean;
+  canSendCompanyEmail?: boolean;
 }
 
 export default function ContactsCompaniesTab({
@@ -142,6 +144,8 @@ export default function ContactsCompaniesTab({
   onEnrichCompany,
   onBatchEnrichAll,
   onAddContactActivity,
+  canSendContactEmail = false,
+  canSendCompanyEmail = false,
 }: ContactsCompaniesTabProps) {
   const [subView, setSubView] = useState<'CONTACTS' | 'COMPANIES' | 'TASKS'>(initialSubView || 'CONTACTS');
   const [cannotDeleteText, setCannotDeleteText] = useState<string | null>(null);
@@ -672,7 +676,7 @@ export default function ContactsCompaniesTab({
                     : "text-[#516f90] hover:text-[#33475b]"
                 }`}
               >
-                <CheckSquare className="w-3.5 h-3.5 text-[#ff7a59]" />
+                <CheckSquare className="w-3.5 h-3.5 text-accent" />
                 Tarefas &amp; Follow-up HubSpot
               </button>
             </div>
@@ -715,7 +719,7 @@ export default function ContactsCompaniesTab({
             <button
               type="button"
               onClick={() => setShowNewContactModal(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-[#ff7a59] hover:bg-[#ff8f73] text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-[4px] bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               Criar Contato
@@ -784,7 +788,7 @@ export default function ContactsCompaniesTab({
                 <div
                   key={contact.id}
                   onClick={() => handleSelectContact(contact.id, false)}
-                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3 cursor-pointer hover:border-[#ff7a59] transition"
+                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3 cursor-pointer hover:border-accent transition"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
@@ -797,7 +801,7 @@ export default function ContactsCompaniesTab({
                           {contact.firstName} {contact.lastName}
                         </div>
                         <div className="text-xs text-slate-500 truncate">{contact.email}</div>
-                        <div className="text-xs font-medium text-slate-700 truncate">
+                        <div className="text-xs font-semibold text-slate-700 truncate">
                           {contact.jobTitle || 'Sem cargo'} • {contact.company?.name || 'Sem empresa'}
                         </div>
                       </div>
@@ -822,7 +826,7 @@ export default function ContactsCompaniesTab({
                     <button
                       type="button"
                       onClick={() => handleSelectContact(contact.id, true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white font-semibold text-xs shadow-xs transition"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-xs shadow-xs transition"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       Editar Contato
@@ -983,7 +987,7 @@ export default function ContactsCompaniesTab({
                         {contact.nextBestAction ? (
                           <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80">
                             <div className="font-semibold text-slate-800 flex items-center gap-1">
-                              <Zap className="w-3 h-3 text-[#ff7a59] shrink-0" />
+                              <Zap className="w-3 h-3 text-accent shrink-0" />
                               <span className="truncate">{contact.nextBestAction.title}</span>
                             </div>
                             <div className="text-[11px] text-slate-500 truncate mt-0.5">
@@ -1016,7 +1020,7 @@ export default function ContactsCompaniesTab({
                             onClick={() => handleSelectContact(contact.id, true)}
                             className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                           >
-                            <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                            <Pencil className="w-3.5 h-3.5 text-accent" />
                           </button>
                           <button
                             type="button"
@@ -1048,12 +1052,12 @@ export default function ContactsCompaniesTab({
                 setGestaoClickModalMode('VIEW');
                 setGestaoClickModalCompany(company);
               }}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-[#ff7a59] transition flex flex-col justify-between gap-4 cursor-pointer group"
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-accent transition flex flex-col justify-between gap-4 cursor-pointer group"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-[#ff7a59] font-semibold flex items-center justify-center text-sm shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-accent font-semibold flex items-center justify-center text-sm shrink-0">
                       {company.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
@@ -1075,7 +1079,7 @@ export default function ContactsCompaniesTab({
                     </span>
                     <div className="flex flex-wrap items-center justify-end gap-1">
                       {company.isTargetAccount && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#e05835] border border-orange-200">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-accent border border-orange-200">
                           Conta Alvo ABM
                         </span>
                       )}
@@ -1142,7 +1146,7 @@ export default function ContactsCompaniesTab({
                     }}
                     className="inline-flex items-center justify-center p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition cursor-pointer"
                   >
-                    <Pencil className="w-3.5 h-3.5 text-[#ff7a59]" />
+                    <Pencil className="w-3.5 h-3.5 text-accent" />
                   </button>
                   <button
                     type="button"
@@ -1213,6 +1217,7 @@ export default function ContactsCompaniesTab({
             await onAddContactActivity(payload);
             await fetchContactDetail(payload.contactId);
           }}
+          canSendEmail={canSendContactEmail}
         />
       )}
 
@@ -1221,7 +1226,7 @@ export default function ContactsCompaniesTab({
           <div className="bg-white w-full max-w-2xl h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
             <div className="px-4 sm:px-6 py-4 bg-[#1e293b] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-xl bg-[#ff7a59] text-white font-semibold flex items-center justify-center text-sm shrink-0">
+                <div className="w-11 h-11 rounded-xl bg-accent text-white font-semibold flex items-center justify-center text-sm shrink-0">
                   {companyDetail?.name?.slice(0, 2).toUpperCase() || 'EM'}
                 </div>
                 <div className="min-w-0">
@@ -1252,7 +1257,7 @@ export default function ContactsCompaniesTab({
                         setEnrichingId(null);
                       }
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold transition disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold transition disabled:opacity-50"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     {enrichingId === companyDetail.id ? 'Enriquecendo...' : 'Enriquecer CNPJ/Domínio'}
@@ -1288,11 +1293,11 @@ export default function ContactsCompaniesTab({
 
                   <form
                     onSubmit={handleSaveCompanyEdit}
-                    className="p-5 rounded-2xl border-2 border-[#ff7a59] bg-orange-50/30 space-y-4 shadow-sm"
+                    className="p-5 rounded-2xl border-2 border-accent bg-orange-50/30 space-y-4 shadow-sm"
                   >
                     <div className="flex items-center justify-between border-b border-orange-200/70 pb-3">
                       <div className="flex items-center gap-2">
-                        <Pencil className="w-4 h-4 text-[#ff7a59]" />
+                        <Pencil className="w-4 h-4 text-accent" />
                         <h4 className="text-sm font-semibold text-slate-900">
                           Editar Cadastro da Empresa B2B
                         </h4>
@@ -1311,7 +1316,7 @@ export default function ContactsCompaniesTab({
                         required
                         value={editCompName}
                         onChange={(e) => setEditCompName(e.target.value)}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                       />
                     </div>
 
@@ -1325,7 +1330,7 @@ export default function ContactsCompaniesTab({
                           value={editCompDomain}
                           onChange={(e) => setEditCompDomain(e.target.value)}
                           placeholder="ex: totvs.com.br"
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                       <div>
@@ -1337,7 +1342,7 @@ export default function ContactsCompaniesTab({
                           value={editCompCnpj}
                           onChange={(e) => setEditCompCnpj(formatDocumentByPersonType(e.target.value, 'PJ'))}
                           placeholder="00.000.000/0001-00"
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                     </div>
@@ -1352,7 +1357,7 @@ export default function ContactsCompaniesTab({
                           value={editCompIndustry}
                           onChange={(e) => setEditCompIndustry(e.target.value)}
                           placeholder="Ex: Software Enterprise & ERP"
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                       <div>
@@ -1362,7 +1367,7 @@ export default function ContactsCompaniesTab({
                         <select
                           value={editCompSize}
                           onChange={(e) => setEditCompSize(e.target.value)}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         >
                           <option value="1-50 funcionários">1-50 funcionários</option>
                           <option value="51-200 funcionários">51-200 funcionários</option>
@@ -1383,7 +1388,7 @@ export default function ContactsCompaniesTab({
                           value={editCompRevenue}
                           onChange={(e) => setEditCompRevenue(e.target.value)}
                           placeholder="50000000"
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                       <div>
@@ -1393,7 +1398,7 @@ export default function ContactsCompaniesTab({
                         <select
                           value={editCompTier}
                           onChange={(e) => setEditCompTier(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         >
                           <option value="ENTERPRISE">ENTERPRISE</option>
                           <option value="MID_MARKET">MID_MARKET</option>
@@ -1409,7 +1414,7 @@ export default function ContactsCompaniesTab({
                           list="seta-company-owners-list"
                           value={editCompOwner}
                           onChange={(e) => setEditCompOwner(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                         <datalist id="seta-company-owners-list">
                           {SETA_OWNER_OPTIONS.map((ow) => (
@@ -1427,7 +1432,7 @@ export default function ContactsCompaniesTab({
                         <select
                           value={editCompIcpTier}
                           onChange={(e) => setEditCompIcpTier(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         >
                           <option value="">Sem Tier ICP definido</option>
                           {ICP_TIER_OPTIONS.map((opt) => (
@@ -1437,12 +1442,12 @@ export default function ContactsCompaniesTab({
                           ))}
                         </select>
                       </div>
-                      <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-white text-xs font-semibold text-[#e05835] cursor-pointer">
+                      <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-orange-300 bg-white text-xs font-semibold text-accent cursor-pointer">
                         <input
                           type="checkbox"
                           checked={editCompTargetAccount}
                           onChange={(e) => setEditCompTargetAccount(e.target.checked)}
-                          className="rounded border-orange-300 text-[#ff7a59] focus:ring-[#ff7a59]"
+                          className="rounded border-orange-300 text-accent focus:ring-accent"
                         />
                         <span>Conta Alvo ABM (Target Account)</span>
                       </label>
@@ -1457,7 +1462,7 @@ export default function ContactsCompaniesTab({
                           type="text"
                           value={editCompCity}
                           onChange={(e) => setEditCompCity(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                       <div>
@@ -1468,7 +1473,7 @@ export default function ContactsCompaniesTab({
                           type="text"
                           value={editCompState}
                           onChange={(e) => setEditCompState(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#ff7a59]"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
                         />
                       </div>
                     </div>
@@ -1529,7 +1534,7 @@ export default function ContactsCompaniesTab({
                         <button
                           type="submit"
                           disabled={savingCompanyEdit}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                         >
                           <Save className="w-3.5 h-3.5" />
                           {savingCompanyEdit ? 'Salvando...' : 'Salvar Alterações'}
@@ -1555,9 +1560,19 @@ export default function ContactsCompaniesTab({
                       companyId: companyDetail.id,
                       contactId: companyDetail.contacts?.[0]?.id || null,
                     }}
+                    recordKind="company"
                     defaultTo={companyDetail.contacts?.[0]?.email || ''}
                     recordLabel={companyDetail.name}
                     suggestions={(companyDetail.contacts || []).map((c) => c.email)}
+                    contact={companyDetail.contacts?.[0] ? {
+                      id: companyDetail.contacts[0].id,
+                      email: companyDetail.contacts[0].email,
+                      firstName: companyDetail.contacts[0].firstName,
+                      lastName: companyDetail.contacts[0].lastName,
+                    } : null}
+                    company={{ id: companyDetail.id, name: companyDetail.name, domain: companyDetail.domain }}
+                    associatedContacts={companyDetail.contacts || []}
+                    canSendEmail={canSendCompanyEmail}
                   />
 
                   {/* HUBSPOT TASKS & FOLLOW-UPS FOR THIS COMPANY */}
@@ -1598,9 +1613,9 @@ export default function ContactsCompaniesTab({
                                 setCompanyDetail(null);
                                 handleSelectContact(c.id, true);
                               }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-[#ff7a59] text-slate-800 font-semibold text-[11px]"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:border-accent text-slate-800 font-semibold text-[11px]"
                             >
-                              <Pencil className="w-3 h-3 text-[#ff7a59]" />
+                              <Pencil className="w-3 h-3 text-accent" />
                               Editar Contato
                             </button>
                           </div>
@@ -1648,7 +1663,7 @@ export default function ContactsCompaniesTab({
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-[#ff7a59]" />
+                <Users className="w-5 h-5 text-accent" />
                 <h3 className="text-base font-semibold">Novo Contato (Auto-Workflow & Smart Score)</h3>
               </div>
               <button
@@ -1777,7 +1792,7 @@ export default function ContactsCompaniesTab({
                   <select
                     value={cBuyingRole}
                     onChange={(e) => setCBuyingRole(e.target.value as BuyingRoleType)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
                   >
                     {BUYING_ROLE_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1794,7 +1809,7 @@ export default function ContactsCompaniesTab({
                   <select
                     value={cOwnerName}
                     onChange={(e) => setCOwnerName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 bg-white"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white"
                   >
                     {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                       <option key={ow} value={ow}>
@@ -1810,7 +1825,7 @@ export default function ContactsCompaniesTab({
                   type="checkbox"
                   checked={cIsUnworked}
                   onChange={(e) => setCIsUnworked(e.target.checked)}
-                  className="rounded border-amber-400 text-[#ff7a59]"
+                  className="rounded border-amber-400 text-accent"
                 />
                 <span>Marcar como Lead Intocado (Unworked — Prioridade de 1º Atendimento)</span>
               </label>
@@ -1841,7 +1856,7 @@ export default function ContactsCompaniesTab({
                 <button
                   type="submit"
                   disabled={savingContact}
-                  className="px-5 py-2 rounded-xl bg-[#ff7a59] hover:bg-[#e86646] text-white text-xs font-semibold shadow-sm transition"
+                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition"
                 >
                   {savingContact ? 'Criando...' : 'Criar Contato'}
                 </button>
