@@ -61,6 +61,7 @@ import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeader
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
+import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import {
   loadDurableJournal,
@@ -428,19 +429,27 @@ export default function HubSpotProCrmApp() {
     await fetchAllCrmData();
   };
 
-  const handleUpdateDeal = async (dealId: string, patch: Record<string, unknown>) => {
+  const handleUpdateDeal = async (
+    dealId: string,
+    patch: Record<string, unknown>,
+    options?: { silent?: boolean }
+  ) => {
     const res = await fetch(`/api/deals/${dealId}`, {
       method: 'PATCH',
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...patch, _reconcileJournal: loadDurableJournal() }),
     });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.data) recordUpsertedDeal(json.data);
-      showToast('Negócio atualizado com sucesso!');
-      await fetchAllCrmData();
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      const msg = (errJson as { error?: string }).error || res.statusText || 'Falha ao atualizar o negócio';
+      if (!options?.silent) showToast(`Erro ao atualizar negócio: ${msg}`);
+      throw new Error(msg);
     }
+    const json = await res.json();
+    if (json.data) recordUpsertedDeal(json.data);
+    if (!options?.silent) showToast('Negócio atualizado com sucesso!');
+    await fetchAllCrmData();
   };
 
   const handleDeleteDeal = async (dealId: string) => {
@@ -1099,6 +1108,11 @@ export default function HubSpotProCrmApp() {
     userModuleAccess.erp && (erpFinancePerm ? erpFinancePerm.view : true)
   );
   const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
+  const canEditDealDrawer = canEditDealsFromPermissions(activeRbacUser);
+  const canDeleteDealDrawer = canDeleteDealsFromPermissions(activeRbacUser);
+  const dealOwnerOptions = (rbacState?.users || [])
+    .filter((u) => u.active)
+    .map((u) => ({ id: u.id, name: u.name }));
 
   const isCrmActive =
     activeModule === 'OVERVIEW_AI' ||
@@ -2437,6 +2451,9 @@ export default function HubSpotProCrmApp() {
                     openNewDealTrigger={openNewDealTrigger}
                     onUpdateDeal={handleUpdateDeal}
                     onDeleteDeal={handleDeleteDeal}
+                    canEditDeal={canEditDealDrawer}
+                    canDeleteDeal={canDeleteDealDrawer}
+                    ownerOptions={dealOwnerOptions}
                     onNavigateToErp={() => {
                       setErpInitialSection('INICIO');
                       setActiveModule('ERP_GESTAOCLICK');

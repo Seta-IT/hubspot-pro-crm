@@ -137,8 +137,11 @@ interface DealsKanbanTabProps {
   initialSelectedDealId?: string | null;
   onClearInitialDeal?: () => void;
   openNewDealTrigger?: number;
-  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>) => Promise<void>;
+  onUpdateDeal?: (dealId: string, patch: Record<string, unknown>, options?: { silent?: boolean }) => Promise<void>;
   onDeleteDeal?: (dealId: string) => Promise<void>;
+  canEditDeal?: boolean;
+  canDeleteDeal?: boolean;
+  ownerOptions?: Array<{ id: string; name: string }>;
   onNavigateToErp?: () => void;
   onOpenNewProposalFromDeal?: (deal: EnrichedDeal) => void;
   onShowToast?: (msg: string) => void;
@@ -190,6 +193,9 @@ export default function DealsKanbanTab({
   openNewDealTrigger,
   onUpdateDeal,
   onDeleteDeal,
+  canEditDeal = true,
+  canDeleteDeal = false,
+  ownerOptions = [],
   onNavigateToErp,
   onOpenNewProposalFromDeal,
   onShowToast,
@@ -1919,33 +1925,27 @@ export default function DealsKanbanTab({
           onClose={() => setSelectedDeal(null)}
           onChangeDeal={setSelectedDeal}
           onStageChange={handleStageChange}
-          onSave={async () => {
-            if (!onUpdateDeal) return;
-            await onUpdateDeal(selectedDeal.id, {
-              title: selectedDeal.title,
-              value: selectedDeal.value,
-              mrr: selectedDeal.mrr,
-              contractMonths: selectedDeal.contractMonths,
-              priority: selectedDeal.priority,
-              dealType: selectedDeal.dealType,
-              ownerName: selectedDeal.ownerName,
-              expectedCloseDate: selectedDeal.expectedCloseDate,
-              companyId: selectedDeal.companyId,
-              contactId: selectedDeal.contactId,
-              wonReason: selectedDeal.wonReason,
-              lostReason: selectedDeal.lostReason,
-              stageId: selectedDeal.stageId,
-            });
-            onShowToast?.('Negócio atualizado.');
-          }}
+          onUpdateDeal={onUpdateDeal}
           onDelete={
-            onDeleteDeal
+            canDeleteDeal && onDeleteDeal
               ? async () => {
                   await onDeleteDeal(selectedDeal.id);
                   setSelectedDeal(null);
                 }
               : undefined
           }
+          canEditDeal={canEditDeal}
+          canDeleteDeal={Boolean(canDeleteDeal && onDeleteDeal)}
+          ownerOptions={(() => {
+            const map = new Map<string, { id: string; name: string }>();
+            for (const o of ownerOptions) map.set(o.id, o);
+            for (const name of availableOwners) {
+              if (![...map.values()].some((o) => o.name === name)) {
+                map.set(name, { id: name, name });
+              }
+            }
+            return Array.from(map.values());
+          })()}
           onGenerateProposal={() => handleQuickGenerateProposalForDeal(selectedDeal)}
           onAddNote={async (title, body, type) => {
             await onAddDealNote(selectedDeal.id, title, body, type);
