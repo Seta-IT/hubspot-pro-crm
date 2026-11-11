@@ -12,7 +12,8 @@ export type RecordUsageKind =
   | 'pipelineStage'
   | 'bankAccount'
   | 'chartOfAccounts'
-  | 'financialEntry';
+  | 'financialEntry'
+  | 'deal';
 
 export type RecordUsageCounts = {
   contracts: number;
@@ -34,6 +35,7 @@ export type RecordUsageSources = {
     companyName?: string | null;
     companyCnpj?: string | null;
     contactId?: string | null;
+    dealId?: string | null;
     proposalId?: string | null;
     proposalNumber?: string | null;
     chartOfAccounts?: string | null;
@@ -48,6 +50,7 @@ export type RecordUsageSources = {
     companyName?: string | null;
     companyCnpj?: string | null;
     contactId?: string | null;
+    dealId?: string | null;
     convertedContractId?: string | null;
     convertedInvoiceId?: string | null;
     chartOfAccounts?: string | null;
@@ -70,6 +73,7 @@ export type RecordUsageSources = {
     contractNumber?: string | null;
     proposalId?: string | null;
     proposalNumber?: string | null;
+    dealId?: string | null;
     chartOfAccounts?: string | null;
     paymentMethod?: string | null;
     paymentMethodLabel?: string | null;
@@ -430,6 +434,12 @@ export function countRecordUsage(
     counts.boletos = invoiceId
       ? countList(sources.invoices, (inv) => idsEqual(inv.id, invoiceId) && hasBoleto(inv))
       : 0;
+    return counts;
+  }
+  if (kind === 'deal') {
+    counts.contracts = countList(sources.contracts, (r) => idsEqual(r.dealId, ref.id));
+    counts.proposals = countList(sources.proposals, (r) => idsEqual(r.dealId, ref.id));
+    counts.invoices = countList(sources.invoices, (r) => idsEqual(r.dealId, ref.id));
     return counts;
   }
   return counts;

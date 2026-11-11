@@ -259,7 +259,7 @@ export default function DealRecordDrawer({
   onStageChange,
   onUpdateDeal,
   onDelete,
-  canEditDeal = true,
+  canEditDeal = false,
   canDeleteDeal = false,
   ownerOptions = [],
   onGenerateProposal,

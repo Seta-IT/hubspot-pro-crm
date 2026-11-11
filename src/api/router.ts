@@ -4580,6 +4580,10 @@ export class CrmApiRouter {
         }
 
         if (method === 'DELETE') {
+          const existing = this.repo.getDealById(id);
+          if (!existing) return { status: 404, body: { error: 'Negócio não encontrado.' } };
+          const blocked = this.rejectIfRecordInUse('deal', { id: existing.id });
+          if (blocked) return blocked;
           const deleted = this.repo.deleteDeal(id);
           if (!deleted) return { status: 404, body: { error: 'Negócio não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: id } };

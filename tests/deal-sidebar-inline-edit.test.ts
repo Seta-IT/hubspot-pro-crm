@@ -140,9 +140,11 @@ describe('edição inline do painel Sobre esse Negócio', () => {
     );
   });
 
-  it('respeita o RBAC de crm.deals_kanban e não trava quando a matriz não veio', () => {
-    assert.equal(canEditDealsFromPermissions(null), true);
-    assert.equal(canDeleteDealsFromPermissions(undefined), true);
+  it('respeita o RBAC de crm.deals_kanban e fica só leitura sem permissão conhecida', () => {
+    assert.equal(canEditDealsFromPermissions(null), false);
+    assert.equal(canDeleteDealsFromPermissions(undefined), false);
+    assert.equal(canEditDealsFromPermissions({}), false);
+    assert.equal(canEditDealsFromPermissions({ itemPermissions: {} }), false);
     assert.equal(
       canEditDealsFromPermissions({
         crmItemPermissions: { 'crm.deals_kanban': { edit: true, delete: false } },
@@ -190,6 +192,8 @@ describe('edição inline do painel Sobre esse Negócio', () => {
 
     assert.ok(tab.includes('canEditDeal'));
     assert.ok(tab.includes('canDeleteDeal'));
+    assert.match(drawer, /canEditDeal = false/);
+    assert.match(tab, /canEditDeal = false/);
     assert.ok(tab.includes('ownerOptions'));
     assert.ok(drawer.includes('silent: true') || drawer.includes('silent:true'));
     assert.ok(page.includes('canEditDealsFromPermissions'));

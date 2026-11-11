@@ -193,7 +193,7 @@ export default function DealsKanbanTab({
   openNewDealTrigger,
   onUpdateDeal,
   onDeleteDeal,
-  canEditDeal = true,
+  canEditDeal = false,
   canDeleteDeal = false,
   ownerOptions = [],
   onNavigateToErp,

@@ -246,7 +246,7 @@ function dealKanbanPerm(user?: {
   return user?.crmItemPermissions?.['crm.deals_kanban'] || user?.itemPermissions?.['crm.deals_kanban'];
 }
 
-/** Sem matriz carregada, mantém o comportamento atual (edição liberada). */
+/** Sem permissão conhecida (matriz ausente ou item não listado) = só leitura. */
 export function canEditDealsFromPermissions(
   user?: {
     crmItemPermissions?: Record<string, ItemPerm>;
@@ -254,7 +254,7 @@ export function canEditDealsFromPermissions(
   } | null
 ): boolean {
   const perm = dealKanbanPerm(user);
-  if (!perm) return true;
+  if (!perm) return false;
   return perm.edit === true;
 }
 
@@ -265,6 +265,6 @@ export function canDeleteDealsFromPermissions(
   } | null
 ): boolean {
   const perm = dealKanbanPerm(user);
-  if (!perm) return true;
+  if (!perm) return false;
   return perm.delete === true;
 }
