@@ -141,7 +141,7 @@ export default function OverviewAiCopilotTab({
   const renderDealsFunnelSvg = () => {
     const list = stages.slice(0, 5);
     const maxVal = Math.max(1, ...list.map((st) => st.totalValue));
-    const colors = ['#1e3a6e', '#0091ae', '#0284c7', '#894522', '#16a34a'];
+    const colors = ['#1e3a6e', '#0091ae', '#0284c7', '#D9541E', '#16a34a'];
     return (
       <div className="space-y-3 py-2">
         {list.map((st, idx) => {
@@ -198,7 +198,7 @@ export default function OverviewAiCopilotTab({
             </g>
           );
         })}
-        <polyline points={pts} fill="none" stroke="#894522" strokeWidth="2.5" />
+        <polyline points={pts} fill="none" stroke="#D9541E" strokeWidth="2.5" />
       </svg>
     );
   };
@@ -209,7 +209,7 @@ export default function OverviewAiCopilotTab({
       { name: 'Pipeline 1: Locação & Serviços B2B', value: 845000, deals: 5, color: '#0d2b4e' },
       { name: 'Pipeline 2: Venda de Equipamentos', value: 492600, deals: 4, color: '#0091ae' },
       { name: 'Pipeline 3: Expansão, Aditivos & Upsell', value: 245000, deals: 2, color: '#16a34a' },
-      { name: 'Pipeline 4: Cotações & Projetos Especiais', value: 130000, deals: 2, color: '#894522' },
+      { name: 'Pipeline 4: Cotações & Projetos Especiais', value: 130000, deals: 2, color: '#D9541E' },
     ];
     const maxV = Math.max(1, ...pipes.map((p) => p.value));
     return (
@@ -238,7 +238,7 @@ export default function OverviewAiCopilotTab({
   const renderMarketingOrigins = () => {
     const origins = [
       { source: 'Prospecção Outbound ABM (Tier 1)', leads: 48, conv: '34%', pct: 88, color: '#0d2b4e' },
-      { source: 'Formulários Web & Landing Pages', leads: 36, conv: '28%', pct: 72, color: '#894522' },
+      { source: 'Formulários Web & Landing Pages', leads: 36, conv: '28%', pct: 72, color: '#D9541E' },
       { source: 'Campanhas E-mail Marketing B2B', leads: 29, conv: '22%', pct: 58, color: '#0091ae' },
       { source: 'Indicação de Parceiros & Eventos', leads: 19, conv: '41%', pct: 46, color: '#16a34a' },
     ];
@@ -296,7 +296,7 @@ export default function OverviewAiCopilotTab({
             cy="74"
             r="52"
             fill="none"
-            stroke="#894522"
+            stroke="#D9541E"
             strokeWidth="18"
             strokeDasharray="62 327"
             strokeDashoffset="-265"
