@@ -37,6 +37,7 @@ import {
   Deal,
   ErpRentalContract,
   ErpServiceOrder,
+  SetaDeskPipeline,
   ServiceTicket,
   TicketCategory,
   TicketChannel,
@@ -122,6 +123,7 @@ interface ServiceDeskTabProps {
     assignee?: string;
     contractId?: string | null;
     equipmentSerial?: string | null;
+    pipelineId?: string | null;
   }) => Promise<void>;
   onUpdateTicket: (
     ticketIdOrKey: string,
@@ -300,6 +302,19 @@ export default function ServiceDeskTab({
   const [slaFilter, setSlaFilter] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [pipelineFilter, setPipelineFilter] = useState<string>('ALL');
+  const [pipelines, setPipelines] = useState<SetaDeskPipeline[]>([]);
+  const [canManagePipelines, setCanManagePipelines] = useState(false);
+  const [showPipelinesModal, setShowPipelinesModal] = useState(false);
+  const [pipelineForm, setPipelineForm] = useState({
+    id: '',
+    name: '',
+    prefix: '',
+    mailbox: '',
+    isActive: true,
+  });
+  const [pipelineFormError, setPipelineFormError] = useState('');
+  const [newPipelineId, setNewPipelineId] = useState<string>('pl-tec');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(
     initialSelectedTicketId || tickets[0]?.id || null
   );
@@ -340,6 +355,30 @@ export default function ServiceDeskTab({
   const [newContractId, setNewContractId] = useState<string>('');
   const [newEquipmentSerial, setNewEquipmentSerial] = useState<string>('');
 
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/tickets/pipelines');
+        if (!res.ok) return;
+        const json = (await res.json()) as { data?: SetaDeskPipeline[]; canManage?: boolean };
+        if (cancelled) return;
+        const list = Array.isArray(json.data) ? json.data.filter((p) => p.isActive !== false) : [];
+        const all = Array.isArray(json.data) ? json.data : [];
+        setPipelines(all);
+        setCanManagePipelines(Boolean(json.canManage));
+        if (list[0] && !newPipelineId) setNewPipelineId(list[0].id);
+      } catch {
+        // lista local vazia: o filtro simplesmente nao aparece
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const allQueues = Array.from(
     new Set([...SETA_NOC_QUEUES, ...tickets.map((t) => t.assignee).filter(Boolean)])
   );
@@ -364,6 +403,7 @@ export default function ServiceDeskTab({
       }
     }
     if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
+    if (pipelineFilter !== 'ALL' && t.pipelineId !== pipelineFilter) return false;
     if (searchQuery.trim()) {
       const q = normTicketStr(searchQuery);
       const hay = normTicketStr(
@@ -485,6 +525,7 @@ export default function ServiceDeskTab({
       assignee: newAssignee,
       contractId: newContractId || null,
       equipmentSerial: newEquipmentSerial.trim() || null,
+      pipelineId: newPipelineId || null,
     });
     setNewSubject('');
     setNewDesc('');
@@ -1095,6 +1136,33 @@ export default function ServiceDeskTab({
               className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-accent"
             />
           </div>
+
+          <select
+            value={pipelineFilter}
+            onChange={(e) => setPipelineFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-700"
+          >
+            <option value="ALL">Todos os pipelines</option>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.prefix}-)
+              </option>
+            ))}
+          </select>
+
+          {canManagePipelines && (
+            <button
+              type="button"
+              onClick={() => {
+                setPipelineFormError('');
+                setPipelineForm({ id: '', name: '', prefix: '', mailbox: '', isActive: true });
+                setShowPipelinesModal(true);
+              }}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-700 cursor-pointer hover:bg-slate-50"
+            >
+              Pipelines
+            </button>
+          )}
 
           <select
             value={queueFilter}
@@ -1990,6 +2058,22 @@ export default function ServiceDeskTab({
             </div>
 
             <form onSubmit={handleCreateSubmit} className="space-y-3.5">
+              {pipelines.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Pipeline</label>
+                  <select
+                    value={newPipelineId}
+                    onChange={(e) => setNewPipelineId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white"
+                  >
+                    {pipelines.filter((p) => p.isActive !== false).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.prefix}-)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Assunto do Chamado / Incidente Telecom *
@@ -2156,6 +2240,142 @@ export default function ServiceDeskTab({
           </div>
         </div>
       )}
+
+      {showPipelinesModal && canManagePipelines && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">Pipelines do SetaDesk</h3>
+              <button
+                type="button"
+                onClick={() => setShowPipelinesModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs font-semibold text-slate-500">
+              Cada pipeline tem nome, prefixo, caixa de e-mail e sequencia propria. Novas filas podem ser criadas aqui.
+            </p>
+            <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+              {pipelines.map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">
+                      {p.name} <span className="font-semibold text-slate-500">{p.prefix}-</span>
+                    </div>
+                    <div className="text-xs font-semibold text-slate-500">
+                      {p.mailbox || 'sem caixa'} {p.isActive === false ? '· inativa' : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+                    onClick={() => {
+                      setPipelineFormError('');
+                      setPipelineForm({
+                        id: p.id,
+                        name: p.name,
+                        prefix: p.prefix,
+                        mailbox: p.mailbox || '',
+                        isActive: p.isActive !== false,
+                      });
+                    }}
+                  >
+                    Editar
+                  </button>
+                </div>
+              ))}
+            </div>
+            <form
+              className="space-y-3 pt-2 border-t border-slate-100"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPipelineFormError('');
+                try {
+                  const payload = {
+                    name: pipelineForm.name.trim(),
+                    prefix: pipelineForm.prefix.trim(),
+                    mailbox: pipelineForm.mailbox.trim() || null,
+                    isActive: pipelineForm.isActive,
+                  };
+                  const res = await fetch(
+                    pipelineForm.id ? `/api/tickets/pipelines/${pipelineForm.id}` : '/api/tickets/pipelines',
+                    {
+                      method: pipelineForm.id ? 'PATCH' : 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload),
+                    }
+                  );
+                  const json = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setPipelineFormError(String(json.error || 'Nao foi possivel salvar a fila.'));
+                    return;
+                  }
+                  const saved = json.data as SetaDeskPipeline;
+                  setPipelines((prev) => {
+                    const others = prev.filter((x) => x.id !== saved.id);
+                    return [...others, saved].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+                  });
+                  setPipelineForm({ id: '', name: '', prefix: '', mailbox: '', isActive: true });
+                } catch {
+                  setPipelineFormError('Nao foi possivel salvar a fila.');
+                }
+              }}
+            >
+              <h4 className="text-sm font-semibold text-slate-900">
+                {pipelineForm.id ? 'Editar pipeline' : 'Criar novo pipeline'}
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nome</label>
+                  <input
+                    required
+                    value={pipelineForm.name}
+                    onChange={(e) => setPipelineForm((s) => ({ ...s, name: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Prefixo</label>
+                  <input
+                    required
+                    value={pipelineForm.prefix}
+                    onChange={(e) => setPipelineForm((s) => ({ ...s, prefix: e.target.value.toUpperCase() }))}
+                    placeholder="TEC"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Caixa de e-mail</label>
+                <input
+                  type="email"
+                  value={pipelineForm.mailbox}
+                  onChange={(e) => setPipelineForm((s) => ({ ...s, mailbox: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold"
+                />
+              </div>
+              {pipelineFormError && (
+                <p className="text-xs font-semibold text-rose-700">{pipelineFormError}</p>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPipelineForm({ id: '', name: '', prefix: '', mailbox: '', isActive: true })}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 cursor-pointer"
+                >
+                  Limpar
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-semibold cursor-pointer">
+                  {pipelineForm.id ? 'Salvar alteracoes' : 'Criar pipeline'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

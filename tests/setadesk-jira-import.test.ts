@@ -9,10 +9,12 @@ import {
   mapJiraCategory,
   mapJiraChannel,
   mapJiraComments,
+  mapJiraChangelog,
   mapJiraIssue,
   mapJiraPriority,
   mapJiraStatus,
   planJiraImport,
+  ticketKeyFromJira,
   sdKeyFromStt,
   toIso,
 } from '../src/db/setadesk-jira-map';
@@ -46,10 +48,12 @@ const issue = (over: Record<string, unknown> = {}) =>
   }) as Record<string, unknown>;
 
 describe('SetaDesk - mapeamento Jira STT', () => {
-  it('STT-n vira SD-n', () => {
-    assert.equal(sdKeyFromStt('STT-123'), 'SD-123');
-    assert.equal(sdKeyFromStt('DEV-123'), null);
-    assert.equal(sdKeyFromStt('STT-0'), null);
+  it('STT-n vira TEC-n e AF-n vira FIN-n', () => {
+    assert.equal(ticketKeyFromJira('STT-123'), 'TEC-123');
+    assert.equal(ticketKeyFromJira('AF-45'), 'FIN-45');
+    assert.equal(sdKeyFromStt('STT-123'), 'TEC-123');
+    assert.equal(ticketKeyFromJira('DEV-123'), null);
+    assert.equal(ticketKeyFromJira('STT-0'), null);
   });
 
   it('mapeia status e prioridade conforme o plano aprovado', () => {
@@ -66,6 +70,11 @@ describe('SetaDesk - mapeamento Jira STT', () => {
     assert.equal(mapJiraPriority('Low'), 'LOW');
     assert.equal(mapJiraPriority(null), 'MEDIUM');
     assert.equal(mapJiraCategory('Task').category, 'SUPPORT');
+    assert.equal(mapJiraCategory('Support', 'AF').category, 'BILLING');
+    assert.equal(mapJiraCategory('Bug', 'AF').category, 'BUG');
+    assert.equal(mapJiraCategory('New Feature', 'AF').category, 'FEATURE_REQUEST');
+    assert.deepEqual(mapJiraCategory('Developer escalation', 'AF').tags, ['ESCALADO_DESENVOLVIMENTO']);
+    assert.equal(mapJiraCategory('Support', 'STT').category, 'SUPPORT');
     assert.equal(mapJiraChannel('Solicitação enviada por e-mail'), 'EMAIL');
   });
 
@@ -82,7 +91,7 @@ describe('SetaDesk - mapeamento Jira STT', () => {
       ],
     };
     const mapped = mapJiraIssue(issue(), { changelog });
-    assert.equal(mapped.ticket.key, 'SD-123');
+    assert.equal(mapped.ticket.key, 'TEC-123');
     assert.equal(mapped.ticket.jiraKey, 'STT-123');
     assert.equal(mapped.ticket.status, 'WAITING_CUSTOMER');
     assert.equal(mapped.ticket.priority, 'LOW');
@@ -176,4 +185,46 @@ describe('SetaDesk - mapeamento Jira STT', () => {
     assert.doesNotMatch(setaDeskImportApplyDenial({}) || '', /CISO/i);
     assert.doesNotMatch(setaDeskImportApplyDenial({ SETADESK_IMPORT_APPLY: '1' }) || '', /CISO/i);
   });
+  it('changelog external_id inclui a chave Jira para nao colidir entre itens', () => {
+    const raw = {
+      values: [
+        {
+          id: '999',
+          created: '2025-01-01T12:00:00.000-0300',
+          author: { displayName: 'Agente' },
+          items: [{ field: 'status', fromString: 'Open', toString: 'Processando' }],
+        },
+      ],
+    };
+    const a = mapJiraChangelog(raw, 'STT-112');
+    const b = mapJiraChangelog(raw, 'STT-113');
+    assert.equal(a[0].externalId, 'STT-112:999:0:status');
+    assert.equal(b[0].externalId, 'STT-113:999:0:status');
+    assert.notEqual(a[0].externalId, b[0].externalId);
+  });
+
+  it('AF Support vira chamado FIN- com categoria BILLING', () => {
+    const mapped = mapJiraIssue({
+      id: '22365',
+      key: 'AF-1032',
+      fields: {
+        summary: 'Envio de faturamento',
+        status: { name: 'Aguardando Suporte' },
+        priority: { name: 'Low' },
+        issuetype: { name: 'Support' },
+        created: '2026-09-25T10:00:00.000-0300',
+        updated: '2026-09-25T10:00:00.000-0300',
+        comment: { comments: [], total: 0 },
+        attachment: [],
+        labels: [],
+      },
+    });
+    assert.equal(mapped.ticket.key, 'FIN-1032');
+    assert.equal(mapped.ticket.pipelineId, 'pl-fin');
+    assert.equal(mapped.ticket.category, 'BILLING');
+    assert.equal(mapped.ticket.status, 'OPEN');
+    assert.equal(mapped.ticket.priority, 'LOW');
+    assert.equal(mapped.ticket.jiraProjectKey, 'AF');
+  });
+
 });

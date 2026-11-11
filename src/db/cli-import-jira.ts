@@ -1,19 +1,24 @@
 // ============================================================================
-// SetaDesk - importacao Jira STT -> chamados SD- (somente leitura no Jira)
+// SetaDesk - importacao Jira STT/AF -> chamados TEC-/FIN- (somente leitura no Jira)
 // ----------------------------------------------------------------------------
 // Dry-run por padrao: gera JSON e relatorio, NAO grava no banco.
-// --apply exige SETADESK_IMPORT_APPLY=1 e DATABASE_URL, realinha a sequencia
-// para max(STT)+1 e so importa o projeto STT. Nunca escreve, transiciona ou
-// comenta no Jira.
+// --apply exige SETADESK_IMPORT_APPLY=1 e DATABASE_URL, importa STT e AF
+// (ou --project STT / AF) e realinha a sequencia de cada fila para
+// max(numero do Jira da fila)+1. Nunca escreve, transiciona ou comenta no Jira.
 // Uso:
-//   npm run setadesk:import-jira -- --out <dir> [--keys-file piloto_keys.json]
+//   npm run setadesk:import-jira -- --out <dir> [--project ALL|STT|AF]
 //       [--input jira-source.json] [--changelog-dir dir]
 //   SETADESK_IMPORT_APPLY=1 npm run setadesk:import-jira -- --apply --out <dir> --input <json>
 // ============================================================================
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { maxAllocatedSetaDeskNumber, SETADESK_JIRA_IMPORT_PROJECT } from './setadesk-schema';
+import {
+  jiraImportSpec,
+  maxAllocatedNumberForPipeline,
+  SETADESK_JIRA_IMPORT_PROJECTS,
+  SETADESK_SEED_PIPELINES,
+} from './setadesk-schema';
 import {
   mapJiraIssue,
   planJiraImport,
@@ -36,14 +41,13 @@ const INPUT = arg('--input');
 const KEYS_FILE = arg('--keys-file');
 const KEYS_ARG = arg('--keys');
 const CHANGELOG_DIR = arg('--changelog-dir');
-const PROJECT = (arg('--project') || SETADESK_JIRA_IMPORT_PROJECT).toUpperCase();
+const PROJECT = (arg('--project') || 'ALL').toUpperCase();
 const MAX_STT_ARG = arg('--max-stt');
 
 function fail(msg: string, code = 1): never {
   console.error(`[SetaDesk import] ${msg}`);
   process.exit(code);
 }
-
 
 function formatNowEt(d = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -104,11 +108,28 @@ function loadChangelog(issue: Record<string, unknown>): unknown {
   return undefined;
 }
 
-function parseMaxStt(issues: Record<string, unknown>[], filteredKeys: string[] | null): number {
-  let max = MAX_STT_ARG ? Number(MAX_STT_ARG) : 0;
+function allowedProjects(): string[] {
+  const raw = PROJECT;
+  if (!raw || raw === 'ALL') return [...SETADESK_JIRA_IMPORT_PROJECTS];
+  const list = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const unknown = list.filter((p) => !SETADESK_JIRA_IMPORT_PROJECTS.includes(p));
+  if (unknown.length) {
+    fail(`Projeto(s) fora do escopo: ${unknown.join(', ')}. Permitidos: ${SETADESK_JIRA_IMPORT_PROJECTS.join(', ')} ou ALL.`);
+  }
+  return list;
+}
+
+function parseMaxByProject(
+  issues: Record<string, unknown>[],
+  filteredKeys: string[] | null,
+  projects: string[]
+): Record<string, number> {
+  const max: Record<string, number> = {};
+  for (const p of projects) max[p] = p === 'STT' && MAX_STT_ARG ? Number(MAX_STT_ARG) : 0;
   const consider = (key: string) => {
-    const m = key.toUpperCase().match(new RegExp(`^${SETADESK_JIRA_IMPORT_PROJECT}-(\\d+)$`));
-    if (m) max = Math.max(max, Number(m[1]));
+    const m = key.toUpperCase().match(/^([A-Z][A-Z0-9]*)-(\d+)$/);
+    if (!m || !projects.includes(m[1])) return;
+    max[m[1]] = Math.max(max[m[1]] || 0, Number(m[2]));
   };
   for (const iss of issues) consider(String(iss.key || ''));
   for (const k of filteredKeys || []) consider(k);
@@ -125,15 +146,17 @@ function buildReport(opts: {
   generatedAt: string;
   items: ImportPlanItem[];
   secondPass: ImportPlanItem[];
-  maxStt: number;
-  nextSeq: number;
-  project: string;
+  maxByProject: Record<string, number>;
+  nextByPipeline: Array<{ name: string; prefix: string; jiraProjectKey: string; maxJira: number; nextSeq: number }>;
+  projects: string[];
 }): string {
-  const { items, secondPass, maxStt, nextSeq, generatedAt, project } = opts;
+  const { items, secondPass, maxByProject, nextByPipeline, generatedAt, projects } = opts;
   const byJiraStatus: Counts = {};
   const byMappedStatus: Counts = {};
   const byJiraPriority: Counts = {};
   const byMappedPriority: Counts = {};
+  const byProject: Counts = {};
+  const byCategory: Counts = {};
   const missing: Record<string, string[]> = {};
   let comments = 0;
   let attachments = 0;
@@ -145,6 +168,8 @@ function buildReport(opts: {
     bump(byMappedStatus, m.status);
     bump(byJiraPriority, m.jiraPriority);
     bump(byMappedPriority, m.priority);
+    bump(byProject, it.mapped.ticket.jiraProjectKey || m.jiraKey.split('-')[0]);
+    bump(byCategory, m.category);
     comments += (it.mapped.ticket.comments || []).length;
     attachments += it.mapped.attachments.length;
     changelogEntries += it.mapped.changelog.length;
@@ -165,26 +190,37 @@ function buildReport(opts: {
       .join('\n');
   const missingBlock =
     Object.keys(missing).length === 0
-      ? 'Nenhum campo obrigatorio ausente no piloto.'
+      ? 'Nenhum campo obrigatorio ausente no lote.'
       : Object.entries(missing)
           .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([field, keys]) => `- ${field}: ${keys.length} (${keys.join(', ')})`)
+          .map(([field, keys]) => {
+            const shown = keys.length > 40 ? `${keys.slice(0, 40).join(', ')}...` : keys.join(', ');
+            return `- ${field}: ${keys.length} (${shown})`;
+          })
           .join('\n');
   const rows = items
     .map((it) => {
       const m = it.mapped.mapping;
       const miss = it.mapped.missingFields.length ? it.mapped.missingFields.join(', ') : '-';
-      return `| ${m.jiraKey} | ${m.sdKey} | ${m.jiraStatus || '-'} | ${m.status} | ${m.jiraPriority || '-'} | ${m.priority} | ${it.mapped.ticket.comments.length} | ${it.mapped.attachments.length} | ${it.mapped.changelog.length} | ${miss} |`;
+      return `| ${m.jiraKey} | ${m.ticketKey || m.sdKey} | ${m.jiraStatus || '-'} | ${m.status} | ${m.jiraPriority || '-'} | ${m.priority} | ${m.category} | ${it.mapped.ticket.comments.length} | ${it.mapped.attachments.length} | ${it.mapped.changelog.length} | ${miss} |`;
     })
     .join('\n');
+  const numbering = nextByPipeline
+    .map(
+      (p) =>
+        `- ${p.name} (${p.prefix}-, origem ${p.jiraProjectKey}): maior ${p.jiraProjectKey}-${p.maxJira}; proximo chamado novo ${p.prefix}-${p.nextSeq}`
+    )
+    .join('\n');
 
-  return `# Relatorio do piloto Jira -> SetaDesk
+  return `# Relatorio do dry-run Jira -> SetaDesk
 
-Gerado em ${generatedAt}. Fonte: Jira Cloud somente leitura (projeto ${project}). Nada foi gravado no Neon nem no Preview.
+Gerado em ${generatedAt}. Fonte: Jira Cloud somente leitura (projetos ${projects.join(', ')}). Nada foi gravado no Neon nem no Preview.
 
 ## Contagem
 
 - Itens lidos: ${items.length}
+- Por projeto:
+${table(byProject)}
 - Primeira execucao (base vazia): cria ${actions.create}, atualiza ${actions.update}, ignora ${actions.skip}
 - Segunda execucao (idempotencia sobre o plano anterior): cria ${actions2.create}, atualiza ${actions2.update}, ignora ${actions2.skip}
 - Comentarios: ${comments}
@@ -194,10 +230,10 @@ Gerado em ${generatedAt}. Fonte: Jira Cloud somente leitura (projeto ${project})
 
 ## Numeracao
 
-- Chave importada: STT-n vira SD-n
-- Maior numero STT considerado: ${maxStt} (STT-${maxStt})
-- Sequencia de chamados novos: setval para ${nextSeq} (proximo nextval = SD-${nextSeq})
-- DEV fica de fora (os numeros colidiriam com o STT)
+- A chave importada mantem o numero do Jira: STT-n vira TEC-n; AF-n vira FIN-n.
+- O prefixo SD- sai.
+${numbering}
+- DEV e os demais projetos ficam de fora.
 
 ## Status Jira
 
@@ -215,20 +251,24 @@ ${table(byJiraPriority)}
 
 ${table(byMappedPriority)}
 
+## Categoria mapeada (SetaDesk)
+
+${table(byCategory)}
+
 ## Campos faltantes ou incompletos
 
 ${missingBlock}
 
 ## Itens
 
-| Jira | SetaDesk | Status Jira | Status SD | Prioridade Jira | Prioridade SD | Coment. | Anexos | Changelog | Campos faltantes |
-|---|---|---|---|---|---|---:|---:|---:|---|
+| Jira | SetaDesk | Status Jira | Status SD | Prioridade Jira | Prioridade SD | Categoria | Coment. | Anexos | Changelog | Campos faltantes |
+|---|---|---|---|---|---|---|---:|---:|---:|---|
 ${rows}
 
 ## Observacoes
 
 - Solicitante sem e-mail: o Jira nao devolve e-mail de contas tipo customer (privacidade). O nome do reporter e gravado em requesterName; o casamento com Contatos fica para a carga no banco.
-- Anexos entram como JIRA_REF (URL/nome/tamanho). Nao ha copia para o Blob neste piloto.
+- Anexos entram como JIRA_REF (URL/nome/tamanho). Nao ha copia para o Blob neste lote.
 - Changelog alimenta historico e slaPausedAt quando o status atual e Aguardando Cliente.
 - A sincronizacao continua (Jira -> SetaDesk, somente leitura) esta descrita em /workspace/jira-migracao/plano.md secao 9.
 `;
@@ -245,19 +285,26 @@ export function setaDeskImportApplyDenial(env: NodeJS.ProcessEnv = process.env):
   return null;
 }
 
-async function maybeApply(items: ImportPlanItem[], maxStt: number): Promise<{
+async function maybeApply(
+  items: ImportPlanItem[],
+  maxByProject: Record<string, number>
+): Promise<{
   created: number;
   updated: number;
   skipped: number;
   nextSequenceValue: number;
+  nextSequenceByPipeline: Record<string, { pipelineId: string; prefix: string; nextSequenceValue: number }>;
 } | null> {
   if (!APPLY) return null;
   const denial = setaDeskImportApplyDenial();
   if (denial) fail(denial);
   const { applyJiraImport } = await import('./setadesk-store');
-  const result = await applyJiraImport(items, { maxStt, project: PROJECT });
+  const result = await applyJiraImport(items, { maxStt: maxByProject.STT, maxByProject, project: PROJECT });
+  const seqTxt = Object.values(result.nextSequenceByPipeline || {})
+    .map((s) => `${s.prefix}-${s.nextSequenceValue}`)
+    .join(', ');
   console.log(
-    `[SetaDesk import] Gravados: cria ${result.created}, atualiza ${result.updated}, ignora ${result.skipped}. Sequencia alinhada para ${result.nextSequenceValue} (proximo = SD-${result.nextSequenceValue}).`
+    `[SetaDesk import] Gravados: cria ${result.created}, atualiza ${result.updated}, ignora ${result.skipped}. Sequencias alinhadas: ${seqTxt || result.nextSequenceValue}.`
   );
   return result;
 }
@@ -277,9 +324,7 @@ function existingFromPlan(items: ImportPlanItem[]): Map<string, ExistingImportRo
 
 async function main() {
   if (!OUT) fail('Informe --out <diretorio> para o JSON e o relatorio.');
-  if (PROJECT !== SETADESK_JIRA_IMPORT_PROJECT) {
-    fail(`Somente o projeto ${SETADESK_JIRA_IMPORT_PROJECT} e importado nesta fase (recebido: ${PROJECT}).`);
-  }
+  const projects = allowedProjects();
   if (!INPUT) {
     const hasCreds = Boolean(process.env.JIRA_API_TOKEN || process.env.ATLASSIAN_API_TOKEN);
     if (!hasCreds) {
@@ -293,30 +338,44 @@ async function main() {
   const selected = all.filter((iss) => {
     const key = String(iss.key || '').toUpperCase();
     if (wanted && !wanted.includes(key)) return false;
-    return key.startsWith(`${SETADESK_JIRA_IMPORT_PROJECT}-`);
+    return projects.some((p) => key.startsWith(`${p}-`));
   });
   if (wanted) {
     const got = new Set(selected.map((i) => String(i.key).toUpperCase()));
     const missing = wanted.filter((k) => !got.has(k));
     if (missing.length) fail(`Chaves ausentes no --input: ${missing.join(', ')}`);
   }
-  if (!selected.length) fail('Nenhum item STT para mapear.');
+  if (!selected.length) fail(`Nenhum item ${projects.join('/')} para mapear.`);
 
   const mapped: JiraMappedTicket[] = selected.map((iss) => mapJiraIssue(iss, { changelog: loadChangelog(iss) }));
   const first = planJiraImport(mapped, new Map());
   const second = planJiraImport(mapped, existingFromPlan(first));
-  const maxStt = Math.max(parseMaxStt(selected, wanted), maxAllocatedSetaDeskNumber(mapped.map((m) => m.ticket)));
-  const nextSeq = maxStt + 1;
+  const maxByProject = parseMaxByProject(selected, wanted, projects);
+  const nextByPipeline = SETADESK_SEED_PIPELINES.filter((s) => projects.includes(s.jiraProjectKey)).map((s) => {
+    const fromKeys = maxByProject[s.jiraProjectKey] || 0;
+    const fromTickets = maxAllocatedNumberForPipeline(
+      mapped.filter((m) => (m.ticket.jiraProjectKey || '') === s.jiraProjectKey).map((m) => m.ticket),
+      { prefix: s.prefix, jiraProjectKey: s.jiraProjectKey }
+    );
+    const maxJira = Math.max(fromKeys, fromTickets);
+    maxByProject[s.jiraProjectKey] = maxJira;
+    return {
+      name: s.name,
+      prefix: s.prefix,
+      jiraProjectKey: s.jiraProjectKey,
+      maxJira,
+      nextSeq: maxJira + 1,
+    };
+  });
   const generatedAt = formatNowEt();
 
   fs.mkdirSync(OUT, { recursive: true });
   const payload = {
     generatedAt,
     dryRun: true,
-    project: PROJECT,
-    maxStt,
-    nextSequenceValue: nextSeq,
-    nextKey: `SD-${nextSeq}`,
+    project: projects.join(','),
+    maxByProject,
+    nextByPipeline,
     counts: {
       read: first.length,
       create: first.filter((i) => i.action === 'create').length,
@@ -342,18 +401,19 @@ async function main() {
   fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2));
   fs.writeFileSync(
     mdPath,
-    buildReport({ generatedAt, items: first, secondPass: second, maxStt, nextSeq, project: PROJECT })
+    buildReport({ generatedAt, items: first, secondPass: second, maxByProject, nextByPipeline, projects })
   );
 
-  const applied = await maybeApply(first, maxStt);
+  const applied = await maybeApply(first, maxByProject);
 
+  const nextTxt = nextByPipeline.map((p) => `${p.prefix}-${p.nextSeq}`).join(', ');
   if (applied) {
     console.log(
       `[SetaDesk import] Apply: ${first.length} itens planejados. JSON: ${jsonPath}. Relatorio: ${mdPath}.`
     );
   } else {
     console.log(
-      `[SetaDesk import] Dry-run: ${first.length} itens, cria ${payload.counts.create}, 2a execucao ignora ${payload.counts.secondPassSkip}. Proximo chamado novo: SD-${nextSeq}. JSON: ${jsonPath}. Relatorio: ${mdPath}. Nada gravado no banco.`
+      `[SetaDesk import] Dry-run: ${first.length} itens, cria ${payload.counts.create}, 2a execucao ignora ${payload.counts.secondPassSkip}. Proximos chamados novos: ${nextTxt}. JSON: ${jsonPath}. Relatorio: ${mdPath}. Nada gravado no banco.`
     );
   }
 }

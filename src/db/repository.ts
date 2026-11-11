@@ -133,7 +133,17 @@ import {
   setRuntimeGestaoClickCredentials,
 } from '../modules/erp/gestaoclick-client';
 import { createInitialSeedState } from './seed';
-import { maxAllocatedSetaDeskNumber, SETADESK_TICKET_KEY_PREFIX } from './setadesk-schema';
+import {
+  formatSetaDeskTicketKey,
+  isAllowedPipelinePrefix,
+  maxAllocatedNumberForPipeline,
+  pipelineSequenceNameFromPrefix,
+  SETADESK_DEFAULT_PIPELINE_ID,
+  SETADESK_DEFAULT_TICKET_PREFIX,
+  SETADESK_SEED_PIPELINES,
+  SETADESK_TICKET_KEY_PREFIX,
+} from './setadesk-schema';
+import type { SetaDeskPipeline } from './types';
 import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
@@ -3576,6 +3586,7 @@ export class CrmRepository {
     assignee?: string;
     contactId?: string;
     companyId?: string;
+    pipelineId?: string;
     search?: string;
   }): ServiceTicket[] {
     if (!this.state.serviceTickets) this.state.serviceTickets = [];
@@ -3587,6 +3598,7 @@ export class CrmRepository {
     if (filters?.assignee) list = list.filter((t) => t.assignee === filters.assignee);
     if (filters?.contactId) list = list.filter((t) => t.contactId === filters.contactId);
     if (filters?.companyId) list = list.filter((t) => t.companyId === filters.companyId);
+    if (filters?.pipelineId) list = list.filter((t) => t.pipelineId === filters.pipelineId);
     if (filters?.search) {
       const q = filters.search.toLowerCase();
       list = list.filter(
@@ -3609,14 +3621,132 @@ export class CrmRepository {
   }
 
   // --------------------------------------------------------------------------
-  // SetaDesk: geracao de chave SD-<n>
-  // Com Postgres, a camada HTTP reserva chaves via sequencia propria
-  // (setadesk_ticket_seq) antes da rota rodar; sem Postgres, usa o contador
-  // local `setaDeskTicketSeq`. A numeracao SD acompanha o STT importado
-  // (STT-123 -> SD-123); chamados novos comecam em max(SD-, STT-)+1.
-  // Prefixos JSM-/DEV- nao entram na sequencia (os numeros do DEV colidiriam).
+  // SetaDesk: geracao de chave PREFIX-<n> por fila (TEC-, FIN-, ou outra).
+  // Com Postgres, a camada HTTP reserva chaves via sequencia da fila antes da
+  // rota rodar; sem Postgres, usa o contador local por prefixo. Chamados novos
+  // da fila comecam em max(chave da fila, numero Jira da origem)+1.
+  // Prefixos JSM-/DEV- nao entram na sequencia.
   // --------------------------------------------------------------------------
   private reservedTicketKeys: string[] = [];
+
+  private seedPipelines(): SetaDeskPipeline[] {
+    const now = new Date().toISOString();
+    return SETADESK_SEED_PIPELINES.map((s) => ({
+      id: s.id,
+      name: s.name,
+      prefix: s.prefix,
+      mailbox: s.mailbox,
+      jiraProjectKey: s.jiraProjectKey,
+      sequenceName: s.sequenceName,
+      isActive: true,
+      sortOrder: s.sortOrder,
+      createdAt: now,
+      updatedAt: now,
+    }));
+  }
+
+  private ensurePipelines(): SetaDeskPipeline[] {
+    if (!this.state.setaDeskPipelines || this.state.setaDeskPipelines.length === 0) {
+      this.state.setaDeskPipelines = this.seedPipelines();
+    }
+    if (!this.state.setaDeskTicketSeqByPrefix) this.state.setaDeskTicketSeqByPrefix = {};
+    return this.state.setaDeskPipelines;
+  }
+
+  listSetaDeskPipelines(): SetaDeskPipeline[] {
+    return [...this.ensurePipelines()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  }
+
+  getSetaDeskPipeline(idOrPrefix: string): SetaDeskPipeline | undefined {
+    const raw = String(idOrPrefix || '').trim();
+    const upper = raw.toUpperCase().replace(/-$/, '');
+    return this.ensurePipelines().find(
+      (p) => p.id === raw || p.prefix === upper || formatSetaDeskTicketKey(p.prefix, 0).startsWith(`${upper}-`)
+    );
+  }
+
+  private defaultPipeline(): SetaDeskPipeline {
+    return this.getSetaDeskPipeline(SETADESK_DEFAULT_PIPELINE_ID) || this.ensurePipelines()[0];
+  }
+
+  createSetaDeskPipeline(input: {
+    name: string;
+    prefix: string;
+    mailbox?: string | null;
+    jiraProjectKey?: string | null;
+    isActive?: boolean;
+    sortOrder?: number;
+  }): SetaDeskPipeline {
+    const name = String(input.name || '').trim();
+    const prefix = String(input.prefix || '').trim().toUpperCase().replace(/-$/, '');
+    if (!name) throw new Error('O nome da fila e obrigatorio.');
+    if (!isAllowedPipelinePrefix(prefix)) {
+      throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra (ex.: TEC, FIN, SAC).');
+    }
+    const all = this.ensurePipelines();
+    if (all.some((p) => p.prefix === prefix)) throw new Error('Ja existe uma fila com este prefixo.');
+    if (all.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw new Error('Ja existe uma fila com este nome.');
+    const now = new Date().toISOString();
+    const created: SetaDeskPipeline = {
+      id: `pl-${prefix.toLowerCase()}`,
+      name,
+      prefix,
+      mailbox: input.mailbox ? String(input.mailbox).trim().toLowerCase() : null,
+      jiraProjectKey: input.jiraProjectKey ? String(input.jiraProjectKey).trim().toUpperCase() : null,
+      sequenceName: pipelineSequenceNameFromPrefix(prefix),
+      isActive: input.isActive !== false,
+      sortOrder: Number(input.sortOrder ?? 100),
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (all.some((p) => p.id === created.id)) throw new Error('Ja existe uma fila com este identificador.');
+    all.push(created);
+    return created;
+  }
+
+  updateSetaDeskPipeline(
+    id: string,
+    patch: Partial<{
+      name: string;
+      prefix: string;
+      mailbox: string | null;
+      jiraProjectKey: string | null;
+      isActive: boolean;
+      sortOrder: number;
+    }>
+  ): SetaDeskPipeline | null {
+    const all = this.ensurePipelines();
+    const current = all.find((p) => p.id === id);
+    if (!current) return null;
+    if (patch.prefix != null) {
+      const prefix = String(patch.prefix).trim().toUpperCase().replace(/-$/, '');
+      if (!isAllowedPipelinePrefix(prefix)) {
+        throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra.');
+      }
+      if (prefix !== current.prefix) {
+        const used = (this.state.serviceTickets || []).some((t) => t.pipelineId === id);
+        if (used) throw new Error('Nao e permitido alterar o prefixo de uma fila que ja possui chamados.');
+        if (all.some((p) => p.id !== id && p.prefix === prefix)) throw new Error('Ja existe uma fila com este prefixo.');
+        current.prefix = prefix;
+      }
+    }
+    if (patch.name != null) {
+      const name = String(patch.name).trim();
+      if (!name) throw new Error('O nome da fila e obrigatorio.');
+      if (all.some((p) => p.id !== id && p.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error('Ja existe uma fila com este nome.');
+      }
+      current.name = name;
+    }
+    if (patch.mailbox !== undefined) current.mailbox = patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null;
+    if (patch.jiraProjectKey !== undefined) {
+      current.jiraProjectKey = patch.jiraProjectKey ? String(patch.jiraProjectKey).trim().toUpperCase() : null;
+    }
+    if (patch.isActive !== undefined) current.isActive = Boolean(patch.isActive);
+    if (patch.sortOrder !== undefined) current.sortOrder = Number(patch.sortOrder);
+    current.updatedAt = new Date().toISOString();
+    return current;
+  }
 
   /** Registra chaves ja reservadas na sequencia do Postgres para os proximos chamados. */
   reserveTicketKeys(keys: string[]): void {
@@ -3636,24 +3766,44 @@ export class CrmRepository {
     );
   }
 
-  private takeReservedTicketKey(): string | null {
+  private takeReservedTicketKey(prefix?: string | null): string | null {
+    const want = prefix ? String(prefix).trim().toUpperCase().replace(/-$/, '') : '';
+    const kept: string[] = [];
+    let found: string | null = null;
     while (this.reservedTicketKeys.length > 0) {
       const k = this.reservedTicketKeys.shift()!;
-      if (!this.ticketKeyExists(k)) return k;
+      if (this.ticketKeyExists(k)) continue;
+      const keyPrefix = k.split('-')[0]?.toUpperCase();
+      if (want && keyPrefix !== want) {
+        kept.push(k);
+        continue;
+      }
+      found = k;
+      break;
     }
-    return null;
+    this.reservedTicketKeys = [...kept, ...this.reservedTicketKeys];
+    return found;
   }
 
-  private nextLocalSetaDeskTicketKey(): string {
-    const prefix = `${SETADESK_TICKET_KEY_PREFIX}-`;
-    let seq = Number.isFinite(this.state.setaDeskTicketSeq) ? Number(this.state.setaDeskTicketSeq) : 0;
-    seq = Math.max(seq, maxAllocatedSetaDeskNumber(this.state.serviceTickets || []));
+  private nextLocalSetaDeskTicketKey(pipeline?: SetaDeskPipeline | null): string {
+    const pl = pipeline || this.defaultPipeline();
+    const prefix = pl.prefix || SETADESK_DEFAULT_TICKET_PREFIX;
+    if (!this.state.setaDeskTicketSeqByPrefix) this.state.setaDeskTicketSeqByPrefix = {};
+    let seq = Number(this.state.setaDeskTicketSeqByPrefix[prefix] || 0);
+    if (prefix === SETADESK_DEFAULT_TICKET_PREFIX && Number.isFinite(this.state.setaDeskTicketSeq)) {
+      seq = Math.max(seq, Number(this.state.setaDeskTicketSeq) || 0);
+    }
+    seq = Math.max(seq, maxAllocatedNumberForPipeline(this.state.serviceTickets || [], {
+      prefix,
+      jiraProjectKey: pl.jiraProjectKey,
+    }));
     let key: string;
     do {
       seq += 1;
-      key = `${prefix}${seq}`;
+      key = formatSetaDeskTicketKey(prefix, seq);
     } while (this.ticketKeyExists(key));
-    this.state.setaDeskTicketSeq = seq;
+    this.state.setaDeskTicketSeqByPrefix[prefix] = seq;
+    if (prefix === SETADESK_DEFAULT_TICKET_PREFIX) this.state.setaDeskTicketSeq = seq;
     return key;
   }
 
@@ -3670,7 +3820,14 @@ export class CrmRepository {
     const now = new Date();
     const nowIso = now.toISOString();
 
-    const nextKey = input.key || this.takeReservedTicketKey() || this.nextLocalSetaDeskTicketKey();
+    const pipeline =
+      (input.pipelineId ? this.getSetaDeskPipeline(input.pipelineId) : undefined) ||
+      (input.category === 'BILLING' ? this.getSetaDeskPipeline('pl-fin') : undefined) ||
+      this.defaultPipeline();
+    const nextKey =
+      input.key ||
+      this.takeReservedTicketKey(pipeline?.prefix) ||
+      this.nextLocalSetaDeskTicketKey(pipeline);
 
     const priority: TicketPriority = input.priority || 'MEDIUM';
     const slaHoursMap: Record<TicketPriority, { firstRespHours: number; resolveHours: number }> = {
@@ -3727,6 +3884,7 @@ export class CrmRepository {
       comments: input.comments || [],
       createdAt: input.createdAt || nowIso,
       updatedAt: nowIso,
+      pipelineId: pipeline?.id || input.pipelineId || SETADESK_DEFAULT_PIPELINE_ID,
     };
     if (input.queue !== undefined) ticket.queue = input.queue;
     if (input.assigneeAgent !== undefined) ticket.assigneeAgent = input.assigneeAgent;

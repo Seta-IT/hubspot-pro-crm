@@ -961,6 +961,7 @@ export default function HubSpotProCrmApp() {
     assignee?: string;
     contractId?: string | null;
     equipmentSerial?: string | null;
+    pipelineId?: string | null;
   }) => {
     const res = await fetch('/api/tickets', {
       method: 'POST',

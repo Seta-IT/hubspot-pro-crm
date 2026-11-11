@@ -768,6 +768,20 @@ export interface TicketComment {
   emailMessageId?: string | null;
 }
 
+
+export interface SetaDeskPipeline {
+  id: string;
+  name: string;
+  prefix: string;
+  mailbox: string | null;
+  jiraProjectKey: string | null;
+  sequenceName: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ServiceTicket {
   id: string;
   key: string;
@@ -798,6 +812,8 @@ export interface ServiceTicket {
   createdAt: string;
   updatedAt: string;
   // --- SetaDesk (opcionais; compativeis com dados antigos) ---
+  /** Pipeline (fila de negocio: Suporte Tecnico, Financeiro, ou outra criada). */
+  pipelineId?: string | null;
   /** Fila de atendimento. Quando ausente, `assignee` e tratado como fila (legado). */
   queue?: string | null;
   /** Tecnico/agente responsavel, separado da fila. */
@@ -2275,6 +2291,8 @@ export interface CrmDatabaseState {
   serviceTickets: ServiceTicket[];
   /** SetaDesk: ultimo numero emitido para chaves SD- no modo sem Postgres (fallback local). */
   setaDeskTicketSeq?: number;
+  setaDeskTicketSeqByPrefix?: Record<string, number>;
+  setaDeskPipelines?: SetaDeskPipeline[];
   tasks?: CrmTask[];
   emailTemplates?: CrmEmailTemplate[];
   proposalFollowupEnrollments?: ProposalFollowupEnrollment[];

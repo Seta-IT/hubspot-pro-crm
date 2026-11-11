@@ -1,16 +1,17 @@
 // ============================================================================
-// SetaDesk - mapeamento Jira STT -> chamado SD- (puro, testavel, sem I/O)
+// SetaDesk - mapeamento Jira STT/AF -> chamado TEC-/FIN- (puro, testavel, sem I/O)
 // ----------------------------------------------------------------------------
-// Decisoes (Marcéllo, 10/11/2026): prefixo SD-; SD-n usa o numero da chave STT
-// (STT-123 -> SD-123); somente o projeto STT; Jira permanece somente leitura.
-// Mapeamentos de status/prioridade: plano.md (aprovados).
+// Decisoes (Marcéllo, 11/11/2026): filas com prefixo proprio; STT-123 -> TEC-123,
+// AF-45 -> FIN-45; importar STT e AF (Service Management). Jira somente leitura.
+// Mapeamentos de status/prioridade: plano.md (STT aprovado em 10/11; AF em 11/11).
 // ============================================================================
 
 import crypto from 'crypto';
 import {
-  parseTicketKeyNumber,
+  formatSetaDeskTicketKey,
+  jiraImportSpec,
+  SETADESK_DEFAULT_PIPELINE_ID,
   SETADESK_JIRA_IMPORT_PROJECT,
-  SETADESK_TICKET_KEY_PREFIX,
 } from './setadesk-schema';
 import type {
   ServiceTicket,
@@ -121,10 +122,25 @@ export function mapJiraPriority(name: string | null | undefined): TicketPriority
   return PRIORITY_MAP[key] || 'MEDIUM';
 }
 
-export function mapJiraCategory(issueType: string | null | undefined): { category: TicketCategory; tags: string[] } {
+export function mapJiraCategory(
+  issueType: string | null | undefined,
+  jiraProjectKey?: string | null
+): { category: TicketCategory; tags: string[] } {
   const t = String(issueType || '').trim().toLowerCase();
+  const project = String(jiraProjectKey || '').trim().toUpperCase();
   if (t.includes('incident')) return { category: 'INCIDENT', tags: [] };
   if (t === 'rma' || t.endsWith(' rma') || t.startsWith('rma ')) return { category: 'SUPPORT', tags: ['RMA'] };
+  if (t === 'bug' || t.includes('bug')) return { category: 'BUG', tags: [] };
+  if (t === 'new feature' || t.includes('feature') || t.includes('nova funcional')) {
+    return { category: 'FEATURE_REQUEST', tags: [] };
+  }
+  if (t.includes('developer escalation') || t.includes('escalation') || t.includes('escalacao')) {
+    return { category: 'SUPPORT', tags: ['ESCALADO_DESENVOLVIMENTO'] };
+  }
+  // AF: tipo Support (caixa financeira) -> BILLING. STT Service request/Task -> SUPPORT.
+  if (project === 'AF' && (t === 'support' || t.includes('support') || t.includes('suporte'))) {
+    return { category: 'BILLING', tags: [] };
+  }
   return { category: 'SUPPORT', tags: [] };
 }
 
@@ -134,9 +150,21 @@ export function mapJiraChannel(requestTypeName: string | null | undefined): Tick
   return 'WEB_PORTAL';
 }
 
+/** Converte a chave Jira no prefixo da fila (STT-123 -> TEC-123, AF-45 -> FIN-45). */
+export function ticketKeyFromJira(jiraKey: string): string | null {
+  const raw = String(jiraKey || '').trim().toUpperCase();
+  const m = raw.match(/^([A-Z][A-Z0-9]*)-([0-9]+)$/);
+  if (!m) return null;
+  const spec = jiraImportSpec(m[1]);
+  if (!spec) return null;
+  const n = Number(m[2]);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return formatSetaDeskTicketKey(spec.prefix, n);
+}
+
+/** @deprecated Use ticketKeyFromJira. STT-n agora vira TEC-n. */
 export function sdKeyFromStt(jiraKey: string): string | null {
-  const n = parseTicketKeyNumber(jiraKey, SETADESK_JIRA_IMPORT_PROJECT);
-  return n ? `${SETADESK_TICKET_KEY_PREFIX}-${n}` : null;
+  return ticketKeyFromJira(jiraKey);
 }
 
 export function extractEquipmentSerial(...texts: Array<string | null | undefined>): string | null {
@@ -163,6 +191,18 @@ function pickName(value: unknown): string | null {
   if (typeof o.displayName === 'string' && o.displayName.trim()) return o.displayName.trim();
   if (o.value != null) return pickName(o.value);
   if (o.requestType != null) return pickName(o.requestType);
+  return null;
+}
+
+function pickProjectKey(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const s = value.trim().toUpperCase();
+    return s && /^[A-Z][A-Z0-9]*$/.test(s) ? s : null;
+  }
+  if (typeof value !== 'object') return null;
+  const o = value as Record<string, unknown>;
+  if (typeof o.key === 'string' && o.key.trim()) return o.key.trim().toUpperCase();
   return null;
 }
 
@@ -249,6 +289,7 @@ export interface JiraMappedTicket {
   mapping: {
     jiraKey: string;
     jiraId: string;
+    ticketKey: string;
     sdKey: string;
     jiraStatus: string | null;
     status: TicketStatus;
@@ -334,7 +375,7 @@ export function mapJiraChangelog(raw: unknown, issueKey?: string): JiraHistoryEn
       const item = it as Record<string, unknown>;
       const field = String(item.field || item.fieldId || 'unknown');
       out.push({
-        externalId: `${hid}:${idx}:${field}`,
+        externalId: `${issueKey ? `${issueKey}:` : ''}${hid}:${idx}:${field}`,
         field,
         oldValue: item.fromString != null ? String(item.fromString) : item.from != null ? String(item.from) : null,
         newValue: item.toString != null ? String(item.toString) : item.to != null ? String(item.to) : null,
@@ -397,13 +438,18 @@ export function mapJiraIssue(
   const fields = issueFields(issue);
   const jiraKey = String(issue.key || fields.key || '');
   const jiraId = String(issue.id || fields.id || '');
-  const sdKey = sdKeyFromStt(jiraKey);
+  const projectFromKey = (jiraKey.split('-')[0] || '').toUpperCase();
+  const projectField = pickProjectKey(fields.project) || pickProjectKey(fieldName(fields, 'project'));
+  const jiraProjectKey = String(projectField || projectFromKey || '').toUpperCase();
+  const spec = jiraImportSpec(jiraProjectKey) || jiraImportSpec(projectFromKey);
+  const ticketKey = ticketKeyFromJira(jiraKey);
+  const sdKey = ticketKey;
   const jiraStatus = pickName(fields.status);
   const statusMap = mapJiraStatus(jiraStatus);
   const jiraPriority = pickName(fields.priority);
   const priority = mapJiraPriority(jiraPriority);
   const jiraType = pickName(fields.issuetype) || pickName(fields.issueType);
-  const catMap = mapJiraCategory(jiraType);
+  const catMap = mapJiraCategory(jiraType, spec?.jiraProjectKey || jiraProjectKey);
   const requestType = requestTypeName(fields);
   const channel = mapJiraChannel(requestType);
   const createdAt = toIso(fields.created as string) || new Date(0).toISOString();
@@ -425,7 +471,7 @@ export function mapJiraIssue(
   const labels = Array.isArray(fields.labels) ? fields.labels.map((l) => String(l)).filter(Boolean) : [];
   const tags = [
     'JIRA',
-    `JIRA:${SETADESK_JIRA_IMPORT_PROJECT}`,
+    `JIRA:${spec?.jiraProjectKey || jiraProjectKey || SETADESK_JIRA_IMPORT_PROJECT}`,
     ...statusMap.tags,
     ...catMap.tags,
     ...labels,
@@ -450,7 +496,8 @@ export function mapJiraIssue(
 
   const ticket: ServiceTicket = {
     id: `tkt-jira-${jiraId || jiraKey}`,
-    key: sdKey || jiraKey,
+    key: ticketKey || jiraKey,
+    pipelineId: spec?.id || SETADESK_DEFAULT_PIPELINE_ID,
     subject,
     description,
     category: catMap.category,
@@ -483,7 +530,7 @@ export function mapJiraIssue(
     source: JIRA_IMPORT_SOURCE,
     jiraKey,
     jiraId: jiraId || null,
-    jiraProjectKey: SETADESK_JIRA_IMPORT_PROJECT,
+    jiraProjectKey: spec?.jiraProjectKey || jiraProjectKey || SETADESK_JIRA_IMPORT_PROJECT,
     jiraUrl: `${JIRA_SITE}/browse/${jiraKey}`,
     externalCreatedAt: createdAt,
     externalUpdatedAt: updatedAt,
@@ -500,6 +547,7 @@ export function mapJiraIssue(
     mapping: {
       jiraKey,
       jiraId,
+      ticketKey: ticket.key,
       sdKey: ticket.key,
       jiraStatus,
       status: statusMap.status,

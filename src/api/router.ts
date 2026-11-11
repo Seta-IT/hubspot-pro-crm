@@ -39,13 +39,17 @@ import {
   syncStateToPostgres,
 } from '../db/postgres';
 import {
+  createSetaDeskPipeline,
   isSetaDeskPostgresEnabled,
+  listSetaDeskPipelines,
   loadSetaDeskTickets,
   reserveSetaDeskTicketKeys,
   syncSetaDeskTickets,
   ticketKeysNeededForRoute,
+  updateSetaDeskPipeline,
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
+import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
 import {
   countProposals,
   diffHydratedProposals,
@@ -1227,7 +1231,11 @@ export class CrmApiRouter {
           setaDeskBaseline = loaded.baseline;
         }
         const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
-        this.repo.reserveTicketKeys(needed > 0 ? await reserveSetaDeskTicketKeys(needed) : []);
+        const reservePipelineId =
+          body && typeof body === 'object' && typeof (body as { pipelineId?: unknown }).pipelineId === 'string'
+            ? String((body as { pipelineId: string }).pipelineId)
+            : null;
+        this.repo.reserveTicketKeys(needed > 0 ? await reserveSetaDeskTicketKeys(needed, reservePipelineId) : []);
       } catch (err) {
         setaDeskBaseline = null;
         this.repo.reserveTicketKeys([]);
@@ -5818,6 +5826,7 @@ export class CrmApiRouter {
             assignee: query.assignee,
             contactId: query.contactId,
             companyId: query.companyId,
+            pipelineId: query.pipelineId,
             search: query.search,
           });
           const { tickets: evaluatedFiltered } = computeRealtimeTicketsAndKpis(filteredRaw);
@@ -5878,6 +5887,7 @@ export class CrmApiRouter {
             serviceOrderId: body.serviceOrderId ? String(body.serviceOrderId) : null,
             equipmentSerial: body.equipmentSerial ? String(body.equipmentSerial) : null,
             tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+            pipelineId: body.pipelineId ? String(body.pipelineId) : undefined,
           });
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
@@ -5922,6 +5932,71 @@ export class CrmApiRouter {
         const sla = computeRealtimeTicketSla(result.ticket);
         result.ticket.slaStatus = sla.slaStatus;
         return { status: 201, body: { data: result } };
+      }
+
+
+      const ticketPipelinesList = cleanPath === '/api/tickets/pipelines';
+      const ticketPipelineIdMatch = cleanPath.match(/^\/api\/tickets\/pipelines\/([^/]+)$/);
+      if (ticketPipelinesList || ticketPipelineIdMatch) {
+        const pipelineActor = () => {
+          const tok = query._sessionToken;
+          const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
+          return canManageSetaDeskPipelines({ trustedInternal: ctx.trustedInternal, session: sess });
+        };
+        if (ticketPipelinesList && method === 'GET') {
+          const fromDb = isSetaDeskPostgresEnabled() ? await listSetaDeskPipelines() : null;
+          const data = fromDb || this.repo.listSetaDeskPipelines();
+          return { status: 200, body: { data, total: data.length, canManage: pipelineActor() } };
+        }
+        if (ticketPipelinesList && method === 'POST') {
+          if (!pipelineActor()) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem criar filas.', code: 'PIPELINE_FORBIDDEN' } };
+          }
+          const parsed = parseSetaDeskPipelineWrite(body, { requireNameAndPrefix: true });
+          if (!parsed.ok) return { status: 400, body: { error: parsed.error, code: 'PIPELINE_INVALID' } };
+          try {
+            const created = isSetaDeskPostgresEnabled()
+              ? await createSetaDeskPipeline({
+                  name: parsed.data.name!,
+                  prefix: parsed.data.prefix!,
+                  mailbox: parsed.data.mailbox,
+                  jiraProjectKey: parsed.data.jiraProjectKey,
+                  isActive: parsed.data.isActive,
+                  sortOrder: parsed.data.sortOrder,
+                })
+              : this.repo.createSetaDeskPipeline({
+                  name: parsed.data.name!,
+                  prefix: parsed.data.prefix!,
+                  mailbox: parsed.data.mailbox,
+                  jiraProjectKey: parsed.data.jiraProjectKey,
+                  isActive: parsed.data.isActive,
+                  sortOrder: parsed.data.sortOrder,
+                });
+            return { status: 201, body: { data: created } };
+          } catch (err) {
+            return { status: 409, body: { error: (err as Error).message, code: 'PIPELINE_CONFLICT' } };
+          }
+        }
+        if (ticketPipelineIdMatch && (method === 'PATCH' || method === 'PUT')) {
+          if (!pipelineActor()) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem editar filas.', code: 'PIPELINE_FORBIDDEN' } };
+          }
+          const parsed = parseSetaDeskPipelineWrite(body);
+          if (!parsed.ok) return { status: 400, body: { error: parsed.error, code: 'PIPELINE_INVALID' } };
+          const id = decodeURIComponent(ticketPipelineIdMatch[1]);
+          try {
+            const updated = isSetaDeskPostgresEnabled()
+              ? await updateSetaDeskPipeline(id, parsed.data)
+              : this.repo.updateSetaDeskPipeline(id, parsed.data);
+            if (!updated) return { status: 404, body: { error: 'Fila não encontrada.' } };
+            return { status: 200, body: { data: updated } };
+          } catch (err) {
+            const msg = (err as Error).message;
+            const code = /possui chamados|obrigatorio|invalido/i.test(msg) ? 400 : 409;
+            return { status: code, body: { error: msg, code: code === 400 ? 'PIPELINE_INVALID' : 'PIPELINE_CONFLICT' } };
+          }
+        }
+        return { status: 405, body: { error: 'Método não permitido.' } };
       }
 
       const ticketIdMatch = cleanPath.match(/^\/api\/tickets\/([^/]+)$/);

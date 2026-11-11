@@ -15,8 +15,10 @@ import {
 } from '../src/app/portal/portal-feedback';
 import {
   SETADESK_ALIGN_SEQUENCE_SQL,
+  SETADESK_DEFAULT_TICKET_PREFIX,
   SETADESK_JIRA_IMPORT_PROJECT,
   SETADESK_MIGRATIONS,
+  SETADESK_SEED_PIPELINES,
   SETADESK_TICKET_KEY_PREFIX,
   maxAllocatedSetaDeskNumber,
 } from '../src/db/setadesk-schema';
@@ -28,26 +30,29 @@ import {
   SETADESK_LEGACY_DEMO_TICKET_KEYS,
   ticketKeysNeededForRoute,
 } from '../src/db/setadesk-store';
+import { canManageSetaDeskPipelines } from '../src/api/setadesk-pipeline-guards';
+import { setaDeskPurgeApplyDenial } from '../src/db/cli-purge-tickets';
 
-describe('SetaDesk - geracao de chave SD- (fallback sem Postgres)', () => {
-  it('a numeracao SD acompanha o STT importado; JSM- e DEV- nao entram na sequencia', () => {
+describe('SetaDesk - geracao de chave TEC-/FIN- (fallback sem Postgres)', () => {
+  it('a numeracao TEC acompanha o STT importado; JSM- e DEV- nao entram na sequencia', () => {
     const repo = createInMemoryRepository();
-    repo.createServiceTicket({ subject: 'Importado', key: 'SD-123', jiraKey: 'STT-123' });
+    repo.createServiceTicket({ subject: 'Importado', key: 'TEC-123', jiraKey: 'STT-123' });
     repo.createServiceTicket({ subject: 'Legado JSM', key: 'JSM-5000' });
     repo.createServiceTicket({ subject: 'Projeto DEV fora do escopo', key: 'DEV-99' });
     const a = repo.createServiceTicket({ subject: 'Primeiro novo' });
     const b = repo.createServiceTicket({ subject: 'Segundo novo' });
-    assert.equal(SETADESK_TICKET_KEY_PREFIX, 'SD');
+    assert.equal(SETADESK_TICKET_KEY_PREFIX, 'TEC');
+    assert.equal(SETADESK_DEFAULT_TICKET_PREFIX, 'TEC');
     assert.equal(SETADESK_JIRA_IMPORT_PROJECT, 'STT');
-    assert.equal(a.key, 'SD-124');
-    assert.equal(b.key, 'SD-125');
+    assert.equal(a.key, 'TEC-124');
+    assert.equal(b.key, 'TEC-125');
   });
 
   it('chave STT-n (ainda nao convertida) tambem reserva o numero SD-n', () => {
     const repo = createInMemoryRepository();
     repo.createServiceTicket({ subject: 'Legado com chave Jira', key: 'STT-248' });
     const next = repo.createServiceTicket({ subject: 'Novo apos o maior STT' });
-    assert.equal(next.key, 'SD-249');
+    assert.equal(next.key, 'TEC-249');
     assert.equal(maxAllocatedSetaDeskNumber(repo.getState().serviceTickets || []), 249);
   });
 
@@ -57,16 +62,16 @@ describe('SetaDesk - geracao de chave SD- (fallback sem Postgres)', () => {
     const b = repo.createServiceTicket({ subject: 'B' });
     assert.ok(repo.deleteServiceTicket(b.id));
     const c = repo.createServiceTicket({ subject: 'C' });
-    assert.equal(a.key, 'SD-1');
-    assert.equal(c.key, 'SD-3');
+    assert.equal(a.key, 'TEC-1');
+    assert.equal(c.key, 'TEC-3');
   });
 
   it('usa chaves reservadas (sequencia do Postgres) antes do contador local e ignora colisoes', () => {
     const repo = createInMemoryRepository();
-    repo.createServiceTicket({ subject: 'Existente', key: 'SD-41' });
-    repo.reserveTicketKeys(['SD-41', 'SD-42']);
+    repo.createServiceTicket({ subject: 'Existente', key: 'TEC-41' });
+    repo.reserveTicketKeys(['TEC-41', 'TEC-42']);
     const t = repo.createServiceTicket({ subject: 'Com reserva' });
-    assert.equal(t.key, 'SD-42');
+    assert.equal(t.key, 'TEC-42');
     assert.deepEqual(repo.clearReservedTicketKeys(), []);
   });
 
@@ -86,14 +91,110 @@ describe('SetaDesk - geracao de chave SD- (fallback sem Postgres)', () => {
     assert.equal(t.source, 'EMAIL');
   });
 
-  it('POST /api/tickets devolve chave SD- e mantem chamados demo JSM- acessiveis', async () => {
+  it('POST /api/tickets devolve chave TEC- e mantem chamados demo JSM- acessiveis', async () => {
     const router = new CrmApiRouter(createInMemoryRepository());
-    const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tickets', query: {}, body: { subject: 'Teste SD' } });
+    const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'POST', path: '/api/tickets', query: {}, body: { subject: 'Teste TEC' } });
     assert.equal(res.status, 201);
     const key = (res.body as { data: { key: string } }).data.key;
-    assert.match(key, /^SD-\d+$/);
+    assert.match(key, /^TEC-\d+$/);
     const legacy = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets/JSM-101', query: {}, body: {} });
     assert.equal(legacy.status, 200);
+  });
+
+  it('FIN acompanha o numero do AF; TEC permanece independente', () => {
+    const repo = createInMemoryRepository();
+    repo.createServiceTicket({ subject: 'AF importado', key: 'FIN-1032', jiraKey: 'AF-1032', pipelineId: 'pl-fin' });
+    repo.createServiceTicket({ subject: 'STT importado', key: 'TEC-248', jiraKey: 'STT-248', pipelineId: 'pl-tec' });
+    const fin = repo.createServiceTicket({ subject: 'Novo financeiro', pipelineId: 'pl-fin', category: 'BILLING' });
+    const tec = repo.createServiceTicket({ subject: 'Novo tecnico', pipelineId: 'pl-tec' });
+    assert.equal(fin.key, 'FIN-1033');
+    assert.equal(fin.pipelineId, 'pl-fin');
+    assert.equal(tec.key, 'TEC-249');
+    assert.equal(tec.pipelineId, 'pl-tec');
+  });
+
+  it('lista, cria e edita pipelines; POST exige admin ou coordenador', async () => {
+    const router = new CrmApiRouter(createInMemoryRepository());
+    const list = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets/pipelines', query: {}, body: {} });
+    assert.equal(list.status, 200);
+    const body = list.body as { data: Array<{ id: string; prefix: string }>; canManage: boolean };
+    assert.deepEqual(body.data.map((p) => p.prefix).sort(), ['FIN', 'TEC']);
+    assert.equal(body.canManage, true);
+    const created = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/tickets/pipelines',
+      query: {},
+      body: { name: 'Qualidade', prefix: 'QLD', mailbox: 'qualidade@setatelecom.com.br' },
+    });
+    assert.equal(created.status, 201);
+    const row = (created.body as { data: { id: string; prefix: string; mailbox: string } }).data;
+    assert.equal(row.prefix, 'QLD');
+    const patched = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/pipelines/${row.id}`,
+      query: {},
+      body: { name: 'Qualidade e Processos' },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal((patched.body as { data: { name: string } }).data.name, 'Qualidade e Processos');
+    const denied = await router.dispatch({ method: 'POST', path: '/api/tickets/pipelines', query: {}, body: { name: 'X', prefix: 'XXX' } });
+    assert.ok([401, 403].includes(denied.status), `esperado 401 ou 403, veio ${denied.status}`);
+  });
+
+  it('GET /api/tickets filtra por pipelineId', async () => {
+    const repo = createInMemoryRepository();
+    repo.createServiceTicket({ subject: 'Tec', pipelineId: 'pl-tec' });
+    repo.createServiceTicket({ subject: 'Fin', pipelineId: 'pl-fin', category: 'BILLING' });
+    const router = new CrmApiRouter(repo);
+    const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/tickets', query: { pipelineId: 'pl-fin' }, body: {} });
+    assert.equal(res.status, 200);
+    const data = (res.body as { data: Array<{ subject: string; pipelineId?: string }> }).data;
+    assert.ok(data.length >= 1);
+    assert.ok(data.every((t) => t.pipelineId === 'pl-fin'));
+  });
+});
+
+
+describe('SetaDesk - pipelines e purge (guardas)', () => {
+  it('canManageSetaDeskPipelines libera admin, coordenador e contexto interno', () => {
+    assert.equal(canManageSetaDeskPipelines({ trustedInternal: true, session: null }), true);
+    assert.equal(canManageSetaDeskPipelines({ session: null }), false);
+    assert.equal(
+      canManageSetaDeskPipelines({
+        session: {
+          authenticated: true,
+          mfaVerified: true,
+          effectiveActionGuards: { canManageUsersRbac: true },
+        },
+      }),
+      true
+    );
+    assert.equal(
+      canManageSetaDeskPipelines({
+        session: { authenticated: true, mfaVerified: true, user: { role: 'SUPPORT_NOC_OS', crmRole: 'CRM_SERVICE_NOC' } },
+      }),
+      true
+    );
+    assert.equal(
+      canManageSetaDeskPipelines({
+        session: { authenticated: true, mfaVerified: true, user: { role: 'SALES_REP', crmRole: 'CRM_SALES_REP' } },
+      }),
+      false
+    );
+    assert.equal(
+      canManageSetaDeskPipelines({
+        session: { authenticated: true, mfaVerified: false, user: { role: 'SUPER_ADMIN', crmRole: 'CRM_ADMIN' } },
+      }),
+      false
+    );
+  });
+
+  it('purge e dry-run por padrao e exige SETADESK_PURGE_CONFIRM=1', () => {
+    assert.match(setaDeskPurgeApplyDenial({}) || '', /SETADESK_PURGE_CONFIRM=1/);
+    assert.match(setaDeskPurgeApplyDenial({ SETADESK_PURGE_CONFIRM: '1' }) || '', /DATABASE_URL/);
+    assert.equal(setaDeskPurgeApplyDenial({ SETADESK_PURGE_CONFIRM: '1', DATABASE_URL: 'postgres://local/test' }), null);
   });
 });
 
@@ -105,12 +206,17 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.equal(new Set(ids).size, ids.length);
     for (const stmt of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
       if (/^SELECT\s+setval\b/i.test(stmt)) continue;
+      if (/^DROP INDEX IF EXISTS\b/i.test(stmt)) continue;
+      if (/^INSERT INTO\b/i.test(stmt) && /ON CONFLICT/i.test(stmt)) continue;
       if (
         /^ALTER TABLE\b/i.test(stmt) &&
         /setadesk_ticket_comments/i.test(stmt) &&
         /is_internal SET DEFAULT TRUE/i.test(stmt) &&
         /IF EXISTS/i.test(stmt)
       ) {
+        continue;
+      }
+      if (/^ALTER TABLE\b/i.test(stmt) && /ADD COLUMN IF NOT EXISTS/i.test(stmt) && /IF EXISTS/i.test(stmt)) {
         continue;
       }
       assert.match(stmt, /IF NOT EXISTS/i, `comando sem IF NOT EXISTS: ${stmt.slice(0, 80)}`);
@@ -123,6 +229,15 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.match(m3!.sql, /ALTER TABLE IF EXISTS setadesk_ticket_comments/);
     assert.match(m3!.sql, /is_internal SET DEFAULT TRUE/);
     assert.doesNotMatch(m3!.sql, /setadesk_tickets\b/);
+    const m4 = SETADESK_MIGRATIONS.find((m) => m.id === '0004_pipelines_and_history_uidx');
+    assert.ok(m4);
+    assert.match(m4!.sql, /CREATE TABLE IF NOT EXISTS setadesk_pipelines/);
+    assert.match(m4!.sql, /setadesk_ticket_seq_tec/);
+    assert.match(m4!.sql, /setadesk_ticket_seq_fin/);
+    assert.match(m4!.sql, /ADD COLUMN IF NOT EXISTS pipeline_id/);
+    assert.match(m4!.sql, /DROP INDEX IF EXISTS setadesk_history_external_uidx/);
+    assert.match(m4!.sql, /ON setadesk_ticket_history \(ticket_id, source, external_id\)/);
+    assert.equal(SETADESK_SEED_PIPELINES.map((s) => s.prefix).join(','), 'TEC,FIN');
   });
 
   it('tem indices unicos de idempotencia (jira_key, jira_id, message_id, ids externos)', () => {
@@ -159,7 +274,7 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.equal(ticketKeysNeededForRoute('POST', '/api/forms/submit', {}), 1);
     assert.equal(ticketKeysNeededForRoute('POST', '/api/migration/hubspot', { tickets: [1, 2, 3] }), 3);
     assert.equal(ticketKeysNeededForRoute('GET', '/api/tickets', {}), 0);
-    assert.equal(ticketKeysNeededForRoute('POST', '/api/tickets/SD-1/comments', {}), 0);
+    assert.equal(ticketKeysNeededForRoute('POST', '/api/tickets/TEC-1/comments', {}), 0);
   });
 });
 
@@ -175,9 +290,9 @@ describe('SetaDesk - demos do legado e carga so em rota autenticada de chamados'
     }
     assert.equal(isLegacyDemoServiceTicket({ id: 'tkt-jsm-101', key: 'JSM-101' }), true);
     assert.equal(isLegacyDemoServiceTicket({ key: 'JSM-106' }), false);
-    assert.equal(isLegacyDemoServiceTicket({ key: 'SD-7' }), false);
+    assert.equal(isLegacyDemoServiceTicket({ key: 'TEC-7' }), false);
     assert.equal(isLegacyDemoServiceTicket({ key: 'STT-101' }), false);
-    assert.equal(isLegacyDemoServiceTicket({ id: 'tkt-jira-11262', key: 'SD-123' }), false);
+    assert.equal(isLegacyDemoServiceTicket({ id: 'tkt-jira-11262', key: 'TEC-123' }), false);
   });
 
   it('rota publica nao carrega setadesk_tickets; so /api/tickets autenticada carrega', () => {
@@ -203,8 +318,9 @@ describe('SetaDesk - demos do legado e carga so em rota autenticada de chamados'
     }
     assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/tickets'), true);
     assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/tickets'), true);
-    assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/tickets/SD-1'), true);
-    assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/tickets/SD-1/comments'), true);
+    assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/tickets/TEC-1'), true);
+    assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/tickets/TEC-1/comments'), true);
+    assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/tickets/pipelines'), true);
     assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/companies'), false);
     assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/forms/submit'), false);
   });
@@ -348,7 +464,7 @@ describe('SetaDesk - updateServiceTicket com allowlist (defesa no repository)', 
 
   it('id e key nao mudam via update', () => {
     const { repo, id, before } = setup();
-    const out = repo.updateServiceTicket(id, { id: 'x', key: 'SD-999999', subject: 'Novo assunto' } as never)!;
+    const out = repo.updateServiceTicket(id, { id: 'x', key: 'TEC-999999', subject: 'Novo assunto' } as never)!;
     assert.equal(out.id, before.id);
     assert.equal(out.key, before.key);
     assert.equal(out.subject, 'Novo assunto');
@@ -496,7 +612,8 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
       setadesk_integration_outbox, setadesk_email_outbox, setadesk_related_tickets, setadesk_ticket_history,
       setadesk_ticket_attachments, setadesk_email_messages, setadesk_ticket_comments, setadesk_tickets,
       setadesk_queues, setadesk_meta, setadesk_mail_sync_state, setadesk_ticket_tombstones CASCADE`);
-    await pool.query('DROP SEQUENCE IF EXISTS setadesk_ticket_seq');
+    await pool.query('DROP SEQUENCE IF EXISTS setadesk_ticket_seq, setadesk_ticket_seq_tec, setadesk_ticket_seq_fin');
+    await pool.query('DROP TABLE IF EXISTS setadesk_pipelines CASCADE');
   });
 
   after(async () => {
@@ -507,7 +624,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
 
   it('aplica migracoes uma vez e reaplicar e no-op', async () => {
     const first = await store.ensureSetaDeskSchema();
-    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default']);
+    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx']);
     store.resetSetaDeskSchemaCache();
     const second = await store.ensureSetaDeskSchema();
     assert.deepEqual(second, []);
@@ -522,25 +639,25 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     const repo = createInMemoryRepository();
     const demos = (repo.getState().serviceTickets || []).filter((t) => store.isLegacyDemoServiceTicket(t));
     assert.equal(demos.length, 5);
-    repo.createServiceTicket({ subject: 'ja SD', key: 'SD-7' });
+    repo.createServiceTicket({ subject: 'ja TEC', key: 'TEC-7' });
     const legacy = repo.getState().serviceTickets;
     const loaded = await store.loadSetaDeskTickets(legacy);
     assert.ok(loaded);
     assert.equal(loaded!.tickets.some((t) => store.isLegacyDemoServiceTicket(t)), false);
     assert.equal(loaded!.tickets.length, 1);
-    assert.equal(loaded!.tickets[0].key, 'SD-7');
+    assert.equal(loaded!.tickets[0].key, 'TEC-7');
     const same = await store.loadSetaDeskTickets(legacy);
     assert.equal(same!.tickets.length, 1, 'nada duplicado ao recarregar, demos continuam de fora');
     const extra = { ...loaded!.tickets[0], id: 'tkt-legado-x1', key: 'X-1', comments: [] as never[] };
     const again = await store.loadSetaDeskTickets([...legacy, extra]);
     assert.equal(again!.tickets.length, 2, 'chamado legado novo (nao demo) e copiado');
     const keys = await store.reserveSetaDeskTicketKeys(2);
-    assert.deepEqual(keys, ['SD-8', 'SD-9']);
+    assert.deepEqual(keys, ['TEC-8', 'TEC-9']);
   });
 
   it('legado mais novo atualiza a tabela; legado mais antigo nao sobrescreve', async () => {
     const base = (await store.loadSetaDeskTickets([]))!;
-    const t7 = base.tickets.find((t) => t.key === 'SD-7')!;
+    const t7 = base.tickets.find((t) => t.key === 'TEC-7')!;
     const newer = { ...t7, subject: 'Editado no legado', updatedAt: new Date(Date.parse(t7.updatedAt) + 60000).toISOString() };
     const r1 = (await store.loadSetaDeskTickets([newer]))!;
     assert.equal(r1.tickets.find((t) => t.id === t7.id)!.subject, 'Editado no legado');
@@ -553,8 +670,8 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     const loaded = (await store.loadSetaDeskTickets([]))!;
     const repo = createInMemoryRepository();
     repo.replaceServiceTickets(loaded.tickets);
-    const seed = repo.createServiceTicket({ subject: 'Alvo do sync', key: 'SD-20', id: 'tkt-sync-alvo' });
-    const doomed = repo.createServiceTicket({ subject: 'A apagar', key: 'SD-21', id: 'tkt-sync-apagar' });
+    const seed = repo.createServiceTicket({ subject: 'Alvo do sync', key: 'TEC-20', id: 'tkt-sync-alvo' });
+    const doomed = repo.createServiceTicket({ subject: 'A apagar', key: 'TEC-21', id: 'tkt-sync-apagar' });
     await store.syncSetaDeskTickets(repo.getState().serviceTickets, loaded.baseline);
     const afterSeed = (await store.loadSetaDeskTickets([]))!;
     const [key] = await store.reserveSetaDeskTicketKeys(1);
@@ -591,8 +708,8 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.equal(notif.rows[0].n, 1);
     // jira_key unico
     await pool.query(`UPDATE setadesk_tickets SET jira_key = 'STT-1' WHERE key = $1`, [key]);
-    await pool.query(`UPDATE setadesk_tickets SET jira_key = 'STT-2' WHERE key = 'SD-7'`);
-    await assert.rejects(pool.query(`UPDATE setadesk_tickets SET jira_key = 'stt-1' WHERE key = 'SD-7'`));
+    await pool.query(`UPDATE setadesk_tickets SET jira_key = 'STT-2' WHERE key = 'TEC-7'`);
+    await assert.rejects(pool.query(`UPDATE setadesk_tickets SET jira_key = 'stt-1' WHERE key = 'TEC-7'`));
     // message_id unico (case-insensitive)
     await pool.query(`INSERT INTO setadesk_email_messages (id, direction, message_id) VALUES ('m1', 'INBOUND', '<A@b>')`);
     await assert.rejects(pool.query(`INSERT INTO setadesk_email_messages (id, direction, message_id) VALUES ('m2', 'INBOUND', '<a@B>')`));
@@ -602,13 +719,13 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     const loaded = (await store.loadSetaDeskTickets([]))!;
     const repo = createInMemoryRepository();
     repo.replaceServiceTickets(loaded.tickets);
-    repo.createServiceTicket({ subject: 'Colisao', key: 'SD-7', id: 'tkt-colisao' });
+    repo.createServiceTicket({ subject: 'Colisao', key: 'TEC-7', id: 'tkt-colisao' });
     await store.syncSetaDeskTickets(repo.getState().serviceTickets, loaded.baseline);
     const reread = (await store.loadSetaDeskTickets([]))!;
     const saved = reread.tickets.find((x) => x.id === 'tkt-colisao')!;
-    assert.match(saved.key, /^SD-\d+$/);
-    assert.notEqual(saved.key, 'SD-7');
-    assert.equal(reread.tickets.filter((x) => x.key === 'SD-7').length, 1);
+    assert.match(saved.key, /^TEC-\d+$/);
+    assert.notEqual(saved.key, 'TEC-7');
+    assert.equal(reread.tickets.filter((x) => x.key === 'TEC-7').length, 1);
   });
   it('chamado aberto pelo portal persiste requester_email no Postgres', async () => {
     const base = (await store.loadSetaDeskTickets([]))!;
@@ -634,7 +751,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     seedRepo.replaceServiceTickets(base.tickets);
     const created = seedRepo.createServiceTicket({
       subject: 'Lido do Postgres',
-      key: 'SD-30',
+      key: 'TEC-30',
       id: 'tkt-portal-dto',
       contactId: contact.id,
     });
@@ -723,7 +840,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
         labels: [],
       },
     });
-    assert.equal(mapped.ticket.key, 'SD-248');
+    assert.equal(mapped.ticket.key, 'TEC-248');
     assert.equal(mapped.ticket.comments.find((c) => c.body === 'publico')!.isInternal, false);
     assert.equal(mapped.ticket.comments.find((c) => c.body === 'interno')!.isInternal, true);
     const plan = [{ action: 'create' as const, reason: 'test', mapped }];
@@ -735,7 +852,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.equal(second.skipped, 1);
     assert.equal(second.nextSequenceValue, 249);
     const keys = await store.reserveSetaDeskTicketKeys(1);
-    assert.equal(keys[0], 'SD-249');
+    assert.equal(keys[0], 'TEC-249');
     const row = await pg.getPostgresPool()!.query(
       `SELECT is_internal, body FROM setadesk_ticket_comments WHERE ticket_id = $1 ORDER BY body`,
       [mapped.ticket.id]

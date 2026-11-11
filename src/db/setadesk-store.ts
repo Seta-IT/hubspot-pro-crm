@@ -22,12 +22,21 @@ import crypto from 'crypto';
 import type { Pool, PoolClient } from 'pg';
 import { getPostgresPool, isPostgresEnabled } from './postgres';
 import {
+  alignPipelineSequenceSql,
   applySetaDeskMigrations,
-  SETADESK_ALIGN_SEQUENCE_SQL,
+  formatSetaDeskTicketKey,
+  isAllowedPipelinePrefix,
+  jiraImportSpec,
+  pipelineSequenceNameFromPrefix,
+  SETADESK_DEFAULT_PIPELINE_ID,
+  SETADESK_DEFAULT_TICKET_PREFIX,
   SETADESK_JIRA_IMPORT_PROJECT,
+  SETADESK_JIRA_IMPORT_PROJECTS,
+  SETADESK_SEED_PIPELINES,
   SETADESK_TICKET_KEY_PREFIX,
   SETADESK_TICKET_SEQUENCE,
 } from './setadesk-schema';
+import type { SetaDeskPipeline } from './types';
 import {
   JIRA_IMPORT_SOURCE,
   planJiraImport,
@@ -62,8 +71,8 @@ export function resetSetaDeskSchemaCache(): void {
   schemaReady = null;
 }
 
-export function formatSetaDeskTicketKey(n: number | string): string {
-  return `${SETADESK_TICKET_KEY_PREFIX}-${n}`;
+export function formatReservedTicketKey(prefix: string, n: number | string): string {
+  return formatSetaDeskTicketKey(prefix, n);
 }
 
 /** Ids dos 5 chamados de demonstracao do seed (crm_kv_store). Nunca entram em setadesk_tickets. */
@@ -175,6 +184,7 @@ export function rowToServiceTicket(r: TicketRow, comments: TicketComment[]): Ser
     requesterName: (r.requester_name as string | null) ?? null,
     ccEmails: (r.cc_emails as string[]) || [],
     source: String(r.source || 'STIHUB'),
+    pipelineId: (r.pipeline_id as string | null) ?? null,
     legacyKey: (r.legacy_key as string | null) ?? null,
     jiraKey: (r.jira_key as string | null) ?? null,
     jiraId: (r.jira_id as string | null) ?? null,
@@ -207,7 +217,7 @@ export function rowToComment(r: CommentRow): TicketComment {
 
 const TICKET_COLUMNS = [
   'id', 'key', 'legacy_key', 'subject', 'description', 'category', 'priority', 'status', 'channel',
-  'source', 'queue', 'assignee_agent', 'requester_email', 'requester_name', 'cc_emails',
+  'source', 'pipeline_id', 'queue', 'assignee_agent', 'requester_email', 'requester_name', 'cc_emails',
   'contact_id', 'company_id', 'deal_id', 'contract_id', 'service_order_id', 'equipment_serial',
   'tags', 'resolution', 'sla_status', 'sla_first_response_due_at', 'sla_resolution_due_at',
   'sla_paused_at', 'total_paused_minutes', 'first_responded_at', 'resolved_at', 'closed_at',
@@ -231,6 +241,7 @@ function ticketToParams(t: ServiceTicket): unknown[] {
     t.status,
     t.channel,
     t.source || 'STIHUB',
+    t.pipelineId ?? null,
     t.assignee || t.queue || null,
     t.assigneeAgent ?? null,
     normEmail(t.requesterEmail),
@@ -351,32 +362,102 @@ async function reconcileFromLegacyState(
   return written;
 }
 
-/** Garante que a sequencia nunca emita uma chave SD- ja usada (nem um numero STT importado). */
+function sanitizeSequenceName(name: string): string {
+  const s = String(name || '').replace(/[^a-zA-Z0-9_]/g, '');
+  if (!s) throw new Error('Nome de sequencia invalido.');
+  return s;
+}
+
+async function loadPipelineRows(client: PoolClient): Promise<SetaDeskPipeline[]> {
+  const r = await client.query(
+    `SELECT id, name, prefix, mailbox, jira_project_key, sequence_name, is_active, sort_order, created_at, updated_at
+     FROM setadesk_pipelines ORDER BY sort_order ASC, name ASC`
+  );
+  return r.rows.map(rowToPipeline);
+}
+
+export function rowToPipeline(r: Record<string, unknown>): SetaDeskPipeline {
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    prefix: String(r.prefix).toUpperCase().replace(/-$/, ''),
+    mailbox: (r.mailbox as string | null) ?? null,
+    jiraProjectKey: (r.jira_project_key as string | null) ?? null,
+    sequenceName: String(r.sequence_name),
+    isActive: r.is_active !== false,
+    sortOrder: Number(r.sort_order ?? 0),
+    createdAt: iso(r.created_at) || '',
+    updatedAt: iso(r.updated_at) || '',
+  };
+}
+
+/** Alinha a sequencia de cada fila e, por compatibilidade, a sequencia global legada. */
 export async function alignSequenceWithExistingKeys(client: PoolClient) {
-  await client.query(SETADESK_ALIGN_SEQUENCE_SQL);
+  const pipelines = await loadPipelineRows(client).catch(() => [] as SetaDeskPipeline[]);
+  for (const pl of pipelines) {
+    await client.query(alignPipelineSequenceSql({
+      sequenceName: sanitizeSequenceName(pl.sequenceName),
+      prefix: pl.prefix,
+      jiraProjectKey: pl.jiraProjectKey,
+    }));
+  }
+  // Sequencia global legada (setadesk_ticket_seq): acompanha a fila TEC, se existir.
+  const tec = pipelines.find((p) => p.id === SETADESK_DEFAULT_PIPELINE_ID) || pipelines.find((p) => p.prefix === 'TEC');
+  if (tec) {
+    await client.query(alignPipelineSequenceSql({
+      sequenceName: SETADESK_TICKET_SEQUENCE,
+      prefix: tec.prefix,
+      jiraProjectKey: tec.jiraProjectKey,
+    }));
+  }
 }
 
 /**
- * Alinha a sequencia para max(chaves existentes, minNextValue).
+ * Alinha a sequencia da fila para max(chaves existentes, minNextValue).
  * minNextValue e o proximo numero desejado (ex.: max(STT)+1 = 249).
  * Idempotente: nunca reduz a sequencia. is_called=false => proximo nextval devolve esse valor.
  */
-export async function alignSequenceToAtLeast(client: PoolClient, minNextValue: number): Promise<number> {
-  await alignSequenceWithExistingKeys(client);
+export async function alignPipelineSequenceToAtLeast(
+  client: PoolClient,
+  pipeline: { sequenceName: string; prefix: string; jiraProjectKey?: string | null },
+  minNextValue: number
+): Promise<number> {
+  const seq = sanitizeSequenceName(pipeline.sequenceName);
+  await client.query(
+    alignPipelineSequenceSql({
+      sequenceName: seq,
+      prefix: pipeline.prefix,
+      jiraProjectKey: pipeline.jiraProjectKey,
+    })
+  );
   const floor = Math.max(1, Math.floor(Number(minNextValue) || 0));
   if (floor > 1) {
     await client.query(
-      `SELECT setval('${SETADESK_TICKET_SEQUENCE}', GREATEST(
-        (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${SETADESK_TICKET_SEQUENCE}),
+      `SELECT setval('${seq}', GREATEST(
+        (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${seq}),
         $1::bigint - 1,
         0) + 1, false)`,
       [floor]
     );
   }
   const r = await client.query<{ n: string }>(
-    `SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END::text AS n FROM ${SETADESK_TICKET_SEQUENCE}`
+    `SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END::text AS n FROM ${seq}`
   );
   return Number(r.rows[0]?.n || floor);
+}
+
+/** @deprecated Use alignPipelineSequenceToAtLeast. Alinha a fila padrao TEC. */
+export async function alignSequenceToAtLeast(client: PoolClient, minNextValue: number): Promise<number> {
+  await alignSequenceWithExistingKeys(client);
+  return alignPipelineSequenceToAtLeast(
+    client,
+    {
+      sequenceName: SETADESK_TICKET_SEQUENCE,
+      prefix: SETADESK_DEFAULT_TICKET_PREFIX,
+      jiraProjectKey: SETADESK_JIRA_IMPORT_PROJECT,
+    },
+    minNextValue
+  );
 }
 
 /** Le todos os chamados (com comentarios) das tabelas SetaDesk. */
@@ -421,17 +502,41 @@ export async function loadSetaDeskTickets(
   }
 }
 
-/** Reserva `count` chaves SD-<n> na sequencia (numeros nao usados viram lacunas, como em qualquer sequencia). */
-export async function reserveSetaDeskTicketKeys(count: number): Promise<string[]> {
+async function resolvePipelineForReserve(
+  client: Pool | PoolClient,
+  pipelineId?: string | null
+): Promise<{ id: string; prefix: string; sequenceName: string }> {
+  const id = String(pipelineId || SETADESK_DEFAULT_PIPELINE_ID).trim() || SETADESK_DEFAULT_PIPELINE_ID;
+  const r = await client.query<{ id: string; prefix: string; sequence_name: string }>(
+    `SELECT id, prefix, sequence_name FROM setadesk_pipelines WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  if (r.rows[0]) {
+    return {
+      id: r.rows[0].id,
+      prefix: String(r.rows[0].prefix).toUpperCase().replace(/-$/, ''),
+      sequenceName: sanitizeSequenceName(r.rows[0].sequence_name),
+    };
+  }
+  const seed = SETADESK_SEED_PIPELINES.find((p) => p.id === SETADESK_DEFAULT_PIPELINE_ID)!;
+  return { id: seed.id, prefix: seed.prefix, sequenceName: seed.sequenceName };
+}
+
+/** Reserva `count` chaves PREFIX-<n> na sequencia da fila (numeros nao usados viram lacunas). */
+export async function reserveSetaDeskTicketKeys(
+  count: number,
+  pipelineId?: string | null
+): Promise<string[]> {
   const pool = getPostgresPool();
   if (!pool || count <= 0) return [];
   await ensureSetaDeskSchema(pool);
   const n = Math.min(Math.max(1, Math.floor(count)), 500);
+  const pl = await resolvePipelineForReserve(pool, pipelineId);
   const r = await pool.query<{ n: string }>(
-    `SELECT nextval('${SETADESK_TICKET_SEQUENCE}')::text AS n FROM generate_series(1, $1)`,
+    `SELECT nextval('${pl.sequenceName}')::text AS n FROM generate_series(1, $1)`,
     [n]
   );
-  return r.rows.map((row) => formatSetaDeskTicketKey(row.n));
+  return r.rows.map((row) => formatSetaDeskTicketKey(pl.prefix, row.n));
 }
 
 const HISTORY_FIELDS: Array<{ field: string; col: string; get: (t: ServiceTicket) => unknown }> = [
@@ -475,9 +580,11 @@ export async function syncSetaDeskTickets(
           [t.key, t.id]
         );
         if (clash.rowCount) {
-          const r = await client.query<{ n: string }>(`SELECT nextval('${SETADESK_TICKET_SEQUENCE}')::text AS n`);
+          const pl = await resolvePipelineForReserve(client, t.pipelineId);
+          const r = await client.query<{ n: string }>(`SELECT nextval('${pl.sequenceName}')::text AS n`);
           if (!t.legacyKey) t.legacyKey = null;
-          t.key = formatSetaDeskTicketKey(r.rows[0].n);
+          t.key = formatSetaDeskTicketKey(pl.prefix, r.rows[0].n);
+          t.pipelineId = pl.id;
         }
       }
       await client.query(UPSERT_TICKET_SQL, ticketToParams(t));
@@ -595,27 +702,41 @@ export interface ApplyJiraImportResult {
   updated: number;
   skipped: number;
   nextSequenceValue: number;
+  nextSequenceByPipeline: Record<string, { pipelineId: string; prefix: string; nextSequenceValue: number }>;
+}
+
+export function allowedJiraImportProjects(project?: string | null): string[] {
+  const raw = String(project || 'ALL').trim().toUpperCase();
+  if (!raw || raw === 'ALL' || raw === 'STT,AF' || raw === 'AF,STT') {
+    return [...SETADESK_JIRA_IMPORT_PROJECTS];
+  }
+  const list = raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const unknown = list.filter((p) => !SETADESK_JIRA_IMPORT_PROJECTS.includes(p));
+  if (unknown.length) {
+    throw new Error(
+      `Projeto(s) fora do escopo da importacao: ${unknown.join(', ')}. Permitidos: ${SETADESK_JIRA_IMPORT_PROJECTS.join(', ')}.`
+    );
+  }
+  return list;
 }
 
 /**
- * Grava o plano de importacao STT -> SD- (idempotente por jira_key / import_hash).
+ * Grava o plano de importacao STT -> TEC- e AF -> FIN- (idempotente por jira_key / import_hash).
  * Replaneja contra o estado atual do banco, insere comentarios/anexos/historico
- * com ON CONFLICT DO NOTHING, e realinha a sequencia para max(STT)+1.
+ * com ON CONFLICT DO NOTHING, e realinha a sequencia de cada fila para max(projeto)+1.
  * Nao altera o Jira.
  */
 export async function applyJiraImport(
   items: ImportPlanItem[],
-  opts: { maxStt: number; project?: string }
+  opts: { maxStt?: number; maxByProject?: Record<string, number>; project?: string }
 ): Promise<ApplyJiraImportResult> {
-  const project = String(opts.project || SETADESK_JIRA_IMPORT_PROJECT).toUpperCase();
-  if (project !== SETADESK_JIRA_IMPORT_PROJECT) {
-    throw new Error(
-      `Somente o projeto ${SETADESK_JIRA_IMPORT_PROJECT} e importado nesta fase (recebido: ${project}).`
-    );
-  }
+  const allowed = allowedJiraImportProjects(opts.project);
   const mapped = (items || [])
     .map((it) => it.mapped)
-    .filter((m) => String(m.mapping.jiraKey || '').toUpperCase().startsWith(`${SETADESK_JIRA_IMPORT_PROJECT}-`));
+    .filter((m) => {
+      const key = String(m.mapping.jiraKey || '').toUpperCase();
+      return allowed.some((p) => key.startsWith(`${p}-`));
+    });
   const pool = getPostgresPool();
   if (!pool) {
     throw new Error('Recusado: --apply exige DATABASE_URL. Nada foi gravado.');
@@ -625,6 +746,7 @@ export async function applyJiraImport(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  const nextSequenceByPipeline: ApplyJiraImportResult['nextSequenceByPipeline'] = {};
   let nextSequenceValue = Math.max(1, Math.floor(Number(opts.maxStt) || 0) + 1);
   try {
     await client.query('BEGIN');
@@ -663,15 +785,229 @@ export async function applyJiraImport(
       if (it.action === 'create') created += 1;
       else updated += 1;
     }
-    nextSequenceValue = await alignSequenceToAtLeast(client, nextSequenceValue);
+
+    const pipelines = await loadPipelineRows(client);
+    const maxByProject: Record<string, number> = { ...(opts.maxByProject || {}) };
+    if (opts.maxStt != null && maxByProject.STT == null) maxByProject.STT = Number(opts.maxStt) || 0;
+    for (const pl of pipelines) {
+      const jira = (pl.jiraProjectKey || '').toUpperCase();
+      const floor = (jira && maxByProject[jira] != null ? Number(maxByProject[jira]) : 0) + 1;
+      const next = await alignPipelineSequenceToAtLeast(client, pl, floor);
+      nextSequenceByPipeline[pl.id] = { pipelineId: pl.id, prefix: pl.prefix, nextSequenceValue: next };
+      if (pl.id === SETADESK_DEFAULT_PIPELINE_ID) nextSequenceValue = next;
+    }
     await client.query('COMMIT');
-    return { created, updated, skipped, nextSequenceValue };
+    return { created, updated, skipped, nextSequenceValue, nextSequenceByPipeline };
   } catch (err) {
     try {
       await client.query('ROLLBACK');
     } catch {
       // ignora
     }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listSetaDeskPipelines(): Promise<SetaDeskPipeline[] | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensureSetaDeskSchema(pool);
+  const client = await pool.connect();
+  try {
+    return await loadPipelineRows(client);
+  } finally {
+    client.release();
+  }
+}
+
+export interface SetaDeskPipelineInput {
+  name: string;
+  prefix: string;
+  mailbox?: string | null;
+  jiraProjectKey?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+function normalizePrefix(raw: string): string {
+  return String(raw || '').trim().toUpperCase().replace(/-$/, '');
+}
+
+export async function createSetaDeskPipeline(input: SetaDeskPipelineInput): Promise<SetaDeskPipeline> {
+  const pool = getPostgresPool();
+  if (!pool) throw new Error('Pipelines persistentes exigem DATABASE_URL.');
+  await ensureSetaDeskSchema(pool);
+  const name = String(input.name || '').trim();
+  const prefix = normalizePrefix(input.prefix);
+  if (!name) throw new Error('O nome da fila e obrigatorio.');
+  if (!isAllowedPipelinePrefix(prefix)) {
+    throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra (ex.: TEC, FIN, SAC).');
+  }
+  const sequenceName = pipelineSequenceNameFromPrefix(prefix);
+  const id = `pl-${prefix.toLowerCase()}`;
+  const mailbox = input.mailbox ? String(input.mailbox).trim().toLowerCase() : null;
+  const jiraProjectKey = input.jiraProjectKey ? String(input.jiraProjectKey).trim().toUpperCase() : null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`CREATE SEQUENCE IF NOT EXISTS ${sanitizeSequenceName(sequenceName)} AS BIGINT START WITH 1 INCREMENT BY 1 MINVALUE 1`);
+    const r = await client.query(
+      `INSERT INTO setadesk_pipelines (id, name, prefix, mailbox, jira_project_key, sequence_name, is_active, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [id, name, prefix, mailbox, jiraProjectKey, sequenceName, input.isActive !== false, Number(input.sortOrder ?? 100)]
+    );
+    await client.query('COMMIT');
+    return rowToPipeline(r.rows[0]);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignora */ }
+    const msg = String((err as Error)?.message || err);
+    if (/setadesk_pipelines_prefix_uidx|duplicate key.*prefix/i.test(msg)) {
+      throw new Error('Ja existe uma fila com este prefixo.');
+    }
+    if (/setadesk_pipelines_name_uidx|duplicate key.*name/i.test(msg)) {
+      throw new Error('Ja existe uma fila com este nome.');
+    }
+    if (/setadesk_pipelines_pkey|duplicate key/i.test(msg)) {
+      throw new Error('Ja existe uma fila com este identificador.');
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateSetaDeskPipeline(
+  id: string,
+  patch: Partial<SetaDeskPipelineInput>
+): Promise<SetaDeskPipeline | null> {
+  const pool = getPostgresPool();
+  if (!pool) throw new Error('Pipelines persistentes exigem DATABASE_URL.');
+  await ensureSetaDeskSchema(pool);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(`SELECT * FROM setadesk_pipelines WHERE id = $1 FOR UPDATE`, [id]);
+    if (!cur.rowCount) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const row = cur.rows[0] as Record<string, unknown>;
+    let prefix = String(row.prefix);
+    if (patch.prefix != null) {
+      const next = normalizePrefix(patch.prefix);
+      if (!isAllowedPipelinePrefix(next)) {
+        throw new Error('Prefixo invalido. Use 1 a 8 caracteres A-Z/0-9, comecando por letra.');
+      }
+      if (next !== prefix) {
+        const used = await client.query(`SELECT 1 FROM setadesk_tickets WHERE pipeline_id = $1 LIMIT 1`, [id]);
+        if (used.rowCount) {
+          throw new Error('Nao e permitido alterar o prefixo de uma fila que ja possui chamados.');
+        }
+        prefix = next;
+      }
+    }
+    const name = patch.name != null ? String(patch.name).trim() : String(row.name);
+    if (!name) throw new Error('O nome da fila e obrigatorio.');
+    const mailbox =
+      patch.mailbox !== undefined
+        ? (patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null)
+        : ((row.mailbox as string | null) ?? null);
+    const jiraProjectKey =
+      patch.jiraProjectKey !== undefined
+        ? (patch.jiraProjectKey ? String(patch.jiraProjectKey).trim().toUpperCase() : null)
+        : ((row.jira_project_key as string | null) ?? null);
+    const isActive = patch.isActive !== undefined ? Boolean(patch.isActive) : row.is_active !== false;
+    const sortOrder = patch.sortOrder !== undefined ? Number(patch.sortOrder) : Number(row.sort_order ?? 0);
+    const r = await client.query(
+      `UPDATE setadesk_pipelines
+       SET name = $2, prefix = $3, mailbox = $4, jira_project_key = $5, is_active = $6, sort_order = $7, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id, name, prefix, mailbox, jiraProjectKey, isActive, sortOrder]
+    );
+    await client.query('COMMIT');
+    return rowToPipeline(r.rows[0]);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignora */ }
+    const msg = String((err as Error)?.message || err);
+    if (/setadesk_pipelines_prefix_uidx/i.test(msg)) throw new Error('Ja existe uma fila com este prefixo.');
+    if (/setadesk_pipelines_name_uidx/i.test(msg)) throw new Error('Ja existe uma fila com este nome.');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export interface SetaDeskPurgeCounts {
+  tickets: number;
+  comments: number;
+  attachments: number;
+  history: number;
+  related: number;
+  notifications: number;
+  emailMessages: number;
+  emailOutbox: number;
+  integrationOutbox: number;
+  tombstones: number;
+}
+
+const SETADESK_TICKET_DEPENDENT_COUNTS_SQL = `
+SELECT
+  (SELECT count(*)::int FROM setadesk_tickets) AS tickets,
+  (SELECT count(*)::int FROM setadesk_ticket_comments) AS comments,
+  (SELECT count(*)::int FROM setadesk_ticket_attachments) AS attachments,
+  (SELECT count(*)::int FROM setadesk_ticket_history) AS history,
+  (SELECT count(*)::int FROM setadesk_related_tickets) AS related,
+  (SELECT count(*)::int FROM setadesk_notifications) AS notifications,
+  (SELECT count(*)::int FROM setadesk_email_messages WHERE ticket_id IS NOT NULL) AS email_messages,
+  (SELECT count(*)::int FROM setadesk_email_outbox WHERE ticket_id IS NOT NULL) AS email_outbox,
+  (SELECT count(*)::int FROM setadesk_integration_outbox WHERE ticket_id IS NOT NULL) AS integration_outbox,
+  (SELECT count(*)::int FROM setadesk_ticket_tombstones) AS tombstones
+`;
+
+export async function countSetaDeskTicketDependents(client?: PoolClient | Pool): Promise<SetaDeskPurgeCounts> {
+  const db = client || getPostgresPool();
+  if (!db) throw new Error('Contagem exige DATABASE_URL.');
+  const r = await db.query(SETADESK_TICKET_DEPENDENT_COUNTS_SQL);
+  const row = r.rows[0] || {};
+  return {
+    tickets: Number(row.tickets || 0),
+    comments: Number(row.comments || 0),
+    attachments: Number(row.attachments || 0),
+    history: Number(row.history || 0),
+    related: Number(row.related || 0),
+    notifications: Number(row.notifications || 0),
+    emailMessages: Number(row.email_messages || 0),
+    emailOutbox: Number(row.email_outbox || 0),
+    integrationOutbox: Number(row.integration_outbox || 0),
+    tombstones: Number(row.tombstones || 0),
+  };
+}
+
+/**
+ * Apaga somente chamados SetaDesk e dependentes. Nao toca em tabelas que nao sejam setadesk_*.
+ * Nao apaga pipelines, filas NOC, meta, mail_sync_state nem o registro de migracoes.
+ */
+export async function purgeSetaDeskTickets(): Promise<SetaDeskPurgeCounts> {
+  const pool = getPostgresPool();
+  if (!pool) throw new Error('A limpeza exige DATABASE_URL. Nada foi apagado.');
+  await ensureSetaDeskSchema(pool);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const before = await countSetaDeskTicketDependents(client);
+    await client.query(`DELETE FROM setadesk_email_outbox WHERE ticket_id IS NOT NULL`);
+    await client.query(`DELETE FROM setadesk_integration_outbox WHERE ticket_id IS NOT NULL`);
+    await client.query(`DELETE FROM setadesk_email_messages WHERE ticket_id IS NOT NULL`);
+    await client.query(`DELETE FROM setadesk_tickets`);
+    await client.query(`DELETE FROM setadesk_ticket_tombstones`);
+    await client.query('COMMIT');
+    return before;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignora */ }
     throw err;
   } finally {
     client.release();
