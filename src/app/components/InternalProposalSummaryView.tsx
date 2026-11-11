@@ -2,8 +2,8 @@ import React from 'react';
 import type { InternalProposalSummaryModel } from '../lib/internal-proposal-summary';
 
 /**
- * Folha interna resumida do orçamento. Não usa o cabeçalho global do STI-hub:
- * a barra desta página é só da visão, na cor primária #1e3a6e.
+ * Folha interna resumida do orçamento, pensada para locação, serviço e spare parts.
+ * Não usa o cabeçalho global do STI-hub: a barra desta página é só da visão, em #1e3a6e.
  */
 export function InternalProposalSummaryView({ model }: { model: InternalProposalSummaryModel }) {
   return (
@@ -15,7 +15,9 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
           </p>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <h1 className="text-xl font-semibold tracking-tight">Visão interna do orçamento</h1>
-            <p className="text-xs text-white/80">Para o contrato · não é o link do cliente</p>
+            <p className="text-xs text-white/80" data-testid="internal-proposal-kind">
+              {model.kindLabel} · para o contrato
+            </p>
           </div>
         </div>
       </header>
@@ -63,73 +65,86 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
               </div>
             </dl>
 
-            <h3 className="mt-7 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Itens</h3>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <Metric label={model.termLabel} value={model.termValue} testId="internal-proposal-term" />
+              <Metric label="Valor mensal" value={model.monthlyLabel} testId="internal-proposal-monthly" />
+              <div className="rounded-md bg-[#1e3a6e] px-4 py-3 text-white" data-testid="internal-proposal-total">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">{model.periodLabel}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums">{model.periodValue}</p>
+              </div>
+            </div>
+
+            {model.scopeLabel ? (
+              <p className="mt-4 text-sm text-slate-700" data-testid="internal-proposal-scope">
+                <span className="font-semibold text-slate-500">Escopo · </span>
+                {model.scopeLabel}
+              </p>
+            ) : null}
+
+            <h3 className="mt-7 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{model.itemsHeading}</h3>
             <div className="mt-2 overflow-hidden rounded-md border border-slate-200">
               <table className="w-full border-collapse text-sm" data-testid="internal-proposal-items">
                 <thead>
                   <tr className="bg-[#1e3a6e] text-left text-[11px] font-semibold uppercase tracking-wide text-white">
-                    <th className="px-3 py-2 font-semibold">Descrição</th>
+                    <th className="px-3 py-2 font-semibold">{model.itemColumn}</th>
                     <th className="px-3 py-2 text-right font-semibold">Qtd</th>
-                    <th className="px-3 py-2 text-right font-semibold">Unitário</th>
-                    <th className="px-3 py-2 text-right font-semibold">Total</th>
+                    <th className="px-3 py-2 text-right font-semibold">{model.unitColumn}</th>
+                    <th className="px-3 py-2 text-right font-semibold">{model.lineColumn}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {model.lines.map((line) => (
                     <tr key={line.id} className="border-t border-slate-200">
-                      <td className="px-3 py-2.5 text-slate-800">{line.description}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{line.quantityLabel}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{line.unitPriceLabel}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-slate-900">{line.totalLabel}</td>
+                      <td className="px-3 py-2.5 text-slate-800">
+                        <div>{line.description}</div>
+                        {line.detail ? <div className="mt-0.5 text-xs text-slate-500">{line.detail}</div> : null}
+                      </td>
+                      <td className="px-3 py-2.5 text-right align-top tabular-nums text-slate-700">{line.quantityLabel}</td>
+                      <td className="px-3 py-2.5 text-right align-top tabular-nums text-slate-700">{line.unitLabel}</td>
+                      <td className="px-3 py-2.5 text-right align-top font-semibold tabular-nums text-slate-900">{line.lineLabel}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_16rem]">
-              <div className="rounded-md border border-slate-200 px-4 py-3 text-sm">
-                <div className="flex items-center justify-between gap-4 py-1">
-                  <span className="text-slate-500">Produtos</span>
-                  <span className="tabular-nums text-slate-800">{model.productsLabel}</span>
+            {model.oneTimeRows.length > 0 ? (
+              <section className="mt-4 rounded-md border border-slate-200 px-4 py-3" data-testid="internal-proposal-onetime">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Valores únicos
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">{model.oneTimeCaption}</p>
+                <div className="mt-2 divide-y divide-slate-100 text-sm">
+                  {model.oneTimeRows.map((row) => (
+                    <div key={row.testId} className="flex items-center justify-between gap-4 py-1.5" data-testid={row.testId}>
+                      <span className="text-slate-600">{row.label}</span>
+                      <span className="font-semibold tabular-nums text-slate-900">{row.value}</span>
+                    </div>
+                  ))}
                 </div>
-                {model.showFreight ? (
-                  <div className="flex items-center justify-between gap-4 border-t border-slate-100 py-1">
-                    <span className="text-slate-500">Frete</span>
-                    <span className="tabular-nums text-slate-800" data-testid="internal-proposal-freight">
-                      {model.freightLabel}
-                    </span>
-                  </div>
-                ) : null}
-                <div className="flex items-center justify-between gap-4 border-t border-slate-100 py-1">
-                  <span className="text-slate-500">Valor mensal</span>
-                  <span className="tabular-nums text-slate-800" data-testid="internal-proposal-monthly">
-                    {model.monthlyLabel}
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-col justify-center rounded-md bg-[#1e3a6e] px-4 py-3 text-white">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Valor total</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums" data-testid="internal-proposal-total">
-                  {model.totalLabel}
-                </p>
-              </div>
-            </div>
+              </section>
+            ) : null}
 
             <h3 className="mt-7 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Condições</h3>
             <dl className="mt-2 grid gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-2">
-              <Condition label="Prazo" value={model.deliveryLabel} testId="internal-proposal-term" />
-              <Condition label="Contrato" value={model.contractLabel} testId="internal-proposal-contract" />
-              <Condition label="SLA" value={model.slaLabel} testId="internal-proposal-sla" />
-              <Condition label="Condição de pagamento" value={model.paymentLabel} testId="internal-proposal-payment" />
-              <Condition label="Validade" value={model.validityLabel} testId="internal-proposal-validity" wide />
+              {model.conditions.map((condition, index) => (
+                <div
+                  key={condition.testId}
+                  className={
+                    index === model.conditions.length - 1 && model.conditions.length % 2 === 1
+                      ? 'bg-white px-4 py-3 sm:col-span-2'
+                      : 'bg-white px-4 py-3'
+                  }
+                  data-testid={condition.testId}
+                >
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{condition.label}</dt>
+                  <dd className="mt-1 text-sm text-slate-900">{condition.value}</dd>
+                </div>
+              ))}
             </dl>
           </div>
 
-          <section
-            className="border-t border-amber-200 bg-amber-50 px-6 py-5 sm:px-8"
-            data-testid="internal-proposal-notes"
-          >
+          <section className="border-t border-amber-200 bg-amber-50 px-6 py-5 sm:px-8" data-testid="internal-proposal-notes">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-sm font-semibold text-amber-950">Observações internas</h3>
               <p className="text-[11px] font-medium uppercase tracking-wide text-amber-800">
@@ -142,9 +157,7 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
           </section>
 
           <footer className="border-t border-slate-200 bg-slate-50 px-6 py-4 sm:px-8">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Link interno estável
-            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Link interno estável</p>
             <p className="mt-1 break-all font-mono text-xs text-[#1e3a6e]" data-testid="internal-proposal-url">
               {model.stableUrl}
             </p>
@@ -155,21 +168,11 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
   );
 }
 
-function Condition({
-  label,
-  value,
-  testId,
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  testId: string;
-  wide?: boolean;
-}) {
+function Metric({ label, value, testId }: { label: string; value: string; testId: string }) {
   return (
-    <div className={wide ? 'bg-white px-4 py-3 sm:col-span-2' : 'bg-white px-4 py-3'} data-testid={testId}>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm text-slate-900">{value}</dd>
+    <div className="rounded-md border border-slate-200 px-4 py-3" data-testid={testId}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums text-[#1e3a6e]">{value}</p>
     </div>
   );
 }
