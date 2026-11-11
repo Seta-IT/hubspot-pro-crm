@@ -1611,6 +1611,8 @@ export default function ServiceDeskTab({
                           ? `${activeTicket.contact.firstName} ${activeTicket.contact.lastName}`
                           : 'Cliente',
                         companyName: activeTicket.company?.name || 'Cliente Seta Telecom',
+                        companyId: activeTicket.companyId || activeTicket.company?.id || null,
+                        contactId: activeTicket.contactId || activeTicket.contact?.id || null,
                         documentCode: activeTicket.key,
                         ticketId: activeTicket.id,
                       })

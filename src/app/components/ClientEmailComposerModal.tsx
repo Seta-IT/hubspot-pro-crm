@@ -4,11 +4,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { buildClientEmailGreeting } from '../lib/client-email-greeting';
 import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
 import { requestSignedInvoiceLink } from '../lib/invoice-link-client';
+import { buildContractEmailBody, buildContractEmailSubject } from '../lib/contract-email-payload';
 import {
   defaultSelectedInvoiceAttachments,
   type InvoiceSendAttachmentAvailability,
   type InvoiceSendAttachmentKind,
 } from '../../modules/erp/invoice-send-attachments';
+import {
+  CONTRACT_EMAIL_ATTACHMENT_KINDS,
+  CONTRACT_EMAIL_ATTACHMENT_LABELS,
+  contractEmailNeedsInvoice,
+  contractEmailWantsProposalLink,
+  defaultSelectedContractAttachments,
+  resolveContractEmailAttachments,
+  selectedInvoiceAttachmentKinds,
+  type ContractAttachmentState,
+  type ContractEmailInvoiceChoice,
+} from '../../modules/erp/contract-email-compose';
+import {
+  joinRecipientList,
+  parseRecipientList,
+  type EmailRecipientChip,
+} from '../../modules/erp/email-recipients';
+import EmailRecipientField from './email/EmailRecipientField';
 import {
   Mail,
   Send,
@@ -60,6 +78,9 @@ export interface ClientEmailInitialPayload {
   invoiceAttachments?: InvoiceSendAttachmentAvailability;
   receiptHtml?: string;
   remessaXml?: string;
+  contractId?: string | null;
+  contractNumber?: string | null;
+  invoiceChoices?: ContractEmailInvoiceChoice[];
 }
 
 const DOC_TYPE_META: Record<
@@ -242,6 +263,35 @@ Departamento Fiscal • SETA TELECOM LTDA (SETA | IT)
 CNPJ 14.806.925/0001-32 • fiscal@setatelecom.com.br`;
 }
 
+function initialContractAttach(payload: ClientEmailInitialPayload): ContractAttachmentState {
+  const latest = payload.invoiceChoices?.[0];
+  const resolved = resolveContractEmailAttachments({
+    proposalId: payload.proposalId,
+    invoice: latest || payload.invoiceId
+      ? {
+          boletoDigitableLine: latest?.boletoLine || payload.boletoLine,
+          pixCopyPaste: latest?.pixCode || payload.pixCode,
+          remessaNfeNumber: latest?.remessaNfeNumber || payload.remessaNfeNumber,
+          remessaNfeKey: latest?.remessaAccessKey || payload.remessaAccessKey,
+          rentalContractId: payload.contractId,
+          contractNumber: payload.contractNumber,
+        }
+      : null,
+    remessaDocs: [],
+  });
+  if (payload.invoiceAttachments) {
+    resolved.options.receipt.available = payload.invoiceAttachments.receipt.available;
+    resolved.options.boleto.available = payload.invoiceAttachments.boleto.available;
+    resolved.options.pix.available = payload.invoiceAttachments.pix.available;
+    resolved.options.remessa.available = payload.invoiceAttachments.remessa.available;
+    resolved.options.boleto.reason = payload.invoiceAttachments.boleto.available ? '' : (payload.invoiceId ? 'Sem linha digitável' : 'Sem fatura emitida');
+    resolved.options.pix.reason = payload.invoiceAttachments.pix.available ? '' : (payload.invoiceId ? 'Sem código Pix' : 'Sem fatura emitida');
+    resolved.options.remessa.reason = payload.invoiceAttachments.remessa.available ? '' : 'Sem NF/XML/DANFE';
+    resolved.options.receipt.reason = payload.invoiceAttachments.receipt.available ? '' : 'Sem fatura emitida';
+  }
+  return defaultSelectedContractAttachments(resolved.options);
+}
+
 export default function ClientEmailComposerModal({
   payload,
   onClose,
@@ -251,25 +301,54 @@ export default function ClientEmailComposerModal({
   onClose: () => void;
   onSentSuccess?: (summary: string) => void;
 }) {
+  const isContractSend = Boolean(payload.contractId);
   const [docType, setDocType] = useState<StiHubEmailDocType>(payload.docType);
-  const [toEmail, setToEmail] = useState<string>(
-    payload.recipientEmail ||
-      `financeiro@${(payload.companyName || 'cliente')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
-        .slice(0, 18)}.com.br`
+  const [toChips, setToChips] = useState<EmailRecipientChip[]>(() => parseRecipientList(payload.recipientEmail));
+  const [ccChips, setCcChips] = useState<EmailRecipientChip[]>(() =>
+    parseRecipientList(DOC_TYPE_META[payload.docType].defaultCc)
   );
-  const [ccEmail, setCcEmail] = useState<string>(DOC_TYPE_META[payload.docType].defaultCc);
-  const [bccEmail, setBccEmail] = useState<string>('');
+  const [bccChips, setBccChips] = useState<EmailRecipientChip[]>([]);
   const [subject, setSubject] = useState<string>(() =>
     buildDefaultSubject(payload, payload.docType)
   );
   const [body, setBody] = useState<string>(() => buildDefaultBody(payload, payload.docType));
-  const invoiceAvail = payload.invoiceAttachments;
-  const isInvoiceSend = Boolean(payload.invoiceId && invoiceAvail);
+  const [subjectDirty, setSubjectDirty] = useState(false);
+  const [bodyDirty, setBodyDirty] = useState(false);
+  const invoiceAvailInitial = payload.invoiceAttachments;
+  const isInvoiceSend = Boolean(payload.invoiceId && invoiceAvailInitial) && !isContractSend;
   const [selectedAttach, setSelectedAttach] = useState<Record<InvoiceSendAttachmentKind, boolean>>(() =>
-    invoiceAvail ? defaultSelectedInvoiceAttachments(invoiceAvail) : { receipt: true, remessa: false, boleto: false, pix: false }
+    invoiceAvailInitial ? defaultSelectedInvoiceAttachments(invoiceAvailInitial) : { receipt: true, remessa: false, boleto: false, pix: false }
   );
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>(payload.invoiceId || payload.invoiceChoices?.[0]?.id || '');
+  const [selectedContractAttach, setSelectedContractAttach] = useState<ContractAttachmentState>(() =>
+    initialContractAttach(payload)
+  );
+  const selectedChoice = (payload.invoiceChoices || []).find((c) => c.id === selectedInvoiceId) || payload.invoiceChoices?.[0];
+  const contractResolved = resolveContractEmailAttachments({
+    proposalId: payload.proposalId,
+    invoice: selectedChoice || payload.invoiceId
+      ? {
+          boletoDigitableLine: selectedChoice?.boletoLine || payload.boletoLine,
+          pixCopyPaste: selectedChoice?.pixCode || payload.pixCode,
+          remessaNfeNumber: selectedChoice?.remessaNfeNumber || payload.remessaNfeNumber,
+          remessaNfeKey: selectedChoice?.remessaAccessKey || payload.remessaAccessKey,
+          rentalContractId: payload.contractId,
+          contractNumber: payload.contractNumber,
+        }
+      : null,
+  });
+  if (selectedChoice?.invoiceAttachments) {
+    contractResolved.options.receipt.available = selectedChoice.invoiceAttachments.receipt.available;
+    contractResolved.options.boleto.available = selectedChoice.invoiceAttachments.boleto.available;
+    contractResolved.options.pix.available = selectedChoice.invoiceAttachments.pix.available;
+    contractResolved.options.remessa.available = selectedChoice.invoiceAttachments.remessa.available;
+    contractResolved.options.boleto.reason = selectedChoice.invoiceAttachments.boleto.available ? '' : 'Sem linha digitável';
+    contractResolved.options.pix.reason = selectedChoice.invoiceAttachments.pix.available ? '' : 'Sem código Pix';
+    contractResolved.options.remessa.reason = selectedChoice.invoiceAttachments.remessa.available ? '' : 'Sem NF/XML/DANFE';
+    contractResolved.options.receipt.reason = selectedChoice.invoiceAttachments.receipt.available ? '' : 'Sem fatura emitida';
+  }
+  const contractOptions = contractResolved.options;
+  const invoiceAvail = isInvoiceSend ? invoiceAvailInitial : selectedChoice?.invoiceAttachments || invoiceAvailInitial;
   const [signedInvoiceUrl, setSignedInvoiceUrl] = useState<string | null>(payload.publicPdfUrl || null);
   const [pixQrSrc, setPixQrSrc] = useState<string>('');
   const [sending, setSending] = useState(false);
@@ -278,17 +357,31 @@ export default function ClientEmailComposerModal({
   const [copied, setCopied] = useState(false);
   const [signedProposalUrl, setSignedProposalUrl] = useState<string | null>(null);
   const alreadySigned = Boolean(payload.publicPdfUrl && payload.publicPdfUrl.includes('#t='));
+  const wantsProposal = isContractSend
+    ? contractEmailWantsProposalLink(selectedContractAttach, payload.proposalId)
+    : docType === 'PROPOSAL';
   const [signedLink, setSignedLink] = useState<SignedLinkState>(() =>
-    alreadySigned ? { status: 'not-needed' } : { status: 'loading' }
+    alreadySigned || (isContractSend && !payload.proposalId) ? { status: 'not-needed' } : wantsProposal ? { status: 'loading' } : { status: 'not-needed' }
   );
   const [linkAttempt, setLinkAttempt] = useState(0);
   const [gateError, setGateError] = useState<string | null>(null);
+
+  const toEmail = joinRecipientList(toChips);
+  const ccEmail = joinRecipientList(ccChips);
+  const bccEmail = joinRecipientList(bccChips);
 
   // Link assinado (29/10): proposta para o cliente so abre com o link gerado no servidor.
   // Se o corpo padrao trouxe o link antigo (sem assinatura), troca pelo link assinado.
   // Checagem final v4: se a emissao falhar, o compositor mostra o erro e bloqueia o envio.
   useEffect(() => {
-    if (docType !== 'PROPOSAL' || alreadySigned) return;
+    if (!wantsProposal || alreadySigned) {
+      if (!wantsProposal) setSignedLink({ status: 'not-needed' });
+      return;
+    }
+    if (!payload.proposalId) {
+      setSignedLink({ status: 'not-needed' });
+      return;
+    }
     let active = true;
     setSignedLink({ status: 'loading' });
     requestSignedProposalLink(payload.proposalId || '').then((r) => {
@@ -306,12 +399,14 @@ export default function ClientEmailComposerModal({
     return () => {
       active = false;
     };
-  }, [payload, docType, alreadySigned, linkAttempt]);
+  }, [payload, wantsProposal, alreadySigned, linkAttempt]);
+
+  const activeInvoiceId = isContractSend ? selectedInvoiceId : payload.invoiceId;
 
   useEffect(() => {
-    if (!payload.invoiceId) return;
+    if (!activeInvoiceId) return;
     let active = true;
-    requestSignedInvoiceLink(payload.invoiceId).then((r) => {
+    requestSignedInvoiceLink(activeInvoiceId).then((r) => {
       if (!active) return;
       if (!r.ok) return;
       setSignedInvoiceUrl(r.url);
@@ -329,9 +424,48 @@ export default function ClientEmailComposerModal({
     return () => {
       active = false;
     };
-  }, [payload.invoiceId]);
+  }, [activeInvoiceId]);
 
-  const selectedPixCode = isInvoiceSend && selectedAttach.pix && invoiceAvail?.pix.available ? invoiceAvail.pix.code : '';
+  useEffect(() => {
+    if (!isContractSend || subjectDirty && bodyDirty) return;
+    const nextSubject = buildContractEmailSubject({
+      contractNumber: payload.contractNumber || payload.documentCode,
+      companyName: payload.companyName,
+      selected: selectedContractAttach,
+    });
+    const nextBody = buildContractEmailBody({
+      recipientName: payload.recipientName,
+      companyName: payload.companyName,
+      companyCnpj: payload.companyCnpj,
+      contractNumber: payload.contractNumber || payload.documentCode,
+      amountLabel: payload.amountBrl !== undefined ? formatBRL(payload.amountBrl) : undefined,
+      dueDate: payload.dueDate,
+      selected: selectedContractAttach,
+      invoiceCode: selectedChoice?.documentNumber,
+      invoiceUrl: signedInvoiceUrl || undefined,
+      proposalUrl: signedProposalUrl || undefined,
+      boletoLine: selectedChoice?.boletoLine || payload.boletoLine,
+      pixCode: selectedChoice?.pixCode || payload.pixCode,
+      remessaNumber: selectedChoice?.remessaNfeNumber || payload.remessaNfeNumber,
+      remessaKey: selectedChoice?.remessaAccessKey || payload.remessaAccessKey,
+    });
+    if (!subjectDirty) setSubject(nextSubject);
+    if (!bodyDirty) setBody(nextBody);
+  }, [
+    isContractSend,
+    selectedContractAttach,
+    selectedChoice,
+    signedInvoiceUrl,
+    signedProposalUrl,
+    payload,
+    subjectDirty,
+    bodyDirty,
+  ]);
+
+  const selectedPixCode = (isInvoiceSend || isContractSend) && invoiceAvail?.pix.available
+    && ((isContractSend && selectedContractAttach.pix) || (isInvoiceSend && selectedAttach.pix))
+    ? invoiceAvail.pix.code
+    : '';
   useEffect(() => {
     if (!selectedPixCode) {
       setPixQrSrc('');
@@ -352,7 +486,7 @@ export default function ClientEmailComposerModal({
   }, [selectedPixCode]);
 
   const linkGate = proposalEmailLinkGate({
-    isProposal: docType === 'PROPOSAL',
+    isProposal: wantsProposal,
     state: signedLink,
     body,
     unsignedUrl: alreadySigned ? undefined : defaultProposalPdfLink(payload),
@@ -360,27 +494,31 @@ export default function ClientEmailComposerModal({
 
   const handleSwitchDocType = (nextType: StiHubEmailDocType) => {
     setDocType(nextType);
-    setCcEmail(DOC_TYPE_META[nextType].defaultCc);
+    setCcChips(parseRecipientList(DOC_TYPE_META[nextType].defaultCc));
     const updatedPayload = { ...payload, customSubject: undefined, customBody: undefined };
     setSubject(buildDefaultSubject(updatedPayload, nextType));
     const nextBody = buildDefaultBody(updatedPayload, nextType);
     const unsigned = defaultProposalPdfLink(payload);
     setBody(signedProposalUrl && unsigned && nextBody.includes(unsigned) ? nextBody.split(unsigned).join(signedProposalUrl) : nextBody);
+    setSubjectDirty(false);
+    setBodyDirty(false);
   };
 
   const outgoingText = useMemo(() => {
     let text = body;
-    if (isInvoiceSend && invoiceAvail) {
-      if (selectedAttach.boleto && invoiceAvail.boleto.available && invoiceAvail.boleto.line && !text.includes(invoiceAvail.boleto.line)) {
-        text += `\n\nLinha digitável do boleto:\n${invoiceAvail.boleto.line}`;
+    const avail = invoiceAvail;
+    const attach = isContractSend ? selectedContractAttach : selectedAttach;
+    if ((isInvoiceSend || isContractSend) && avail) {
+      if (attach.boleto && avail.boleto.available && avail.boleto.line && !text.includes(avail.boleto.line)) {
+        text += `\n\nLinha digitável do boleto:\n${avail.boleto.line}`;
       }
-      if (selectedAttach.pix && invoiceAvail.pix.available && invoiceAvail.pix.code && !text.includes(invoiceAvail.pix.code)) {
-        text += `\n\nCódigo Pix (copia e cola):\n${invoiceAvail.pix.code}`;
+      if (attach.pix && avail.pix.available && avail.pix.code && !text.includes(avail.pix.code)) {
+        text += `\n\nCódigo Pix (copia e cola):\n${avail.pix.code}`;
       }
-      if (selectedAttach.remessa && invoiceAvail.remessa.available) {
+      if (attach.remessa && avail.remessa.available) {
         const bits = [
-          invoiceAvail.remessa.number ? `Número: ${invoiceAvail.remessa.number}` : '',
-          invoiceAvail.remessa.accessKey ? `Chave de acesso: ${invoiceAvail.remessa.accessKey}` : '',
+          avail.remessa.number ? `Número: ${avail.remessa.number}` : '',
+          avail.remessa.accessKey ? `Chave de acesso: ${avail.remessa.accessKey}` : '',
         ].filter(Boolean);
         if (bits.length && !bits.some((b) => text.includes(b))) {
           text += `\n\nNF-e de remessa:\n${bits.join('\n')}`;
@@ -388,17 +526,32 @@ export default function ClientEmailComposerModal({
       }
     }
     return text;
-  }, [body, isInvoiceSend, invoiceAvail, selectedAttach]);
+  }, [body, isInvoiceSend, isContractSend, invoiceAvail, selectedAttach, selectedContractAttach]);
 
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!toEmail.trim()) return;
+    if (!toEmail.trim()) {
+      setSendError('Informe pelo menos um destinatário válido.');
+      return;
+    }
+    if ([...toChips, ...ccChips, ...bccChips].some((chip) => chip.invalid)) {
+      setSendError('Há destinatários com e-mail inválido.');
+      return;
+    }
     if (!linkGate.ok) {
       setGateError(linkGate.error);
       return;
     }
     setSending(true);
     try {
+      const sendInvoiceId = isContractSend
+        ? (contractEmailNeedsInvoice(selectedContractAttach) ? selectedInvoiceId : '')
+        : payload.invoiceId;
+      const selectedAttachments = isContractSend
+        ? selectedInvoiceAttachmentKinds(selectedContractAttach)
+        : isInvoiceSend
+          ? (Object.keys(selectedAttach) as Array<keyof typeof selectedAttach>).filter((k) => selectedAttach[k])
+          : undefined;
       const res = await fetch('/api/communications/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -418,10 +571,8 @@ export default function ClientEmailComposerModal({
           dealId: payload.dealId,
           ticketId: payload.ticketId,
           proposalId: payload.proposalId,
-          invoiceId: payload.invoiceId,
-          selectedAttachments: isInvoiceSend
-            ? (Object.keys(selectedAttach) as Array<keyof typeof selectedAttach>).filter((k) => selectedAttach[k])
-            : undefined,
+          invoiceId: sendInvoiceId || undefined,
+          selectedAttachments,
         }),
       });
       if (!res.ok) {
@@ -444,7 +595,7 @@ export default function ClientEmailComposerModal({
         type: 'EMAIL',
         // A1: o historico local (journal) nunca guarda o token do link assinado.
         title: redactProposalLinkTokens(`E-mail enviado [${DOC_TYPE_META[docType].badge}]: ${subject}`),
-        body: `Para: ${toEmail} (CC: ${ccEmail}${bccEmail.trim() ? `; Cco: ${bccEmail}` : ''}) • Protocolo: ${protocol}`,
+        body: `Para: ${toEmail}${ccEmail ? ` (CC: ${ccEmail})` : ''} • Protocolo: ${protocol}`,
         metadata: { docType, toEmail, protocol },
         contactId: payload.contactId || null,
         companyId: payload.companyId || null,
@@ -465,10 +616,14 @@ export default function ClientEmailComposerModal({
     ccEmail
   )}${bccEmail.trim() ? `&bcc=${encodeURIComponent(bccEmail.trim())}` : ''}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(outgoingText)}`;
 
+  const toggleContractAttach = (kind: keyof ContractAttachmentState, available: boolean, checked: boolean) => {
+    if (!available) return;
+    setSelectedContractAttach((prev) => ({ ...prev, [kind]: checked }));
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:hidden">
       <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-3xl w-full overflow-hidden my-6">
-        {/* TOP HEADER */}
         <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-md bg-white/15 flex items-center justify-center">
@@ -502,7 +657,7 @@ export default function ClientEmailComposerModal({
             </h4>
             <p className="text-xs text-slate-600 max-w-lg mx-auto">
               O documento <strong>{DOC_TYPE_META[docType].badge}</strong> foi disparado para{' '}
-              <strong className="text-[#1e3a6e]">{toEmail}</strong> (cópia para {ccEmail}) e registrado na Linha do Tempo do cliente no STI-hub.
+              <strong className="text-[#1e3a6e]">{toEmail}</strong>{ccEmail ? <> (cópia para {ccEmail})</> : null} e registrado na Linha do Tempo do cliente no STI-hub.
             </p>
             <div className="inline-block px-4 py-2 rounded bg-slate-100 border border-slate-200 font-mono text-xs font-semibold text-slate-800">
               Protocolo: {sentProtocol}
@@ -525,7 +680,7 @@ export default function ClientEmailComposerModal({
           </div>
         ) : (
           <form onSubmit={handleSendEmail} className="p-6 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
-            {/* Template Selector */}
+            {!isContractSend && (
             <div>
               <label className="block font-semibold text-slate-700 mb-1.5">
                 Tipo de e-mail
@@ -559,55 +714,112 @@ export default function ClientEmailComposerModal({
                 })}
               </div>
             </div>
+            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Para (E-mail do Cliente / Destinatário) *
-                </label>
+            <div className="rounded-md border border-slate-200 px-3 py-1">
+              <EmailRecipientField
+                label="Para"
+                testId="email-recipient-to"
+                chips={toChips}
+                onChange={setToChips}
+                companyId={payload.companyId}
+                siblingCount={ccChips.length + bccChips.length}
+                placeholder="Nome ou e-mail"
+              />
+              <EmailRecipientField
+                label="Cc"
+                testId="email-recipient-cc"
+                chips={ccChips}
+                onChange={setCcChips}
+                companyId={payload.companyId}
+                siblingCount={toChips.length + bccChips.length}
+              />
+              <EmailRecipientField
+                label="Cco"
+                testId="email-recipient-bcc"
+                chips={bccChips}
+                onChange={setBccChips}
+                companyId={payload.companyId}
+                siblingCount={toChips.length + ccChips.length}
+              />
+              <div className="flex items-center gap-2 py-1.5">
+                <span className="w-16 shrink-0 text-xs font-semibold text-slate-500">Assunto</span>
                 <input
                   type="text"
                   required
-                  value={toEmail}
-                  onChange={(e) => setToEmail(e.target.value)}
-                  placeholder="cliente@empresa.com.br, financeiro@empresa.com.br"
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  CC (Cópia Interna Seta Telecom)
-                </label>
-                <input
-                  type="text"
-                  value={ccEmail}
-                  onChange={(e) => setCcEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Cco</label>
-                <input
-                  type="text"
-                  value={bccEmail}
-                  onChange={(e) => setBccEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300"
+                  value={subject}
+                  onChange={(e) => {
+                    setSubjectDirty(true);
+                    setSubject(e.target.value);
+                  }}
+                  className="w-full outline-none bg-transparent font-semibold text-slate-900 py-1"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Assunto do E-mail *</label>
-              <input
-                type="text"
-                required
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-slate-900"
-              />
-            </div>
-
-            {isInvoiceSend && invoiceAvail ? (
+            {isContractSend ? (
+              <div data-testid="contract-send-attachments" className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">
+                <div className="flex items-center gap-2 text-slate-800 font-semibold">
+                  <Paperclip className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                  Anexos
+                </div>
+                {(payload.invoiceChoices || []).length > 1 && (
+                  <label className="block">
+                    <span className="block font-semibold text-slate-700 mb-1">Fatura / competência</span>
+                    <select
+                      data-testid="contract-email-invoice-select"
+                      value={selectedInvoiceId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setSelectedInvoiceId(nextId);
+                        const nextChoice = (payload.invoiceChoices || []).find((c) => c.id === nextId);
+                        if (!nextChoice) return;
+                        setSelectedContractAttach((prev) => ({
+                          ...prev,
+                          receipt: nextChoice.invoiceAttachments.receipt.available && prev.receipt,
+                          boleto: nextChoice.invoiceAttachments.boleto.available && prev.boleto,
+                          pix: nextChoice.invoiceAttachments.pix.available && prev.pix,
+                          remessa: nextChoice.invoiceAttachments.remessa.available && prev.remessa,
+                        }));
+                        setSignedInvoiceUrl(null);
+                      }}
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
+                    >
+                      {(payload.invoiceChoices || []).map((choice) => (
+                        <option key={choice.id} value={choice.id}>{choice.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {CONTRACT_EMAIL_ATTACHMENT_KINDS.map((kind) => {
+                  const opt = contractOptions[kind];
+                  return (
+                    <label
+                      key={kind}
+                      className={`flex items-center gap-2 text-xs font-semibold ${opt.available ? 'text-slate-800 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300"
+                        disabled={!opt.available}
+                        checked={opt.available && selectedContractAttach[kind]}
+                        onChange={(e) => toggleContractAttach(kind, opt.available, e.target.checked)}
+                      />
+                      <span>{CONTRACT_EMAIL_ATTACHMENT_LABELS[kind]}</span>
+                      {!opt.available && opt.reason ? (
+                        <span className="text-[11px] font-semibold text-slate-400">{opt.reason}</span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+                {selectedContractAttach.pix && pixQrSrc && invoiceAvail?.pix.available && (
+                  <div className="pt-1 flex items-start gap-3">
+                    <img src={pixQrSrc} alt="QR Code Pix" width={120} height={120} className="border border-slate-200 rounded bg-white" />
+                    <p className="font-mono text-[10px] text-slate-700 break-all">{invoiceAvail.pix.code}</p>
+                  </div>
+                )}
+              </div>
+            ) : isInvoiceSend && invoiceAvail ? (
               <div data-testid="invoice-send-attachments" className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">
                 <div className="flex items-center gap-2 text-slate-800 font-semibold">
                   <Paperclip className="w-4 h-4 text-[#1e3a6e] shrink-0" />
@@ -659,22 +871,25 @@ export default function ClientEmailComposerModal({
 
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
-                Mensagem / Corpo do E-mail (Editável)
+                Mensagem
               </label>
               <textarea
                 rows={10}
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={(e) => {
+                  setBodyDirty(true);
+                  setBody(e.target.value);
+                }}
                 className="w-full px-3.5 py-2.5 rounded border border-slate-300 font-sans text-xs leading-relaxed text-slate-800"
               />
             </div>
 
-            {docType === 'PROPOSAL' && signedLink.status === 'loading' && (
+            {wantsProposal && signedLink.status === 'loading' && (
               <div role="status" className="p-2.5 rounded border border-slate-200 bg-slate-50 text-slate-700">
                 Gerando o link assinado da proposta para o cliente…
               </div>
             )}
-            {docType === 'PROPOSAL' && (signedLink.status === 'error' || gateError) && !linkGate.ok && (
+            {wantsProposal && (signedLink.status === 'error' || gateError) && !linkGate.ok && (
               <div role="alert" className="p-3 rounded border border-red-300 bg-red-50 text-red-800 flex items-start justify-between gap-3">
                 <span className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />

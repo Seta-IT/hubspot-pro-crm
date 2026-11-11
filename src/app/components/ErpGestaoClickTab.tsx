@@ -157,6 +157,7 @@ import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEma
 import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
+import { buildContractEmailPayload } from '../lib/contract-email-payload';
 import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
 import {
   countRecordUsage,
@@ -1785,6 +1786,7 @@ export default function ErpGestaoClickTab({
                         recipientEmail: prop.contactEmail || "",
                         companyName: prop.companyName,
                         companyCnpj: prop.companyCnpj,
+                        companyId: prop.companyId,
                         documentCode: prop.code,
                         amountBrl: prop.monthlyRecurringTotal,
                         publicPdfUrl: signed.url,
@@ -3133,14 +3135,14 @@ export default function ErpGestaoClickTab({
         { key: "IMPRIMIR_A4", label: "Imprimir A4", icon: Printer, run: () => handleOpenContractA4(ctr, modality) },
         { key: "ALTERAR_SITUACAO", label: "Alterar situação", icon: CheckCircle2, run: () => setContractStatusPickerFor(ctr) },
         { key: "ENVIAR_EMAIL", label: "Enviar por e-mail", icon: Mail, run: () => {
-          setEmailModalPayload({
-            docType: "RENTAL_RECEIPT",
-            companyName: ctr.companyName,
-            companyCnpj: ctr.companyCnpj,
-            documentCode: `Contrato #${ctr.contractNumber}`,
-            amountBrl: ctr.monthlyValue,
-            dueDate: fmtBrDate(ctr.nextDueDate),
-          });
+          const contact = ctr.contactId ? contacts.find((c) => c.id === ctr.contactId) : undefined;
+          const recipientName = contact ? `${contact.firstName || ""} ${contact.lastName || ""}`.trim() : undefined;
+          setEmailModalPayload(buildContractEmailPayload(ctr, {
+            invoices,
+            remessaDocs: invoices,
+            proposals,
+            recipientName: recipientName || undefined,
+          }));
         } },
         { key: "ENVIAR_WHATSAPP", label: "Enviar por WhatsApp", icon: ArrowUpRight, run: () => { const txt = `Contrato ${ctr.contractNumber} - ${ctr.companyName}\nValor: ${formatBRL(ctr.monthlyValue)}/mês\nPróximo vencimento: ${fmtBrDate(ctr.nextDueDate)}\nCobrança: ${contractChargeLink(ctr)}\nAssinatura: ${contractSignLink(ctr)}`; window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank"); } },
         { key: "FATURAMENTO_CONTRATO", label: "Faturamento do Contrato", icon: Receipt, run: () => openContractBilling(ctr) },

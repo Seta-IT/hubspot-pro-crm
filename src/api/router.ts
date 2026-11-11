@@ -159,6 +159,11 @@ import {
   clientProvidedAttachmentPayload,
   collectEmailRecipients,
 } from '../modules/erp/send-email-guards';
+import {
+  rankRecipientSuggestions,
+  toPublicRecipientSuggestion,
+  type RecipientSuggestion,
+} from '../modules/erp/email-recipients';
 import { buildServerInvoiceEmailAttachments } from '../app/lib/invoice-email-server';
 import {
   countRecordUsage,
@@ -7892,6 +7897,58 @@ export class CrmApiRouter {
             changedFields: applied.changes.map((c) => c.field),
           },
         };
+      }
+
+
+      // ======================================================================
+      // BUSCA DE DESTINATÁRIOS (/api/communications/recipients)
+      // Contatos cadastrados + usuários internos (nome e e-mail apenas).
+      // ======================================================================
+      if (cleanPath === '/api/communications/recipients' && method === 'GET') {
+        const q = String(query.q || query.search || '').trim();
+        const companyId = String(query.companyId || '').trim();
+        const contacts = this.repo.listContacts({
+          search: q || undefined,
+          companyId: !q && companyId ? companyId : undefined,
+        });
+        const companies = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
+        const rows: RecipientSuggestion[] = [];
+        const seen = new Set<string>();
+        for (const contact of contacts) {
+          const email = String(contact.email || '').trim().toLowerCase();
+          if (!email || !email.includes('@') || seen.has(email)) continue;
+          seen.add(email);
+          const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+          rows.push(
+            toPublicRecipientSuggestion({
+              email,
+              name,
+              source: companyId && contact.companyId === companyId ? 'company_contact' : 'contact',
+              companyName: contact.companyId ? companies.get(contact.companyId)?.name || null : null,
+            })
+          );
+        }
+        if (q) {
+          const needle = q.toLowerCase();
+          for (const user of this.repo.getRbacState().users) {
+            if (user.active === false) continue;
+            const email = String(user.email || '').trim().toLowerCase();
+            const name = String(user.name || '').trim();
+            if (!email || !email.includes('@') || seen.has(email)) continue;
+            if (!email.includes(needle) && !name.toLowerCase().includes(needle)) continue;
+            seen.add(email);
+            rows.push(
+              toPublicRecipientSuggestion({
+                email,
+                name,
+                source: 'internal',
+                companyName: 'Seta Telecom',
+              })
+            );
+          }
+        }
+        const data = rankRecipientSuggestions(rows).slice(0, 20);
+        return { status: 200, body: { data, total: data.length } };
       }
 
       // ======================================================================
