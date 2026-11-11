@@ -1,7 +1,7 @@
 'use client';
 // Janela flutuante de e-mail no padrão HubSpot, usada nas fichas de negócio, contato e empresa.
 // Envio pela caixa Outlook do usuário (Graph). Sem backdrop: fica no canto inferior direito.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react';
 import {
   AlignCenter,
   AlignLeft,
@@ -56,7 +56,20 @@ import {
   type EmailRecordRef,
   type MailboxStatusView,
 } from './mailbox-client';
-import { CONFIDENTIALITY_NOTE_1, CONFIDENTIALITY_NOTE_2, DEFAULT_SETA_SIGNATURE } from './email-signature';
+import { CONFIDENTIALITY_NOTE_1, CONFIDENTIALITY_NOTE_2, DEFAULT_SETA_SIGNATURE, SETA_LOGO_ALT, SETA_LOGO_PUBLIC_PATH } from './email-signature';
+import { htmlToPlainText, isEmptyEmailHtml, plainTextToHtml, sanitizeEmailHtml, sanitizeHref } from '../../../modules/email/email-html';
+import {
+  ALLOWED_ATTACHMENT_TYPES,
+  MAILBOX_MAX_ATTACHMENT_BYTES,
+  INLINE_IMAGE_TYPES,
+  MAILBOX_ATTACHMENT_LIMIT,
+  MAILBOX_ATTACHMENT_TOO_LARGE,
+  MAILBOX_ATTACHMENT_TYPE_DENIED,
+  MAILBOX_MAX_ATTACHMENTS,
+  MAILBOX_MAX_ATTACHMENT_TOTAL_BYTES,
+  extensionOf,
+  sanitizeAttachmentFilename,
+} from '../../../modules/email/mailbox-attachments';
 
 export interface CrmEmailComposerModalProps {
   record: EmailRecordRef;
@@ -92,6 +105,39 @@ interface ProposalView {
   id: string;
   code: string;
   title: string;
+}
+
+interface ComposerAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  contentBase64: string;
+  size: number;
+}
+
+/** Troca a prévia blob: por cid:stihub-inline-N e remove qualquer img remota antes do envio. */
+function serializeComposerHtml(raw: string): string {
+  const replaced = String(raw || '').replace(/<img\b[^>]*>/gi, (tag) => {
+    const slot = /data-stihub-inline=["']?(\d{1,2})["']?/i.exec(tag);
+    if (!slot) return '';
+    const altM = /\balt="([^"]*)"/i.exec(tag);
+    const alt = altM ? altM[1] : '';
+    return `<img src="cid:stihub-inline-${Number(slot[1])}" alt="${alt}" />`;
+  });
+  return sanitizeEmailHtml(replaced);
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const r = String(reader.result || '');
+      const comma = r.indexOf(',');
+      resolve(comma >= 0 ? r.slice(comma + 1) : r);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function inferKind(record: EmailRecordRef, explicit?: ComposerRecordKind): ComposerRecordKind {
@@ -161,7 +207,11 @@ export function CrmEmailComposerModal({
   const [contactHits, setContactHits] = useState<ComposerContactInput[]>([]);
   const [enrolling, setEnrolling] = useState(false);
   const [insertingQuote, setInsertingQuote] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const imageRef = useRef<HTMLInputElement | null>(null);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [inlineImages, setInlineImages] = useState<(ComposerAttachment & { previewUrl: string })[]>([]);
   const [associations, setAssociations] = useState<TimelineAssociations>(() =>
     defaultTimelineAssociations({ kind, deal: deal || (record.dealId ? { id: record.dealId, title: recordLabel } : null), contact, company })
   );
@@ -298,44 +348,40 @@ export function CrmEmailComposerModal({
     emails.forEach((email) => addRecipient({ email, name: '', contactId: null }));
   };
 
+  const syncBodyFromEditor = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    setBody(sanitizeEmailHtml(el.innerHTML || ''));
+  };
+
+  const focusEditor = () => {
+    bodyRef.current?.focus();
+  };
+
+  const runFormat = (cmd: string, value?: string) => {
+    focusEditor();
+    document.execCommand(cmd, false, value);
+    syncBodyFromEditor();
+  };
+
+  const insertSafeHtml = (html: string) => {
+    focusEditor();
+    const safe = sanitizeEmailHtml(html);
+    if (!safe) return;
+    document.execCommand('insertHTML', false, safe);
+    syncBodyFromEditor();
+  };
+
   const applyTemplate = (tpl: EmailTemplateView) => {
     setSubject(fillTemplateVars(tpl.subject || subject, varCtx));
-    setBody(fillTemplateVars(tpl.body || '', varCtx));
+    const next = sanitizeEmailHtml(plainTextToHtml(fillTemplateVars(tpl.body || '', varCtx)));
+    setBody(next);
+    if (bodyRef.current) bodyRef.current.innerHTML = next;
     setActiveTab(null);
   };
 
   const insertText = (chunk: string) => {
-    const el = bodyRef.current;
-    if (!el) {
-      setBody((prev) => `${prev}${prev && !prev.endsWith('\n') ? '\n' : ''}${chunk}`);
-      return;
-    }
-    const start = el.selectionStart ?? body.length;
-    const end = el.selectionEnd ?? body.length;
-    const next = body.slice(0, start) + chunk + body.slice(end);
-    setBody(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + chunk.length;
-      el.setSelectionRange(pos, pos);
-    });
-  };
-
-  const wrapSelection = (prefix: string, suffix = prefix) => {
-    const el = bodyRef.current;
-    if (!el) {
-      setBody((prev) => `${prefix}${prev}${suffix}`);
-      return;
-    }
-    const start = el.selectionStart ?? 0;
-    const end = el.selectionEnd ?? 0;
-    const selected = body.slice(start, end) || 'texto';
-    const next = body.slice(0, start) + prefix + selected + suffix + body.slice(end);
-    setBody(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
-    });
+    insertSafeHtml(plainTextToHtml(chunk));
   };
 
   const insertProposalLink = async (proposalId: string) => {
@@ -347,9 +393,106 @@ export function CrmEmailComposerModal({
       setError(r.error);
       return;
     }
-    insertText(r.url);
+    const href = sanitizeHref(r.url);
+    if (!href) {
+      setError('O link da proposta é inválido.');
+      return;
+    }
+    insertSafeHtml(`<a href="${href}">${href}</a>`);
     setActiveTab(null);
     setShowInsert(false);
+  };
+
+  const onEditorPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    insertSafeHtml(html ? sanitizeEmailHtml(html) : plainTextToHtml(text));
+  };
+
+  const addFiles = async (fileList: FileList | null) => {
+    if (!fileList || !fileList.length) return;
+    setError(null);
+    const next = [...attachments];
+    for (const file of Array.from(fileList)) {
+      if (next.length + inlineImages.length >= MAILBOX_MAX_ATTACHMENTS) {
+        setError(MAILBOX_ATTACHMENT_LIMIT);
+        break;
+      }
+      const filename = sanitizeAttachmentFilename(file.name);
+      const ext = filename ? extensionOf(filename) : '';
+      const mime = ext ? ALLOWED_ATTACHMENT_TYPES[ext] : null;
+      if (!filename || !mime) {
+        setError(MAILBOX_ATTACHMENT_TYPE_DENIED);
+        continue;
+      }
+      if (file.size > MAILBOX_MAX_ATTACHMENT_BYTES) {
+        setError(MAILBOX_ATTACHMENT_TOO_LARGE);
+        continue;
+      }
+      const already = next.reduce((n, a) => n + a.size, 0) + inlineImages.reduce((n, a) => n + a.size, 0);
+      if (already + file.size > MAILBOX_MAX_ATTACHMENT_TOTAL_BYTES) {
+        setError(MAILBOX_ATTACHMENT_TOO_LARGE);
+        break;
+      }
+      try {
+        const contentBase64 = await fileToBase64(file);
+        next.push({
+          id: `att-${Date.now()}-${next.length}`,
+          filename,
+          contentType: mime,
+          contentBase64,
+          size: file.size,
+        });
+      } catch {
+        setError('Não foi possível ler o arquivo.');
+      }
+    }
+    setAttachments(next);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const addInlineImage = async (fileList: FileList | null) => {
+    const file = fileList && fileList[0];
+    if (imageRef.current) imageRef.current.value = '';
+    if (!file) return;
+    setError(null);
+    const used = attachments.length + inlineImages.length;
+    if (used >= MAILBOX_MAX_ATTACHMENTS) {
+      setError(MAILBOX_ATTACHMENT_LIMIT);
+      return;
+    }
+    const filename = sanitizeAttachmentFilename(file.name);
+    const ext = filename ? extensionOf(filename) : '';
+    const mime = ext ? ALLOWED_ATTACHMENT_TYPES[ext] : null;
+    if (!filename || !mime || !INLINE_IMAGE_TYPES.has(mime)) {
+      setError(MAILBOX_ATTACHMENT_TYPE_DENIED);
+      return;
+    }
+    if (file.size > MAILBOX_MAX_ATTACHMENT_BYTES) {
+      setError(MAILBOX_ATTACHMENT_TOO_LARGE);
+      return;
+    }
+    const already = attachments.reduce((n, a) => n + a.size, 0) + inlineImages.reduce((n, a) => n + a.size, 0);
+    if (already + file.size > MAILBOX_MAX_ATTACHMENT_TOTAL_BYTES) {
+      setError(MAILBOX_ATTACHMENT_TOO_LARGE);
+      return;
+    }
+    try {
+      const contentBase64 = await fileToBase64(file);
+      const previewUrl = URL.createObjectURL(file);
+      const slot = inlineImages.length;
+      setInlineImages((cur) => [...cur, { id: `img-${Date.now()}`, filename, contentType: mime, contentBase64, size: file.size, previewUrl }]);
+      focusEditor();
+      document.execCommand(
+        'insertHTML',
+        false,
+        sanitizeEmailHtml(`<img src="${previewUrl}" data-stihub-inline="${slot}" alt="${filename}" />`, { allowComposerPreview: true })
+      );
+      syncBodyFromEditor();
+    } catch {
+      setError('Não foi possível ler a imagem.');
+    }
   };
 
   const enrollInSequence = async (sequenceId: string) => {
@@ -406,11 +549,22 @@ export function CrmEmailComposerModal({
         cc: showCc ? cc : '',
         bcc: showBcc ? bcc : '',
         subject,
-        body: body.trim(),
+        body: serializeComposerHtml(bodyRef.current?.innerHTML || body),
+        bodyFormat: 'html',
         track,
         contactId: assoc.contactId,
         companyId: assoc.companyId,
         dealId: assoc.dealId,
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          contentBase64: a.contentBase64,
+        })),
+        inlineImages: inlineImages.map((a) => ({
+          filename: a.filename,
+          contentType: a.contentType,
+          contentBase64: a.contentBase64,
+        })),
       },
     });
     if (!r.ok) {
@@ -425,7 +579,7 @@ export function CrmEmailComposerModal({
         body: JSON.stringify({
           type: 'EMAIL',
           title: subject.trim(),
-          body: body.trim().slice(0, 2000),
+          body: htmlToPlainText(bodyRef.current?.innerHTML || body).slice(0, 2000),
           ...assoc,
         }),
       });
@@ -714,17 +868,27 @@ export function CrmEmailComposerModal({
               <input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} placeholder="Assunto" className="flex-1 text-xs border-0 focus:ring-0 p-0" />
             </div>
 
-            <textarea
-              ref={bodyRef}
-              rows={expanded ? 12 : 7}
-              maxLength={20000}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Escreva sua mensagem..."
-              className="w-full text-sm text-slate-800 border-0 focus:ring-0 p-1 resize-y min-h-[120px]"
-            />
+            <div className="relative">
+              {isEmptyEmailHtml(body) ? (
+                <span className="pointer-events-none absolute left-1 top-1 text-sm text-slate-400">Escreva sua mensagem...</span>
+              ) : null}
+              <div
+                ref={bodyRef}
+                contentEditable
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Corpo do e-mail"
+                data-testid="crm-mail-body-editor"
+                suppressContentEditableWarning
+                onInput={syncBodyFromEditor}
+                onPaste={onEditorPaste}
+                className="relative w-full text-sm text-slate-800 border-0 focus:ring-0 p-1 resize-y min-h-[120px] outline-none prose-p:my-1"
+                style={{ minHeight: expanded ? 220 : 120 }}
+              />
+            </div>
 
             <div className="pt-3 mt-1 border-t border-slate-200 space-y-3 text-sm text-slate-800">
+              <img src={SETA_LOGO_PUBLIC_PATH} alt={SETA_LOGO_ALT} width={200} height={64} className="h-12 w-auto" />
               <div className="whitespace-pre-line text-sm text-slate-800">{signature.split('\n\nNota de Confidencialidade')[0]}</div>
               {signature.includes('Nota de Confidencialidade') ? (
                 <div className="space-y-2 text-xs text-slate-700">
@@ -765,16 +929,16 @@ export function CrmEmailComposerModal({
 
       <div className="px-3 py-2 border-t border-slate-200 shrink-0 space-y-1.5 bg-white">
         <div className="flex flex-wrap items-center gap-0.5 relative">
-          <button type="button" onClick={() => wrapSelection('**', '**')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Negrito" aria-label="Negrito">
+          <button type="button" onClick={() => runFormat('bold')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Negrito" aria-label="Negrito">
             <Bold className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={() => wrapSelection('_', '_')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Itálico" aria-label="Itálico">
+          <button type="button" onClick={() => runFormat('italic')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Itálico" aria-label="Itálico">
             <Italic className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={() => wrapSelection('__', '__')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Sublinhar" aria-label="Sublinhar">
+          <button type="button" onClick={() => runFormat('underline')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Sublinhar" aria-label="Sublinhar">
             <Underline className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={() => setBody((b) => b.replace(/\*\*|__/g, '').replace(/(^|[^A-Za-z0-9])_+/g, '$1').replace(/_+/g, ''))} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Limpar formatação" aria-label="Limpar formatação">
+          <button type="button" onClick={() => runFormat('removeFormat')} className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer" title="Limpar formatação" aria-label="Limpar formatação">
             <RemoveFormatting className="w-3.5 h-3.5" />
           </button>
           <div className="relative">
@@ -783,19 +947,19 @@ export function CrmEmailComposerModal({
             </button>
             {showMoreFmt && (
               <div className="absolute bottom-full left-0 mb-1 z-20 w-44 rounded-lg border border-slate-200 bg-white shadow-xl p-1">
-                <button type="button" onClick={() => { insertText('\n- '); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
+                <button type="button" onClick={() => { runFormat('insertUnorderedList'); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
                   <List className="w-3.5 h-3.5" /> Lista
                 </button>
-                <button type="button" onClick={() => { insertText('\n1. '); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
+                <button type="button" onClick={() => { runFormat('insertOrderedList'); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
                   <ListOrdered className="w-3.5 h-3.5" /> Lista numerada
                 </button>
-                <button type="button" onClick={() => { wrapSelection('', ''); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
+                <button type="button" onClick={() => { runFormat('justifyLeft'); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer">
                   <AlignLeft className="w-3.5 h-3.5" /> Alinhar à esquerda
                 </button>
-                <button type="button" onClick={() => { setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 cursor-not-allowed" disabled title="O envio pela caixa trata o corpo como texto; o alinhamento visual não é enviado.">
+                <button type="button" onClick={() => { runFormat('justifyCenter'); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer" title="Centralizar">
                   <AlignCenter className="w-3.5 h-3.5" /> Centralizar
                 </button>
-                <button type="button" onClick={() => { setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 cursor-not-allowed" disabled title="O envio pela caixa trata o corpo como texto; o alinhamento visual não é enviado.">
+                <button type="button" onClick={() => { runFormat('justifyRight'); setShowMoreFmt(false); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer" title="Alinhar à direita">
                   <AlignRight className="w-3.5 h-3.5" /> Alinhar à direita
                 </button>
               </div>
@@ -804,8 +968,14 @@ export function CrmEmailComposerModal({
           <button
             type="button"
             onClick={() => {
-              const url = window.prompt('Endereço do link:', 'https://');
-              if (url) wrapSelection('[', `](${url})`);
+              const raw = window.prompt('Endereço do link:', 'https://');
+              if (!raw) return;
+              const href = sanitizeHref(raw);
+              if (!href) {
+                setError('Informe um link http(s) ou mailto válido.');
+                return;
+              }
+              runFormat('createLink', href);
             }}
             className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
             title="Link"
@@ -813,15 +983,20 @@ export function CrmEmailComposerModal({
           >
             <Link2 className="w-3.5 h-3.5" />
           </button>
+          <input
+            ref={imageRef}
+            type="file"
+            hidden
+            accept="image/png,image/jpeg,image/gif,image/webp,.png,.jpg,.jpeg,.gif,.webp"
+            onChange={(e) => void addInlineImage(e.target.files)}
+          />
           <button
             type="button"
-            onClick={() => {
-              const url = window.prompt('Endereço da imagem (será inserido como link no e-mail):', 'https://');
-              if (url) insertText(url);
-            }}
+            onClick={() => imageRef.current?.click()}
             className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
-            title="Imagem (insere o endereço no corpo)"
+            title="Inserir imagem (anexo interno, sem endereço remoto)"
             aria-label="Imagem"
+            data-testid="crm-mail-insert-image"
           >
             <ImageIcon className="w-3.5 h-3.5" />
           </button>
@@ -869,12 +1044,21 @@ export function CrmEmailComposerModal({
               </div>
             )}
           </div>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx,.pptx,.txt,.csv,application/pdf,image/png,image/jpeg,image/gif,image/webp"
+            onChange={(e) => void addFiles(e.target.files)}
+          />
           <button
             type="button"
-            disabled
-            title="Anexos no envio pela caixa Outlook ainda não estão disponíveis."
-            className="p-1.5 rounded text-slate-300 cursor-not-allowed"
+            onClick={() => fileRef.current?.click()}
+            title="Anexar arquivo (até 2,5 MB no total)"
+            className="p-1.5 rounded hover:bg-slate-100 text-slate-600 cursor-pointer"
             aria-label="Anexo"
+            data-testid="crm-mail-attach"
           >
             <Paperclip className="w-3.5 h-3.5" />
           </button>
@@ -924,6 +1108,24 @@ export function CrmEmailComposerModal({
             )}
           </div>
         </div>
+
+        {attachments.length ? (
+          <ul className="flex flex-wrap gap-1.5" data-testid="crm-mail-attachments">
+            {attachments.map((a) => (
+              <li key={a.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 text-[11px] font-semibold text-slate-700">
+                <span className="max-w-[12rem] truncate">{a.filename}</span>
+                <button
+                  type="button"
+                  className="text-slate-500 hover:text-slate-800 cursor-pointer"
+                  aria-label={`Remover ${a.filename}`}
+                  onClick={() => setAttachments((cur) => cur.filter((x) => x.id !== a.id))}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">

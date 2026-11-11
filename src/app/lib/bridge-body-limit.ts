@@ -14,13 +14,15 @@ export const BRIDGE_LARGE_BODY_BYTES = 4 * 1024 * 1024; // 4 MiB (abaixo dos ~4,
  * Rotas com teto maior (POST, sessao assinada obrigatoria para o teto maior):
  * - /api/bootstrap: envia o journal local do navegador (reconcileJournal), sem limite de tamanho no cliente;
  * - /api/erp/purchases/import-xml e /api/erp/nfe-importacao/emit: XML/TXT de NF-e (NF-e com muitos itens passa de 1 MiB);
- * - /api/erp/financial/reconcile-ofx: extrato OFX (um ano de movimento pode passar de 1 MiB).
+ * - /api/erp/financial/reconcile-ofx: extrato OFX (um ano de movimento pode passar de 1 MiB);
+ * - /api/mailbox/send: anexos do e-mail do CRM (base64 no JSON). O teto maior só vale com sessão.
  */
 export const BRIDGE_LARGE_BODY_ROUTES: ReadonlyArray<{ method: string; path: string }> = Object.freeze([
   { method: 'POST', path: '/api/bootstrap' },
   { method: 'POST', path: '/api/erp/purchases/import-xml' },
   { method: 'POST', path: '/api/erp/nfe-importacao/emit' },
   { method: 'POST', path: '/api/erp/financial/reconcile-ofx' },
+  { method: 'POST', path: '/api/mailbox/send' },
 ]);
 
 export function isLargeBodyRoute(method: string, path: string): boolean {

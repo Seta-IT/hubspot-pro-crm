@@ -7,6 +7,8 @@ import { stopFollowupForDeal } from '../modules/deals/proposal-followup-service'
 //   DELETE /api/mailbox/accounts/:id           -> desconecta (apaga os tokens)
 //   PUT    /api/mailbox/signature              -> { signature } (texto puro)
 //   POST   /api/mailbox/send                   -> envia pela caixa do usuario (Graph) e registra
+//        bodyFormat=html: corpo HTML sanitizado (allowlist) + texto alternativo na timeline
+//        attachments: filename + contentType + contentBase64 (memoria, allowlist, <=3 MiB)
 //   POST   /api/mailbox/sync                   -> busca respostas/enviados das minhas caixas
 //   GET    /api/mailbox/timeline?contactId=|companyId=|dealId=  -> e-mails da ficha
 //   GET    /api/mailbox/never-log              -> lista "Nunca registrar" (+ canManage)
@@ -37,6 +39,9 @@ import {
 } from '../modules/email/ms-graph';
 import { openMailboxSecret, sealMailboxSecret } from '../modules/email/mailbox-crypto';
 import { buildTrackedEmailBody, newTrackingId } from '../modules/email/mail-tracking';
+import { applyServerInlineImages } from '../modules/email/mailbox-inline-images';
+import { parseMailboxAttachments, toGraphFileAttachment, type GraphFileAttachment } from '../modules/email/mailbox-attachments';
+import { SETA_LOGO_ALT, SETA_LOGO_CID, SETA_LOGO_CONTENT_BASE64, SETA_LOGO_CONTENT_TYPE, SETA_LOGO_FILENAME } from '../modules/email/seta-logo';
 import { normalizeEmailAddress, normalizeNeverLogPattern, NEVER_LOG_MAX_ENTRIES, shouldLogEmail } from '../modules/email/never-log';
 import {
   newMailboxId,
@@ -190,9 +195,12 @@ export const mailboxSendSchema = z
       .refine((s) => !SINGLE_LINE_BAD.test(s), 'caracteres inválidos no assunto'),
     body: z
       .string()
-      .max(20_000)
+      .max(40_000)
       .transform((s) => s.normalize('NFC'))
       .refine((s) => !BODY_BAD.test(s), 'caracteres inválidos no corpo'),
+    bodyFormat: z.enum(['text', 'html']).optional(),
+    attachments: z.array(z.record(z.string(), z.unknown())).max(10).optional(),
+    inlineImages: z.array(z.record(z.string(), z.unknown())).max(10).optional(),
     contactId: recId,
     companyId: recId,
     dealId: recId,
@@ -521,15 +529,54 @@ export async function handleMailboxRoute(
     const token = await getAccessToken(deps, account);
     if (!token) return { status: 409, body: { error: MAILBOX_MESSAGES.reconnect, code: 'MAILBOX_RECONNECT' } };
 
+    const parsedAtt = parseMailboxAttachments(v.attachments);
+    if (!parsedAtt.ok) {
+      return { status: 400, body: { error: parsedAtt.error, code: parsedAtt.code } };
+    }
+    const parsedInline = parseMailboxAttachments(v.inlineImages, {
+      imagesOnly: true,
+      usedBytes: parsedAtt.attachments.reduce((n, a) => n + a.size, 0),
+      usedCount: parsedAtt.attachments.length,
+    });
+    if (!parsedInline.ok) {
+      return { status: 400, body: { error: parsedInline.error, code: parsedInline.code } };
+    }
     const patterns = (await deps.store.listNeverLog()).map((e) => e.pattern);
     const logIt = shouldLogEmail([...v.to, ...v.cc, ...v.bcc], patterns);
     const track = logIt && v.track !== false;
     const trackingId = track ? newTrackingId() : null;
     const signature = await deps.store.getSignature(actor.email);
-    const built = buildTrackedEmailBody({ body: v.body, signature, trackingId });
+    const bodyFormat = v.bodyFormat === 'html' ? 'html' : 'text';
+    const built = buildTrackedEmailBody({
+      body: v.body,
+      signature,
+      trackingId,
+      bodyFormat,
+      logoCid: SETA_LOGO_CID,
+      logoAlt: SETA_LOGO_ALT,
+    });
+    const inlined = applyServerInlineImages(built.html, parsedInline.attachments);
+    const graphAtts: GraphFileAttachment[] = [
+      {
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: SETA_LOGO_FILENAME,
+        contentType: SETA_LOGO_CONTENT_TYPE,
+        contentBytes: SETA_LOGO_CONTENT_BASE64,
+        isInline: true,
+        contentId: SETA_LOGO_CID,
+      },
+      ...inlined.attachments,
+      ...parsedAtt.attachments.map((a) => toGraphFileAttachment(a)),
+    ];
+    const attachmentNames = [
+      ...parsedAtt.attachments.map((a) => a.filename),
+      ...parsedInline.attachments.map((a) => a.filename),
+    ];
     let sent;
     try {
-      sent = await sendGraphMail(deps.fetch, token, { to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: built.html });
+      sent = await sendGraphMail(deps.fetch, token, {
+        to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: inlined.html, text: built.text, attachments: graphAtts,
+      });
     } catch (e) {
       if (e instanceof GraphError && e.status === 401) await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
       audit(deps.repo, actor, query, 'MAILBOX_SEND_FAILED', `${m} ${cleanPath}`, 'BLOCKED', `Falha no envio pela caixa ${account.mailboxAddress}.`);
@@ -563,12 +610,13 @@ export async function handleMailboxRoute(
         lastOpenedAt: null,
         lastClickedAt: null,
         createdAt: new Date().toISOString(),
+        attachmentNames,
       };
       await deps.store.insertMessage(rec);
       item = toTimelineEmail(rec);
     }
     audit(deps.repo, actor, query, 'MAILBOX_EMAIL_SENT', `${m} ${cleanPath}`, 'SUCCESS',
-      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length + v.bcc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}.`);
+      `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length + v.bcc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}; anexos: ${attachmentNames.length ? attachmentNames.join(', ') : 'nenhum'}.`);
     return { status: 201, body: { data: { sent: true, logged: logIt, tracked: track, email: item } } };
   }
 

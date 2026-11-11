@@ -15,3 +15,8 @@ ${CONFIDENTIALITY_NOTE_1}
 
 Nota de Confidencialidade 2
 ${CONFIDENTIALITY_NOTE_2}`;
+
+
+/** Caminho público da marca oficial (prévia no compositor). O envio usa CID inline. */
+export const SETA_LOGO_PUBLIC_PATH = '/brand/seta-it-logo.png';
+export const SETA_LOGO_ALT = 'SETA | IT';

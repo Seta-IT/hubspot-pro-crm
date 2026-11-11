@@ -256,6 +256,19 @@ describe('compositor de e-mail — permissão, variáveis e UI', () => {
     assert.match(modal, /\/api\/tasks/);
     assert.match(modal, /NO_SEND_PERMISSION_REASON/);
     assert.match(modal, /canSendEmail/);
+    assert.match(modal, /contentEditable/);
+    assert.match(modal, /bodyFormat: 'html'/);
+    assert.match(modal, /data-testid="crm-mail-attach"/);
+    assert.match(modal, /runFormat\('justifyCenter'\)/);
+    assert.match(modal, /runFormat\('justifyRight'\)/);
+    assert.doesNotMatch(modal, /Anexos no envio pela caixa Outlook ainda não estão disponíveis/);
+    assert.doesNotMatch(modal, /o alinhamento visual não é enviado/);
+    assert.match(modal, /composer-tab-documents[\s\S]*true/);
+    assert.match(modal, /Agendar envio/);
+    assert.match(modal, /SETA_LOGO_PUBLIC_PATH/);
+    assert.match(modal, /crm-mail-insert-image/);
+    assert.doesNotMatch(modal, /Endereço da imagem/);
+    assert.match(modal, /inlineImages/);
 
     assert.match(section, /CrmEmailComposerModal/);
     assert.match(drawer, /CrmEmailComposerModal/);

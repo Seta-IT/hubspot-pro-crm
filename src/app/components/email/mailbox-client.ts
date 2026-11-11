@@ -39,6 +39,7 @@ export interface TimelineEmailView {
   lastOpenedAt: string | null;
   lastClickedAt: string | null;
   tracked: boolean;
+  attachmentNames?: string[];
 }
 
 export interface EmailRecordRef {

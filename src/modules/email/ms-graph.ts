@@ -9,6 +9,7 @@
 import crypto from 'node:crypto';
 import { isMailboxEncKeyConfigured } from './mailbox-crypto';
 import { publicOrigin } from './mail-tracking';
+import type { GraphFileAttachment } from './mailbox-attachments';
 
 export const GRAPH_SCOPES = ['offline_access', 'User.Read', 'Mail.Send', 'Mail.Read'] as const;
 export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
@@ -148,22 +149,40 @@ export interface GraphSentMessage {
   internetMessageId: string | null;
 }
 
+export interface GraphMailInput {
+  to: string[];
+  cc: string[];
+  bcc?: string[];
+  subject: string;
+  html: string;
+  /** Texto alternativo gerado para a timeline; o Graph so aceita um corpo (HTML). */
+  text?: string;
+  attachments?: GraphFileAttachment[];
+}
+
+/** Payload do POST /me/messages (rascunho). Função pura para os testes. */
+export function buildGraphMailDraftPayload(msg: GraphMailInput): Record<string, unknown> {
+  const rcpt = (list: string[]): GraphRecipient[] => list.map((address) => ({ emailAddress: { address } }));
+  const body: Record<string, unknown> = {
+    subject: msg.subject,
+    body: { contentType: 'HTML', content: msg.html },
+    toRecipients: rcpt(msg.to),
+    ccRecipients: rcpt(msg.cc),
+    bccRecipients: rcpt(msg.bcc || []),
+  };
+  if (msg.attachments && msg.attachments.length) body.attachments = msg.attachments;
+  return body;
+}
+
 /** Cria o rascunho (para obter id/conversationId) e envia. Sai do endereco do proprio usuario. */
 export async function sendGraphMail(
   fetchFn: FetchLike,
   accessToken: string,
-  msg: { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string }
+  msg: GraphMailInput
 ): Promise<GraphSentMessage> {
-  const rcpt = (list: string[]): GraphRecipient[] => list.map((address) => ({ emailAddress: { address } }));
   const draft = await graph(fetchFn, accessToken, '/me/messages', {
     method: 'POST',
-    body: {
-      subject: msg.subject,
-      body: { contentType: 'HTML', content: msg.html },
-      toRecipients: rcpt(msg.to),
-      ccRecipients: rcpt(msg.cc),
-      bccRecipients: rcpt(msg.bcc || []),
-    },
+    body: buildGraphMailDraftPayload(msg),
   });
   const id = String(draft?.id || '');
   if (!id) throw new GraphError('GRAPH_DRAFT_INVALID', 502);
