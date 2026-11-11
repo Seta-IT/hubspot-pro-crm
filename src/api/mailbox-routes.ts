@@ -33,10 +33,10 @@ import {
   OAUTH_STATE_TTL_MS,
   refreshGraphTokens,
   resolveMsGraphConfig,
-  sendGraphMail,
   type FetchLike,
   type GraphTokens,
 } from '../modules/email/ms-graph';
+import { deliverClientEmail, type ClientMailAttachment } from '../modules/email/deliver-client-email';
 import { openMailboxSecret, sealMailboxSecret } from '../modules/email/mailbox-crypto';
 import { buildTrackedEmailBody, newTrackingId } from '../modules/email/mail-tracking';
 import { applyServerInlineImages } from '../modules/email/mailbox-inline-images';
@@ -126,6 +126,8 @@ export interface MailboxDeps {
   store: MailboxStore;
   fetch: FetchLike;
   sendLimiter: SlidingWindowRateLimiter;
+  /** Remetente transacional (mesmo do ERP) quando a caixa Outlook não envia. */
+  resend?: { apiKey: string; from: string } | null;
 }
 
 export function newMailboxSendLimiter(): SlidingWindowRateLimiter {
@@ -622,23 +624,35 @@ export async function handleMailboxRoute(
       ...parsedAtt.attachments.map((a) => a.filename),
       ...parsedInline.attachments.map((a) => a.filename),
     ];
-    let sent;
-    try {
-      sent = await sendGraphMail(deps.fetch, token, {
-        to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: inlined.html, text: built.text, attachments: graphAtts,
-      });
-    } catch (e) {
-      if (e instanceof GraphError && (e.status === 401 || e.code === 'GRAPH_UNAUTHORIZED')) {
-        await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
-      }
-      const mapped = userFacingMailboxSendFailure(e);
-      const graphStatus = e instanceof GraphError ? e.status : 0;
-      const graphCode = e instanceof GraphError ? (e.graphCode || e.code) : 'SEND_EXCEPTION';
+    const clientAtts: ClientMailAttachment[] = graphAtts.map((a) => ({
+      filename: a.name,
+      contentBase64: a.contentBytes,
+      contentType: a.contentType,
+      isInline: a.isInline,
+      contentId: a.contentId,
+    }));
+    const delivered = await deliverClientEmail({
+      fetch: deps.fetch,
+      outlook: { accessToken: token, mailboxAddress: account.mailboxAddress, displayName: account.displayName, accountId: account.id },
+      resend: deps.resend || null,
+      message: { to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: inlined.html, text: built.text, attachments: clientAtts },
+    });
+    const outlookErr = !delivered.ok ? delivered.graphError : delivered.outlookError;
+    if (outlookErr instanceof GraphError && (outlookErr.status === 401 || outlookErr.code === 'GRAPH_UNAUTHORIZED')) {
+      await deps.store.updateAccount(account.id, { status: 'RECONECTAR' });
+    }
+    if (!delivered.ok) {
+      const e = delivered.graphError;
+      const mapped = e ? userFacingMailboxSendFailure(e) : delivered.error;
+      const graphStatus = e instanceof GraphError ? e.status : mapped.status;
+      const graphCode = e instanceof GraphError ? (e.graphCode || e.code) : mapped.code;
       console.warn('[mailbox] Graph send failed', { status: graphStatus, graphCode });
       audit(deps.repo, actor, query, 'MAILBOX_SEND_FAILED', `${m} ${cleanPath}`, 'BLOCKED',
         `Falha no envio pela caixa ${account.mailboxAddress} (HTTP ${graphStatus}, ${graphCode}).`);
       return { status: mapped.status, body: { error: mapped.error, code: mapped.code } };
     }
+    const sent = delivered.sent || { id: `local-${Date.now()}`, conversationId: null, internetMessageId: null };
+    const fromAddress = delivered.relay === 'OUTLOOK' ? account.mailboxAddress : (deps.resend?.from || account.mailboxAddress);
     let item = null;
     if (logIt) {
       const rec: CrmEmailMessage = {
@@ -650,8 +664,8 @@ export async function handleMailboxRoute(
         internetMessageId: sent.internetMessageId,
         direction: 'ENVIADO',
         source: 'STI_HUB',
-        fromAddress: account.mailboxAddress,
-        fromName: account.displayName || actor.name,
+        fromAddress,
+        fromName: delivered.relay === 'OUTLOOK' ? (account.displayName || actor.name) : actor.name,
         to: v.to,
         cc: v.cc,
         subject: v.subject,

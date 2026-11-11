@@ -266,7 +266,8 @@ import {
   isEmailTemplateRoute,
   sanitizeEmailTemplateJournal,
 } from './email-template-routes';
-import { handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
+import { getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
+import { deliverClientEmail } from '../modules/email/deliver-client-email';
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
 import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
 import {
@@ -279,7 +280,7 @@ import {
 } from '../modules/deals/proposal-followup-service';
 import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
 
-import type { FetchLike } from '../modules/email/ms-graph';
+import { isMailboxFeatureEnabled, type FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
 import {
   PORTAL_GENERIC_DENIED_MESSAGE,
@@ -8328,61 +8329,81 @@ export class CrmApiRouter {
         const nowIso = new Date().toISOString();
         const serverHtml = buildEmailHtmlFromText(rawEmailBody);
 
-        // Parecer CISO 04/11: remetente = o mesmo dos convites (RESEND_FROM_EMAIL, dominio
-        // notificacoes.setatelecom.com.br com DKIM); envio que falha devolve erro (nada e gravado
-        // como enviado). Sem provedor => 503 fora do runtime de teste.
+        // Envio unificado com o CRM (deliverClientEmail): caixa Outlook do usuario
+        // (crm_mailbox_accounts + /me/sendMail) quando conectada; senao Resend
+        // (RESEND_FROM_EMAIL, dominio notificacoes.setatelecom.com.br com DKIM).
+        // Falha devolve erro (nada e gravado como enviado). Sem provedor => 503 fora do teste.
         let externalRelay = 'LOGGED_STI_HUB';
         const mailSecCfg = this.repo.getRbacState().securityConfig;
         const resendKey = resolveResendApiKey();
-        if (!resendKey && !isTestRuntime()) {
-          console.warn('[STI-hub e-mail] send-email: provedor Resend nao configurado.');
-          return {
-            status: 503,
-            body: { error: 'O envio de e-mail não está configurado. Fale com o administrador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
-          };
-        }
-        if (resendKey) {
-          let failure: string | null = null;
-          try {
-            const res = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${resendKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail),
-                to: recipients.to,
-                cc: recipients.cc.length ? recipients.cc : undefined,
-                bcc: recipients.bcc.length ? recipients.bcc : undefined,
-                subject: rawSubject,
-                text: rawEmailBody,
-                html: serverHtml,
-                attachments: serverInvoiceAttachments.length
-                  ? serverInvoiceAttachments
-                      .slice(0, 4)
-                      .map((a) => ({
-                        filename: String(a.filename || 'anexo').slice(0, 120),
-                        content: String(a.content || ''),
-                        content_type: String(a.content_type || 'text/html; charset=utf-8'),
-                      }))
-                      .filter((a) => a.content && a.content.length <= 1_800_000)
-                  : undefined,
-              }),
-            });
-            if (res.ok) externalRelay = 'SENT_VIA_RESEND';
-            else failure = `HTTP ${res.status}`;
-          } catch {
-            failure = 'falha de rede';
+        const sessMail = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+        const ownerEmail = sessMail?.authenticated && sessMail.user?.email
+          ? String(sessMail.user.email).trim().toLowerCase()
+          : '';
+        let outlook: { accessToken: string; mailboxAddress: string; displayName?: string; accountId?: string } | null = null;
+        if (ownerEmail && isMailboxFeatureEnabled()) {
+          const accounts = (await this.mailboxStore.listAccounts(ownerEmail)).filter((a) => a.status === 'ATIVADO');
+          const account = accounts[0];
+          if (account) {
+            const token = await getAccessToken(
+              { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter },
+              account
+            );
+            if (token) {
+              outlook = {
+                accessToken: token,
+                mailboxAddress: account.mailboxAddress,
+                displayName: account.displayName,
+                accountId: account.id,
+              };
+            }
           }
-          if (failure) {
-            // Log so com o status (nunca chave, corpo ou link do e-mail).
-            console.warn(`[STI-hub e-mail] send-email: Resend recusou o envio (${failure}).`);
+        }
+        const delivered = await deliverClientEmail({
+          fetch: this.mailboxFetch,
+          outlook,
+          resend: resendKey ? { apiKey: resendKey, from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail) } : null,
+          message: {
+            to: recipients.to,
+            cc: recipients.cc,
+            bcc: recipients.bcc,
+            subject: rawSubject,
+            html: serverHtml,
+            text: rawEmailBody,
+            attachments: serverInvoiceAttachments
+              .slice(0, 4)
+              .map((a) => ({
+                filename: String(a.filename || 'anexo').slice(0, 120),
+                contentBase64: String(a.content || ''),
+                contentType: String(a.content_type || 'text/html; charset=utf-8'),
+              }))
+              .filter((a) => a.contentBase64 && a.contentBase64.length <= 1_800_000),
+          },
+        });
+        if (!delivered.ok) {
+          if (!outlook && !resendKey && isTestRuntime()) {
+            // Runtime de teste sem provedor: segue o registro local (comportamento anterior).
+          } else if (!outlook && !resendKey) {
+            console.warn('[STI-hub e-mail] send-email: provedor Resend nao configurado.');
             return {
-              status: 502,
-              body: { error: 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.', code: 'EMAIL_SEND_FAILED' },
+              status: 503,
+              body: { error: 'O envio de e-mail não está configurado. Fale com o administrador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
+            };
+          } else {
+            return {
+              status: delivered.error.status === 503 ? 503 : 502,
+              body: {
+                error: delivered.error.code === 'EMAIL_PROVIDER_NOT_CONFIGURED'
+                  ? delivered.error.error
+                  : 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.',
+                code: delivered.error.code === 'EMAIL_PROVIDER_NOT_CONFIGURED' ? 'EMAIL_PROVIDER_NOT_CONFIGURED' : 'EMAIL_SEND_FAILED',
+              },
             };
           }
+        } else if (delivered.relay === 'OUTLOOK') {
+          externalRelay = 'SENT_VIA_OUTLOOK';
+        } else if (delivered.relay === 'RESEND') {
+          externalRelay = 'SENT_VIA_RESEND';
         }
 
         // A1 (parecer CISO 30/10): o e-mail entregue (acima) leva o link completo; o que e
@@ -8581,8 +8602,16 @@ export class CrmApiRouter {
 
       // E-mail individual do CRM pela caixa Outlook do proprio usuario (sessao 2FA + modulo CRM).
       if (isMailboxRoute(cleanPath)) {
+        const mailResendKey = resolveResendApiKey(this.repo.getRbacState().securityConfig?.resendApiKey);
+        const mailResendFrom = resolveTransactionalEmailFrom(this.repo.getRbacState().securityConfig?.fromEmail);
         return handleMailboxRoute(
-          { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter },
+          {
+            repo: this.repo,
+            store: this.mailboxStore,
+            fetch: this.mailboxFetch,
+            sendLimiter: this.mailboxSendLimiter,
+            resend: mailResendKey ? { apiKey: mailResendKey, from: mailResendFrom } : null,
+          },
           method, cleanPath, query, body, ctx
         );
       }

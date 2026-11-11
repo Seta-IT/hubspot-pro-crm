@@ -187,7 +187,11 @@ export interface GraphMailInput {
   attachments?: GraphFileAttachment[];
 }
 
-/** Payload do POST /me/messages (rascunho). Função pura para os testes. */
+/**
+ * Corpo da mensagem Graph (HTML, destinatários, anexos). Usado como `message` em
+ * POST /me/sendMail (Mail.Send). Não usar POST /me/messages: esse rascunho exige
+ * Mail.ReadWrite, escopo que o app não pede (só User.Read + Mail.Send + Mail.Read).
+ */
 export function buildGraphMailDraftPayload(msg: GraphMailInput): Record<string, unknown> {
   const rcpt = (list: string[]): GraphRecipient[] => list.map((address) => ({ emailAddress: { address } }));
   const body: Record<string, unknown> = {
@@ -201,23 +205,51 @@ export function buildGraphMailDraftPayload(msg: GraphMailInput): Record<string, 
   return body;
 }
 
-/** Cria o rascunho (para obter id/conversationId) e envia. Sai do endereco do proprio usuario. */
+/** Payload do POST /me/sendMail. Função pura para os testes. */
+export function buildGraphSendMailPayload(msg: GraphMailInput): Record<string, unknown> {
+  return { message: buildGraphMailDraftPayload(msg), saveToSentItems: true };
+}
+
+/** Tenta achar o item em Itens Enviados (Mail.Read) depois do /me/sendMail (202 sem corpo). */
+async function findSentGraphMessage(
+  fetchFn: FetchLike,
+  accessToken: string,
+  msg: GraphMailInput
+): Promise<GraphSentMessage | null> {
+  const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const list = await listGraphFolderSince(fetchFn, accessToken, 'sentitems', since, 10);
+  const wantedTo = new Set(msg.to.map((a) => a.trim().toLowerCase()).filter(Boolean));
+  const match = [...list].reverse().find((m) => {
+    if (m.subject !== msg.subject) return false;
+    if (!wantedTo.size) return true;
+    const got = new Set(m.to.map((a) => a.trim().toLowerCase()));
+    for (const addr of wantedTo) if (!got.has(addr)) return false;
+    return true;
+  });
+  if (!match) return null;
+  return { id: match.id, conversationId: match.conversationId, internetMessageId: match.internetMessageId };
+}
+
+/** Envia pelo POST /me/sendMail (Mail.Send). Sai do endereco do proprio usuario. */
 export async function sendGraphMail(
   fetchFn: FetchLike,
   accessToken: string,
   msg: GraphMailInput
 ): Promise<GraphSentMessage> {
-  const draft = await graph(fetchFn, accessToken, '/me/messages', {
+  await graph(fetchFn, accessToken, '/me/sendMail', {
     method: 'POST',
-    body: buildGraphMailDraftPayload(msg),
+    body: buildGraphSendMailPayload(msg),
   });
-  const id = String(draft?.id || '');
-  if (!id) throw new GraphError('GRAPH_DRAFT_INVALID', 502);
-  await graph(fetchFn, accessToken, `/me/messages/${encodeURIComponent(id)}/send`, { method: 'POST' });
-  return {
-    id,
-    conversationId: draft?.conversationId ? String(draft.conversationId) : null,
-    internetMessageId: draft?.internetMessageId ? String(draft.internetMessageId) : null,
+  let found: GraphSentMessage | null = null;
+  try {
+    found = await findSentGraphMessage(fetchFn, accessToken, msg);
+  } catch {
+    found = null;
+  }
+  return found || {
+    id: `local-${crypto.randomUUID()}`,
+    conversationId: null,
+    internetMessageId: null,
   };
 }
 

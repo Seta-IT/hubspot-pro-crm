@@ -50,21 +50,49 @@ function disableEnv() {
 type Call = { url: string; method: string; body?: string; headers?: Record<string, string> };
 function graphMock(opts: { me?: string; inbox?: unknown[]; sent?: unknown[]; sendStatus?: number; sendError?: unknown; draftStatus?: number; draftError?: unknown } = {}) {
   const calls: Call[] = [];
+  let lastSend: { subject: string; to: string[] } | null = null;
   const res = (status: number, json: unknown) => ({ ok: status < 400, status, json: async () => json, text: async () => JSON.stringify(json) });
   const fetchFn = async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
     calls.push({ url, method: init?.method || 'GET', body: init?.body, headers: init?.headers });
     if (url.includes('/oauth2/v2.0/token')) return res(200, { access_token: 'at-123', refresh_token: 'rt-456', expires_in: 3600, scope: 'Mail.Send Mail.Read' });
     if (url.includes('/me?$select')) return res(200, { mail: opts.me || 'marcelo.mira@setatelecom.com.br', displayName: 'Marcelo Mira' });
-    if (url.endsWith('/me/messages') && init?.method === 'POST') {
-      if (opts.draftStatus && opts.draftStatus >= 400) return res(opts.draftStatus, opts.draftError ?? { error: { code: 'ErrorAccessDenied' } });
-      return res(201, { id: 'msg-1', conversationId: 'conv-1', internetMessageId: '<a@b>' });
-    }
-    if (/\/me\/messages\/[^/]+\/send$/.test(url)) {
-      if (opts.sendStatus && opts.sendStatus >= 400) return res(opts.sendStatus, opts.sendError ?? { error: { code: 'ErrorAccessDenied' } });
+    if (url.includes('/me/sendMail') && init?.method === 'POST') {
+      const status = opts.sendStatus || opts.draftStatus;
+      if (status && status >= 400) return res(status, opts.sendError ?? opts.draftError ?? { error: { code: 'ErrorAccessDenied' } });
+      try {
+        const raw = JSON.parse(String(init?.body || '{}')) as { message?: { subject?: string; toRecipients?: Array<{ emailAddress?: { address?: string } }> } };
+        lastSend = {
+          subject: String(raw.message?.subject || ''),
+          to: (raw.message?.toRecipients || []).map((r) => String(r.emailAddress?.address || '').toLowerCase()).filter(Boolean),
+        };
+      } catch {
+        lastSend = null;
+      }
       return res(202, null);
     }
+    if (url.endsWith('/me/messages') && init?.method === 'POST') {
+      return res(403, { error: { code: 'ErrorAccessDenied' } });
+    }
+    if (/\/me\/messages\/[^/]+\/send$/.test(url)) {
+      return res(403, { error: { code: 'ErrorAccessDenied' } });
+    }
     if (url.includes('/mailFolders/inbox/')) return res(200, { value: opts.inbox || [] });
-    if (url.includes('/mailFolders/sentitems/')) return res(200, { value: opts.sent || [] });
+    if (url.includes('/mailFolders/sentitems/')) {
+      const auto = lastSend
+        ? [{
+            id: 'msg-1',
+            conversationId: 'conv-1',
+            internetMessageId: '<a@b>',
+            subject: lastSend.subject,
+            bodyPreview: '',
+            from: { emailAddress: { address: opts.me || 'marcelo.mira@setatelecom.com.br', name: 'Marcelo Mira' } },
+            toRecipients: lastSend.to.map((address) => ({ emailAddress: { address } })),
+            ccRecipients: [],
+            sentDateTime: new Date().toISOString(),
+          }]
+        : [];
+      return res(200, { value: opts.sent || auto });
+    }
     return res(404, {});
   };
   return { calls, fetchFn };
@@ -269,7 +297,7 @@ describe('Rotas /api/mailbox', () => {
     assert.equal((await store.listAllAccounts()).length, 0);
   });
 
-  it('enviar pela caixa do usuario: Graph (rascunho + envio), assinatura, pixel, linha do tempo e contadores', async () => {
+  it('enviar pela caixa do usuario: Graph /me/sendMail, assinatura, pixel, linha do tempo e contadores', async () => {
     enableEnv();
     const { router, store, mock, contact } = setup();
     await connect(router);
@@ -283,17 +311,18 @@ describe('Rotas /api/mailbox', () => {
     assert.equal(data.logged, true);
     assert.equal(data.tracked, true);
     assert.ok(!('trackingId' in data.email) && !('links' in data.email));
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    const payload = JSON.parse(String(draft.body));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    const raw = JSON.parse(String(sendCall.body));
+    assert.equal(raw.saveToSentItems, true);
+    const payload = raw.message;
     assert.equal(payload.body.contentType, 'HTML');
     assert.ok(payload.body.content.includes('/api/email-track/o/'));
     assert.ok(payload.body.content.includes('/api/email-track/c/'));
     assert.ok(payload.body.content.includes('Marcelo Mira<br>Seta Telecom'));
-    assert.equal(draft.headers?.Authorization, 'Bearer at-123');
-    const sendCall = mock.calls.find((c) => /\/me\/messages\/msg-1\/send$/.test(c.url));
-    assert.ok(sendCall);
-    assert.equal(sendCall!.body, undefined);
-    assert.ok(!sendCall!.headers?.['Content-Type'], 'POST /send do Graph deve ir sem Content-Type');
+    assert.equal(sendCall.headers?.Authorization, 'Bearer at-123');
+    assert.equal(sendCall.headers?.['Content-Type'], 'application/json');
+    assert.equal(mock.calls.some((c) => c.url.endsWith('/me/messages') && c.method === 'POST'), false);
+    assert.equal(mock.calls.some((c) => /\/me\/messages\/[^/]+\/send$/.test(c.url)), false);
     const tl = await router.dispatch({ method: 'GET', path: '/api/mailbox/timeline', query: { ...ADMIN(), contactId: contact.id } });
     const list = (tl.body as { data: Array<Record<string, unknown>> }).data;
     assert.equal(list.length, 1);
@@ -318,8 +347,8 @@ describe('Rotas /api/mailbox', () => {
       },
     });
     assert.equal(s.status, 201, JSON.stringify(s.body));
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    const payload = JSON.parse(String(draft.body));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    const payload = JSON.parse(String(sendCall.body)).message;
     const toAddrs = (payload.toRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
     const ccAddrs = (payload.ccRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
     const bccAddrs = (payload.bccRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
@@ -337,8 +366,8 @@ describe('Rotas /api/mailbox', () => {
     assert.equal(s.status, 201);
     assert.equal((s.body as { data: { logged: boolean } }).data.logged, false);
     assert.equal(store.messages.length, 0);
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    assert.ok(!String(draft.body).includes('/api/email-track/'));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    assert.ok(!String(sendCall.body).includes('/api/email-track/'));
   });
 
   it('validacao e RBAC do envio: sem ficha, ficha inexistente, sem caixa', async () => {
@@ -429,11 +458,11 @@ describe('Rotas /api/mailbox', () => {
     assert.equal(acc.status, 'RECONECTAR');
   });
 
-  it('Graph 403 no rascunho: avisa falta de permissao de envio', async () => {
+  it('Graph 403 no /me/sendMail: avisa falta de permissao de envio', async () => {
     enableEnv();
     const { router, contact } = setup({
-      draftStatus: 403,
-      draftError: { error: { code: 'ErrorAccessDenied', message: 'Access is denied. Check credentials and try again.' } },
+      sendStatus: 403,
+      sendError: { error: { code: 'ErrorAccessDenied', message: 'Access is denied. Check credentials and try again.' } },
     });
     await connect(router);
     const s = await router.dispatch({

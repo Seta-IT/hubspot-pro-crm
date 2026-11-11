@@ -27,7 +27,7 @@ import {
   MAILBOX_ATTACHMENT_TYPE_DENIED,
 } from '../src/modules/email/mailbox-attachments';
 import { applyServerInlineImages } from '../src/modules/email/mailbox-inline-images';
-import { buildGraphMailDraftPayload } from '../src/modules/email/ms-graph';
+import { buildGraphMailDraftPayload, buildGraphSendMailPayload } from '../src/modules/email/ms-graph';
 import { MAILBOX_MAX_RECIPIENTS } from '../src/api/mailbox-routes';
 import { MemoryMailboxStore } from '../src/modules/email/mailbox-store';
 import { SETA_LOGO_CID, SETA_LOGO_CONTENT_BASE64, SETA_LOGO_FILENAME } from '../src/modules/email/seta-logo';
@@ -60,8 +60,10 @@ function graphMock() {
     calls.push({ url, method: init?.method || 'GET', body: init?.body, headers: init?.headers });
     if (url.includes('/oauth2/v2.0/token')) return res(200, { access_token: 'at-123', refresh_token: 'rt-456', expires_in: 3600, scope: 'Mail.Send Mail.Read' });
     if (url.includes('/me?$select')) return res(200, { mail: 'marcelo.mira@setatelecom.com.br', displayName: 'Marcelo Mira' });
-    if (url.endsWith('/me/messages') && init?.method === 'POST') return res(201, { id: 'msg-1', conversationId: 'conv-1', internetMessageId: '<a@b>' });
-    if (/\/me\/messages\/[^/]+\/send$/.test(url)) return res(202, null);
+    if (url.includes('/me/sendMail') && init?.method === 'POST') return res(202, null);
+    if (url.includes('/mailFolders/sentitems/')) return res(200, { value: [] });
+    if (url.endsWith('/me/messages') && init?.method === 'POST') return res(403, { error: { code: 'ErrorAccessDenied' } });
+    if (/\/me\/messages\/[^/]+\/send$/.test(url)) return res(403, { error: { code: 'ErrorAccessDenied' } });
     return res(404, {});
   };
   return { calls, fetchFn };
@@ -381,6 +383,11 @@ describe('anexos: tipos, tamanho e payload do Graph', () => {
     assert.equal(atts[1].name, 'proposta.pdf');
     assert.equal(atts[1].contentBytes, pdfB64);
     assert.deepEqual((payload.bccRecipients as Array<{ emailAddress: { address: string } }>)[0].emailAddress, { address: 'copia@setatelecom.com.br' });
+    const sendPayload = buildGraphSendMailPayload({
+      to: ['ana@totvs.com'], cc: [], subject: 'Proposta', html: '<div>Olá</div>',
+    });
+    assert.equal(sendPayload.saveToSentItems, true);
+    assert.equal((sendPayload.message as { subject: string }).subject, 'Proposta');
   });
 });
 
@@ -409,8 +416,8 @@ describe('POST /api/mailbox/send com HTML e anexos', () => {
     assert.deepEqual(data.email.attachmentNames, ['proposta.pdf']);
     assert.ok(!JSON.stringify(data).includes(pdfB64), 'conteúdo do anexo não sai na resposta');
 
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    const payload = JSON.parse(String(draft.body));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    const payload = JSON.parse(String(sendCall.body)).message;
     assert.equal(payload.body.contentType, 'HTML');
     assert.match(payload.body.content, /<b>Ana<\/b>/);
     assert.doesNotMatch(payload.body.content, /onerror/i);
@@ -485,8 +492,8 @@ describe('POST /api/mailbox/send com HTML e anexos', () => {
       },
     });
     assert.equal(sent.status, 201, JSON.stringify(sent.body));
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    const payload = JSON.parse(String(draft.body));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    const payload = JSON.parse(String(sendCall.body)).message;
     assert.doesNotMatch(payload.body.content, /evil\.example/);
     assert.doesNotMatch(payload.body.content, /cid:stihub-inline-/);
     assert.match(payload.body.content, /cid:stihub-img-[0-9a-f]{16}/);
@@ -561,8 +568,8 @@ describe('Cco fora do histórico e teto de destinatários', () => {
       },
     });
     assert.equal(s.status, 201, JSON.stringify(s.body));
-    const draft = mock.calls.find((c) => c.url.endsWith('/me/messages') && c.method === 'POST')!;
-    const payload = JSON.parse(String(draft.body));
+    const sendCall = mock.calls.find((c) => c.url.includes('/me/sendMail') && c.method === 'POST')!;
+    const payload = JSON.parse(String(sendCall.body)).message;
     const bccAddrs = (payload.bccRecipients || []).map((r: { emailAddress: { address: string } }) => r.emailAddress.address);
     assert.deepEqual(bccAddrs, [bcc]);
     const leaked = JSON.stringify({ body: s.body, stored: store.messages });
