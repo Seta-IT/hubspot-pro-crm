@@ -1,5 +1,6 @@
 import React from 'react';
 import type { InternalProposalSummaryModel } from '../lib/internal-proposal-summary';
+import { downloadInternalProposalPdf, printInternalProposal } from '../lib/internal-proposal-pdf';
 
 /**
  * Folha interna resumida do orçamento, pensada para locação, serviço e spare parts.
@@ -7,18 +8,32 @@ import type { InternalProposalSummaryModel } from '../lib/internal-proposal-summ
  */
 export function InternalProposalSummaryView({ model }: { model: InternalProposalSummaryModel }) {
   return (
-    <div className="min-h-screen bg-[#f4f6f9] text-slate-800" data-testid="internal-proposal-summary">
-      <header className="bg-[#1e3a6e] text-white">
+    <div className="min-h-screen bg-[#f4f6f9] text-slate-800 print:bg-white print:p-0" data-testid="internal-proposal-summary">
+      <style>{`@media print { @page { size: A4; margin: 12mm; } .no-print { display: none !important; } }`}</style>
+      <div className="no-print print:hidden border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-end gap-2 px-6 py-3 sm:px-8" data-testid="internal-proposal-toolbar">
+          <button
+            type="button"
+            data-testid="internal-proposal-print"
+            onClick={() => printInternalProposal(model)}
+            className="inline-flex items-center rounded-md bg-[#1e3a6e] px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Imprimir
+          </button>
+          <button
+            type="button"
+            data-testid="internal-proposal-download-pdf"
+            onClick={() => downloadInternalProposalPdf(model)}
+            className="inline-flex items-center rounded-md bg-[#1e3a6e] px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Baixar PDF
+          </button>
+        </div>
+      </div>
+      <header className="bg-[#1e3a6e] text-white print:hidden no-print">
         <div className="mx-auto flex max-w-4xl flex-col gap-1 px-6 py-5 sm:px-8">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">
-            STI-hub · Seta Telecom
-          </p>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">Visão interna do orçamento</h1>
-            <p className="text-xs text-white/80" data-testid="internal-proposal-kind">
-              {model.kindLabel} · para o contrato
-            </p>
-          </div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">STI-hub · Seta Telecom</p>
+          <h1 className="text-xl font-semibold tracking-tight">Visão interna do orçamento</h1>
         </div>
       </header>
 
@@ -32,6 +47,9 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
               </p>
               <p className="mt-1 text-sm text-slate-600" data-testid="internal-proposal-version">
                 {model.versionLabel}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-[#1e3a6e]" data-testid="internal-proposal-kind">
+                {model.kindLabel}
               </p>
             </div>
             <span
@@ -143,18 +161,6 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
               ))}
             </dl>
           </div>
-
-          <section className="border-t border-amber-200 bg-amber-50 px-6 py-5 sm:px-8" data-testid="internal-proposal-notes">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-sm font-semibold text-amber-950">Observações internas</h3>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-amber-800">
-                Só nesta visão · não vai no link do cliente
-              </p>
-            </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-amber-950">
-              {model.internalNotes || 'Sem observações internas.'}
-            </p>
-          </section>
 
           <footer className="border-t border-slate-200 bg-slate-50 px-6 py-4 sm:px-8">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Link interno estável</p>

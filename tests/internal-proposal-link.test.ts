@@ -15,6 +15,11 @@ import {
   toInternalProposalSummary,
 } from '../src/app/lib/internal-proposal-summary';
 import { getProposalsByRefs, proposalRouteLookupRefs, type PgQ } from '../src/db/proposal-store';
+import {
+  buildInternalProposalPdf,
+  buildInternalProposalPrintHtml,
+  internalProposalPdfFileName,
+} from '../src/app/lib/internal-proposal-pdf';
 import type { ErpCommercialProposal } from '../src/db/types';
 
 const src = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
@@ -348,6 +353,50 @@ describe('Link interno no modo tabela (erp_proposals)', () => {
     assert.deepEqual(proposalRouteLookupRefs('GET', '/api/erp/proposals/prop-gc-9001'), ['prop-gc-9001']);
     assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /Proposta comercial não encontrada\./);
     assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /Voltar ao STI-hub/);
+  });
+});
+
+describe('Visão interna: sem observações e com PDF', () => {
+  it('o bloco some da tela e do PDF, os botões existem e o arquivo segue Proposta-<código>-<Cliente>.pdf', () => {
+    const view = src('src/app/components/InternalProposalSummaryView.tsx');
+    assert.doesNotMatch(view, /Observações internas/);
+    assert.doesNotMatch(view, /internal-proposal-notes/);
+    assert.match(view, /data-testid="internal-proposal-print"/);
+    assert.match(view, /data-testid="internal-proposal-download-pdf"/);
+    assert.match(view, />\s*Imprimir\s*</);
+    assert.match(view, />\s*Baixar PDF\s*</);
+    assert.match(view, /bg-\[#1e3a6e\]/);
+    assert.equal(internalProposalPdfFileName('4711', 'Via Itália'), 'Proposta-4711-ViaItalia.pdf');
+    assert.equal(internalProposalPdfFileName('#4711', 'Via Itália'), 'Proposta-4711-ViaItalia.pdf');
+    assert.equal(internalProposalPdfFileName('4713', 'GOLDEN LAND LTDA'), 'Proposta-4713-GOLDENLANDLTDA.pdf');
+
+    const model = toInternalProposalSummary(baseProposal({
+      id: 'prop-via-italia-loc-20261106',
+      code: '4711',
+      budgetType: 'LOCACAO',
+      companyName: 'Via Itália',
+      companyCnpj: '07.638.845/0001-56',
+      monthlyRecurringTotal: 4490,
+      contractMonths: 36,
+      shippingCost: 650,
+      setupFee: 0,
+      internalNotes: 'Empresa não encontrada no cadastro. Observações internas secretas.',
+      items: [
+        { id: 'a', sku: 'FG-40F', description: 'FortiGate 40F', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 2, unitPrice: 780, discountPercent: 0, isRecurring: true, totalMonthly: 1560 },
+      ],
+    }), { origin: 'https://sti-hub.vercel.app' });
+    assert.equal(internalProposalPdfFileName(model.codeLabel, model.companyName), 'Proposta-4711-ViaItalia.pdf');
+    const html = buildInternalProposalPrintHtml(model);
+    assert.doesNotMatch(html, /Observações internas/);
+    assert.doesNotMatch(html, /Empresa não encontrada/);
+    assert.match(html, /4711/);
+    assert.match(html, /Via Itália/);
+    const pdf = Buffer.from(buildInternalProposalPdf(model)).toString('latin1');
+    assert.match(pdf, /^%PDF-1\.4/);
+    assert.doesNotMatch(pdf, /Observações internas/);
+    assert.doesNotMatch(pdf, /Empresa não encontrada/);
+    assert.match(pdf, /4711/);
+    assert.match(pdf, /Via Itália/);
   });
 });
 
