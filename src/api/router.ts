@@ -68,7 +68,7 @@ import {
 import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
-import { STI_HUB_MODULES_LIST, isModuleFullControl } from '../modules/erp/rbac-seed';
+import { STI_HUB_MODULES_LIST, canEditCrmDealsKanban, isModuleFullControl } from '../modules/erp/rbac-seed';
 import {
   effectiveHomeScreenFor,
   getHomeScreen,
@@ -3958,6 +3958,28 @@ export class CrmApiRouter {
                 },
               };
             }
+          }
+        }
+
+        if ((method === "PATCH" || method === "PUT") && /^\/api\/deals\/[^/]+$/.test(cleanPath)) {
+          if (!canEditCrmDealsKanban(resolvedSession.user, resolvedSession.effectiveActionGuards)) {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: resolvedSession.user.email,
+              actorName: resolvedSession.user.name,
+              actorRole: resolvedSession.role.id,
+              action: "IAM_CRM_DEAL_EDIT_BLOCKED",
+              module: "CRM",
+              resource: `${method} ${cleanPath}`,
+              status: "BLOCKED",
+              details: `Edição de negócio recusada para ${resolvedSession.user.email}.`,
+            });
+            return {
+              status: 403,
+              body: {
+                error: "Permissão negada (Painel CRM): seu usuário não possui permissão para editar negócios.",
+                code: "CRM_EDIT_FORBIDDEN",
+              },
+            };
           }
         }
 

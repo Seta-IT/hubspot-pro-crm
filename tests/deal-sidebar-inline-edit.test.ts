@@ -13,6 +13,11 @@ import {
   shouldShowWonReason,
   toDateInputValue,
 } from '../src/app/lib/deal-sidebar-edit';
+import { signStiHubSessionToken } from '../src/app/lib/auth';
+import { createInMemoryRepository } from '../src/db/repository';
+import { CrmApiRouter } from '../src/api/router';
+import { canEditCrmDealsKanban } from '../src/modules/erp/rbac-seed';
+import type { StiHubUserRecord } from '../src/db/types';
 
 const src = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), 'utf8');
 
@@ -189,5 +194,158 @@ describe('edição inline do painel Sobre esse Negócio', () => {
     assert.ok(drawer.includes('silent: true') || drawer.includes('silent:true'));
     assert.ok(page.includes('canEditDealsFromPermissions'));
     assert.ok(page.includes('canDeleteDealsFromPermissions'));
+  });
+});
+
+const HTTP = { _fromHttpBridge: '1' };
+
+function sessionTok(uid: string, email: string, roleId: string, extra: Record<string, unknown> = {}) {
+  return signStiHubSessionToken({
+    uid,
+    email,
+    name: 'Teste',
+    roleId,
+    scope: roleId === 'SUPER_ADMIN' ? 'TODOS' : 'PROPRIOS',
+    enabledModules: ['CRM', 'ERP', 'CHAMADOS'],
+    moduleAccess: { crm: true, erp: true, chamados: true },
+    mfaVerified: true,
+    mfaMethod: 'TOTP_AUTHENTICATOR',
+    iat: Date.now() - 1000,
+    exp: Date.now() + 3_600_000,
+    ...extra,
+  } as Parameters<typeof signStiHubSessionToken>[0]);
+}
+
+function setKanbanEdit(user: StiHubUserRecord, edit: boolean | null) {
+  const crmItems = { ...(user.crmItemPermissions || {}) };
+  const items = { ...(user.itemPermissions || {}) };
+  if (edit === null) {
+    delete crmItems['crm.deals_kanban'];
+    delete items['crm.deals_kanban'];
+  } else {
+    crmItems['crm.deals_kanban'] = { view: true, edit, delete: false };
+    items['crm.deals_kanban'] = { view: true, edit, delete: false };
+  }
+  user.crmItemPermissions = crmItems;
+  user.itemPermissions = items;
+}
+
+describe('RBAC de edição de negócios (PATCH /api/deals/:id)', () => {
+  it('canEditCrmDealsKanban: matriz, admin e Full Control', () => {
+    assert.equal(canEditCrmDealsKanban(null), false);
+    assert.equal(canEditCrmDealsKanban({ crmItemPermissions: {} }), false);
+    assert.equal(
+      canEditCrmDealsKanban({ crmItemPermissions: { 'crm.deals_kanban': { view: true, edit: false, delete: false } } }),
+      false
+    );
+    assert.equal(
+      canEditCrmDealsKanban({ crmItemPermissions: { 'crm.deals_kanban': { view: true, edit: true, delete: false } } }),
+      true
+    );
+    assert.equal(canEditCrmDealsKanban({ roleId: 'VENDEDOR_SALES' }, { canManageUsersRbac: true }), true);
+    assert.equal(canEditCrmDealsKanban({ crmRole: 'CRM_ADMIN' }), true);
+    assert.equal(
+      canEditCrmDealsKanban({
+        enabledModules: ['CRM'],
+        crmPermissions: {
+          crmRole: 'CRM_SALES_MANAGER',
+          portfolioScope: 'TODOS',
+          contactsAccess: 'FULL',
+          companiesAccess: 'FULL',
+          dealsFunnelAccess: 'FULL',
+          ticketsServiceDeskAccess: 'FULL',
+          marketingAutomationAccess: 'FULL',
+          canExportCrmData: true,
+          canMergeCrmRecords: true,
+          canDeleteCrmRecords: true,
+        },
+        crmItemPermissions: { 'crm.deals_kanban': { view: true, edit: false, delete: false } },
+      }),
+      true
+    );
+  });
+
+  it('403 sem crm.deals_kanban.edit, com auditoria BLOCKED e mensagem genérica', async () => {
+    const repo = createInMemoryRepository();
+    const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
+    setKanbanEdit(seller, false);
+    const deal = repo.listDeals()[0];
+    const before = deal.title;
+    const router = new CrmApiRouter(repo);
+    const res = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/deals/${deal.id}`,
+      query: { ...HTTP, _sessionToken: sessionTok(seller.id, seller.email, seller.roleId) },
+      body: { title: 'Titulo que nao deve gravar' },
+    });
+    assert.equal(res.status, 403);
+    const body = JSON.stringify(res.body);
+    assert.match(body, /CRM_EDIT_FORBIDDEN/);
+    assert.match(body, /Permissão negada \(Painel CRM\): seu usuário não possui permissão para editar negócios\./);
+    assert.ok(!body.includes('deals_kanban'));
+    assert.ok(!body.includes('FOLLOWUP_SEQUENCE'));
+    assert.equal(repo.getDealById(deal.id)!.title, before);
+    const blocked = repo.listSecurityAuditLogs().logs.filter((l) => l.action === 'IAM_CRM_DEAL_EDIT_BLOCKED');
+    assert.ok(blocked.length >= 1);
+    assert.equal(blocked[0].status, 'BLOCKED');
+  });
+
+  it('200 com crm.deals_kanban.edit', async () => {
+    const repo = createInMemoryRepository();
+    const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
+    setKanbanEdit(seller, true);
+    const deal = repo.listDeals()[0];
+    const router = new CrmApiRouter(repo);
+    const res = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/deals/${deal.id}`,
+      query: { ...HTTP, _sessionToken: sessionTok(seller.id, seller.email, seller.roleId) },
+      body: { title: 'Negocio com permissao de edicao' },
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(repo.getDealById(deal.id)!.title, 'Negocio com permissao de edicao');
+  });
+
+  it('200 para admin e para Full Control do CRM mesmo sem edit na matriz', async () => {
+    const repo = createInMemoryRepository();
+    const deal = repo.listDeals()[0];
+    const router = new CrmApiRouter(repo);
+
+    const admin = repo.findRbacUserRecord('usr-seta-01', '')!;
+    setKanbanEdit(admin, false);
+    const adminRes = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/deals/${deal.id}`,
+      query: {
+        ...HTTP,
+        _sessionToken: sessionTok(admin.id, admin.email, admin.roleId, { canManageUsersRbac: true }),
+      },
+      body: { title: 'Admin atualizou o negocio' },
+    });
+    assert.equal(adminRes.status, 200, JSON.stringify(adminRes.body));
+    assert.equal(repo.getDealById(deal.id)!.title, 'Admin atualizou o negocio');
+
+    const seller = repo.findRbacUserRecord('usr-seta-03', '')!;
+    setKanbanEdit(seller, false);
+    seller.enabledModules = ['CRM', 'ERP'];
+    seller.moduleAccess = { crm: true, erp: true, chamados: false };
+    seller.crmPermissions = {
+      ...(seller.crmPermissions || ({} as StiHubUserRecord['crmPermissions'])),
+      contactsAccess: 'FULL',
+      companiesAccess: 'FULL',
+      dealsFunnelAccess: 'FULL',
+      marketingAutomationAccess: 'FULL',
+      canExportCrmData: true,
+      canMergeCrmRecords: true,
+      canDeleteCrmRecords: true,
+    } as StiHubUserRecord['crmPermissions'];
+    const fcRes = await router.dispatch({
+      method: 'PUT',
+      path: `/api/deals/${deal.id}`,
+      query: { ...HTTP, _sessionToken: sessionTok(seller.id, seller.email, seller.roleId) },
+      body: { title: 'Full Control atualizou o negocio' },
+    });
+    assert.equal(fcRes.status, 200, JSON.stringify(fcRes.body));
+    assert.equal(repo.getDealById(deal.id)!.title, 'Full Control atualizou o negocio');
   });
 });
